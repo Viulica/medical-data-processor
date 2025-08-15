@@ -196,7 +196,14 @@
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
 
-const API_BASE_URL = (process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app').replace(/\/$/, '')
+// Helper function to properly join URL parts without double slashes
+function joinUrl(base, path) {
+  const cleanBase = base.replace(/\/+$/, '') // Remove trailing slashes
+  const cleanPath = path.replace(/^\/+/, '') // Remove leading slashes
+  return `${cleanBase}/${cleanPath}`
+}
+
+const API_BASE_URL = (process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app').replace(/\/+$/, '') // Remove all trailing slashes to prevent double slashes
 
 export default {
   name: 'App',
@@ -315,7 +322,7 @@ export default {
       formData.append('n_pages', this.pageCount)
 
       // Debug: Log the URL being used
-      const uploadUrl = `${API_BASE_URL}/upload`
+      const uploadUrl = joinUrl(API_BASE_URL, 'upload')
       console.log('🔧 API_BASE_URL:', API_BASE_URL)
       console.log('🔧 Upload URL:', uploadUrl)
 
@@ -344,7 +351,7 @@ export default {
 
     async checkJobStatus(id) {
       try {
-        const statusUrl = `${API_BASE_URL}/status/${id}`
+        const statusUrl = joinUrl(API_BASE_URL, `status/${id}`)
         console.log('🔧 Status URL:', statusUrl)
         const response = await axios.get(statusUrl)
         this.jobStatus = response.data
@@ -369,7 +376,7 @@ export default {
       if (!this.jobId) return
       
       try {
-        const response = await axios.get(`${API_BASE_URL}/download/${this.jobId}`, {
+        const response = await axios.get(joinUrl(API_BASE_URL, `download/${this.jobId}`), {
           responseType: 'blob',
         })
         
