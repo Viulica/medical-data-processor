@@ -11,4 +11,5 @@ pytesseract==0.3.13
 Pillow==11.2.1
 python-Levenshtein==0.27.1
 fuzzywuzzy==0.18.0
-RapidFuzz==3.13.0 
+RapidFuzz==3.13.0
+python-dotenv==1.1.0 

@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PDF Processing API", version="1.0.0")
 
+@app.on_event("startup")
+async def startup_event():
+    """Log when the application starts"""
+    logger.info("🚀 Medical Data Processor API starting up...")
+    logger.info(f"📡 Port: {os.environ.get('PORT', 'unknown')}")
+    logger.info(f"🔑 Google API Key: {'Set' if os.environ.get('GOOGLE_API_KEY') else 'Not set'}")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -192,12 +199,18 @@ async def download_result(job_id: str):
 @app.get("/")
 async def root():
     """Root endpoint for Railway health check"""
-    return {"status": "healthy", "message": "Medical Data Processor API is running"}
+    try:
+        return {"status": "healthy", "message": "Medical Data Processor API is running", "port": os.environ.get("PORT", "unknown")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy"}
+    try:
+        return {"status": "healthy", "timestamp": "2025-08-15"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
