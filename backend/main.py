@@ -17,14 +17,22 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global port configuration - this ensures consistency
+PORT = int(os.environ.get('PORT', 8000))
+
 app = FastAPI(title="PDF Processing API", version="1.0.0")
 
 @app.on_event("startup")
 async def startup_event():
     """Log when the application starts"""
     logger.info("🚀 Medical Data Processor API starting up...")
-    logger.info(f"📡 Port: {os.environ.get('PORT', 'unknown')}")
+    logger.info(f"📡 Port: {PORT}")
     logger.info(f"🔑 Google API Key: {'Set' if os.environ.get('GOOGLE_API_KEY') else 'Not set'}")
+    logger.info(f"🌍 Environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'development')}")
+    logger.info(f"🏗️ Railway Project: {os.environ.get('RAILWAY_PROJECT_ID', 'unknown')}")
+    logger.info(f"🚂 Railway Service: {os.environ.get('RAILWAY_SERVICE_NAME', 'unknown')}")
+    logger.info(f"🔧 PORT env var: {os.environ.get('PORT', 'not set')}")
+    logger.info(f"🔧 GLOBAL PORT: {PORT}")
 
 # Add CORS middleware
 app.add_middleware(
@@ -134,32 +142,45 @@ async def upload_files(
 ):
     """Upload ZIP file, Excel instructions file, and page count"""
     
-    # Validate file types
-    if not zip_file.filename.endswith('.zip'):
-        raise HTTPException(status_code=400, detail="First file must be a ZIP archive")
-    
-    if not excel_file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="Second file must be an Excel file")
-    
-    # Generate job ID
-    job_id = str(uuid.uuid4())
-    job = ProcessingJob(job_id)
-    job_status[job_id] = job
-    
-    # Save uploaded files
-    zip_path = f"/tmp/{job_id}_archive.zip"
-    excel_path = f"/tmp/{job_id}_instructions.xlsx"
-    
-    with open(zip_path, "wb") as f:
-        shutil.copyfileobj(zip_file.file, f)
-    
-    with open(excel_path, "wb") as f:
-        shutil.copyfileobj(excel_file.file, f)
-    
-    # Start background processing
-    background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_file.filename)
-    
-    return {"job_id": job_id, "message": "Files uploaded and processing started"}
+    try:
+        logger.info(f"Received upload request - zip: {zip_file.filename}, excel: {excel_file.filename}, pages: {n_pages}")
+        
+        # Validate file types
+        if not zip_file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="First file must be a ZIP archive")
+        
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Second file must be an Excel file")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created job {job_id}")
+        
+        # Save uploaded files
+        zip_path = f"/tmp/{job_id}_archive.zip"
+        excel_path = f"/tmp/{job_id}_instructions.xlsx"
+        
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        
+        with open(excel_path, "wb") as f:
+            shutil.copyfileobj(excel_file.file, f)
+        
+        logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
+        
+        # Start background processing
+        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_file.filename)
+        
+        logger.info(f"Background task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Files uploaded and processing started"}
+        
+    except Exception as e:
+        logger.error(f"Upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/status/{job_id}")
 async def get_job_status(job_id: str):
@@ -200,18 +221,47 @@ async def download_result(job_id: str):
 async def root():
     """Root endpoint for Railway health check"""
     try:
-        return {"status": "healthy", "message": "Medical Data Processor API is running", "port": os.environ.get("PORT", "unknown")}
+        return {
+            "status": "healthy", 
+            "message": "Medical Data Processor API is running", 
+            "port": PORT,
+            "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development')
+        }
     except Exception as e:
+        logger.error(f"Root endpoint error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     try:
-        return {"status": "healthy", "timestamp": "2025-08-15"}
+        return {
+            "status": "healthy", 
+            "timestamp": "2025-08-15",
+            "port": PORT,
+            "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'development')
+        }
     except Exception as e:
+        logger.error(f"Health check error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    logger.info(f"Starting server on port {PORT}")
+    logger.info(f"Environment PORT variable: {os.environ.get('PORT', 'not set')}")
+    
+    # Force the port to be used - this is critical for Railway
+    logger.info(f"🔧 FORCING PORT: {PORT}")
+    
+    # Force the port to be used
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    except OSError as e:
+        if "Address already in use" in str(e):
+            logger.error(f"Port {PORT} is already in use. Trying alternative port...")
+            # Try alternative port
+            alt_port = PORT + 1 if PORT < 65535 else 8000
+            logger.info(f"Trying port {alt_port}")
+            uvicorn.run(app, host="0.0.0.0", port=alt_port, log_level="info")
+        else:
+            raise e 
