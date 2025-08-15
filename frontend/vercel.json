@@ -15,7 +15,6 @@
       "dest": "/index.html"
     }
   ],
-  "env": {
-    "VUE_APP_API_URL": "@api-url"
-  }
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
 } 
