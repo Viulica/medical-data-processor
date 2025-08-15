@@ -235,9 +235,12 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     fieldnames = [field for field in fieldnames if field not in ['source_file', 'page_number']]
     
     # Initialize Google AI client
-    client = genai.Client(
-        api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-    )
+    api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
+    if not api_key:
+        print("❌ GOOGLE_API_KEY environment variable not set!")
+        sys.exit(1)
+        
+    client = genai.Client(api_key=api_key)
     
     # Find all PDF files in the input folder (both uppercase and lowercase extensions)
     pdf_files = glob.glob(os.path.join(input_folder, "*.pdf")) + glob.glob(os.path.join(input_folder, "*.PDF"))
