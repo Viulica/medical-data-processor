@@ -1,0 +1,13 @@
+{
+  "name": "medical-data-processor",
+  "version": "1.0.0",
+  "description": "Medical Data Processor API",
+  "main": "main.py",
+  "scripts": {
+    "start": "uvicorn main:app --host 0.0.0.0 --port $PORT --log-level info",
+    "dev": "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 
