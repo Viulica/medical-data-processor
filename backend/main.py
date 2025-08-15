@@ -189,6 +189,11 @@ async def download_result(job_id: str):
         filename=f"processed_data_{job_id}.csv"
     )
 
+@app.get("/")
+async def root():
+    """Root endpoint for Railway health check"""
+    return {"status": "healthy", "message": "Medical Data Processor API is running"}
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
