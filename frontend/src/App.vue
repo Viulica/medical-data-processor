@@ -196,7 +196,7 @@
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
 
-const API_BASE_URL = process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app'
+const API_BASE_URL = (process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app').replace(/\/$/, '')
 
 export default {
   name: 'App',
@@ -314,8 +314,13 @@ export default {
       formData.append('excel_file', this.excelFile)
       formData.append('n_pages', this.pageCount)
 
+      // Debug: Log the URL being used
+      const uploadUrl = `${API_BASE_URL}/upload`
+      console.log('🔧 API_BASE_URL:', API_BASE_URL)
+      console.log('🔧 Upload URL:', uploadUrl)
+
       try {
-        const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
+        const response = await axios.post(uploadUrl, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
@@ -331,6 +336,7 @@ export default {
 
       } catch (error) {
         console.error('Upload error:', error)
+        console.error('🔧 Error URL:', uploadUrl)
         this.toast.error('Failed to start processing. Please try again.')
         this.isProcessing = false
       }
@@ -338,7 +344,9 @@ export default {
 
     async checkJobStatus(id) {
       try {
-        const response = await axios.get(`${API_BASE_URL}/status/${id}`)
+        const statusUrl = `${API_BASE_URL}/status/${id}`
+        console.log('🔧 Status URL:', statusUrl)
+        const response = await axios.get(statusUrl)
         this.jobStatus = response.data
         
         if (response.data.status === 'completed' || response.data.status === 'failed') {
