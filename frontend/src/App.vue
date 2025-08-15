@@ -196,7 +196,7 @@
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
 
-const API_BASE_URL = process.env.VUE_APP_API_URL || 'http://localhost:8000'
+const API_BASE_URL = process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app'
 
 export default {
   name: 'App',
