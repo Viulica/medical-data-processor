@@ -1,21 +1,36 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import os
-import zipfile
-import tempfile
-import shutil
-import uuid
-from pathlib import Path
 import sys
-import subprocess
-import json
-from typing import List
 import logging
 
-# Configure logging
+# Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Try to import required modules
+try:
+    from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse
+    logger.info("✅ FastAPI imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Failed to import FastAPI: {e}")
+    raise e
+
+try:
+    import zipfile
+    import tempfile
+    import shutil
+    import uuid
+    from pathlib import Path
+    import subprocess
+    import json
+    from typing import List
+    logger.info("✅ Standard library modules imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Failed to import standard library module: {e}")
+    raise e
+
+
 
 # Global port configuration - this ensures consistency
 PORT = int(os.environ.get('PORT', 8000))
