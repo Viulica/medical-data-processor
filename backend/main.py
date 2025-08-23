@@ -482,22 +482,7 @@ async def health_check():
         return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
+    # This is for local development only
+    # Railway will use uvicorn directly via railway.json
     import uvicorn
-    logger.info(f"Starting server on port {PORT}")
-    logger.info(f"Environment PORT variable: {os.environ.get('PORT', 'not set')}")
-    
-    # Force the port to be used - this is critical for Railway
-    logger.info(f"🔧 FORCING PORT: {PORT}")
-    
-    # Force the port to be used
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
-    except OSError as e:
-        if "Address already in use" in str(e):
-            logger.error(f"Port {PORT} is already in use. Trying alternative port...")
-            # Try alternative port
-            alt_port = PORT + 1 if PORT < 65535 else 8000
-            logger.info(f"Trying port {alt_port}")
-            uvicorn.run(app, host="0.0.0.0", port=alt_port, log_level="info")
-        else:
-            raise e 
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info") 
