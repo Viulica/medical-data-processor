@@ -188,20 +188,20 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
             writer = PdfWriter()
             pages_in_section = end_page - start_page
             
-                    thread_safe_print(f"  Creating section {i + 1}: pages {start_page + 1}-{end_page}")
-        
-        # Add pages to this section
-        for page_idx in range(start_page, end_page):
-            writer.add_page(reader.pages[page_idx])
-        
-        # Save section PDF
-        section_filename = f"{base_name}_section_{i + 1:02d}_pages_{start_page + 1}-{end_page}.pdf"
-        section_path = os.path.join(output_folder, section_filename)
-        
-        with open(section_path, 'wb') as output_file:
-            writer.write(output_file)
-        
-        created_pdfs += 1
+            thread_safe_print(f"  Creating section {i + 1}: pages {start_page + 1}-{end_page}")
+            
+            # Add pages to this section
+            for page_idx in range(start_page, end_page):
+                writer.add_page(reader.pages[page_idx])
+            
+            # Save section PDF
+            section_filename = f"{base_name}_section_{i + 1:02d}_pages_{start_page + 1}-{end_page}.pdf"
+            section_path = os.path.join(output_folder, section_filename)
+            
+            with open(section_path, 'wb') as output_file:
+                writer.write(output_file)
+            
+            created_pdfs += 1
         
         return created_pdfs
         
@@ -219,15 +219,15 @@ def process_single_pdf(args):
     # Find detection pages
     detection_pages, total_pages = find_detection_pages(pdf_file, filter_strings, case_sensitive, max_workers)
     
-            if detection_pages:
-            thread_safe_print(f"  Found {len(detection_pages)} detections")
-            # Create separate PDFs for each section
-            created_count = create_pdf_sections(pdf_file, output_folder, detection_pages, total_pages)
-            thread_safe_print(f"  ✓ Created {created_count} section PDFs")
-            return created_count
-        else:
-            thread_safe_print(f"  ✗ No detections found")
-            return 0
+    if detection_pages:
+        thread_safe_print(f"  Found {len(detection_pages)} detections")
+        # Create separate PDFs for each section
+        created_count = create_pdf_sections(pdf_file, output_folder, detection_pages, total_pages)
+        thread_safe_print(f"  ✓ Created {created_count} section PDFs")
+        return created_count
+    else:
+        thread_safe_print(f"  ✗ No detections found")
+        return 0
 
 
 def process_input_folder(input_folder, output_folder, filter_strings, case_sensitive=False, max_workers=None, pdf_workers=None):
