@@ -14,7 +14,26 @@
 
     <main class="main-content">
       <div class="container">
-        <div class="upload-section">
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+          <button 
+            @click="activeTab = 'process'" 
+            :class="{ active: activeTab === 'process' }"
+            class="tab-btn"
+          >
+            📊 Process Documents
+          </button>
+          <button 
+            @click="activeTab = 'split'" 
+            :class="{ active: activeTab === 'split' }"
+            class="tab-btn"
+          >
+            ✂️ Split PDF
+          </button>
+        </div>
+
+        <!-- Process Documents Tab -->
+        <div v-if="activeTab === 'process'" class="upload-section">
           <div class="section-header">
             <h2>Document Processing</h2>
             <p>Upload patient documents and processing instructions to extract structured medical data</p>
@@ -181,6 +200,138 @@
             </div>
           </div>
         </div>
+
+        <!-- Split PDF Tab -->
+        <div v-if="activeTab === 'split'" class="upload-section">
+          <div class="section-header">
+            <h2>PDF Splitting</h2>
+            <p>Upload a single PDF containing multiple patient documents to split into individual files</p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- PDF File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Combined PDF</h3>
+              </div>
+              <div 
+                class="dropzone"
+                :class="{ 
+                  'active': isPdfDragActive, 
+                  'has-file': pdfFile 
+                }"
+                @drop="onPdfDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerPdfUpload"
+              >
+                <input 
+                  ref="pdfInput" 
+                  type="file" 
+                  accept=".pdf" 
+                  @change="onPdfFileSelect" 
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📄</div>
+                  <div v-if="pdfFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ pdfFile.name }}</span>
+                    <span class="file-size">{{ formatFileSize(pdfFile.size) }}</span>
+                  </div>
+                  <p v-else class="upload-text">Drag & drop PDF file here<br>or click to browse</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Filter String Input -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Split Filter</h3>
+              </div>
+              <div class="filter-input-section">
+                <label for="filterString" class="filter-label">
+                  Text to search for in PDF pages:
+                </label>
+                <input 
+                  id="filterString"
+                  v-model="filterString"
+                  type="text" 
+                  placeholder="e.g., Patient Address, Patient Information, Anesthesia Billing, etc."
+                  class="filter-input"
+                  :disabled="isSplitting"
+                />
+                <p class="filter-help">
+                  Enter the text that appears on pages where you want to split the PDF. 
+                  The system will create a new section starting from each page containing this text.
+                  <strong>Case insensitive search.</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button 
+              @click="startSplitting" 
+              :disabled="!canSplit || isSplitting"
+              class="process-btn"
+            >
+              <span v-if="isSplitting" class="spinner"></span>
+              <span v-else class="btn-icon">✂️</span>
+              {{ isSplitting ? 'Splitting PDF...' : 'Split PDF' }}
+            </button>
+            
+            <button 
+              v-if="pdfFile || splitJobId" 
+              @click="resetSplitForm" 
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Split Processing Status -->
+        <div v-if="splitJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="splitJobStatus.status">
+                <span class="status-icon">{{ getSplitStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getSplitStatusTitle() }}</h3>
+                <p class="status-message">{{ splitJobStatus.message }}</p>
+              </div>
+            </div>
+            
+            <div v-if="splitJobStatus.status === 'processing'" class="progress-section">
+              <div class="progress-bar">
+                <div 
+                  class="progress-fill" 
+                  :style="{ width: `${splitJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">{{ splitJobStatus.progress }}% Complete</div>
+            </div>
+            
+            <div v-if="splitJobStatus.status === 'completed'" class="success-section">
+              <button @click="downloadSplitResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Split PDFs (ZIP)
+              </button>
+            </div>
+            
+            <div v-if="splitJobStatus.status === 'failed' && splitJobStatus.error" class="error-section">
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ splitJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -203,7 +354,7 @@ function joinUrl(base, path) {
   return `${cleanBase}/${cleanPath}`
 }
 
-const API_BASE_URL = (process.env.VUE_APP_API_URL || 'https://medical-data-processor-production.up.railway.app').replace(/\/+$/, '') // Remove all trailing slashes to prevent double slashes
+const API_BASE_URL = (process.env.VUE_APP_API_URL || 'http://localhost:8000').replace(/\/+$/, '') // Remove all trailing slashes to prevent double slashes
 
 export default {
   name: 'App',
@@ -213,6 +364,7 @@ export default {
   },
   data() {
     return {
+      activeTab: 'process',
       zipFile: null,
       excelFile: null,
       pageCount: 2,
@@ -221,12 +373,23 @@ export default {
       isProcessing: false,
       isZipDragActive: false,
       isExcelDragActive: false,
-      pollingInterval: null
+      pollingInterval: null,
+      // Split PDF functionality
+      pdfFile: null,
+      filterString: '',
+      splitJobId: null,
+      splitJobStatus: null,
+      isSplitting: false,
+      isPdfDragActive: false,
+      splitPollingInterval: null
     }
   },
   computed: {
     canProcess() {
       return this.zipFile && this.excelFile && this.pageCount >= 1 && this.pageCount <= 50
+    },
+    canSplit() {
+      return this.pdfFile && this.filterString.trim()
     }
   },
   methods: {
@@ -303,6 +466,175 @@ export default {
         this.toast.success('Processing template uploaded successfully!')
       } else {
         this.toast.error('Please select a valid Excel template')
+      }
+    },
+
+    // PDF Split functionality
+    onPdfDrop(e) {
+      e.preventDefault()
+      this.isPdfDragActive = false
+      const files = e.dataTransfer.files
+      if (files.length > 0 && files[0].name.endsWith('.pdf')) {
+        this.pdfFile = files[0]
+        this.toast.success('PDF file uploaded successfully!')
+      } else {
+        this.toast.error('Please upload a valid PDF file')
+      }
+    },
+
+    triggerPdfUpload() {
+      this.$refs.pdfInput.click()
+    },
+
+    onPdfFileSelect(e) {
+      const file = e.target.files[0]
+      if (file && file.name.endsWith('.pdf')) {
+        this.pdfFile = file
+        this.toast.success('PDF file uploaded successfully!')
+      } else {
+        this.toast.error('Please select a valid PDF file')
+      }
+    },
+
+    async startSplitting() {
+      if (!this.pdfFile) {
+        this.toast.error('Please upload a PDF file')
+        return
+      }
+
+      if (!this.filterString.trim()) {
+        this.toast.error('Please enter a filter string to search for')
+        return
+      }
+
+      this.isSplitting = true
+      this.splitJobStatus = null
+
+      const formData = new FormData()
+      formData.append('pdf_file', this.pdfFile)
+      formData.append('filter_string', this.filterString.trim())
+
+      const splitUrl = joinUrl(API_BASE_URL, 'split-pdf')
+      console.log('🔧 Split URL:', splitUrl)
+
+      try {
+        const response = await axios.post(splitUrl, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        })
+
+        this.splitJobId = response.data.job_id
+        this.toast.success('PDF splitting started!')
+        
+        // Start polling for status
+        this.splitPollingInterval = setInterval(() => {
+          this.checkSplitJobStatus(response.data.job_id)
+        }, 2000)
+
+      } catch (error) {
+        console.error('Split upload error:', error)
+        this.toast.error('Failed to start PDF splitting. Please try again.')
+        this.isSplitting = false
+      }
+    },
+
+    async checkSplitJobStatus(id) {
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${id}`)
+        const response = await axios.get(statusUrl)
+        
+        this.splitJobStatus = response.data
+        
+        if (response.data.status === 'completed' || response.data.status === 'failed') {
+          clearInterval(this.splitPollingInterval)
+          this.isSplitting = false
+          
+          if (response.data.status === 'completed') {
+            this.toast.success('PDF splitting completed!')
+          } else {
+            this.toast.error('PDF splitting failed!')
+          }
+        }
+      } catch (error) {
+        console.error('Status check error:', error)
+        clearInterval(this.splitPollingInterval)
+        this.isSplitting = false
+        this.toast.error('Failed to check split status')
+      }
+    },
+
+    async downloadSplitResults() {
+      if (!this.splitJobId) return
+      
+      try {
+        const downloadUrl = joinUrl(API_BASE_URL, `download/${this.splitJobId}`)
+        const response = await axios.get(downloadUrl, {
+          responseType: 'blob'
+        })
+        
+        const url = window.URL.createObjectURL(new Blob([response.data]))
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `split_pdfs_${this.splitJobId}.zip`)
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+        
+        this.toast.success('Split PDFs downloaded successfully!')
+      } catch (error) {
+        console.error('Download error:', error)
+        this.toast.error('Failed to download split PDFs')
+      }
+    },
+
+    resetSplitForm() {
+      this.pdfFile = null
+      this.filterString = ''
+      this.splitJobId = null
+      this.splitJobStatus = null
+      this.isSplitting = false
+      this.isPdfDragActive = false
+      
+      if (this.splitPollingInterval) {
+        clearInterval(this.splitPollingInterval)
+        this.splitPollingInterval = null
+      }
+      
+      // Reset file input
+      if (this.$refs.pdfInput) {
+        this.$refs.pdfInput.value = ''
+      }
+    },
+
+    getSplitStatusIcon() {
+      if (!this.splitJobStatus) return ''
+      
+      switch (this.splitJobStatus.status) {
+        case 'completed':
+          return '✅'
+        case 'failed':
+          return '❌'
+        case 'processing':
+          return '⏳'
+        default:
+          return '⏳'
+      }
+    },
+
+    getSplitStatusTitle() {
+      if (!this.splitJobStatus) return ''
+      
+      switch (this.splitJobStatus.status) {
+        case 'completed':
+          return 'PDF Splitting Complete'
+        case 'failed':
+          return 'PDF Splitting Failed'
+        case 'processing':
+          return 'Splitting PDF'
+        default:
+          return 'PDF Splitting Status'
       }
     },
 
@@ -505,6 +837,42 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 2rem;
+}
+
+/* Tab Navigation */
+.tab-navigation {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 3rem;
+}
+
+.tab-btn {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tab-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+  border-color: #3b82f6;
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 /* Section Headers */
@@ -910,6 +1278,48 @@ body {
 
 .footer-content p {
   font-size: 0.875rem;
+}
+
+/* Filter Input Styles */
+.filter-input-section {
+  padding: 1rem;
+}
+
+.filter-label {
+  display: block;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.filter-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.filter-input:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.filter-help {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.5;
 }
 
 /* Responsive Design */
