@@ -315,6 +315,10 @@
                 ></div>
               </div>
               <div class="progress-text">{{ splitJobStatus.progress }}% Complete</div>
+              <button @click="checkSplitStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
             </div>
             
             <div v-if="splitJobStatus.status === 'completed'" class="success-section">
@@ -380,8 +384,7 @@ export default {
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
-      isPdfDragActive: false,
-      splitPollingInterval: null
+      isPdfDragActive: false
     }
   },
   computed: {
@@ -497,18 +500,27 @@ export default {
     },
 
     async startSplitting() {
+      console.log('🚀 Starting PDF splitting process...')
+      console.log('📄 PDF File:', this.pdfFile ? {
+        name: this.pdfFile.name,
+        size: this.pdfFile.size,
+        type: this.pdfFile.type
+      } : 'No file')
+      console.log('🔍 Filter String:', this.filterString)
+
       if (!this.pdfFile) {
+        console.error('❌ No PDF file selected')
         this.toast.error('Please upload a PDF file')
         return
       }
 
       if (!this.filterString.trim()) {
+        console.error('❌ No filter string provided')
         this.toast.error('Please enter a filter string to search for')
         return
       }
 
       this.isSplitting = true
-      this.splitJobStatus = null
 
       const formData = new FormData()
       formData.append('pdf_file', this.pdfFile)
@@ -518,49 +530,72 @@ export default {
       console.log('🔧 Split URL:', splitUrl)
 
       try {
+        console.log('📤 Sending split request to backend...')
         const response = await axios.post(splitUrl, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
+          timeout: 300000 // 5 minute timeout
         })
 
-        this.splitJobId = response.data.job_id
-        this.toast.success('PDF splitting started!')
+        console.log('✅ Split request successful:', response.data)
+        this.toast.success('PDF splitting started! Check the download section below.')
         
-        // Start polling for status
-        this.splitPollingInterval = setInterval(() => {
-          this.checkSplitJobStatus(response.data.job_id)
-        }, 2000)
+        // Store the job ID for status checking
+        this.splitJobId = response.data.job_id
+        this.splitJobStatus = {
+          status: 'processing',
+          progress: 0,
+          message: 'Processing started...'
+        }
 
       } catch (error) {
-        console.error('Split upload error:', error)
-        this.toast.error('Failed to start PDF splitting. Please try again.')
+        console.error('❌ Split processing error:', error)
+        console.error('❌ Error details:', {
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        })
+        
+        let errorMessage = 'Failed to start PDF splitting. Please try again.'
+        if (error.response?.data?.detail) {
+          errorMessage = `Server error: ${error.response.data.detail}`
+        } else if (error.code === 'NETWORK_ERROR') {
+          errorMessage = 'Network error: Unable to connect to the server'
+        } else if (error.code === 'ECONNABORTED') {
+          errorMessage = 'Request timeout: Server took too long to respond'
+        }
+        
+        this.toast.error(errorMessage)
         this.isSplitting = false
       }
     },
 
-    async checkSplitJobStatus(id) {
+
+
+    async checkSplitStatus() {
+      if (!this.splitJobId) {
+        this.toast.error('No job ID available')
+        return
+      }
+      
       try {
-        const statusUrl = joinUrl(API_BASE_URL, `status/${id}`)
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`)
         const response = await axios.get(statusUrl)
         
         this.splitJobStatus = response.data
         
-        if (response.data.status === 'completed' || response.data.status === 'failed') {
-          clearInterval(this.splitPollingInterval)
+        if (response.data.status === 'completed') {
+          this.toast.success('PDF splitting completed!')
           this.isSplitting = false
-          
-          if (response.data.status === 'completed') {
-            this.toast.success('PDF splitting completed!')
-          } else {
-            this.toast.error('PDF splitting failed!')
-          }
+        } else if (response.data.status === 'failed') {
+          this.toast.error(`PDF splitting failed: ${response.data.error || 'Unknown error'}`)
+          this.isSplitting = false
         }
       } catch (error) {
         console.error('Status check error:', error)
-        clearInterval(this.splitPollingInterval)
-        this.isSplitting = false
-        this.toast.error('Failed to check split status')
+        this.toast.error('Failed to check status')
       }
     },
 
@@ -596,11 +631,6 @@ export default {
       this.splitJobStatus = null
       this.isSplitting = false
       this.isPdfDragActive = false
-      
-      if (this.splitPollingInterval) {
-        clearInterval(this.splitPollingInterval)
-        this.splitPollingInterval = null
-      }
       
       // Reset file input
       if (this.$refs.pdfInput) {
@@ -1238,6 +1268,27 @@ body {
 .download-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 25px -3px rgba(59, 130, 246, 0.4);
+}
+
+.check-status-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.3);
+}
+
+.check-status-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px -2px rgba(245, 158, 11, 0.4);
 }
 
 /* Error Section */

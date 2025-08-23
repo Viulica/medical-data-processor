@@ -70,6 +70,7 @@ def thread_safe_print(*args, **kwargs):
 def pdf_page_to_image(pdf_path, page_number, dpi=200):
     """Convert a PDF page to an image for OCR."""
     try:
+        print(f"    Converting page {page_number} to image...")
         # Open the PDF
         doc = fitz.open(pdf_path)
         page = doc.load_page(page_number)
@@ -83,43 +84,74 @@ def pdf_page_to_image(pdf_path, page_number, dpi=200):
         image = Image.open(fitz.io.BytesIO(img_data))
         doc.close()
         
+        print(f"    ✓ Successfully converted page {page_number} to image ({len(img_data)} bytes)")
         return image
     except Exception as e:
-        print(f"Error converting page {page_number} to image: {str(e)}")
+        print(f"    ❌ Error converting page {page_number} to image: {str(e)}")
         return None
 
 
 def ocr_page(image):
     """Perform OCR on an image and return the text."""
     try:
+        print(f"    Performing OCR on image...")
         # Use pytesseract to extract text
         text = pytesseract.image_to_string(image, lang='eng')
-        return text.strip()
+        text_stripped = text.strip()
+        print(f"    ✓ OCR completed, extracted {len(text_stripped)} characters")
+        if len(text_stripped) > 100:
+            print(f"    Preview: {text_stripped[:100]}...")
+        else:
+            print(f"    Full text: {text_stripped}")
+        return text_stripped
     except Exception as e:
-        print(f"Error performing OCR: {str(e)}")
+        print(f"    ❌ Error performing OCR: {str(e)}")
+        print(f"    OCR error type: {type(e).__name__}")
         return ""
 
 
 def check_page_contains_all_strings(pdf_path, page_number, filter_strings, case_sensitive=False):
     """Check if a PDF page contains ALL the specified filter strings (AND logic)."""
     try:
+        print(f"    Checking page {page_number} for filter strings: {filter_strings}")
+        
         # Convert page to image
         image = pdf_page_to_image(pdf_path, page_number)
         if not image:
+            print(f"    ❌ Failed to convert page {page_number} to image")
             return False
         
         # Perform OCR
         page_text = ocr_page(image)
         
+        if not page_text:
+            print(f"    ❌ No text extracted from page {page_number}")
+            return False
+        
         # Check if ALL filter strings are present (AND logic)
         if not case_sensitive:
             page_text_lower = page_text.lower()
-            return all(filter_string.lower() in page_text_lower for filter_string in filter_strings)
+            matches = []
+            for filter_string in filter_strings:
+                found = filter_string.lower() in page_text_lower
+                matches.append(found)
+                print(f"    Checking for '{filter_string}': {'✓' if found else '✗'}")
+            result = all(matches)
+            print(f"    Page {page_number} result: {'✓ MATCH' if result else '✗ NO MATCH'}")
+            return result
         else:
-            return all(filter_string in page_text for filter_string in filter_strings)
+            matches = []
+            for filter_string in filter_strings:
+                found = filter_string in page_text
+                matches.append(found)
+                print(f"    Checking for '{filter_string}': {'✓' if found else '✗'}")
+            result = all(matches)
+            print(f"    Page {page_number} result: {'✓ MATCH' if result else '✗ NO MATCH'}")
+            return result
             
     except Exception as e:
-        print(f"Error checking page {page_number}: {str(e)}")
+        print(f"    ❌ Error checking page {page_number}: {str(e)}")
+        print(f"    Error type: {type(e).__name__}")
         return False
 
 
@@ -321,4 +353,19 @@ def main():
 
 
 if __name__ == "__main__":
+    # Check if pytesseract is available
+    try:
+        import pytesseract
+        print("✓ pytesseract is available")
+        # Test if tesseract is installed
+        try:
+            version = pytesseract.get_tesseract_version()
+            print(f"✓ Tesseract version: {version}")
+        except Exception as e:
+            print(f"❌ Tesseract not found: {e}")
+            print("Please install tesseract-ocr")
+    except ImportError as e:
+        print(f"❌ pytesseract not installed: {e}")
+        print("Please install pytesseract: pip install pytesseract")
+    
     main() 
