@@ -183,6 +183,10 @@
                 ></div>
               </div>
               <div class="progress-text">{{ jobStatus.progress }}% Complete</div>
+              <button @click="checkJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
             </div>
             
             <div v-if="jobStatus.status === 'completed'" class="success-section">
@@ -377,7 +381,6 @@ export default {
       isProcessing: false,
       isZipDragActive: false,
       isExcelDragActive: false,
-      pollingInterval: null,
       // Split PDF functionality
       pdfFile: null,
       filterString: '',
@@ -696,12 +699,14 @@ export default {
         })
 
         this.jobId = response.data.job_id
-        this.toast.success('Processing started!')
+        this.toast.success('Processing started! Check the status section below.')
         
-        // Start polling for status
-        this.pollingInterval = setInterval(() => {
-          this.checkJobStatus(response.data.job_id)
-        }, 2000)
+        // Set initial status
+        this.jobStatus = {
+          status: 'processing',
+          progress: 0,
+          message: 'Processing started...'
+        }
 
       } catch (error) {
         console.error('Upload error:', error)
@@ -711,26 +716,28 @@ export default {
       }
     },
 
-    async checkJobStatus(id) {
+    async checkJobStatus() {
+      if (!this.jobId) {
+        this.toast.error('No job ID available')
+        return
+      }
+      
       try {
-        const statusUrl = joinUrl(API_BASE_URL, `status/${id}`)
-        console.log('🔧 Status URL:', statusUrl)
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.jobId}`)
         const response = await axios.get(statusUrl)
+        
         this.jobStatus = response.data
         
-        if (response.data.status === 'completed' || response.data.status === 'failed') {
-          clearInterval(this.pollingInterval)
-          this.pollingInterval = null
+        if (response.data.status === 'completed') {
+          this.toast.success('Processing completed!')
           this.isProcessing = false
-          
-          if (response.data.status === 'completed') {
-            this.toast.success('Processing completed! You can now download the results.')
-          } else {
-            this.toast.error(`Processing failed: ${response.data.error}`)
-          }
+        } else if (response.data.status === 'failed') {
+          this.toast.error(`Processing failed: ${response.data.error || 'Unknown error'}`)
+          this.isProcessing = false
         }
       } catch (error) {
         console.error('Status check error:', error)
+        this.toast.error('Failed to check status')
       }
     },
 
@@ -765,10 +772,6 @@ export default {
       this.jobId = null
       this.jobStatus = null
       this.isProcessing = false
-      if (this.pollingInterval) {
-        clearInterval(this.pollingInterval)
-        this.pollingInterval = null
-      }
     },
 
     getStatusIcon() {
@@ -787,11 +790,7 @@ export default {
     }
   },
 
-  beforeUnmount() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval)
-    }
-  }
+
 }
 </script>
 
