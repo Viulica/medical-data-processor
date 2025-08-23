@@ -92,6 +92,14 @@ def pdf_page_to_image(pdf_path, page_number, dpi=200):
 def ocr_page(image):
     """Perform OCR on an image and return the text."""
     try:
+        # Check if tesseract is available
+        try:
+            pytesseract.get_tesseract_version()
+        except Exception as tesseract_error:
+            print(f"Tesseract not available: {str(tesseract_error)}")
+            print("Falling back to basic text extraction...")
+            return ""
+        
         # Use pytesseract to extract text
         text = pytesseract.image_to_string(image, lang='eng')
         return text.strip()
