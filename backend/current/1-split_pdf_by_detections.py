@@ -70,7 +70,6 @@ def thread_safe_print(*args, **kwargs):
 def pdf_page_to_image(pdf_path, page_number, dpi=200):
     """Convert a PDF page to an image for OCR."""
     try:
-        print(f"    Converting page {page_number} to image...")
         # Open the PDF
         doc = fitz.open(pdf_path)
         page = doc.load_page(page_number)
@@ -84,74 +83,46 @@ def pdf_page_to_image(pdf_path, page_number, dpi=200):
         image = Image.open(fitz.io.BytesIO(img_data))
         doc.close()
         
-        print(f"    ✓ Successfully converted page {page_number} to image ({len(img_data)} bytes)")
         return image
     except Exception as e:
-        print(f"    ❌ Error converting page {page_number} to image: {str(e)}")
+        print(f"Error converting page {page_number} to image: {str(e)}")
         return None
 
 
 def ocr_page(image):
     """Perform OCR on an image and return the text."""
     try:
-        print(f"    Performing OCR on image...")
         # Use pytesseract to extract text
         text = pytesseract.image_to_string(image, lang='eng')
-        text_stripped = text.strip()
-        print(f"    ✓ OCR completed, extracted {len(text_stripped)} characters")
-        if len(text_stripped) > 100:
-            print(f"    Preview: {text_stripped[:100]}...")
-        else:
-            print(f"    Full text: {text_stripped}")
-        return text_stripped
+        return text.strip()
     except Exception as e:
-        print(f"    ❌ Error performing OCR: {str(e)}")
-        print(f"    OCR error type: {type(e).__name__}")
+        print(f"Error performing OCR: {str(e)}")
         return ""
 
 
 def check_page_contains_all_strings(pdf_path, page_number, filter_strings, case_sensitive=False):
     """Check if a PDF page contains ALL the specified filter strings (AND logic)."""
     try:
-        print(f"    Checking page {page_number} for filter strings: {filter_strings}")
-        
         # Convert page to image
         image = pdf_page_to_image(pdf_path, page_number)
         if not image:
-            print(f"    ❌ Failed to convert page {page_number} to image")
             return False
         
         # Perform OCR
         page_text = ocr_page(image)
         
         if not page_text:
-            print(f"    ❌ No text extracted from page {page_number}")
             return False
         
         # Check if ALL filter strings are present (AND logic)
         if not case_sensitive:
             page_text_lower = page_text.lower()
-            matches = []
-            for filter_string in filter_strings:
-                found = filter_string.lower() in page_text_lower
-                matches.append(found)
-                print(f"    Checking for '{filter_string}': {'✓' if found else '✗'}")
-            result = all(matches)
-            print(f"    Page {page_number} result: {'✓ MATCH' if result else '✗ NO MATCH'}")
-            return result
+            return all(filter_string.lower() in page_text_lower for filter_string in filter_strings)
         else:
-            matches = []
-            for filter_string in filter_strings:
-                found = filter_string in page_text
-                matches.append(found)
-                print(f"    Checking for '{filter_string}': {'✓' if found else '✗'}")
-            result = all(matches)
-            print(f"    Page {page_number} result: {'✓ MATCH' if result else '✗ NO MATCH'}")
-            return result
+            return all(filter_string in page_text for filter_string in filter_strings)
             
     except Exception as e:
-        print(f"    ❌ Error checking page {page_number}: {str(e)}")
-        print(f"    Error type: {type(e).__name__}")
+        print(f"Error checking page {page_number}: {str(e)}")
         return False
 
 
@@ -168,8 +139,7 @@ def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, m
         total_pages = len(reader.pages)
         
         filter_display = " AND ".join([f"'{s}'" for s in filter_strings])
-        thread_safe_print(f"  Scanning {total_pages} pages for detections...")
-        thread_safe_print(f"  Looking for pages containing: {filter_display}")
+        thread_safe_print(f"  Scanning {total_pages} pages for: {filter_display}")
         
         # Prepare arguments for parallel processing
         page_args = [(input_pdf_path, page_num, filter_strings, case_sensitive) 
@@ -183,13 +153,9 @@ def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, m
         # Find all detection pages
         detection_pages = []
         for page_num, contains_all_strings in results:
-            thread_safe_print(f"    Page {page_num + 1}/{total_pages}...", end=" ")
-            
             if contains_all_strings:
                 detection_pages.append(page_num)
-                thread_safe_print("✓ DETECTION")
-            else:
-                thread_safe_print("✗ no match")
+                thread_safe_print(f"  ✓ Found detection on page {page_num + 1}")
         
         return detection_pages, total_pages
             
@@ -222,21 +188,20 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
             writer = PdfWriter()
             pages_in_section = end_page - start_page
             
-            thread_safe_print(f"  Creating section {i + 1}: pages {start_page + 1}-{end_page} ({pages_in_section} pages)")
-            
-            # Add pages to this section
-            for page_idx in range(start_page, end_page):
-                writer.add_page(reader.pages[page_idx])
-            
-            # Save section PDF
-            section_filename = f"{base_name}_section_{i + 1:02d}_pages_{start_page + 1}-{end_page}.pdf"
-            section_path = os.path.join(output_folder, section_filename)
-            
-            with open(section_path, 'wb') as output_file:
-                writer.write(output_file)
-            
-            thread_safe_print(f"    ✓ Saved {section_filename}")
-            created_pdfs += 1
+                    thread_safe_print(f"  Creating section {i + 1}: pages {start_page + 1}-{end_page}")
+        
+        # Add pages to this section
+        for page_idx in range(start_page, end_page):
+            writer.add_page(reader.pages[page_idx])
+        
+        # Save section PDF
+        section_filename = f"{base_name}_section_{i + 1:02d}_pages_{start_page + 1}-{end_page}.pdf"
+        section_path = os.path.join(output_folder, section_filename)
+        
+        with open(section_path, 'wb') as output_file:
+            writer.write(output_file)
+        
+        created_pdfs += 1
         
         return created_pdfs
         
@@ -254,15 +219,15 @@ def process_single_pdf(args):
     # Find detection pages
     detection_pages, total_pages = find_detection_pages(pdf_file, filter_strings, case_sensitive, max_workers)
     
-    if detection_pages:
-        thread_safe_print(f"  Found {len(detection_pages)} detections on pages: {[p+1 for p in detection_pages]}")
-        # Create separate PDFs for each section
-        created_count = create_pdf_sections(pdf_file, output_folder, detection_pages, total_pages)
-        thread_safe_print(f"  ✓ Created {created_count} section PDFs")
-        return created_count
-    else:
-        thread_safe_print(f"  ✗ No detections found in {os.path.basename(pdf_file)}")
-        return 0
+            if detection_pages:
+            thread_safe_print(f"  Found {len(detection_pages)} detections")
+            # Create separate PDFs for each section
+            created_count = create_pdf_sections(pdf_file, output_folder, detection_pages, total_pages)
+            thread_safe_print(f"  ✓ Created {created_count} section PDFs")
+            return created_count
+        else:
+            thread_safe_print(f"  ✗ No detections found")
+            return 0
 
 
 def process_input_folder(input_folder, output_folder, filter_strings, case_sensitive=False, max_workers=None, pdf_workers=None):
@@ -303,8 +268,7 @@ def process_input_folder(input_folder, output_folder, filter_strings, case_sensi
     # Count total sections created
     total_sections = sum(results)
     
-    print(f"\n{'='*50}")
-    print(f"Processing complete! Created {total_sections} section PDFs from {len(pdf_files)} input files.")
+    print(f"✓ Processing complete! Created {total_sections} section PDFs from {len(pdf_files)} input files.")
 
 
 def main():
@@ -353,19 +317,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Check if pytesseract is available
-    try:
-        import pytesseract
-        print("✓ pytesseract is available")
-        # Test if tesseract is installed
-        try:
-            version = pytesseract.get_tesseract_version()
-            print(f"✓ Tesseract version: {version}")
-        except Exception as e:
-            print(f"❌ Tesseract not found: {e}")
-            print("Please install tesseract-ocr")
-    except ImportError as e:
-        print(f"❌ pytesseract not installed: {e}")
-        print("Please install pytesseract: pip install pytesseract")
-    
     main() 
