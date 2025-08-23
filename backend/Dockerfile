@@ -16,11 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Dependencies
-COPY backend/requirements.txt ./requirements.txt
+COPY requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 # App code
-COPY backend/ .
+COPY . .
 
 # Sanity checks (optional, ali korisno za fail-fast)
 RUN tesseract --version && python -c "import fitz, pytesseract; print('deps OK')"
