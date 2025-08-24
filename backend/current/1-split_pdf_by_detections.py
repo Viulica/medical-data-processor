@@ -67,7 +67,7 @@ def thread_safe_print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def pdf_page_to_image(pdf_path, page_number, dpi=200):
+def pdf_page_to_image(pdf_path, page_number, dpi=150):
     """Convert a PDF page to an image for OCR."""
     try:
         # Open the PDF
@@ -92,8 +92,12 @@ def pdf_page_to_image(pdf_path, page_number, dpi=200):
 def ocr_page(image):
     """Perform OCR on an image and return the text."""
     try:
-        # Use pytesseract to extract text
-        text = pytesseract.image_to_string(image, lang='eng')
+        # Use pytesseract to extract text with optimizations
+        text = pytesseract.image_to_string(
+            image, 
+            lang='eng',
+            config='--psm 6 --oem 3'  # Optimize for single text block
+        )
         return text.strip()
     except Exception as e:
         print(f"Error performing OCR: {str(e)}")
@@ -146,7 +150,8 @@ def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, m
                      for page_num in range(total_pages)]
         
         # Process pages in parallel while maintaining order
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        workers = max_workers or min(8, total_pages)  # Use more workers
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             # Use map to maintain order of results
             results = list(executor.map(check_page_contains_text_wrapper, page_args))
         
