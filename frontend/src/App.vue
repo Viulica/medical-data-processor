@@ -319,10 +319,7 @@
                 ></div>
               </div>
               <div class="progress-text">{{ splitJobStatus.progress }}% Complete</div>
-              <button @click="checkSplitStatus" class="check-status-btn">
-                <span class="btn-icon">🔄</span>
-                Check Status
-              </button>
+              <p class="processing-note">Processing in progress... This may take several minutes.</p>
             </div>
             
             <div v-if="splitJobStatus.status === 'completed'" class="success-section">
@@ -387,7 +384,8 @@ export default {
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
-      isPdfDragActive: false
+      isPdfDragActive: false,
+      statusPollingInterval: null
     }
   },
   computed: {
@@ -551,6 +549,9 @@ export default {
           progress: 0,
           message: 'Processing started...'
         }
+        
+        // Start automatic status checking
+        this.startStatusPolling()
 
       } catch (error) {
         console.error('❌ Split processing error:', error)
@@ -576,6 +577,35 @@ export default {
     },
 
 
+
+    startStatusPolling() {
+      // Check status every 10 seconds
+      this.statusPollingInterval = setInterval(async () => {
+        if (!this.splitJobId) {
+          clearInterval(this.statusPollingInterval)
+          return
+        }
+        
+        try {
+          const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`)
+          const response = await axios.get(statusUrl)
+          
+          this.splitJobStatus = response.data
+          
+          if (response.data.status === 'completed') {
+            clearInterval(this.statusPollingInterval)
+            this.toast.success('PDF splitting completed!')
+            this.isSplitting = false
+          } else if (response.data.status === 'failed') {
+            clearInterval(this.statusPollingInterval)
+            this.toast.error(`PDF splitting failed: ${response.data.error || 'Unknown error'}`)
+            this.isSplitting = false
+          }
+        } catch (error) {
+          console.error('Status check error:', error)
+        }
+      }, 10000) // Check every 10 seconds
+    },
 
     async checkSplitStatus() {
       if (!this.splitJobId) {
@@ -634,6 +664,12 @@ export default {
       this.splitJobStatus = null
       this.isSplitting = false
       this.isPdfDragActive = false
+      
+      // Clear polling interval
+      if (this.statusPollingInterval) {
+        clearInterval(this.statusPollingInterval)
+        this.statusPollingInterval = null
+      }
       
       // Reset file input
       if (this.$refs.pdfInput) {
@@ -1288,6 +1324,14 @@ body {
 .check-status-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 12px -2px rgba(245, 158, 11, 0.4);
+}
+
+.processing-note {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
 }
 
 /* Error Section */
