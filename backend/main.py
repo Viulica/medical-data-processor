@@ -70,7 +70,7 @@ class ProcessingJob:
         self.result_file = None
         self.error = None
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-pro"):
     """Background task to process PDFs"""
     job = job_status[job_id]
     
@@ -111,7 +111,8 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             str(temp_dir / "input"),
             str(excel_dest),
             str(n_pages),  # n_pages parameter
-            "3"   # max_workers
+            "3",  # max_workers
+            model  # model parameter
         ], capture_output=True, text=True, cwd=temp_dir, env=env)
         
         if result.returncode != 0:
@@ -292,12 +293,13 @@ async def upload_files(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
     excel_file: UploadFile = File(...),
-    n_pages: int = Form(..., ge=1, le=50)  # Validate page count between 1-50
+    n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
+    model: str = Form(default="gemini-2.5-pro")  # Model parameter with default
 ):
     """Upload ZIP file, Excel instructions file, and page count"""
     
     try:
-        logger.info(f"Received upload request - zip: {zip_file.filename}, excel: {excel_file.filename}, pages: {n_pages}")
+        logger.info(f"Received upload request - zip: {zip_file.filename}, excel: {excel_file.filename}, pages: {n_pages}, model: {model}")
         
         # Validate file types
         if not zip_file.filename.endswith('.zip'):
@@ -326,7 +328,7 @@ async def upload_files(
         logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
         
         # Start background processing
-        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_file.filename)
+        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_file.filename, model)
         
         logger.info(f"Background task started for job {job_id}")
         

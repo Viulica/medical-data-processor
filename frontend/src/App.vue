@@ -16,15 +16,22 @@
       <div class="container">
         <!-- Tab Navigation -->
         <div class="tab-navigation">
-          <button 
-            @click="activeTab = 'process'" 
+          <button
+            @click="activeTab = 'process'"
             :class="{ active: activeTab === 'process' }"
             class="tab-btn"
           >
             📊 Process Documents
           </button>
-          <button 
-            @click="activeTab = 'split'" 
+          <button
+            @click="activeTab = 'process-fast'"
+            :class="{ active: activeTab === 'process-fast' }"
+            class="tab-btn"
+          >
+            ⚡ Process Documents (Fast)
+          </button>
+          <button
+            @click="activeTab = 'split'"
             :class="{ active: activeTab === 'split' }"
             class="tab-btn"
           >
@@ -36,7 +43,10 @@
         <div v-if="activeTab === 'process'" class="upload-section">
           <div class="section-header">
             <h2>Document Processing</h2>
-            <p>Upload patient documents and processing instructions to extract structured medical data</p>
+            <p>
+              Upload patient documents and processing instructions to extract
+              structured medical data
+            </p>
           </div>
 
           <div class="upload-grid">
@@ -46,22 +56,22 @@
                 <div class="step-number">1</div>
                 <h3>Patient Documents</h3>
               </div>
-              <div 
+              <div
                 class="dropzone"
-                :class="{ 
-                  'active': isZipDragActive, 
-                  'has-file': zipFile 
+                :class="{
+                  active: isZipDragActive,
+                  'has-file': zipFile,
                 }"
                 @drop="onZipDrop"
                 @dragover.prevent
                 @dragenter.prevent
                 @click="triggerZipUpload"
               >
-                <input 
-                  ref="zipInput" 
-                  type="file" 
-                  accept=".zip" 
-                  @change="onZipFileSelect" 
+                <input
+                  ref="zipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onZipFileSelect"
                   style="display: none"
                 />
                 <div class="upload-content">
@@ -69,9 +79,13 @@
                   <div v-if="zipFile" class="file-info">
                     <div class="file-icon">📄</div>
                     <span class="file-name">{{ zipFile.name }}</span>
-                    <span class="file-size">{{ formatFileSize(zipFile.size) }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(zipFile.size)
+                    }}</span>
                   </div>
-                  <p v-else class="upload-text">Drag & drop ZIP archive here<br>or click to browse</p>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP archive here<br />or click to browse
+                  </p>
                 </div>
               </div>
             </div>
@@ -82,22 +96,22 @@
                 <div class="step-number">2</div>
                 <h3>Processing Template</h3>
               </div>
-              <div 
+              <div
                 class="dropzone"
-                :class="{ 
-                  'active': isExcelDragActive, 
-                  'has-file': excelFile 
+                :class="{
+                  active: isExcelDragActive,
+                  'has-file': excelFile,
                 }"
                 @drop="onExcelDrop"
                 @dragover.prevent
                 @dragenter.prevent
                 @click="triggerExcelUpload"
               >
-                <input 
-                  ref="excelInput" 
-                  type="file" 
-                  accept=".xlsx,.xls" 
-                  @change="onExcelFileSelect" 
+                <input
+                  ref="excelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onExcelFileSelect"
                   style="display: none"
                 />
                 <div class="upload-content">
@@ -105,9 +119,13 @@
                   <div v-if="excelFile" class="file-info">
                     <div class="file-icon">📄</div>
                     <span class="file-name">{{ excelFile.name }}</span>
-                    <span class="file-size">{{ formatFileSize(excelFile.size) }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(excelFile.size)
+                    }}</span>
                   </div>
-                  <p v-else class="upload-text">Drag & drop Excel template here<br>or click to browse</p>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel template here<br />or click to browse
+                  </p>
                 </div>
               </div>
             </div>
@@ -122,12 +140,12 @@
                 <div class="setting-group">
                   <label for="pageCount">Pages per document</label>
                   <div class="input-wrapper">
-                    <input 
+                    <input
                       id="pageCount"
-                      v-model.number="pageCount" 
-                      type="number" 
-                      min="1" 
-                      max="50" 
+                      v-model.number="pageCount"
+                      type="number"
+                      min="1"
+                      max="50"
                       class="page-input"
                       placeholder="2"
                     />
@@ -142,19 +160,21 @@
 
           <!-- Action Buttons -->
           <div class="action-section">
-            <button 
-              @click="startProcessing" 
+            <button
+              @click="startProcessing"
               :disabled="!canProcess || isProcessing"
               class="process-btn"
             >
               <span v-if="isProcessing" class="spinner"></span>
               <span v-else class="btn-icon">🚀</span>
-              {{ isProcessing ? 'Processing Documents...' : 'Start Processing' }}
+              {{
+                isProcessing ? "Processing Documents..." : "Start Processing"
+              }}
             </button>
-            
-            <button 
-              v-if="zipFile || excelFile || jobId" 
-              @click="resetForm" 
+
+            <button
+              v-if="zipFile || excelFile || jobId"
+              @click="resetForm"
               class="reset-btn"
             >
               Reset
@@ -174,32 +194,243 @@
                 <p class="status-message">{{ jobStatus.message }}</p>
               </div>
             </div>
-            
-            <div v-if="jobStatus.status === 'processing'" class="progress-section">
+
+            <div
+              v-if="jobStatus.status === 'processing'"
+              class="progress-section"
+            >
               <div class="progress-bar">
-                <div 
-                  class="progress-fill" 
+                <div
+                  class="progress-fill"
                   :style="{ width: `${jobStatus.progress}%` }"
                 ></div>
               </div>
-              <div class="progress-text">{{ jobStatus.progress }}% Complete</div>
+              <div class="progress-text">
+                {{ jobStatus.progress }}% Complete
+              </div>
               <button @click="checkJobStatus" class="check-status-btn">
                 <span class="btn-icon">🔄</span>
                 Check Status
               </button>
             </div>
-            
-            <div v-if="jobStatus.status === 'completed'" class="success-section">
+
+            <div
+              v-if="jobStatus.status === 'completed'"
+              class="success-section"
+            >
               <button @click="downloadResults" class="download-btn">
                 <span class="btn-icon">📥</span>
                 Download Results (CSV)
               </button>
             </div>
-            
-            <div v-if="jobStatus.status === 'failed' && jobStatus.error" class="error-section">
+
+            <div
+              v-if="jobStatus.status === 'failed' && jobStatus.error"
+              class="error-section"
+            >
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ jobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Process Documents (Fast) Tab -->
+        <div v-if="activeTab === 'process-fast'" class="upload-section">
+          <div class="section-header">
+            <h2>Document Processing (Fast)</h2>
+            <p>
+              Upload patient documents and processing instructions to extract
+              structured medical data using Gemini 2.5 Flash (faster and more
+              cost-effective)
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Step 1: ZIP File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Patient Documents</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isZipDragActiveFast,
+                  'has-file': zipFileFast,
+                }"
+                @drop="onZipDropFast"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerZipUploadFast"
+              >
+                <input
+                  ref="zipInputFast"
+                  type="file"
+                  accept=".zip"
+                  @change="onZipFileSelectFast"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📁</div>
+                  <div v-if="zipFileFast" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ zipFileFast.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(zipFileFast.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP archive here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2: Excel File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Processing Template</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isExcelDragActiveFast,
+                  'has-file': excelFileFast,
+                }"
+                @drop="onExcelDropFast"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerExcelUploadFast"
+              >
+                <input
+                  ref="excelInputFast"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onExcelFileSelectFast"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="excelFileFast" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ excelFileFast.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(excelFileFast.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel template here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Configuration -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>Processing Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="pageCountFast">Pages per document</label>
+                  <div class="input-wrapper">
+                    <input
+                      id="pageCountFast"
+                      v-model.number="pageCountFast"
+                      type="number"
+                      min="1"
+                      max="50"
+                      class="page-input"
+                      placeholder="2"
+                    />
+                  </div>
+                  <small class="help-text">
+                    Number of pages to extract from each patient document
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startProcessingFast"
+              :disabled="!canProcessFast || isProcessingFast"
+              class="process-btn"
+            >
+              <span v-if="isProcessingFast" class="spinner"></span>
+              <span v-else class="btn-icon">⚡</span>
+              {{
+                isProcessingFast
+                  ? "Processing Documents..."
+                  : "Start Fast Processing"
+              }}
+            </button>
+
+            <button
+              v-if="zipFileFast || excelFileFast || jobIdFast"
+              @click="resetFormFast"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Processing Status (Fast) -->
+        <div v-if="jobStatusFast" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="jobStatusFast.status">
+                <span class="status-icon">{{ getStatusIconFast() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getStatusTitleFast() }}</h3>
+                <p class="status-message">{{ jobStatusFast.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="jobStatusFast.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${jobStatusFast.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ jobStatusFast.progress }}% Complete
+              </div>
+              <button @click="checkJobStatusFast" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="jobStatusFast.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadResultsFast" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Results (CSV)
+              </button>
+            </div>
+
+            <div
+              v-if="jobStatusFast.status === 'failed' && jobStatusFast.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ jobStatusFast.error }}</span>
               </div>
             </div>
           </div>
@@ -209,7 +440,10 @@
         <div v-if="activeTab === 'split'" class="upload-section">
           <div class="section-header">
             <h2>PDF Splitting</h2>
-            <p>Upload a single PDF containing multiple patient documents to split into individual files</p>
+            <p>
+              Upload a single PDF containing multiple patient documents to split
+              into individual files
+            </p>
           </div>
 
           <div class="upload-grid">
@@ -219,22 +453,22 @@
                 <div class="step-number">1</div>
                 <h3>Combined PDF</h3>
               </div>
-              <div 
+              <div
                 class="dropzone"
-                :class="{ 
-                  'active': isPdfDragActive, 
-                  'has-file': pdfFile 
+                :class="{
+                  active: isPdfDragActive,
+                  'has-file': pdfFile,
                 }"
                 @drop="onPdfDrop"
                 @dragover.prevent
                 @dragenter.prevent
                 @click="triggerPdfUpload"
               >
-                <input 
-                  ref="pdfInput" 
-                  type="file" 
-                  accept=".pdf" 
-                  @change="onPdfFileSelect" 
+                <input
+                  ref="pdfInput"
+                  type="file"
+                  accept=".pdf"
+                  @change="onPdfFileSelect"
                   style="display: none"
                 />
                 <div class="upload-content">
@@ -242,9 +476,13 @@
                   <div v-if="pdfFile" class="file-info">
                     <div class="file-icon">📄</div>
                     <span class="file-name">{{ pdfFile.name }}</span>
-                    <span class="file-size">{{ formatFileSize(pdfFile.size) }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(pdfFile.size)
+                    }}</span>
                   </div>
-                  <p v-else class="upload-text">Drag & drop PDF file here<br>or click to browse</p>
+                  <p v-else class="upload-text">
+                    Drag & drop PDF file here<br />or click to browse
+                  </p>
                 </div>
               </div>
             </div>
@@ -259,17 +497,18 @@
                 <label for="filterString" class="filter-label">
                   Text to search for in PDF pages:
                 </label>
-                <input 
+                <input
                   id="filterString"
                   v-model="filterString"
-                  type="text" 
+                  type="text"
                   placeholder="e.g., Patient Address, Patient Information, Anesthesia Billing, etc."
                   class="filter-input"
                   :disabled="isSplitting"
                 />
                 <p class="filter-help">
-                  Enter the text that appears on pages where you want to split the PDF. 
-                  The system will create a new section starting from each page containing this text.
+                  Enter the text that appears on pages where you want to split
+                  the PDF. The system will create a new section starting from
+                  each page containing this text.
                   <strong>Case insensitive search.</strong>
                 </p>
               </div>
@@ -278,19 +517,19 @@
 
           <!-- Action Buttons -->
           <div class="action-section">
-            <button 
-              @click="startSplitting" 
+            <button
+              @click="startSplitting"
               :disabled="!canSplit || isSplitting"
               class="process-btn"
             >
               <span v-if="isSplitting" class="spinner"></span>
               <span v-else class="btn-icon">✂️</span>
-              {{ isSplitting ? 'Splitting PDF...' : 'Split PDF' }}
+              {{ isSplitting ? "Splitting PDF..." : "Split PDF" }}
             </button>
-            
-            <button 
-              v-if="pdfFile || splitJobId" 
-              @click="resetSplitForm" 
+
+            <button
+              v-if="pdfFile || splitJobId"
+              @click="resetSplitForm"
               class="reset-btn"
             >
               Reset
@@ -310,26 +549,39 @@
                 <p class="status-message">{{ splitJobStatus.message }}</p>
               </div>
             </div>
-            
-            <div v-if="splitJobStatus.status === 'processing'" class="progress-section">
+
+            <div
+              v-if="splitJobStatus.status === 'processing'"
+              class="progress-section"
+            >
               <div class="progress-bar">
-                <div 
-                  class="progress-fill" 
+                <div
+                  class="progress-fill"
                   :style="{ width: `${splitJobStatus.progress}%` }"
                 ></div>
               </div>
-              <div class="progress-text">{{ splitJobStatus.progress }}% Complete</div>
-              <p class="processing-note">Processing in progress... This may take several minutes.</p>
+              <div class="progress-text">
+                {{ splitJobStatus.progress }}% Complete
+              </div>
+              <p class="processing-note">
+                Processing in progress... This may take several minutes.
+              </p>
             </div>
-            
-            <div v-if="splitJobStatus.status === 'completed'" class="success-section">
+
+            <div
+              v-if="splitJobStatus.status === 'completed'"
+              class="success-section"
+            >
               <button @click="downloadSplitResults" class="download-btn">
                 <span class="btn-icon">📥</span>
                 Download Split PDFs (ZIP)
               </button>
             </div>
-            
-            <div v-if="splitJobStatus.status === 'failed' && splitJobStatus.error" class="error-section">
+
+            <div
+              v-if="splitJobStatus.status === 'failed' && splitJobStatus.error"
+              class="error-section"
+            >
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ splitJobStatus.error }}</span>
@@ -342,34 +594,39 @@
 
     <footer class="footer">
       <div class="footer-content">
-        <p>&copy; 2025 Medical Data Processor. Secure, HIPAA-compliant document processing.</p>
+        <p>
+          &copy; 2025 Medical Data Processor. Secure, HIPAA-compliant document
+          processing.
+        </p>
       </div>
     </footer>
   </div>
 </template>
 
 <script>
-import axios from 'axios'
-import { useToast } from 'vue-toastification'
+import axios from "axios";
+import { useToast } from "vue-toastification";
 
 // Helper function to properly join URL parts without double slashes
 function joinUrl(base, path) {
-  const cleanBase = base.replace(/\/+$/, '') // Remove trailing slashes
-  const cleanPath = path.replace(/^\/+/, '') // Remove leading slashes
-  return `${cleanBase}/${cleanPath}`
+  const cleanBase = base.replace(/\/+$/, ""); // Remove trailing slashes
+  const cleanPath = path.replace(/^\/+/, ""); // Remove leading slashes
+  return `${cleanBase}/${cleanPath}`;
 }
 
-const API_BASE_URL = (process.env.VUE_APP_API_URL || 'http://localhost:8000').replace(/\/+$/, '') // Remove all trailing slashes to prevent double slashes
+const API_BASE_URL = (
+  process.env.VUE_APP_API_URL || "http://localhost:8000"
+).replace(/\/+$/, ""); // Remove all trailing slashes to prevent double slashes
 
 export default {
-  name: 'App',
+  name: "App",
   setup() {
-    const toast = useToast()
-    return { toast }
+    const toast = useToast();
+    return { toast };
   },
   data() {
     return {
-      activeTab: 'process',
+      activeTab: "process",
       zipFile: null,
       excelFile: null,
       pageCount: 2,
@@ -378,460 +635,698 @@ export default {
       isProcessing: false,
       isZipDragActive: false,
       isExcelDragActive: false,
+      // Fast processing functionality
+      zipFileFast: null,
+      excelFileFast: null,
+      pageCountFast: 2,
+      jobIdFast: null,
+      jobStatusFast: null,
+      isProcessingFast: false,
+      isZipDragActiveFast: false,
+      isExcelDragActiveFast: false,
       // Split PDF functionality
       pdfFile: null,
-      filterString: '',
+      filterString: "",
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
       isPdfDragActive: false,
-      statusPollingInterval: null
-    }
+      statusPollingInterval: null,
+    };
   },
   computed: {
     canProcess() {
-      return this.zipFile && this.excelFile && this.pageCount >= 1 && this.pageCount <= 50
+      return (
+        this.zipFile &&
+        this.excelFile &&
+        this.pageCount >= 1 &&
+        this.pageCount <= 50
+      );
+    },
+    canProcessFast() {
+      return (
+        this.zipFileFast &&
+        this.excelFileFast &&
+        this.pageCountFast >= 1 &&
+        this.pageCountFast <= 50
+      );
     },
     canSplit() {
-      return this.pdfFile && this.filterString.trim()
-    }
+      return this.pdfFile && this.filterString.trim();
+    },
   },
   methods: {
     formatFileSize(bytes) {
-      if (bytes === 0) return '0 Bytes'
-      const k = 1024
-      const sizes = ['Bytes', 'KB', 'MB', 'GB']
-      const i = Math.floor(Math.log(bytes) / Math.log(k))
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+      if (bytes === 0) return "0 Bytes";
+      const k = 1024;
+      const sizes = ["Bytes", "KB", "MB", "GB"];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     },
 
     getStatusTitle() {
-      if (!this.jobStatus) return ''
-      
+      if (!this.jobStatus) return "";
+
       switch (this.jobStatus.status) {
-        case 'completed':
-          return 'Processing Complete'
-        case 'failed':
-          return 'Processing Failed'
-        case 'processing':
-          return 'Processing Documents'
+        case "completed":
+          return "Processing Complete";
+        case "failed":
+          return "Processing Failed";
+        case "processing":
+          return "Processing Documents";
         default:
-          return 'Processing Status'
+          return "Processing Status";
       }
     },
 
     // File upload handlers
     onZipDrop(e) {
-      e.preventDefault()
-      this.isZipDragActive = false
-      const files = e.dataTransfer.files
-      if (files.length > 0 && files[0].name.endsWith('.zip')) {
-        this.zipFile = files[0]
-        this.toast.success('Patient documents uploaded successfully!')
+      e.preventDefault();
+      this.isZipDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".zip")) {
+        this.zipFile = files[0];
+        this.toast.success("Patient documents uploaded successfully!");
       } else {
-        this.toast.error('Please upload a valid ZIP archive')
+        this.toast.error("Please upload a valid ZIP archive");
       }
     },
 
     onExcelDrop(e) {
-      e.preventDefault()
-      this.isExcelDragActive = false
-      const files = e.dataTransfer.files
-      if (files.length > 0 && (files[0].name.endsWith('.xlsx') || files[0].name.endsWith('.xls'))) {
-        this.excelFile = files[0]
-        this.toast.success('Processing template uploaded successfully!')
+      e.preventDefault();
+      this.isExcelDragActive = false;
+      const files = e.dataTransfer.files;
+      if (
+        files.length > 0 &&
+        (files[0].name.endsWith(".xlsx") || files[0].name.endsWith(".xls"))
+      ) {
+        this.excelFile = files[0];
+        this.toast.success("Processing template uploaded successfully!");
       } else {
-        this.toast.error('Please upload a valid Excel template')
+        this.toast.error("Please upload a valid Excel template");
       }
     },
 
     triggerZipUpload() {
-      this.$refs.zipInput.click()
+      this.$refs.zipInput.click();
     },
 
     triggerExcelUpload() {
-      this.$refs.excelInput.click()
+      this.$refs.excelInput.click();
     },
 
     onZipFileSelect(e) {
-      const file = e.target.files[0]
-      if (file && file.name.endsWith('.zip')) {
-        this.zipFile = file
-        this.toast.success('Patient documents uploaded successfully!')
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".zip")) {
+        this.zipFile = file;
+        this.toast.success("Patient documents uploaded successfully!");
       } else {
-        this.toast.error('Please select a valid ZIP archive')
+        this.toast.error("Please select a valid ZIP archive");
       }
     },
 
     onExcelFileSelect(e) {
-      const file = e.target.files[0]
-      if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
-        this.excelFile = file
-        this.toast.success('Processing template uploaded successfully!')
+      const file = e.target.files[0];
+      if (file && (file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
+        this.excelFile = file;
+        this.toast.success("Processing template uploaded successfully!");
       } else {
-        this.toast.error('Please select a valid Excel template')
+        this.toast.error("Please select a valid Excel template");
       }
     },
 
     // PDF Split functionality
     onPdfDrop(e) {
-      e.preventDefault()
-      this.isPdfDragActive = false
-      const files = e.dataTransfer.files
-      if (files.length > 0 && files[0].name.endsWith('.pdf')) {
-        this.pdfFile = files[0]
-        this.toast.success('PDF file uploaded successfully!')
+      e.preventDefault();
+      this.isPdfDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".pdf")) {
+        this.pdfFile = files[0];
+        this.toast.success("PDF file uploaded successfully!");
       } else {
-        this.toast.error('Please upload a valid PDF file')
+        this.toast.error("Please upload a valid PDF file");
       }
     },
 
     triggerPdfUpload() {
-      this.$refs.pdfInput.click()
+      this.$refs.pdfInput.click();
     },
 
     onPdfFileSelect(e) {
-      const file = e.target.files[0]
-      if (file && file.name.endsWith('.pdf')) {
-        this.pdfFile = file
-        this.toast.success('PDF file uploaded successfully!')
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".pdf")) {
+        this.pdfFile = file;
+        this.toast.success("PDF file uploaded successfully!");
       } else {
-        this.toast.error('Please select a valid PDF file')
+        this.toast.error("Please select a valid PDF file");
       }
     },
 
     async startSplitting() {
-      console.log('🚀 Starting PDF splitting process...')
-      console.log('📄 PDF File:', this.pdfFile ? {
-        name: this.pdfFile.name,
-        size: this.pdfFile.size,
-        type: this.pdfFile.type
-      } : 'No file')
-      console.log('🔍 Filter String:', this.filterString)
+      console.log("🚀 Starting PDF splitting process...");
+      console.log(
+        "📄 PDF File:",
+        this.pdfFile
+          ? {
+              name: this.pdfFile.name,
+              size: this.pdfFile.size,
+              type: this.pdfFile.type,
+            }
+          : "No file"
+      );
+      console.log("🔍 Filter String:", this.filterString);
 
       if (!this.pdfFile) {
-        console.error('❌ No PDF file selected')
-        this.toast.error('Please upload a PDF file')
-        return
+        console.error("❌ No PDF file selected");
+        this.toast.error("Please upload a PDF file");
+        return;
       }
 
       if (!this.filterString.trim()) {
-        console.error('❌ No filter string provided')
-        this.toast.error('Please enter a filter string to search for')
-        return
+        console.error("❌ No filter string provided");
+        this.toast.error("Please enter a filter string to search for");
+        return;
       }
 
-      this.isSplitting = true
+      this.isSplitting = true;
 
-      const formData = new FormData()
-      formData.append('pdf_file', this.pdfFile)
-      formData.append('filter_string', this.filterString.trim())
+      const formData = new FormData();
+      formData.append("pdf_file", this.pdfFile);
+      formData.append("filter_string", this.filterString.trim());
 
-      const splitUrl = joinUrl(API_BASE_URL, 'split-pdf')
-      console.log('🔧 Split URL:', splitUrl)
+      const splitUrl = joinUrl(API_BASE_URL, "split-pdf");
+      console.log("🔧 Split URL:", splitUrl);
 
       try {
-        console.log('📤 Sending split request to backend...')
+        console.log("📤 Sending split request to backend...");
         const response = await axios.post(splitUrl, formData, {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            "Content-Type": "multipart/form-data",
           },
-          timeout: 300000 // 5 minute timeout
-        })
+          timeout: 300000, // 5 minute timeout
+        });
 
-        console.log('✅ Split request successful:', response.data)
-        this.toast.success('PDF splitting started! Check the download section below.')
-        
+        console.log("✅ Split request successful:", response.data);
+        this.toast.success(
+          "PDF splitting started! Check the download section below."
+        );
+
         // Store the job ID for status checking
-        this.splitJobId = response.data.job_id
+        this.splitJobId = response.data.job_id;
         this.splitJobStatus = {
-          status: 'processing',
+          status: "processing",
           progress: 0,
-          message: 'Processing started...'
-        }
-        
-        // Start automatic status checking
-        this.startStatusPolling()
+          message: "Processing started...",
+        };
 
+        // Start automatic status checking
+        this.startStatusPolling();
       } catch (error) {
-        console.error('❌ Split processing error:', error)
-        console.error('❌ Error details:', {
+        console.error("❌ Split processing error:", error);
+        console.error("❌ Error details:", {
           message: error.message,
           status: error.response?.status,
           statusText: error.response?.statusText,
-          data: error.response?.data
-        })
-        
-        let errorMessage = 'Failed to start PDF splitting. Please try again.'
+          data: error.response?.data,
+        });
+
+        let errorMessage = "Failed to start PDF splitting. Please try again.";
         if (error.response?.data?.detail) {
-          errorMessage = `Server error: ${error.response.data.detail}`
-        } else if (error.code === 'NETWORK_ERROR') {
-          errorMessage = 'Network error: Unable to connect to the server'
-        } else if (error.code === 'ECONNABORTED') {
-          errorMessage = 'Request timeout: Server took too long to respond'
+          errorMessage = `Server error: ${error.response.data.detail}`;
+        } else if (error.code === "NETWORK_ERROR") {
+          errorMessage = "Network error: Unable to connect to the server";
+        } else if (error.code === "ECONNABORTED") {
+          errorMessage = "Request timeout: Server took too long to respond";
         }
-        
-        this.toast.error(errorMessage)
-        this.isSplitting = false
+
+        this.toast.error(errorMessage);
+        this.isSplitting = false;
       }
     },
-
-
 
     startStatusPolling() {
       // Check status every 10 seconds
       this.statusPollingInterval = setInterval(async () => {
         if (!this.splitJobId) {
-          clearInterval(this.statusPollingInterval)
-          return
+          clearInterval(this.statusPollingInterval);
+          return;
         }
-        
+
         try {
-          const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`)
-          const response = await axios.get(statusUrl)
-          
-          this.splitJobStatus = response.data
-          
-          if (response.data.status === 'completed') {
-            clearInterval(this.statusPollingInterval)
-            this.toast.success('PDF splitting completed!')
-            this.isSplitting = false
-          } else if (response.data.status === 'failed') {
-            clearInterval(this.statusPollingInterval)
-            this.toast.error(`PDF splitting failed: ${response.data.error || 'Unknown error'}`)
-            this.isSplitting = false
+          const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`);
+          const response = await axios.get(statusUrl);
+
+          this.splitJobStatus = response.data;
+
+          if (response.data.status === "completed") {
+            clearInterval(this.statusPollingInterval);
+            this.toast.success("PDF splitting completed!");
+            this.isSplitting = false;
+          } else if (response.data.status === "failed") {
+            clearInterval(this.statusPollingInterval);
+            this.toast.error(
+              `PDF splitting failed: ${response.data.error || "Unknown error"}`
+            );
+            this.isSplitting = false;
           }
         } catch (error) {
-          console.error('Status check error:', error)
+          console.error("Status check error:", error);
         }
-      }, 10000) // Check every 10 seconds
+      }, 10000); // Check every 10 seconds
     },
 
     async checkSplitStatus() {
       if (!this.splitJobId) {
-        this.toast.error('No job ID available')
-        return
+        this.toast.error("No job ID available");
+        return;
       }
-      
+
       try {
-        const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`)
-        const response = await axios.get(statusUrl)
-        
-        this.splitJobStatus = response.data
-        
-        if (response.data.status === 'completed') {
-          this.toast.success('PDF splitting completed!')
-          this.isSplitting = false
-        } else if (response.data.status === 'failed') {
-          this.toast.error(`PDF splitting failed: ${response.data.error || 'Unknown error'}`)
-          this.isSplitting = false
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.splitJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.splitJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("PDF splitting completed!");
+          this.isSplitting = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `PDF splitting failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isSplitting = false;
         }
       } catch (error) {
-        console.error('Status check error:', error)
-        this.toast.error('Failed to check status')
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
       }
     },
 
     async downloadSplitResults() {
-      if (!this.splitJobId) return
-      
+      if (!this.splitJobId) return;
+
       try {
-        const downloadUrl = joinUrl(API_BASE_URL, `download/${this.splitJobId}`)
+        const downloadUrl = joinUrl(
+          API_BASE_URL,
+          `download/${this.splitJobId}`
+        );
         const response = await axios.get(downloadUrl, {
-          responseType: 'blob'
-        })
-        
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `split_pdfs_${this.splitJobId}.zip`)
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.URL.revokeObjectURL(url)
-        
-        this.toast.success('Split PDFs downloaded successfully!')
+          responseType: "blob",
+        });
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `split_pdfs_${this.splitJobId}.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Split PDFs downloaded successfully!");
       } catch (error) {
-        console.error('Download error:', error)
-        this.toast.error('Failed to download split PDFs')
+        console.error("Download error:", error);
+        this.toast.error("Failed to download split PDFs");
       }
     },
 
     resetSplitForm() {
-      this.pdfFile = null
-      this.filterString = ''
-      this.splitJobId = null
-      this.splitJobStatus = null
-      this.isSplitting = false
-      this.isPdfDragActive = false
-      
+      this.pdfFile = null;
+      this.filterString = "";
+      this.splitJobId = null;
+      this.splitJobStatus = null;
+      this.isSplitting = false;
+      this.isPdfDragActive = false;
+
       // Clear polling interval
       if (this.statusPollingInterval) {
-        clearInterval(this.statusPollingInterval)
-        this.statusPollingInterval = null
+        clearInterval(this.statusPollingInterval);
+        this.statusPollingInterval = null;
       }
-      
+
       // Reset file input
       if (this.$refs.pdfInput) {
-        this.$refs.pdfInput.value = ''
+        this.$refs.pdfInput.value = "";
       }
     },
 
     getSplitStatusIcon() {
-      if (!this.splitJobStatus) return ''
-      
+      if (!this.splitJobStatus) return "";
+
       switch (this.splitJobStatus.status) {
-        case 'completed':
-          return '✅'
-        case 'failed':
-          return '❌'
-        case 'processing':
-          return '⏳'
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
         default:
-          return '⏳'
+          return "⏳";
       }
     },
 
     getSplitStatusTitle() {
-      if (!this.splitJobStatus) return ''
-      
+      if (!this.splitJobStatus) return "";
+
       switch (this.splitJobStatus.status) {
-        case 'completed':
-          return 'PDF Splitting Complete'
-        case 'failed':
-          return 'PDF Splitting Failed'
-        case 'processing':
-          return 'Splitting PDF'
+        case "completed":
+          return "PDF Splitting Complete";
+        case "failed":
+          return "PDF Splitting Failed";
+        case "processing":
+          return "Splitting PDF";
         default:
-          return 'PDF Splitting Status'
+          return "PDF Splitting Status";
       }
     },
 
     // Processing methods
     async startProcessing() {
       if (!this.canProcess) {
-        this.toast.error('Please upload both files and set a valid page count')
-        return
+        this.toast.error("Please upload both files and set a valid page count");
+        return;
       }
 
-      this.isProcessing = true
-      this.jobStatus = null
+      this.isProcessing = true;
+      this.jobStatus = null;
 
-      const formData = new FormData()
-      formData.append('zip_file', this.zipFile)
-      formData.append('excel_file', this.excelFile)
-      formData.append('n_pages', this.pageCount)
+      const formData = new FormData();
+      formData.append("zip_file", this.zipFile);
+      formData.append("excel_file", this.excelFile);
+      formData.append("n_pages", this.pageCount);
 
       // Debug: Log the URL being used
-      const uploadUrl = joinUrl(API_BASE_URL, 'upload')
-      console.log('🔧 API_BASE_URL:', API_BASE_URL)
-      console.log('🔧 Upload URL:', uploadUrl)
+      const uploadUrl = joinUrl(API_BASE_URL, "upload");
+      console.log("🔧 API_BASE_URL:", API_BASE_URL);
+      console.log("🔧 Upload URL:", uploadUrl);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            "Content-Type": "multipart/form-data",
           },
-        })
+        });
 
-        this.jobId = response.data.job_id
-        this.toast.success('Processing started! Check the status section below.')
-        
+        this.jobId = response.data.job_id;
+        this.toast.success(
+          "Processing started! Check the status section below."
+        );
+
         // Set initial status
         this.jobStatus = {
-          status: 'processing',
+          status: "processing",
           progress: 0,
-          message: 'Processing started...'
-        }
-
+          message: "Processing started...",
+        };
       } catch (error) {
-        console.error('Upload error:', error)
-        console.error('🔧 Error URL:', uploadUrl)
-        this.toast.error('Failed to start processing. Please try again.')
-        this.isProcessing = false
+        console.error("Upload error:", error);
+        console.error("🔧 Error URL:", uploadUrl);
+        this.toast.error("Failed to start processing. Please try again.");
+        this.isProcessing = false;
       }
     },
 
     async checkJobStatus() {
       if (!this.jobId) {
-        this.toast.error('No job ID available')
-        return
+        this.toast.error("No job ID available");
+        return;
       }
-      
+
       try {
-        const statusUrl = joinUrl(API_BASE_URL, `status/${this.jobId}`)
-        const response = await axios.get(statusUrl)
-        
-        this.jobStatus = response.data
-        
-        if (response.data.status === 'completed') {
-          this.toast.success('Processing completed!')
-          this.isProcessing = false
-        } else if (response.data.status === 'failed') {
-          this.toast.error(`Processing failed: ${response.data.error || 'Unknown error'}`)
-          this.isProcessing = false
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.jobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.jobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Processing completed!");
+          this.isProcessing = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Processing failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isProcessing = false;
         }
       } catch (error) {
-        console.error('Status check error:', error)
-        this.toast.error('Failed to check status')
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
       }
     },
 
     async downloadResults() {
-      if (!this.jobId) return
-      
+      if (!this.jobId) return;
+
       try {
-        const response = await axios.get(joinUrl(API_BASE_URL, `download/${this.jobId}`), {
-          responseType: 'blob',
-        })
-        
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `patient_data_${this.jobId}.csv`)
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.URL.revokeObjectURL(url)
-        
-        this.toast.success('Download started!')
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.jobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `patient_data_${this.jobId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
       } catch (error) {
-        console.error('Download error:', error)
-        this.toast.error('Failed to download results')
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
       }
     },
 
     resetForm() {
-      this.zipFile = null
-      this.excelFile = null
-      this.pageCount = 2
-      this.jobId = null
-      this.jobStatus = null
-      this.isProcessing = false
+      this.zipFile = null;
+      this.excelFile = null;
+      this.pageCount = 2;
+      this.jobId = null;
+      this.jobStatus = null;
+      this.isProcessing = false;
     },
 
     getStatusIcon() {
-      if (!this.jobStatus) return ''
-      
+      if (!this.jobStatus) return "";
+
       switch (this.jobStatus.status) {
-        case 'completed':
-          return '✅'
-        case 'failed':
-          return '❌'
-        case 'processing':
-          return '⏳'
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
         default:
-          return '⏸️'
+          return "⏸️";
       }
-    }
+    },
+
+    // Fast processing methods
+    onZipDropFast(e) {
+      e.preventDefault();
+      this.isZipDragActiveFast = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".zip")) {
+        this.zipFileFast = files[0];
+        this.toast.success("Patient documents uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid ZIP archive");
+      }
+    },
+
+    onExcelDropFast(e) {
+      e.preventDefault();
+      this.isExcelDragActiveFast = false;
+      const files = e.dataTransfer.files;
+      if (
+        files.length > 0 &&
+        (files[0].name.endsWith(".xlsx") || files[0].name.endsWith(".xls"))
+      ) {
+        this.excelFileFast = files[0];
+        this.toast.success("Processing template uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid Excel template");
+      }
+    },
+
+    triggerZipUploadFast() {
+      this.$refs.zipInputFast.click();
+    },
+
+    triggerExcelUploadFast() {
+      this.$refs.excelInputFast.click();
+    },
+
+    onZipFileSelectFast(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".zip")) {
+        this.zipFileFast = file;
+        this.toast.success("Patient documents uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid ZIP archive");
+      }
+    },
+
+    onExcelFileSelectFast(e) {
+      const file = e.target.files[0];
+      if (file && (file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
+        this.excelFileFast = file;
+        this.toast.success("Processing template uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid Excel template");
+      }
+    },
+
+    async startProcessingFast() {
+      if (!this.canProcessFast) {
+        this.toast.error("Please upload both files and set a valid page count");
+        return;
+      }
+
+      this.isProcessingFast = true;
+      this.jobStatusFast = null;
+
+      const formData = new FormData();
+      formData.append("zip_file", this.zipFileFast);
+      formData.append("excel_file", this.excelFileFast);
+      formData.append("n_pages", this.pageCountFast);
+      formData.append("model", "gemini-2.5-flash"); // Use the fast model
+
+      // Debug: Log the URL being used
+      const uploadUrl = joinUrl(API_BASE_URL, "upload");
+      console.log("🔧 API_BASE_URL:", API_BASE_URL);
+      console.log("🔧 Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.jobIdFast = response.data.job_id;
+        this.toast.success(
+          "Fast processing started! Check the status section below."
+        );
+
+        // Set initial status
+        this.jobStatusFast = {
+          status: "processing",
+          progress: 0,
+          message: "Fast processing started...",
+        };
+      } catch (error) {
+        console.error("Upload error:", error);
+        console.error("🔧 Error URL:", uploadUrl);
+        this.toast.error("Failed to start fast processing. Please try again.");
+        this.isProcessingFast = false;
+      }
+    },
+
+    async checkJobStatusFast() {
+      if (!this.jobIdFast) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.jobIdFast}`);
+        const response = await axios.get(statusUrl);
+
+        this.jobStatusFast = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Fast processing completed!");
+          this.isProcessingFast = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Fast processing failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isProcessingFast = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadResultsFast() {
+      if (!this.jobIdFast) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.jobIdFast}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `patient_data_fast_${this.jobIdFast}.csv`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetFormFast() {
+      this.zipFileFast = null;
+      this.excelFileFast = null;
+      this.pageCountFast = 2;
+      this.jobIdFast = null;
+      this.jobStatusFast = null;
+      this.isProcessingFast = false;
+    },
+
+    getStatusTitleFast() {
+      if (!this.jobStatusFast) return "";
+
+      switch (this.jobStatusFast.status) {
+        case "completed":
+          return "Fast Processing Complete";
+        case "failed":
+          return "Fast Processing Failed";
+        case "processing":
+          return "Fast Processing Documents";
+        default:
+          return "Fast Processing Status";
+      }
+    },
+
+    getStatusIconFast() {
+      if (!this.jobStatusFast) return "";
+
+      switch (this.jobStatusFast.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⚡";
+        default:
+          return "⏸️";
+      }
+    },
   },
-
-
-}
+};
 </script>
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 
 * {
   margin: 0;
@@ -840,7 +1335,8 @@ export default {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
   background: #f8fafc;
   color: #1e293b;
   line-height: 1.6;
@@ -1135,7 +1631,8 @@ body {
   flex-wrap: wrap;
 }
 
-.process-btn, .reset-btn {
+.process-btn,
+.reset-btn {
   padding: 1rem 2rem;
   border: none;
   border-radius: 12px;
@@ -1192,8 +1689,12 @@ body {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Status Section */
@@ -1421,46 +1922,47 @@ body {
   .header-content {
     padding: 0 1rem;
   }
-  
+
   .logo {
     flex-direction: column;
     text-align: center;
     gap: 1rem;
   }
-  
+
   .logo-text h1 {
     font-size: 1.5rem;
   }
-  
+
   .container {
     padding: 0 1rem;
   }
-  
+
   .section-header h2 {
     font-size: 2rem;
   }
-  
+
   .upload-grid {
     grid-template-columns: 1fr;
     gap: 1.5rem;
   }
-  
+
   .upload-card {
     padding: 1.5rem;
   }
-  
+
   .action-section {
     flex-direction: column;
   }
-  
-  .process-btn, .reset-btn {
+
+  .process-btn,
+  .reset-btn {
     width: 100%;
   }
-  
+
   .status-header {
     flex-direction: column;
     text-align: center;
     gap: 1rem;
   }
 }
-</style> 
+</style>

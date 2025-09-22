@@ -195,7 +195,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, n_pages = args
+    client, pdf_file_path, extraction_prompt, n_pages, model = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
@@ -205,12 +205,12 @@ def process_single_patient_pdf_task(args):
         return pdf_filename, None, temp_patient_pdf
         
     # Extract info from this patient's combined pages
-    response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt)
+    response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
     
     return pdf_filename, response, temp_patient_pdf
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-2.5-pro"):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -257,7 +257,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs
         tasks = []
         for pdf_file in pdf_files:
-            tasks.append((client, pdf_file, extraction_prompt, n_pages))
+            tasks.append((client, pdf_file, extraction_prompt, n_pages, model))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
@@ -406,11 +406,12 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
 
 
 if __name__ == "__main__":
-    # Allow specifying input folder, Excel file, number of pages, and max workers as command line arguments
+    # Allow specifying input folder, Excel file, number of pages, max workers, and model as command line arguments
     input_folder = "input"  # Default input folder
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
+    model = "gemini-2.5-pro"  # Default model
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -426,12 +427,15 @@ if __name__ == "__main__":
             max_workers = int(sys.argv[4])
         except ValueError:
             print("⚠️  Warning: Invalid max_workers value, using default of 5")
+    if len(sys.argv) > 5:
+        model = sys.argv[5]
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
     print(f"   Excel file: {excel_file}")
     print(f"   Pages per patient: {n_pages}")
     print(f"   Max workers: {max_workers}")
+    print(f"   Model: {model}")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model) 
