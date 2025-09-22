@@ -111,7 +111,7 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             str(temp_dir / "input"),
             str(excel_dest),
             str(n_pages),  # n_pages parameter
-            "7,  # max_workers
+            "7",  # max_workers
             model  # model parameter
         ], capture_output=True, text=True, cwd=temp_dir, env=env)
         
