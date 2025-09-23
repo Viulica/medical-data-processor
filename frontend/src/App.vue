@@ -37,6 +37,13 @@
           >
             ✂️ Split PDF
           </button>
+          <button
+            @click="activeTab = 'cpt'"
+            :class="{ active: activeTab === 'cpt' }"
+            class="tab-btn"
+          >
+            🏥 Predict CPT Codes (UNI)
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -589,6 +596,162 @@
             </div>
           </div>
         </div>
+
+        <!-- CPT Prediction Tab -->
+        <div v-if="activeTab === 'cpt'" class="upload-section">
+          <div class="section-header">
+            <h2>CPT Code Prediction</h2>
+            <p>
+              Upload a CSV file with a 'Procedure' column to predict anesthesia
+              CPT codes using AI
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- CSV File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>CSV File with Procedures</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isCsvDragActive,
+                  'has-file': csvFile,
+                }"
+                @drop="onCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerCsvUpload"
+              >
+                <input
+                  ref="csvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="csvFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ csvFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(csvFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Requirements</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span>CSV must contain a 'Procedure' column</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🏥</span>
+                    <span>Each row should have a procedure description</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">⚡</span>
+                    <span>AI will predict anesthesia CPT codes</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startCptPrediction"
+              :disabled="!canPredictCpt || isPredictingCpt"
+              class="process-btn"
+            >
+              <span v-if="isPredictingCpt" class="spinner"></span>
+              <span v-else class="btn-icon">🏥</span>
+              {{
+                isPredictingCpt
+                  ? "Predicting CPT Codes..."
+                  : "Start CPT Prediction"
+              }}
+            </button>
+
+            <button
+              v-if="csvFile || cptJobId"
+              @click="resetCptForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- CPT Prediction Status -->
+        <div v-if="cptJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="cptJobStatus.status">
+                <span class="status-icon">{{ getCptStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getCptStatusTitle() }}</h3>
+                <p class="status-message">{{ cptJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="cptJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${cptJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ cptJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkCptJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="cptJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadCptResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Results (CSV)
+              </button>
+            </div>
+
+            <div
+              v-if="cptJobStatus.status === 'failed' && cptJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ cptJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -652,6 +815,12 @@ export default {
       isSplitting: false,
       isPdfDragActive: false,
       statusPollingInterval: null,
+      // CPT prediction functionality
+      csvFile: null,
+      cptJobId: null,
+      cptJobStatus: null,
+      isPredictingCpt: false,
+      isCsvDragActive: false,
     };
   },
   computed: {
@@ -673,6 +842,9 @@ export default {
     },
     canSplit() {
       return this.pdfFile && this.filterString.trim();
+    },
+    canPredictCpt() {
+      return this.csvFile;
     },
   },
   methods: {
@@ -1321,6 +1493,165 @@ export default {
           return "⏸️";
       }
     },
+
+    // CPT prediction methods
+    onCsvDrop(e) {
+      e.preventDefault();
+      this.isCsvDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+        this.csvFile = files[0];
+        this.toast.success("CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    triggerCsvUpload() {
+      this.$refs.csvInput.click();
+    },
+
+    onCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".csv")) {
+        this.csvFile = file;
+        this.toast.success("CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    async startCptPrediction() {
+      if (!this.canPredictCpt) {
+        this.toast.error("Please upload a CSV file");
+        return;
+      }
+
+      this.isPredictingCpt = true;
+      this.cptJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("csv_file", this.csvFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
+      console.log("🔧 CPT Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.cptJobId = response.data.job_id;
+        this.toast.success(
+          "CPT prediction started! Check the status section below."
+        );
+
+        // Set initial status
+        this.cptJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "CPT prediction started...",
+        };
+      } catch (error) {
+        console.error("CPT prediction error:", error);
+        this.toast.error("Failed to start CPT prediction. Please try again.");
+        this.isPredictingCpt = false;
+      }
+    },
+
+    async checkCptJobStatus() {
+      if (!this.cptJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.cptJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.cptJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("CPT prediction completed!");
+          this.isPredictingCpt = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `CPT prediction failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isPredictingCpt = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadCptResults() {
+      if (!this.cptJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.cptJobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `cpt_predictions_${this.cptJobId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetCptForm() {
+      this.csvFile = null;
+      this.cptJobId = null;
+      this.cptJobStatus = null;
+      this.isPredictingCpt = false;
+      this.isCsvDragActive = false;
+    },
+
+    getCptStatusTitle() {
+      if (!this.cptJobStatus) return "";
+
+      switch (this.cptJobStatus.status) {
+        case "completed":
+          return "CPT Prediction Complete";
+        case "failed":
+          return "CPT Prediction Failed";
+        case "processing":
+          return "Predicting CPT Codes";
+        default:
+          return "CPT Prediction Status";
+      }
+    },
+
+    getCptStatusIcon() {
+      if (!this.cptJobStatus) return "";
+
+      switch (this.cptJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "🏥";
+        default:
+          return "⏸️";
+      }
+    },
   },
 };
 </script>
@@ -1915,6 +2246,34 @@ body {
   font-size: 0.875rem;
   color: #6b7280;
   line-height: 1.5;
+}
+
+/* Requirement List Styles */
+.requirement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.requirement-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.requirement-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.requirement-item span:last-child {
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 /* Responsive Design */

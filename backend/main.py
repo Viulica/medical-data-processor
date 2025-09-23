@@ -288,6 +288,128 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
 
+def predict_cpt_background(job_id: str, csv_path: str):
+    """Background task to predict CPT codes from CSV procedures"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting CPT code prediction..."
+        job.progress = 10
+        
+        # Import required modules for CPT prediction
+        import pandas as pd
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from google import genai
+        from google.genai import types
+        
+        # Setup clients
+        client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+        fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+        
+        custom_model = "projects/835764687231/locations/us-central1/endpoints/1866721154824142848"
+        fallback_model = "gemini-2.5-pro"
+        
+        generate_content_config = types.GenerateContentConfig(
+            temperature=1,
+            top_p=1,
+            seed=0,
+            max_output_tokens=50,
+            safety_settings=[
+                types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"),
+                types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
+                types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
+                types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="OFF"),
+            ],
+            thinking_config=types.ThinkingConfig(thinking_budget=-1),
+        )
+        
+        def get_prediction(procedure, retries=5):
+            prompt = f'For this procedure: "{procedure}" give me the most appropriate anesthesia CPT code'
+            last_error = "Unknown error"
+
+            for _ in range(retries):
+                try:
+                    response = client.models.generate_content(
+                        model=custom_model,
+                        contents=[types.Content(role="user", parts=[{"text": prompt}])],
+                        config=generate_content_config
+                    )
+                    result = response.text
+                    if result and result.strip().startswith("0"):
+                        return result.strip()
+                except Exception as e:
+                    last_error = str(e)
+
+            # Fallback to production model
+            try:
+                response = fallback_client.models.generate_content(
+                    model=fallback_model,
+                    contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
+                )
+                fallback_result = response.text
+                return fallback_result.strip() if fallback_result else f"Fallback failed: empty response"
+            except Exception as e:
+                return f"Fallback failed: {str(e)}"
+        
+        job.message = "Reading CSV file..."
+        job.progress = 20
+        
+        # Read CSV file
+        try:
+            df = pd.read_csv(csv_path, encoding='utf-8')
+        except UnicodeDecodeError:
+            try:
+                df = pd.read_csv(csv_path, encoding='latin-1')
+            except Exception as e:
+                raise Exception(f"Could not read CSV with utf-8 or latin-1 encoding: {e}")
+
+        if "Procedure" not in df.columns:
+            raise Exception("CSV file missing 'Procedure' column")
+
+        job.message = f"Processing {len(df)} procedures..."
+        job.progress = 30
+        
+        # Process predictions with threading
+        predictions = [None] * len(df)
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(get_prediction, proc): i for i, proc in enumerate(df["Procedure"])}
+            
+            completed = 0
+            for future in as_completed(futures):
+                idx = futures[future]
+                predictions[idx] = future.result()
+                completed += 1
+                job.progress = 30 + int((completed / len(df)) * 50)
+                job.message = f"Processed {completed}/{len(df)} procedures..."
+
+        job.message = "Adding predictions to CSV..."
+        job.progress = 85
+        
+        # Insert predictions into dataframe
+        insert_index = df.columns.get_loc("Procedure") + 1
+        df.insert(insert_index, "Predicted Anesthesia CPT Code", predictions)
+        
+        # Save result
+        result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
+        result_file.parent.mkdir(exist_ok=True)
+        df.to_csv(result_file, index=False)
+        
+        job.result_file = str(result_file)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"CPT prediction completed! Processed {len(df)} procedures."
+        
+        # Clean up input file
+        os.unlink(csv_path)
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"CPT prediction failed: {str(e)}"
+        logger.error(f"CPT prediction job {job_id} failed: {str(e)}")
+
 @app.post("/upload")
 async def upload_files(
     background_tasks: BackgroundTasks,
@@ -352,6 +474,46 @@ async def get_job_status(job_id: str):
         "message": job.message,
         "error": job.error
     }
+
+@app.post("/predict-cpt")
+async def predict_cpt(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...)
+):
+    """Upload a CSV file to predict CPT codes for procedures"""
+    
+    try:
+        logger.info(f"Received CPT prediction request - csv: {csv_file.filename}")
+        
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created CPT prediction job {job_id}")
+        
+        # Save uploaded CSV
+        csv_path = f"/tmp/{job_id}_input.csv"
+        
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+        
+        logger.info(f"CSV saved - path: {csv_path}")
+        
+        # Start background processing
+        background_tasks.add_task(predict_cpt_background, job_id, csv_path)
+        
+        logger.info(f"Background CPT prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "CSV uploaded and CPT prediction started"}
+        
+    except Exception as e:
+        logger.error(f"CPT prediction upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/split-pdf")
 async def split_pdf(
