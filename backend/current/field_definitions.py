@@ -89,44 +89,6 @@ Extraction Instructions per Patient Record:
     for field in field_definitions:
         # Skip the metadata fields that are automatically added
         if field['name'] not in ['source_file', 'page_number']:
-            
-            # Special handling for guarantor relation field
-            if field['name'].lower() in ['guarantor relation']:
-                special_instruction = """Compare the patient name with the insured's name. If they are the same person, output "Self". If they are different, output "Other". Always output as strings: "Self" or "Other"."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            # Special handling for primary coverage member relation
-            elif field['name'].lower() in ['primary cvg mem rel to sub', 'primary cvg member rel to sub']:
-                special_instruction = """Compare the patient name with the insured's name from the FIRST insurance section (C.O.B. 1 / Primary Insurance). When comparing names, ignore suffixes like SR, JR, III, etc. If the core names match (ignoring suffixes), output "Self". If the names are completely different, output 'Other' """
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            # Special handling for secondary coverage member relation  
-            elif field['name'].lower() in ['secondary cvg mem rel to sub', 'secondary cvg member rel to sub']:
-                special_instruction = """Compare the patient name with the insured's name from the SECOND insurance section (C.O.B. 2 / Secondary Insurance). When comparing names, ignore suffixes like SR, JR, III, etc. If the core names match (ignoring suffixes), output "Self". If the names are completely different, output 'Other' ."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            # special handling other
-            elif field['name'].lower() in ['primary cvg address 1', 'primary coverage address 1']:
-                special_instruction = """Extract the insurance company address from the PRIMARY insurance section (C.O.B. 1). Look for "INSURANCE ADDRESS" field in the primary insurance box."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['primary cvg city', 'primary coverage city']:
-                special_instruction = """Extract the insurance company city from the PRIMARY insurance section (C.O.B. 1). Look for city in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['primary cvg state', 'primary coverage state']:
-                special_instruction = """Extract the insurance company state from the PRIMARY insurance section (C.O.B. 1). Look for state in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['primary cvg zip', 'primary coverage zip']:
-                special_instruction = """Extract the insurance company ZIP code from the PRIMARY insurance section (C.O.B. 1). Look for ZIP in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['secondary cvg address 1', 'secondary coverage address 1']:
-                special_instruction = """Extract the insurance company address from the SECONDARY insurance section (C.O.B. 2). Look for "INSURANCE ADDRESS" field in the secondary insurance box."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['secondary cvg city', 'secondary coverage city']:
-                special_instruction = """Extract the insurance company city from the SECONDARY insurance section (C.O.B. 2). Look for city in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['secondary cvg state', 'secondary coverage state']:
-                special_instruction = """Extract the insurance company state from the SECONDARY insurance section (C.O.B. 2). Look for state in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
-            elif field['name'].lower() in ['secondary cvg zip', 'secondary coverage zip']:
-                special_instruction = """Extract the insurance company ZIP code from the SECONDARY insurance section (C.O.B. 2). Look for ZIP in the insurance address area."""
-                field_instructions.append(f"{field['name']}: {special_instruction}")
             else:
                 # Create instruction combining description, location, and output format
                 instruction_parts = []
@@ -142,40 +104,42 @@ Extraction Instructions per Patient Record:
                 
                 instruction = ' | '.join(instruction_parts) if instruction_parts else 'Extract if available'
                 field_instructions.append(f"{field['name']}: {instruction}")
-    
+
+
+    field_specific_instructions = """
+
+
+     1- For address zip and city fields, do not extract the comma sign, just the text.
+
+    2. When it comes to guarantor relation, the names DO NOT have to match exatctly to be self relation.
+
+    3. Also when it comes to guarantor relation , if the relation is listed as "parent" in the pdf, your output is "Child" because the only three valid options for this field are "Self", "Child", and "Other".
+
+    4. If the date of birth of patient and guarantor is the same AND the names are roughly the same, then output "Self" for guarantor relation.
+
+    5. IMPORTANT: if you see any random ID looking numbers in a different color and font then the original pdf (they look copy pasted) then ignore them (do not put them in any of the extracted fields!!!)
+
+    6. ALSO IMPORTANT: never DROP leading zeros from any number. Always write all the strings and numbers as they are.
+
+    7. ALSO IMPORTANT: if for a certain field I said you should put an empty string, always put an empty string make sure the final output is an empty string.
+
+
+    8. OTHER RULES (make sure to double check you are following these rules):
+    9. FOR THE CHARGE DATE FIELD: if there is a date of service, put that, if there is no date of service then put the admission date, if there is no clear others, then take whatever makes most sense.
+
+    """
+
     prompt_footer = """
 
-    For address zip and city fields, do not extract the comma sign, just the text.
 
-    When it comes to guarantor relation, the names DO NOT have to match exatctly to be self relation.
+    ALSO: be very careful to not confuse the number 1 and the letter l , double check you did not confuse them.
 
-    Also when it comes to guarantor relation , if the relation is listed as "parent" in the pdf, your output is "Child" because the only three valid options for this field are "Self", "Child", and "Other".
-
-    If the date of birth of patient and guarantor is the same AND the names are roughly the same, then output "Self" for guarantor relation.
-
-    IMPORTANT: if you see any random ID looking numbers in a different color and font then the original pdf (they look copy pasted) then ignore them (do not put them in any of the extracted fields!!!)
-
-    ALSO IMPORTANT: never DROP leading zeros from any number. Always write all the strings and numbers as they are.
-
-    ALSO IMPORTANT: if for a certain field I said you should put an empty string, always put an empty string make sure the final output is an empty string.
-    
-    ALSO IMPORTANT: If there is only one phone number on the page put it under Cell Phone field, if there is two put the second most imporant one under Home Phone (unless that one number is specifically marked as a home number)
-
-    PHONE NUMBER FORMATTING: All phone numbers should be formatted with a space after the area code: (712) 301-6622 NOT (712)301-6622
-
-    FIELD VALUE FORMATTING: Do NOT add any extra characters (like ?, spaces, or symbols) at the beginning or end of any field values. Extract the exact values as they appear in the document.
-
-    Make SURE to include the fields "Primary Cvg Mem Rel to Sub" and "Secondary Cvg Mem Rel to Sub" in the output. These are very important.
-
-    When choosing what to put in these two fields (Primary Cvg Mem Rel to Sub and Secondary Cvg Mem Rel to Sub), follow the same rules as the guarantor relation field.
-
-    OTHER RULES (make sure to double check you are following these rules):
-    FOR THE DATE FIELD: if there is a date of service, put that, if there is no date of service then put the admission date, if there is no clear others, then take whatever makes most sense.
-    FOR THE PATIENT FIELD: always write just the first letter of the middle name, capitalized
-    FOR ALL THE ADDRESS FIELDS: if there is both the address and PO BOX number, then extract the PO BOX number only.
-    (if there is just address then extract the address only)
-    FOR POLICY NUMBER FIELDS (primary insurance policy number, secondary insurance policy number): If the policy number is a very big number, excel will convert it to scientific notation, so please add a ? (question mark) at the beginning of the number. You should only do this if the policy number is only numbers and like more than 10 digiits
+    FINAL INSTRUCTION: make sure to fill out all the fields that have data contained in the pdf. double check you did not leave empty something that should be filled out, or vice versa that you hallunicated. something.
 
     Your entire response must be a single JSON object representing the one patient record found on this page. Do not include any other text or commentary."""
     
+    # save the prompt to a file
+    with open('extraction_prompt.txt', 'w') as f:
+        f.write(prompt_header + '\n'.join(field_instructions) + prompt_footer)
+
     return prompt_header + '\n'.join(field_instructions) + prompt_footer 
