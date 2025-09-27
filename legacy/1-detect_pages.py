@@ -98,7 +98,7 @@ page indexes start at 1!
     
     generate_content_config = types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(
-            thinking_budget=-1,
+            thinking_budget=0,
         ),
         response_mime_type="text/plain",
     )

@@ -331,7 +331,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
                 types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="OFF"),
             ],
-            thinking_config=types.ThinkingConfig(thinking_budget=-1),
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         
         def format_asa_code(code):
@@ -429,10 +429,18 @@ IMPORTANT RULES:
 
 What is your final code decision?"""
 
-                # Use Gemini Flash for review
+                # Use Gemini Flash for review with thinking enabled
+                review_config = types.GenerateContentConfig(
+                    temperature=0.3,  # Lower temperature for more consistent reviews
+                    top_p=0.9,
+                    max_output_tokens=50,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                )
+                
                 review_response = fallback_client.models.generate_content(
                     model="gemini-2.5-flash-latest",
                     contents=[types.Content(role="user", parts=[{"text": review_prompt}])],
+                    config=review_config
                 )
                 
                 reviewed_result = review_response.text.strip()
