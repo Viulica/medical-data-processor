@@ -575,10 +575,54 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Custom Instructions -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Custom Coding Instructions</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label for="custom-instructions" class="form-label">
+                    Additional instructions for medical coder (optional):
+                  </label>
+                  <textarea
+                    id="custom-instructions"
+                    v-model="customInstructions"
+                    class="form-textarea"
+                    rows="4"
+                    placeholder="Enter specific coding guidelines, corrections, or preferences that should override AI predictions..."
+                  ></textarea>
+                  <div class="instruction-actions">
+                    <button
+                      @click="saveInstructions"
+                      class="save-btn"
+                      :disabled="isSavingInstructions"
+                    >
+                      <span v-if="isSavingInstructions" class="spinner"></span>
+                      <span v-else>💾</span>
+                      {{
+                        isSavingInstructions ? "Saving..." : "Save Instructions"
+                      }}
+                    </button>
+                    <button
+                      @click="loadInstructions"
+                      class="load-btn"
+                      :disabled="isLoadingInstructions"
+                    >
+                      <span v-if="isLoadingInstructions" class="spinner"></span>
+                      <span v-else>📂</span>
+                      {{ isLoadingInstructions ? "Loading..." : "Load Saved" }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Requirements -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>Requirements</h3>
               </div>
               <div class="settings-content">
@@ -906,6 +950,9 @@ export default {
       // CPT prediction functionality
       csvFile: null,
       selectedClient: "uni",
+      customInstructions: "",
+      isSavingInstructions: false,
+      isLoadingInstructions: false,
       cptJobId: null,
       cptJobStatus: null,
       isPredictingCpt: false,
@@ -917,6 +964,10 @@ export default {
       isConvertingUni: false,
       isUniCsvDragActive: false,
     };
+  },
+  mounted() {
+    // Auto-load instructions when component mounts
+    this.loadInstructions();
   },
   computed: {
     canProcess() {
@@ -1722,6 +1773,43 @@ export default {
       this.isCsvDragActive = false;
     },
 
+    async saveInstructions() {
+      this.isSavingInstructions = true;
+      try {
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "save-instructions"),
+          { instructions: this.customInstructions },
+          { headers: { "Content-Type": "application/json" } }
+        );
+        this.toast.success("Instructions saved successfully!");
+      } catch (error) {
+        console.error("Save instructions error:", error);
+        this.toast.error("Failed to save instructions");
+      } finally {
+        this.isSavingInstructions = false;
+      }
+    },
+
+    async loadInstructions() {
+      this.isLoadingInstructions = true;
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "load-instructions")
+        );
+        this.customInstructions = response.data.instructions || "";
+        this.toast.success("Instructions loaded successfully!");
+      } catch (error) {
+        console.error("Load instructions error:", error);
+        if (error.response?.status === 404) {
+          this.toast.info("No saved instructions found");
+        } else {
+          this.toast.error("Failed to load instructions");
+        }
+      } finally {
+        this.isLoadingInstructions = false;
+      }
+    },
+
     getCptStatusTitle() {
       if (!this.cptJobStatus) return "";
 
@@ -2258,6 +2346,78 @@ body {
 
 .form-select:hover {
   border-color: #cbd5e1;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: all 0.3s ease;
+  background: white;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-textarea:hover {
+  border-color: #cbd5e1;
+}
+
+.instruction-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.save-btn,
+.load-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.save-btn {
+  background: #10b981;
+  color: white;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+.save-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.load-btn {
+  background: #3b82f6;
+  color: white;
+}
+
+.load-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.load-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
 }
 
 /* Action Section */

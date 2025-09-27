@@ -359,10 +359,15 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 # Return as is for other lengths
                 return numeric_code
 
-        def get_prediction(procedure, retries=5):
+        def get_prediction_and_review(procedure, retries=5):
+            """Two-stage prediction: 1) Custom model predicts, 2) Gemini Flash reviews"""
+            
+            # Stage 1: Get initial prediction from custom model
             prompt = f'For this procedure: "{procedure}" give me the most appropriate anesthesia CPT code'
             last_error = "Unknown error"
+            initial_prediction = None
 
+            # Try custom model first
             for _ in range(retries):
                 try:
                     response = client_genai.models.generate_content(
@@ -372,27 +377,78 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     )
                     result = response.text
                     if result and result.strip().startswith("0"):
-                        # Format the ASA code with leading zeros
-                        formatted_result = format_asa_code(result.strip())
-                        return formatted_result
+                        initial_prediction = format_asa_code(result.strip())
+                        break
                 except Exception as e:
                     last_error = str(e)
 
-            # Fallback to production model
+            # Fallback to production model if custom model failed
+            if not initial_prediction:
+                try:
+                    response = fallback_client.models.generate_content(
+                        model=fallback_model,
+                        contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
+                    )
+                    fallback_result = response.text
+                    if fallback_result:
+                        initial_prediction = format_asa_code(fallback_result.strip())
+                    else:
+                        return f"Prediction failed: empty response"
+                except Exception as e:
+                    return f"Prediction failed: {str(e)}"
+
+            # Stage 2: Review with custom instructions (if available)
             try:
-                response = fallback_client.models.generate_content(
-                    model=fallback_model,
-                    contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
+                # Load custom instructions
+                instructions_file = Path("data/cpt_instructions.json")
+                custom_instructions = ""
+                if instructions_file.exists():
+                    with open(instructions_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        custom_instructions = data.get("instructions", "").strip()
+
+                # If no custom instructions, return initial prediction
+                if not custom_instructions:
+                    return initial_prediction
+
+                # Create review prompt
+                review_prompt = f"""You are a medical coding reviewer. Your job is to REVIEW and potentially CORRECT a CPT code prediction, but ONLY if the custom medical coder instructions specifically apply to this case.
+
+PROCEDURE DESCRIPTION: "{procedure}"
+PREDICTED CPT CODE: "{initial_prediction}"
+
+CUSTOM MEDICAL CODER INSTRUCTIONS:
+{custom_instructions}
+
+IMPORTANT RULES:
+1. Your job is NOT to predict a new code - it's to REVIEW and potentially CORRECT the existing prediction
+2. ONLY change the code if the custom instructions specifically mention this type of procedure OR this specific code
+3. If the custom instructions don't apply to this specific procedure or code, return the original predicted code unchanged
+4. If you do make a correction, return only the corrected code with proper formatting (leading zeros)
+5. Return ONLY the CPT code, nothing else
+
+What is your final code decision?"""
+
+                # Use Gemini Flash for review
+                review_response = fallback_client.models.generate_content(
+                    model="gemini-2.5-flash-latest",
+                    contents=[types.Content(role="user", parts=[{"text": review_prompt}])],
                 )
-                fallback_result = response.text
-                if fallback_result:
-                    # Format the ASA code with leading zeros
-                    formatted_fallback = format_asa_code(fallback_result.strip())
-                    return formatted_fallback
+                
+                reviewed_result = review_response.text.strip()
+                
+                # Format the reviewed result
+                if reviewed_result and reviewed_result.replace("0", "").replace("1", "").replace("2", "").replace("3", "").replace("4", "").replace("5", "").replace("6", "").replace("7", "").replace("8", "").replace("9", "") == "":
+                    # It's a numeric code, format it
+                    final_result = format_asa_code(reviewed_result)
+                    return final_result
                 else:
-                    return f"Fallback failed: empty response"
+                    # Not a clean numeric code, return original prediction
+                    return initial_prediction
+
             except Exception as e:
-                return f"Fallback failed: {str(e)}"
+                logger.warning(f"Review stage failed: {str(e)}, returning initial prediction")
+                return initial_prediction
         
         job.message = "Reading CSV file..."
         job.progress = 20
@@ -416,7 +472,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         predictions = [None] * len(df)
         
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(get_prediction, proc): i for i, proc in enumerate(df["Procedure Description"])}
+            futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
             
             completed = 0
             for future in as_completed(futures):
@@ -568,6 +624,48 @@ async def cleanup_all_jobs():
         "jobs_cleaned": cleaned_count,
         "bytes_freed": total_size_freed
     }
+
+@app.post("/save-instructions")
+async def save_instructions(request: dict):
+    """Save custom coding instructions to JSON file"""
+    try:
+        instructions = request.get("instructions", "")
+        
+        # Create data directory if it doesn't exist
+        data_dir = Path("data")
+        data_dir.mkdir(exist_ok=True)
+        
+        # Save instructions to JSON file
+        instructions_file = data_dir / "cpt_instructions.json"
+        with open(instructions_file, "w", encoding="utf-8") as f:
+            json.dump({"instructions": instructions}, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"Saved custom instructions: {len(instructions)} characters")
+        return {"message": "Instructions saved successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to save instructions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save instructions: {str(e)}")
+
+@app.get("/load-instructions")
+async def load_instructions():
+    """Load custom coding instructions from JSON file"""
+    try:
+        instructions_file = Path("data/cpt_instructions.json")
+        
+        if not instructions_file.exists():
+            return {"instructions": ""}
+        
+        with open(instructions_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        instructions = data.get("instructions", "")
+        logger.info(f"Loaded custom instructions: {len(instructions)} characters")
+        return {"instructions": instructions}
+        
+    except Exception as e:
+        logger.error(f"Failed to load instructions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load instructions: {str(e)}")
 
 @app.post("/predict-cpt")
 async def predict_cpt(
