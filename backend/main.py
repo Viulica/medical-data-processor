@@ -752,6 +752,94 @@ async def health_check():
         logger.error(f"Health check error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+def convert_uni_background(job_id: str, csv_path: str):
+    """Background task to convert UNI CSV using the conversion script"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting UNI CSV conversion..."
+        job.progress = 10
+        
+        # Import the conversion functions
+        import sys
+        sys.path.append(str(Path(__file__).parent / "uni-conversion"))
+        from convert import convert_data
+        
+        job.message = "Converting UNI CSV data..."
+        job.progress = 50
+        
+        # Create output file path
+        output_file = f"/tmp/results/{job_id}_converted.csv"
+        Path(output_file).parent.mkdir(exist_ok=True)
+        
+        # Run the conversion
+        success = convert_data(csv_path, output_file)
+        
+        if not success:
+            raise Exception("UNI conversion failed")
+        
+        job.message = "UNI conversion complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not os.path.exists(output_file):
+            raise Exception("Output file was not created")
+        
+        job.result_file = output_file
+        job.status = "completed"
+        job.progress = 100
+        job.message = "UNI conversion completed successfully!"
+        
+        # Clean up input file
+        os.unlink(csv_path)
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"UNI conversion failed: {str(e)}"
+        logger.error(f"UNI conversion job {job_id} failed: {str(e)}")
+
+@app.post("/convert-uni")
+async def convert_uni(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...)
+):
+    """Upload a UNI CSV file to convert using the conversion script"""
+    
+    try:
+        logger.info(f"Received UNI conversion request - csv: {csv_file.filename}")
+        
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created UNI conversion job {job_id}")
+        
+        # Save uploaded CSV
+        csv_path = f"/tmp/{job_id}_uni_input.csv"
+        
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+        
+        logger.info(f"UNI CSV saved - path: {csv_path}")
+        
+        # Start background processing
+        background_tasks.add_task(convert_uni_background, job_id, csv_path)
+        
+        logger.info(f"Background UNI conversion task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "UNI CSV uploaded and conversion started"}
+        
+    except Exception as e:
+        logger.error(f"UNI conversion upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 @app.get("/memory")
 async def memory_status():
     """Memory usage and job status endpoint"""

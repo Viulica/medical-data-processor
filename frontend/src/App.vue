@@ -45,6 +45,13 @@
           >
             🏥 Predict CPT Codes (UNI)
           </button>
+          <button
+            @click="activeTab = 'uni'"
+            :class="{ active: activeTab === 'uni' }"
+            class="tab-btn"
+          >
+            🔄 Convert UNI CSV
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -647,6 +654,162 @@
             </div>
           </div>
         </div>
+
+        <!-- UNI Conversion Tab -->
+        <div v-if="activeTab === 'uni'" class="upload-section">
+          <div class="section-header">
+            <h2>UNI CSV Conversion</h2>
+            <p>
+              Upload a UNI CSV file to convert it using the automated conversion
+              script
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- CSV File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>UNI CSV File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isUniCsvDragActive,
+                  'has-file': uniCsvFile,
+                }"
+                @drop="onUniCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerUniCsvUpload"
+              >
+                <input
+                  ref="uniCsvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onUniCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="uniCsvFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ uniCsvFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(uniCsvFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop UNI CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Requirements</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span>CSV file with UNI data format</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔄</span>
+                    <span>Automatic conversion using mapping rules</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Download converted CSV file</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startUniConversion"
+              :disabled="!canConvertUni || isConvertingUni"
+              class="process-btn"
+            >
+              <span v-if="isConvertingUni" class="spinner"></span>
+              <span v-else class="btn-icon">🔄</span>
+              {{
+                isConvertingUni
+                  ? "Converting UNI CSV..."
+                  : "Start UNI Conversion"
+              }}
+            </button>
+
+            <button
+              v-if="uniCsvFile || uniJobId"
+              @click="resetUniForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- UNI Conversion Status -->
+        <div v-if="uniJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="uniJobStatus.status">
+                <span class="status-icon">{{ getUniStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getUniStatusTitle() }}</h3>
+                <p class="status-message">{{ uniJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="uniJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${uniJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ uniJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkUniJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="uniJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadUniResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Converted CSV
+              </button>
+            </div>
+
+            <div
+              v-if="uniJobStatus.status === 'failed' && uniJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ uniJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -716,6 +879,12 @@ export default {
       cptJobStatus: null,
       isPredictingCpt: false,
       isCsvDragActive: false,
+      // UNI conversion functionality
+      uniCsvFile: null,
+      uniJobId: null,
+      uniJobStatus: null,
+      isConvertingUni: false,
+      isUniCsvDragActive: false,
     };
   },
   computed: {
@@ -740,6 +909,9 @@ export default {
     },
     canPredictCpt() {
       return this.csvFile;
+    },
+    canConvertUni() {
+      return this.uniCsvFile;
     },
   },
   methods: {
@@ -1543,6 +1715,165 @@ export default {
           return "❌";
         case "processing":
           return "🏥";
+        default:
+          return "⏸️";
+      }
+    },
+
+    // UNI conversion methods
+    onUniCsvDrop(e) {
+      e.preventDefault();
+      this.isUniCsvDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+        this.uniCsvFile = files[0];
+        this.toast.success("UNI CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    triggerUniCsvUpload() {
+      this.$refs.uniCsvInput.click();
+    },
+
+    onUniCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".csv")) {
+        this.uniCsvFile = file;
+        this.toast.success("UNI CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    async startUniConversion() {
+      if (!this.canConvertUni) {
+        this.toast.error("Please upload a CSV file");
+        return;
+      }
+
+      this.isConvertingUni = true;
+      this.uniJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("csv_file", this.uniCsvFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "convert-uni");
+      console.log("🔧 UNI Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.uniJobId = response.data.job_id;
+        this.toast.success(
+          "UNI conversion started! Check the status section below."
+        );
+
+        // Set initial status
+        this.uniJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "UNI conversion started...",
+        };
+      } catch (error) {
+        console.error("UNI conversion error:", error);
+        this.toast.error("Failed to start UNI conversion. Please try again.");
+        this.isConvertingUni = false;
+      }
+    },
+
+    async checkUniJobStatus() {
+      if (!this.uniJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.uniJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.uniJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("UNI conversion completed!");
+          this.isConvertingUni = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `UNI conversion failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isConvertingUni = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadUniResults() {
+      if (!this.uniJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.uniJobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `uni_converted_${this.uniJobId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetUniForm() {
+      this.uniCsvFile = null;
+      this.uniJobId = null;
+      this.uniJobStatus = null;
+      this.isConvertingUni = false;
+      this.isUniCsvDragActive = false;
+    },
+
+    getUniStatusTitle() {
+      if (!this.uniJobStatus) return "";
+
+      switch (this.uniJobStatus.status) {
+        case "completed":
+          return "UNI Conversion Complete";
+        case "failed":
+          return "UNI Conversion Failed";
+        case "processing":
+          return "Converting UNI CSV";
+        default:
+          return "UNI Conversion Status";
+      }
+    },
+
+    getUniStatusIcon() {
+      if (!this.uniJobStatus) return "";
+
+      switch (this.uniJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "🔄";
         default:
           return "⏸️";
       }
