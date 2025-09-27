@@ -438,7 +438,7 @@ What is your final code decision?"""
                 )
                 
                 review_response = fallback_client.models.generate_content(
-                    model="gemini-2.5-flash-latest",
+                    model="gemini-flash-latest",
                     contents=[types.Content(role="user", parts=[{"text": review_prompt}])],
                     config=review_config
                 )
