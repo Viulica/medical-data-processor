@@ -43,7 +43,7 @@
             :class="{ active: activeTab === 'cpt' }"
             class="tab-btn"
           >
-            🏥 Predict CPT Codes (UNI)
+            🏥 Predict CPT Codes
           </button>
           <button
             @click="activeTab = 'uni'"
@@ -550,10 +550,35 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Client Selection -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
+                <h3>Select Client</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label for="client-select" class="form-label"
+                    >Choose Client for CPT Coding:</label
+                  >
+                  <select
+                    id="client-select"
+                    v-model="selectedClient"
+                    class="form-select"
+                  >
+                    <option value="uni">UNI</option>
+                    <option value="sio-stl">SIO-STL</option>
+                    <option value="gap-fin">GAP-FIN</option>
+                    <option value="apo-utp">APO-UTP</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
                 <h3>Requirements</h3>
               </div>
               <div class="settings-content">
@@ -875,6 +900,7 @@ export default {
       statusPollingInterval: null,
       // CPT prediction functionality
       csvFile: null,
+      selectedClient: "uni",
       cptJobId: null,
       cptJobStatus: null,
       isPredictingCpt: false,
@@ -1599,6 +1625,7 @@ export default {
 
       const formData = new FormData();
       formData.append("csv_file", this.csvFile);
+      formData.append("client", this.selectedClient);
 
       const uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
       console.log("🔧 CPT Upload URL:", uploadUrl);
@@ -2191,6 +2218,41 @@ body {
   color: #64748b;
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+/* Form Elements */
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-label {
+  display: block;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.form-select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  background: white;
+  cursor: pointer;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-select:hover {
+  border-color: #cbd5e1;
 }
 
 /* Action Section */

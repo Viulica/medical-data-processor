@@ -288,7 +288,7 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
 
-def predict_cpt_background(job_id: str, csv_path: str):
+def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
     """Background task to predict CPT codes from CSV procedures"""
     job = job_status[job_id]
     
@@ -304,11 +304,21 @@ def predict_cpt_background(job_id: str, csv_path: str):
         from google.genai import types
         
         # Setup clients
-        client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+        client_genai = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
-        custom_model = "projects/835764687231/locations/us-central1/endpoints/1866721154824142848"
+        # Client model mapping
+        client_models = {
+            "uni": "projects/835764687231/locations/us-central1/endpoints/1866721154824142848",
+            "sio-stl": "projects/835764687231/locations/us-central1/endpoints/1567080046999371776",
+            "gap-fin": "projects/835764687231/locations/us-central1/endpoints/9219461073994776576",
+            "apo-utp": "projects/835764687231/locations/us-central1/endpoints/1107985563891269632"
+        }
+        
+        custom_model = client_models.get(client, client_models["uni"])
         fallback_model = "gemini-2.5-pro"
+        
+        logger.info(f"Using client model for {client}: {custom_model}")
         
         generate_content_config = types.GenerateContentConfig(
             temperature=1,
@@ -355,7 +365,7 @@ def predict_cpt_background(job_id: str, csv_path: str):
 
             for _ in range(retries):
                 try:
-                    response = client.models.generate_content(
+                    response = client_genai.models.generate_content(
                         model=custom_model,
                         contents=[types.Content(role="user", parts=[{"text": prompt}])],
                         config=generate_content_config
@@ -561,12 +571,13 @@ async def cleanup_all_jobs():
 @app.post("/predict-cpt")
 async def predict_cpt(
     background_tasks: BackgroundTasks,
-    csv_file: UploadFile = File(...)
+    csv_file: UploadFile = File(...),
+    client: str = Form(default="uni")
 ):
     """Upload a CSV file to predict CPT codes for procedures"""
     
     try:
-        logger.info(f"Received CPT prediction request - csv: {csv_file.filename}")
+        logger.info(f"Received CPT prediction request - csv: {csv_file.filename}, client: {client}")
         
         # Validate file type
         if not csv_file.filename.endswith('.csv'):
@@ -588,7 +599,7 @@ async def predict_cpt(
         logger.info(f"CSV saved - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(predict_cpt_background, job_id, csv_path)
+        background_tasks.add_task(predict_cpt_background, job_id, csv_path, client)
         
         logger.info(f"Background CPT prediction task started for job {job_id}")
         
