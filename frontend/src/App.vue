@@ -965,10 +965,6 @@ export default {
       isUniCsvDragActive: false,
     };
   },
-  mounted() {
-    // Auto-load instructions when component mounts
-    this.loadInstructions();
-  },
   computed: {
     canProcess() {
       return (
@@ -1774,11 +1770,16 @@ export default {
     },
 
     async saveInstructions() {
+      if (!API_BASE_URL) {
+        this.toast.error("API not available");
+        return;
+      }
+
       this.isSavingInstructions = true;
       try {
-        const response = await axios.post(
+        await axios.post(
           joinUrl(API_BASE_URL, "save-instructions"),
-          { instructions: this.customInstructions },
+          { instructions: this.customInstructions || "" },
           { headers: { "Content-Type": "application/json" } }
         );
         this.toast.success("Instructions saved successfully!");
@@ -1791,16 +1792,22 @@ export default {
     },
 
     async loadInstructions() {
+      if (!API_BASE_URL) {
+        console.warn("API_BASE_URL not available, skipping instruction load");
+        return;
+      }
+
       this.isLoadingInstructions = true;
       try {
         const response = await axios.get(
           joinUrl(API_BASE_URL, "load-instructions")
         );
-        this.customInstructions = response.data.instructions || "";
+        this.customInstructions = response.data?.instructions || "";
         this.toast.success("Instructions loaded successfully!");
       } catch (error) {
         console.error("Load instructions error:", error);
         if (error.response?.status === 404) {
+          this.customInstructions = "";
           this.toast.info("No saved instructions found");
         } else {
           this.toast.error("Failed to load instructions");
