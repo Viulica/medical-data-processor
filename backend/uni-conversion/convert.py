@@ -25,7 +25,7 @@ def find_header(df, header_name):
 def split_patient_name(patient_name, target_field):
     """
     Split patient name into components based on target field.
-    Replicates the patient name splitting logic from the Excel macro.
+    Handles both "Last, First" and "First Last" formats.
     """
     if not patient_name or pd.isna(patient_name):
         return ""
@@ -33,30 +33,69 @@ def split_patient_name(patient_name, target_field):
     patient_name = str(patient_name).strip()
     
     if "last" in target_field.lower():
-        # Extract last name (before comma)
-        parts = patient_name.split(",")
-        if len(parts) > 0:
+        # Extract last name
+        if "," in patient_name:
+            # Format: "Last, First" - take part before comma
+            parts = patient_name.split(",")
             return parts[0].strip()
-    
-    elif "first" in target_field.lower():
-        # Extract first name (after comma, or first word if no comma)
-        parts = patient_name.split(",")
-        if len(parts) > 1:
-            return parts[1].strip()
         else:
-            # No comma found, split by space and take first word
+            # Format: "First Last" or "First Middle Last" - take last word
             parts = patient_name.split()
             if len(parts) > 0:
-                return parts[0]
+                return parts[-1].strip()
+            return ""
+    
+    elif "first" in target_field.lower():
+        # Extract first name
+        if "," in patient_name:
+            # Format: "Last, First" - take part after comma
+            parts = patient_name.split(",")
+            if len(parts) > 1:
+                first_part = parts[1].strip()
+                # If there are multiple names after comma, take the first word
+                first_words = first_part.split()
+                return first_words[0] if first_words else ""
+            return ""
+        else:
+            # Format: "First Last" or "First Middle Last" - take first word
+            parts = patient_name.split()
+            if len(parts) > 1:
+                # Only return first name if there are multiple parts (indicating first + last)
+                return parts[0].strip()
+            else:
+                # Single word - assume it's a last name only, so no first name
+                return ""
     
     elif "middle" in target_field.lower():
-        # Extract middle name (last word if it's exactly one uppercase letter)
-        parts = patient_name.split()
-        if len(parts) > 0:
-            last_word = parts[-1]
-            if len(last_word) == 1 and last_word.isupper() and last_word.isalpha():
-                return last_word
-        return ""
+        # Extract middle name
+        if "," in patient_name:
+            # Format: "Last, First Middle" - extract middle from after comma
+            parts = patient_name.split(",")
+            if len(parts) > 1:
+                after_comma = parts[1].strip()
+                words = after_comma.split()
+                # Look for middle name (single letter or second word)
+                if len(words) > 1:
+                    # Check if last word is single letter
+                    if len(words[-1]) == 1 and words[-1].isupper() and words[-1].isalpha():
+                        return words[-1]
+                    # Otherwise return second word as middle name
+                    return words[1] if len(words) > 1 else ""
+                return ""
+        else:
+            # Format: "First Middle Last" - look for middle name
+            parts = patient_name.split()
+            if len(parts) >= 3:
+                # If we have 3+ words, middle could be the second word or a single letter
+                middle_candidate = parts[1]
+                if len(middle_candidate) == 1 and middle_candidate.isupper() and middle_candidate.isalpha():
+                    return middle_candidate
+                # For compound names like "First Middle Last", return the middle word
+                return middle_candidate
+            elif len(parts) == 2:
+                # Only First Last, no middle name
+                return ""
+            return ""
     
     else:
         # Return full name
