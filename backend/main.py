@@ -427,7 +427,10 @@ IMPORTANT RULES:
 4. If you do make a correction, return only the corrected code with proper formatting (leading zeros)
 5. Return ONLY the CPT code, nothing else
 
-What is your final code decision?"""
+What is your final code decision?
+
+
+answer ONLY with the code, nothing else"""
 
                 # Use Gemini Flash for review with thinking enabled
                 review_config = types.GenerateContentConfig(
@@ -438,7 +441,7 @@ What is your final code decision?"""
                 )
                 
                 review_response = fallback_client.models.generate_content(
-                    model="gemini-flash-latest",
+                    model="gemini-2.5-flash",
                     contents=[types.Content(role="user", parts=[{"text": review_prompt}])],
                     config=review_config
                 )
