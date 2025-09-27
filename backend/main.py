@@ -324,6 +324,31 @@ def predict_cpt_background(job_id: str, csv_path: str):
             thinking_config=types.ThinkingConfig(thinking_budget=-1),
         )
         
+        def format_asa_code(code):
+            """Format ASA code with leading zeros based on length"""
+            if not code or not isinstance(code, str):
+                return code
+            
+            # Clean the code - remove any non-numeric characters except leading zeros
+            cleaned_code = code.strip()
+            
+            # Extract only numeric characters
+            numeric_code = ''.join(filter(str.isdigit, cleaned_code))
+            
+            if not numeric_code:
+                return code  # Return original if no numbers found
+            
+            # Apply formatting rules
+            if len(numeric_code) == 4:
+                # 4 numbers: add 1 leading zero
+                return f"0{numeric_code}"
+            elif len(numeric_code) == 3:
+                # 3 numbers: add 2 leading zeros
+                return f"00{numeric_code}"
+            else:
+                # Return as is for other lengths
+                return numeric_code
+
         def get_prediction(procedure, retries=5):
             prompt = f'For this procedure: "{procedure}" give me the most appropriate anesthesia CPT code'
             last_error = "Unknown error"
@@ -337,7 +362,9 @@ def predict_cpt_background(job_id: str, csv_path: str):
                     )
                     result = response.text
                     if result and result.strip().startswith("0"):
-                        return result.strip()
+                        # Format the ASA code with leading zeros
+                        formatted_result = format_asa_code(result.strip())
+                        return formatted_result
                 except Exception as e:
                     last_error = str(e)
 
@@ -348,7 +375,12 @@ def predict_cpt_background(job_id: str, csv_path: str):
                     contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
                 )
                 fallback_result = response.text
-                return fallback_result.strip() if fallback_result else f"Fallback failed: empty response"
+                if fallback_result:
+                    # Format the ASA code with leading zeros
+                    formatted_fallback = format_asa_code(fallback_result.strip())
+                    return formatted_fallback
+                else:
+                    return f"Fallback failed: empty response"
             except Exception as e:
                 return f"Fallback failed: {str(e)}"
         
@@ -475,6 +507,57 @@ async def get_job_status(job_id: str):
         "error": job.error
     }
 
+@app.delete("/cleanup/{job_id}")
+async def cleanup_job(job_id: str):
+    """Clean up a completed job and its files"""
+    if job_id not in job_status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = job_status[job_id]
+    
+    # Clean up result file if it exists
+    if job.result_file and os.path.exists(job.result_file):
+        try:
+            os.unlink(job.result_file)
+            logger.info(f"Cleaned up result file: {job.result_file}")
+        except Exception as e:
+            logger.error(f"Failed to clean up result file: {e}")
+    
+    # Remove job from memory
+    del job_status[job_id]
+    logger.info(f"Cleaned up job {job_id} from memory")
+    
+    return {"message": f"Job {job_id} cleaned up successfully"}
+
+@app.delete("/cleanup-all")
+async def cleanup_all_jobs():
+    """Clean up all completed jobs and their files"""
+    cleaned_count = 0
+    total_size_freed = 0
+    
+    for job_id, job in list(job_status.items()):
+        if job.status in ["completed", "failed"]:
+            # Clean up result file if it exists
+            if job.result_file and os.path.exists(job.result_file):
+                try:
+                    file_size = os.path.getsize(job.result_file)
+                    os.unlink(job.result_file)
+                    total_size_freed += file_size
+                    logger.info(f"Cleaned up result file: {job.result_file}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up result file: {e}")
+            
+            # Remove job from memory
+            del job_status[job_id]
+            cleaned_count += 1
+    
+    logger.info(f"Cleaned up {cleaned_count} jobs, freed {total_size_freed} bytes")
+    return {
+        "message": f"Cleaned up {cleaned_count} jobs",
+        "jobs_cleaned": cleaned_count,
+        "bytes_freed": total_size_freed
+    }
+
 @app.post("/predict-cpt")
 async def predict_cpt(
     background_tasks: BackgroundTasks,
@@ -578,11 +661,35 @@ async def download_result(job_id: str):
         filename = f"processed_data_{job_id}.csv"
         media_type = "text/csv"
     
+    # Schedule cleanup after download (in background)
+    import asyncio
+    asyncio.create_task(cleanup_after_download(job_id))
+    
     return FileResponse(
         job.result_file,
         media_type=media_type,
         filename=filename
     )
+
+async def cleanup_after_download(job_id: str):
+    """Clean up job after download with a delay"""
+    import asyncio
+    await asyncio.sleep(30)  # Wait 30 seconds after download
+    
+    if job_id in job_status:
+        job = job_status[job_id]
+        
+        # Clean up result file
+        if job.result_file and os.path.exists(job.result_file):
+            try:
+                os.unlink(job.result_file)
+                logger.info(f"Auto-cleaned up result file: {job.result_file}")
+            except Exception as e:
+                logger.error(f"Failed to auto-cleanup result file: {e}")
+        
+        # Remove job from memory
+        del job_status[job_id]
+        logger.info(f"Auto-cleaned up job {job_id} from memory")
 
 @app.get("/")
 async def root():
@@ -644,6 +751,37 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check error: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/memory")
+async def memory_status():
+    """Memory usage and job status endpoint"""
+    import psutil
+    import gc
+    
+    # Get memory info
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    
+    # Count jobs by status
+    job_counts = {}
+    for job in job_status.values():
+        status = job.status
+        job_counts[status] = job_counts.get(status, 0) + 1
+    
+    # Count result files
+    results_dir = Path("/tmp/results")
+    result_files = list(results_dir.glob("*")) if results_dir.exists() else []
+    total_result_size = sum(f.stat().st_size for f in result_files if f.is_file())
+    
+    return {
+        "memory_mb": round(memory_info.rss / 1024 / 1024, 2),
+        "memory_percent": round(process.memory_percent(), 2),
+        "total_jobs": len(job_status),
+        "job_counts": job_counts,
+        "result_files_count": len(result_files),
+        "result_files_size_mb": round(total_result_size / 1024 / 1024, 2),
+        "gc_counts": gc.get_count()
+    }
 
 if __name__ == "__main__":
     # This is for local development only

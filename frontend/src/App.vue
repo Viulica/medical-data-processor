@@ -19,9 +19,10 @@
           <button
             @click="activeTab = 'process'"
             :class="{ active: activeTab === 'process' }"
-            class="tab-btn"
+            class="tab-btn disabled"
+            disabled
           >
-            📊 Process Documents
+            📊 Process Documents (Disabled)
           </button>
           <button
             @click="activeTab = 'process-fast'"
@@ -49,143 +50,37 @@
         <!-- Process Documents Tab -->
         <div v-if="activeTab === 'process'" class="upload-section">
           <div class="section-header">
-            <h2>Document Processing</h2>
+            <h2>Document Processing (Disabled)</h2>
             <p>
-              Upload patient documents and processing instructions to extract
-              structured medical data
+              This processing option has been temporarily disabled. Please use
+              the "Process Documents (Fast)" option instead.
             </p>
           </div>
 
-          <div class="upload-grid">
-            <!-- Step 1: ZIP File Upload -->
-            <div class="upload-card">
-              <div class="card-header">
-                <div class="step-number">1</div>
-                <h3>Patient Documents</h3>
-              </div>
-              <div
-                class="dropzone"
-                :class="{
-                  active: isZipDragActive,
-                  'has-file': zipFile,
-                }"
-                @drop="onZipDrop"
-                @dragover.prevent
-                @dragenter.prevent
-                @click="triggerZipUpload"
-              >
-                <input
-                  ref="zipInput"
-                  type="file"
-                  accept=".zip"
-                  @change="onZipFileSelect"
-                  style="display: none"
-                />
-                <div class="upload-content">
-                  <div class="upload-icon">📁</div>
-                  <div v-if="zipFile" class="file-info">
-                    <div class="file-icon">📄</div>
-                    <span class="file-name">{{ zipFile.name }}</span>
-                    <span class="file-size">{{
-                      formatFileSize(zipFile.size)
-                    }}</span>
-                  </div>
-                  <p v-else class="upload-text">
-                    Drag & drop ZIP archive here<br />or click to browse
-                  </p>
+          <div class="disabled-section">
+            <div class="disabled-card">
+              <div class="disabled-icon">🚫</div>
+              <h3>Standard Processing Disabled</h3>
+              <p>
+                The standard document processing feature has been temporarily
+                disabled. Please use the "Process Documents (Fast)" tab for
+                document processing.
+              </p>
+              <div class="disabled-features">
+                <div class="feature-item">
+                  <span class="feature-icon">⚡</span>
+                  <span>Use Fast Processing instead</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">🔧</span>
+                  <span>Same functionality, better performance</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">💰</span>
+                  <span>More cost-effective processing</span>
                 </div>
               </div>
             </div>
-
-            <!-- Step 2: Excel File Upload -->
-            <div class="upload-card">
-              <div class="card-header">
-                <div class="step-number">2</div>
-                <h3>Processing Template</h3>
-              </div>
-              <div
-                class="dropzone"
-                :class="{
-                  active: isExcelDragActive,
-                  'has-file': excelFile,
-                }"
-                @drop="onExcelDrop"
-                @dragover.prevent
-                @dragenter.prevent
-                @click="triggerExcelUpload"
-              >
-                <input
-                  ref="excelInput"
-                  type="file"
-                  accept=".xlsx,.xls"
-                  @change="onExcelFileSelect"
-                  style="display: none"
-                />
-                <div class="upload-content">
-                  <div class="upload-icon">📊</div>
-                  <div v-if="excelFile" class="file-info">
-                    <div class="file-icon">📄</div>
-                    <span class="file-name">{{ excelFile.name }}</span>
-                    <span class="file-size">{{
-                      formatFileSize(excelFile.size)
-                    }}</span>
-                  </div>
-                  <p v-else class="upload-text">
-                    Drag & drop Excel template here<br />or click to browse
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Step 3: Configuration -->
-            <div class="upload-card">
-              <div class="card-header">
-                <div class="step-number">3</div>
-                <h3>Processing Settings</h3>
-              </div>
-              <div class="settings-content">
-                <div class="setting-group">
-                  <label for="pageCount">Pages per document</label>
-                  <div class="input-wrapper">
-                    <input
-                      id="pageCount"
-                      v-model.number="pageCount"
-                      type="number"
-                      min="1"
-                      max="50"
-                      class="page-input"
-                      placeholder="2"
-                    />
-                  </div>
-                  <small class="help-text">
-                    Number of pages to extract from each patient document
-                  </small>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="action-section">
-            <button
-              @click="startProcessing"
-              :disabled="!canProcess || isProcessing"
-              class="process-btn"
-            >
-              <span v-if="isProcessing" class="spinner"></span>
-              <span v-else class="btn-icon">🚀</span>
-              {{
-                isProcessing ? "Processing Documents..." : "Start Processing"
-              }}
-            </button>
-
-            <button
-              v-if="zipFile || excelFile || jobId"
-              @click="resetForm"
-              class="reset-btn"
-            >
-              Reset
-            </button>
           </div>
         </div>
 
@@ -789,7 +684,7 @@ export default {
   },
   data() {
     return {
-      activeTab: "process",
+      activeTab: "process-fast",
       zipFile: null,
       excelFile: null,
       pageCount: 2,
@@ -1767,6 +1662,20 @@ body {
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
+.tab-btn.disabled {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.tab-btn.disabled:hover {
+  transform: none;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+}
+
 /* Section Headers */
 .section-header {
   text-align: center;
@@ -2271,6 +2180,71 @@ body {
 }
 
 .requirement-item span:last-child {
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Disabled Section Styles */
+.disabled-section {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+}
+
+.disabled-card {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 3rem;
+  text-align: center;
+  max-width: 500px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.disabled-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  opacity: 0.7;
+}
+
+.disabled-card h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+
+.disabled-card p {
+  color: #64748b;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+.disabled-features {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  justify-content: center;
+}
+
+.feature-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.feature-item span:last-child {
   color: #374151;
   font-size: 0.875rem;
   font-weight: 500;
