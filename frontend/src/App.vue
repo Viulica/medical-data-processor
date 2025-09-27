@@ -504,8 +504,8 @@
           <div class="section-header">
             <h2>CPT Code Prediction</h2>
             <p>
-              Upload a CSV file with a 'Procedure' column to predict anesthesia
-              CPT codes using AI
+              Upload a CSV file with a 'Procedure Description' column to predict
+              anesthesia CPT codes using AI
             </p>
           </div>
 
@@ -585,7 +585,9 @@
                 <div class="requirement-list">
                   <div class="requirement-item">
                     <span class="requirement-icon">📋</span>
-                    <span>CSV must contain a 'Procedure' column</span>
+                    <span
+                      >CSV must contain a 'Procedure Description' column</span
+                    >
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">🏥</span>
@@ -593,7 +595,10 @@
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">⚡</span>
-                    <span>AI will predict anesthesia CPT codes</span>
+                    <span
+                      >AI will predict CPT codes in 'ASA Code' and 'Procedure
+                      Code' columns</span
+                    >
                   </div>
                 </div>
               </div>

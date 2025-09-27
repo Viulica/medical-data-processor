@@ -406,8 +406,8 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             except Exception as e:
                 raise Exception(f"Could not read CSV with utf-8 or latin-1 encoding: {e}")
 
-        if "Procedure" not in df.columns:
-            raise Exception("CSV file missing 'Procedure' column")
+        if "Procedure Description" not in df.columns:
+            raise Exception("CSV file missing 'Procedure Description' column")
 
         job.message = f"Processing {len(df)} procedures..."
         job.progress = 30
@@ -416,7 +416,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         predictions = [None] * len(df)
         
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(get_prediction, proc): i for i, proc in enumerate(df["Procedure"])}
+            futures = {executor.submit(get_prediction, proc): i for i, proc in enumerate(df["Procedure Description"])}
             
             completed = 0
             for future in as_completed(futures):
@@ -429,9 +429,10 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         job.message = "Adding predictions to CSV..."
         job.progress = 85
         
-        # Insert predictions into dataframe
-        insert_index = df.columns.get_loc("Procedure") + 1
-        df.insert(insert_index, "Predicted Anesthesia CPT Code", predictions)
+        # Insert predictions into dataframe as two columns
+        insert_index = df.columns.get_loc("Procedure Description") + 1
+        df.insert(insert_index, "ASA Code", predictions)
+        df.insert(insert_index + 1, "Procedure Code", predictions)
         
         # Save result
         result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
