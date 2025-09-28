@@ -952,6 +952,21 @@ def convert_instructions_background(job_id: str, excel_path: str):
         except Exception as e:
             raise Exception(f"Failed to read Excel file: {str(e)}")
         
+        job.message = "Copying additions.csv file..."
+        job.progress = 45
+        
+        # Copy the additions.csv file to the same directory as the temp CSV
+        # The convert_data function expects additions.csv to be in the same directory as the input file
+        import shutil
+        additions_source = Path(__file__).parent / "instructions-conversion" / "additions.csv"
+        additions_dest = Path(temp_csv_path).parent / "additions.csv"
+        
+        if additions_source.exists():
+            shutil.copy2(additions_source, additions_dest)
+            logger.info(f"Copied additions.csv from {additions_source} to {additions_dest}")
+        else:
+            logger.warning(f"additions.csv not found at {additions_source}")
+        
         job.message = "Converting data using instructions script..."
         job.progress = 60
         
@@ -987,6 +1002,8 @@ def convert_instructions_background(job_id: str, excel_path: str):
         # Clean up temporary files
         if os.path.exists(temp_csv_path):
             os.unlink(temp_csv_path)
+        if os.path.exists(additions_dest):
+            os.unlink(additions_dest)
         os.unlink(excel_path)
         
     except Exception as e:
@@ -994,6 +1011,15 @@ def convert_instructions_background(job_id: str, excel_path: str):
         job.error = str(e)
         job.message = f"Instructions conversion failed: {str(e)}"
         logger.error(f"Instructions conversion job {job_id} failed: {str(e)}")
+        
+        # Clean up on error
+        try:
+            if 'temp_csv_path' in locals() and os.path.exists(temp_csv_path):
+                os.unlink(temp_csv_path)
+            if 'additions_dest' in locals() and os.path.exists(additions_dest):
+                os.unlink(additions_dest)
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup error: {cleanup_error}")
 
 @app.post("/convert-uni")
 async def convert_uni(
