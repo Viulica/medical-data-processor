@@ -52,6 +52,13 @@
           >
             🔄 Convert UNI CSV
           </button>
+          <button
+            @click="activeTab = 'instructions'"
+            :class="{ active: activeTab === 'instructions' }"
+            class="tab-btn"
+          >
+            📋 Convert Instructions
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -884,6 +891,177 @@
             </div>
           </div>
         </div>
+
+        <!-- Instructions Conversion Tab -->
+        <div v-if="activeTab === 'instructions'" class="upload-section">
+          <div class="section-header">
+            <h2>Instructions Conversion</h2>
+            <p>
+              Upload an Excel file to convert it using the automated
+              instructions conversion script
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Excel File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Instructions Excel File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isInstructionsExcelDragActive,
+                  'has-file': instructionsExcelFile,
+                }"
+                @drop="onInstructionsExcelDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerInstructionsExcelUpload"
+              >
+                <input
+                  ref="instructionsExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onInstructionsExcelFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="instructionsExcelFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      instructionsExcelFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(instructionsExcelFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Requirements</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span>Excel file with GAP instruction format</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔄</span>
+                    <span>Automatic conversion using mapping rules</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Download converted Excel file</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startInstructionsConversion"
+              :disabled="!canConvertInstructions || isConvertingInstructions"
+              class="process-btn"
+            >
+              <span v-if="isConvertingInstructions" class="spinner"></span>
+              <span v-else class="btn-icon">📋</span>
+              {{
+                isConvertingInstructions
+                  ? "Converting Instructions..."
+                  : "Start Instructions Conversion"
+              }}
+            </button>
+
+            <button
+              v-if="instructionsExcelFile || instructionsJobId"
+              @click="resetInstructionsForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Instructions Conversion Status -->
+        <div v-if="instructionsJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div
+                class="status-indicator"
+                :class="instructionsJobStatus.status"
+              >
+                <span class="status-icon">{{
+                  getInstructionsStatusIcon()
+                }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getInstructionsStatusTitle() }}</h3>
+                <p class="status-message">
+                  {{ instructionsJobStatus.message }}
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-if="instructionsJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${instructionsJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ instructionsJobStatus.progress }}% Complete
+              </div>
+              <button
+                @click="checkInstructionsJobStatus"
+                class="check-status-btn"
+              >
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="instructionsJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadInstructionsResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Converted Excel
+              </button>
+            </div>
+
+            <div
+              v-if="
+                instructionsJobStatus.status === 'failed' &&
+                instructionsJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ instructionsJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -963,6 +1141,12 @@ export default {
       uniJobStatus: null,
       isConvertingUni: false,
       isUniCsvDragActive: false,
+      // Instructions conversion functionality
+      instructionsExcelFile: null,
+      instructionsJobId: null,
+      instructionsJobStatus: null,
+      isConvertingInstructions: false,
+      isInstructionsExcelDragActive: false,
     };
   },
   computed: {
@@ -990,6 +1174,9 @@ export default {
     },
     canConvertUni() {
       return this.uniCsvFile;
+    },
+    canConvertInstructions() {
+      return this.instructionsExcelFile;
     },
   },
   methods: {
@@ -2001,6 +2188,178 @@ export default {
           return "❌";
         case "processing":
           return "🔄";
+        default:
+          return "⏸️";
+      }
+    },
+
+    // Instructions conversion methods
+    onInstructionsExcelDrop(e) {
+      e.preventDefault();
+      this.isInstructionsExcelDragActive = false;
+      const files = e.dataTransfer.files;
+      if (
+        files.length > 0 &&
+        (files[0].name.endsWith(".xlsx") || files[0].name.endsWith(".xls"))
+      ) {
+        this.instructionsExcelFile = files[0];
+        this.toast.success("Instructions Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid Excel file");
+      }
+    },
+
+    triggerInstructionsExcelUpload() {
+      this.$refs.instructionsExcelInput.click();
+    },
+
+    onInstructionsExcelFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && (file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
+        this.instructionsExcelFile = file;
+        this.toast.success("Instructions Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid Excel file");
+      }
+    },
+
+    async startInstructionsConversion() {
+      if (!this.canConvertInstructions) {
+        this.toast.error("Please upload an Excel file");
+        return;
+      }
+
+      this.isConvertingInstructions = true;
+      this.instructionsJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("excel_file", this.instructionsExcelFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "convert-instructions");
+      console.log("🔧 Instructions Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.instructionsJobId = response.data.job_id;
+        this.toast.success(
+          "Instructions conversion started! Check the status section below."
+        );
+
+        // Set initial status
+        this.instructionsJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Instructions conversion started...",
+        };
+      } catch (error) {
+        console.error("Instructions conversion error:", error);
+        this.toast.error(
+          "Failed to start instructions conversion. Please try again."
+        );
+        this.isConvertingInstructions = false;
+      }
+    },
+
+    async checkInstructionsJobStatus() {
+      if (!this.instructionsJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `status/${this.instructionsJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.instructionsJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Instructions conversion completed!");
+          this.isConvertingInstructions = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Instructions conversion failed: ${
+              response.data.error || "Unknown error"
+            }`
+          );
+          this.isConvertingInstructions = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadInstructionsResults() {
+      if (!this.instructionsJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.instructionsJobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `instructions_converted_${this.instructionsJobId}.xlsx`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetInstructionsForm() {
+      this.instructionsExcelFile = null;
+      this.instructionsJobId = null;
+      this.instructionsJobStatus = null;
+      this.isConvertingInstructions = false;
+      this.isInstructionsExcelDragActive = false;
+    },
+
+    getInstructionsStatusTitle() {
+      if (!this.instructionsJobStatus) return "";
+
+      switch (this.instructionsJobStatus.status) {
+        case "completed":
+          return "Instructions Conversion Complete";
+        case "failed":
+          return "Instructions Conversion Failed";
+        case "processing":
+          return "Converting Instructions";
+        default:
+          return "Instructions Conversion Status";
+      }
+    },
+
+    getInstructionsStatusIcon() {
+      if (!this.instructionsJobStatus) return "";
+
+      switch (this.instructionsJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "📋";
         default:
           return "⏸️";
       }

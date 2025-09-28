@@ -778,6 +778,9 @@ async def download_result(job_id: str):
     if job.result_file.endswith('.zip'):
         filename = f"split_pdfs_{job_id}.zip"
         media_type = "application/zip"
+    elif job.result_file.endswith('.xlsx'):
+        filename = f"converted_data_{job_id}.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         filename = f"processed_data_{job_id}.csv"
         media_type = "text/csv"
@@ -921,6 +924,77 @@ def convert_uni_background(job_id: str, csv_path: str):
         job.message = f"UNI conversion failed: {str(e)}"
         logger.error(f"UNI conversion job {job_id} failed: {str(e)}")
 
+def convert_instructions_background(job_id: str, excel_path: str):
+    """Background task to convert Excel file using the instructions conversion script"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting instructions conversion..."
+        job.progress = 10
+        
+        # Import required modules
+        import pandas as pd
+        import sys
+        sys.path.append(str(Path(__file__).parent / "instructions-conversion"))
+        from convert_instructions import convert_data
+        
+        job.message = "Reading Excel file..."
+        job.progress = 30
+        
+        # Convert Excel to CSV first
+        temp_csv_path = f"/tmp/{job_id}_temp_input.csv"
+        try:
+            # Read Excel file
+            df = pd.read_excel(excel_path)
+            # Save as CSV
+            df.to_csv(temp_csv_path, index=False)
+        except Exception as e:
+            raise Exception(f"Failed to read Excel file: {str(e)}")
+        
+        job.message = "Converting data using instructions script..."
+        job.progress = 60
+        
+        # Create output file path
+        output_file = f"/tmp/results/{job_id}_converted.csv"
+        Path(output_file).parent.mkdir(exist_ok=True)
+        
+        # Run the conversion using the convert_instructions script
+        success = convert_data(temp_csv_path, output_file)
+        
+        if not success:
+            raise Exception("Instructions conversion failed")
+        
+        job.message = "Conversion complete, preparing Excel output..."
+        job.progress = 85
+        
+        # Convert back to Excel format
+        excel_output_file = f"/tmp/results/{job_id}_converted.xlsx"
+        try:
+            converted_df = pd.read_csv(output_file)
+            converted_df.to_excel(excel_output_file, index=False)
+            # Use Excel file as the final result
+            job.result_file = excel_output_file
+        except Exception as e:
+            # If Excel conversion fails, use CSV
+            logger.warning(f"Excel conversion failed, using CSV: {str(e)}")
+            job.result_file = output_file
+        
+        job.status = "completed"
+        job.progress = 100
+        job.message = "Instructions conversion completed successfully!"
+        
+        # Clean up temporary files
+        if os.path.exists(temp_csv_path):
+            os.unlink(temp_csv_path)
+        os.unlink(excel_path)
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Instructions conversion failed: {str(e)}"
+        logger.error(f"Instructions conversion job {job_id} failed: {str(e)}")
+
 @app.post("/convert-uni")
 async def convert_uni(
     background_tasks: BackgroundTasks,
@@ -959,6 +1033,46 @@ async def convert_uni(
         
     except Exception as e:
         logger.error(f"UNI conversion upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/convert-instructions")
+async def convert_instructions(
+    background_tasks: BackgroundTasks,
+    excel_file: UploadFile = File(...)
+):
+    """Upload an Excel file to convert using the instructions conversion script"""
+    
+    try:
+        logger.info(f"Received instructions conversion request - excel: {excel_file.filename}")
+        
+        # Validate file type
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created instructions conversion job {job_id}")
+        
+        # Save uploaded Excel file
+        excel_path = f"/tmp/{job_id}_instructions_input.xlsx"
+        
+        with open(excel_path, "wb") as f:
+            shutil.copyfileobj(excel_file.file, f)
+        
+        logger.info(f"Instructions Excel saved - path: {excel_path}")
+        
+        # Start background processing
+        background_tasks.add_task(convert_instructions_background, job_id, excel_path)
+        
+        logger.info(f"Background instructions conversion task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Excel file uploaded and instructions conversion started"}
+        
+    except Exception as e:
+        logger.error(f"Instructions conversion upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/memory")
