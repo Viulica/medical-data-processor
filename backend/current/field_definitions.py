@@ -89,21 +89,21 @@ Extraction Instructions per Patient Record:
     for field in field_definitions:
         # Skip the metadata fields that are automatically added
         if field['name'] not in ['source_file', 'page_number']:
-            else:
-                # Create instruction combining description, location, and output format
-                instruction_parts = []
-                
-                if field.get('description'):
-                    instruction_parts.append(field['description'])
-                
-                if field.get('location'):
-                    instruction_parts.append(f"Location: {field['location']}")
-                
-                if field.get('output_format'):
-                    instruction_parts.append(f"Format: {field['output_format']}")
-                
-                instruction = ' | '.join(instruction_parts) if instruction_parts else 'Extract if available'
-                field_instructions.append(f"{field['name']}: {instruction}")
+
+            # Create instruction combining description, location, and output format
+            instruction_parts = []
+            
+            if field.get('description'):
+                instruction_parts.append(field['description'])
+            
+            if field.get('location'):
+                instruction_parts.append(f"Location: {field['location']}")
+            
+            if field.get('output_format'):
+                instruction_parts.append(f"Format: {field['output_format']}")
+            
+            instruction = ' | '.join(instruction_parts) if instruction_parts else 'Extract if available'
+            field_instructions.append(f"{field['name']}: {instruction}")
 
 
     field_specific_instructions = """
