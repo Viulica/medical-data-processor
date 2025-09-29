@@ -883,8 +883,12 @@ def convert_data(input_file, output_file=None):
         if output_file is None:
             output_file = input_file.replace('.csv', '_converted.csv')
         
+        # Replace any NaN values with empty strings before converting to string
+        result_df = result_df.fillna('')
         # Ensure all data is treated as strings to preserve leading zeros
         result_df = result_df.astype(str)
+        # Replace any remaining 'nan' strings with empty strings
+        result_df = result_df.replace('nan', '')
         result_df.to_csv(output_file, index=False)
         print(f"Conversion complete. Output saved to: {output_file}")
         print(f"Processed {len(result_data)} rows of data.")
