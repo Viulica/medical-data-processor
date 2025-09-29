@@ -261,6 +261,78 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
     return f"{date_str} {formatted_time}"
 
 
+def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
+    """
+    Fix Concurrent Providers format by adding date prefix to times that don't have it.
+    
+    Args:
+        concurrent_providers_value: The Concurrent Providers string
+        charge_date: The Charge Date value to use for missing dates
+    
+    Returns:
+        Fixed Concurrent Providers string with dates added where needed
+    """
+    if not concurrent_providers_value or pd.isna(concurrent_providers_value):
+        return concurrent_providers_value
+    
+    if not charge_date or pd.isna(charge_date):
+        return concurrent_providers_value
+    
+    # Convert charge_date to the format used in Concurrent Providers (MM/DD/YY)
+    try:
+        # Parse the charge date (could be in various formats)
+        charge_date_str = str(charge_date).strip()
+        
+        # Try to parse as datetime
+        if '/' in charge_date_str:
+            # Format: M/D/YYYY or MM/DD/YYYY
+            parts = charge_date_str.split('/')
+            if len(parts) == 3:
+                month, day, year = parts
+                # Convert to MM/DD/YY format
+                date_prefix = f"{month.zfill(2)}/{day.zfill(2)}/{year[-2:]}"
+            else:
+                return concurrent_providers_value
+        else:
+            # Can't parse the date, return as-is
+            return concurrent_providers_value
+    except:
+        return concurrent_providers_value
+    
+    # Split by pipe to get individual provider entries
+    provider_entries = concurrent_providers_value.split('|')
+    fixed_entries = []
+    
+    for entry in provider_entries:
+        # Each entry format: Name;Role;Time1;Time2
+        parts = entry.split(';')
+        
+        if len(parts) >= 4:
+            name = parts[0]
+            role = parts[1]
+            time1 = parts[2]
+            time2 = parts[3]
+            
+            # Check if time1 already has a date (contains '/')
+            if '/' not in time1:
+                # Add date prefix
+                time1 = f"{date_prefix} {time1}"
+            
+            # Check if time2 already has a date (contains '/')
+            if '/' not in time2:
+                # Add date prefix
+                time2 = f"{date_prefix} {time2}"
+            
+            # Reconstruct the entry
+            fixed_entry = f"{name};{role};{time1};{time2}"
+            fixed_entries.append(fixed_entry)
+        else:
+            # Entry doesn't have expected format, keep as-is
+            fixed_entries.append(entry)
+    
+    return '|'.join(fixed_entries)
+
+
 def get_header_mapping():
     """
     Returns the hardcoded header mapping from old headers to new headers.
@@ -789,6 +861,18 @@ def convert_data(input_file, output_file=None):
                         new_row[field] = ""  # Create empty if not found
                     else:
                         new_row[field] = field_value  # Use original value if found
+            
+            # Special handling for Concurrent Providers - fix date format if present
+            if "Concurrent Providers" in df.columns:
+                concurrent_value = df.iloc[row_idx].get("Concurrent Providers", '')
+                if not pd.isna(concurrent_value) and concurrent_value:
+                    # Get the date from the INPUT CSV "Date" column (which gets renamed to "Charge Date" in output)
+                    date_value = df.iloc[row_idx].get("Date", '')
+                    new_row["Concurrent Providers"] = fix_concurrent_providers_dates(concurrent_value, date_value)
+                elif "Concurrent Providers" not in new_row:
+                    new_row["Concurrent Providers"] = ""
+            elif "Concurrent Providers" not in new_row:
+                new_row["Concurrent Providers"] = ""
             
             result_data.append(new_row)
         
