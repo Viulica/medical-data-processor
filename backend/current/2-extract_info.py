@@ -236,7 +236,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Initialize Google AI client
     api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
-    if not api_key:f
+    if not api_key:
         print("❌ GOOGLE_API_KEY environment variable not set!")
         sys.exit(1)
         
