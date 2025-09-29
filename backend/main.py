@@ -1021,6 +1021,54 @@ def convert_instructions_background(job_id: str, excel_path: str):
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
 
+def generate_modifiers_background(job_id: str, csv_path: str):
+    """Background task to generate medical modifiers using the modifiers script"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting modifiers generation..."
+        job.progress = 10
+        
+        # Import the modifiers generation function
+        import sys
+        sys.path.append(str(Path(__file__).parent / "modifiers"))
+        from generate_modifiers import generate_modifiers
+        
+        job.message = "Generating medical modifiers..."
+        job.progress = 50
+        
+        # Create output file path
+        output_file = f"/tmp/results/{job_id}_with_modifiers.csv"
+        Path(output_file).parent.mkdir(exist_ok=True)
+        
+        # Run the modifiers generation
+        success = generate_modifiers(csv_path, output_file)
+        
+        if not success:
+            raise Exception("Modifiers generation failed")
+        
+        job.message = "Modifiers generation complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not os.path.exists(output_file):
+            raise Exception("Output file was not created")
+        
+        job.result_file = output_file
+        job.status = "completed"
+        job.progress = 100
+        job.message = "Modifiers generation completed successfully!"
+        
+        # Clean up input file
+        os.unlink(csv_path)
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Modifiers generation failed: {str(e)}"
+        logger.error(f"Modifiers generation job {job_id} failed: {str(e)}")
+
 @app.post("/convert-uni")
 async def convert_uni(
     background_tasks: BackgroundTasks,
@@ -1099,6 +1147,46 @@ async def convert_instructions(
         
     except Exception as e:
         logger.error(f"Instructions conversion upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/generate-modifiers")
+async def generate_modifiers_route(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...)
+):
+    """Upload a CSV file to generate medical modifiers"""
+    
+    try:
+        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}")
+        
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created modifiers generation job {job_id}")
+        
+        # Save uploaded CSV
+        csv_path = f"/tmp/{job_id}_modifiers_input.csv"
+        
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+        
+        logger.info(f"CSV saved - path: {csv_path}")
+        
+        # Start background processing
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path)
+        
+        logger.info(f"Background modifiers generation task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "CSV uploaded and modifiers generation started"}
+        
+    except Exception as e:
+        logger.error(f"Modifiers generation upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/memory")

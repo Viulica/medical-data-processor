@@ -59,6 +59,13 @@
           >
             📋 Convert Instructions
           </button>
+          <button
+            @click="activeTab = 'modifiers'"
+            :class="{ active: activeTab === 'modifiers' }"
+            class="tab-btn"
+          >
+            💊 Generate Modifiers
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -1062,6 +1069,180 @@
             </div>
           </div>
         </div>
+
+        <!-- Modifiers Generation Tab -->
+        <div v-if="activeTab === 'modifiers'" class="upload-section">
+          <div class="section-header">
+            <h2>Medical Modifiers Generation</h2>
+            <p>
+              Upload a CSV file with billing data to automatically generate
+              medical modifiers based on provider information
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- CSV File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Billing CSV File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isModifiersCsvDragActive,
+                  'has-file': modifiersCsvFile,
+                }"
+                @drop="onModifiersCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerModifiersCsvUpload"
+              >
+                <input
+                  ref="modifiersCsvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onModifiersCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="modifiersCsvFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ modifiersCsvFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(modifiersCsvFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Requirements</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span
+                      >CSV must contain 'Primary Mednet Code', 'MD', and 'CRNA'
+                      columns</span
+                    >
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">💊</span>
+                    <span
+                      >Modifiers will be generated in M1 column based on
+                      provider types</span
+                    >
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Download CSV with modifiers applied</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔀</span>
+                    <span
+                      >Rows may be duplicated for QK+QX modifier
+                      combinations</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startModifiersGeneration"
+              :disabled="!canGenerateModifiers || isGeneratingModifiers"
+              class="process-btn"
+            >
+              <span v-if="isGeneratingModifiers" class="spinner"></span>
+              <span v-else class="btn-icon">💊</span>
+              {{
+                isGeneratingModifiers
+                  ? "Generating Modifiers..."
+                  : "Generate Modifiers"
+              }}
+            </button>
+
+            <button
+              v-if="modifiersCsvFile || modifiersJobId"
+              @click="resetModifiersForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Modifiers Generation Status -->
+        <div v-if="modifiersJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="modifiersJobStatus.status">
+                <span class="status-icon">{{ getModifiersStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getModifiersStatusTitle() }}</h3>
+                <p class="status-message">
+                  {{ modifiersJobStatus.message }}
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-if="modifiersJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${modifiersJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ modifiersJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkModifiersJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="modifiersJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadModifiersResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download CSV with Modifiers
+              </button>
+            </div>
+
+            <div
+              v-if="
+                modifiersJobStatus.status === 'failed' &&
+                modifiersJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ modifiersJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -1147,6 +1328,12 @@ export default {
       instructionsJobStatus: null,
       isConvertingInstructions: false,
       isInstructionsExcelDragActive: false,
+      // Modifiers generation functionality
+      modifiersCsvFile: null,
+      modifiersJobId: null,
+      modifiersJobStatus: null,
+      isGeneratingModifiers: false,
+      isModifiersCsvDragActive: false,
     };
   },
   computed: {
@@ -1177,6 +1364,9 @@ export default {
     },
     canConvertInstructions() {
       return this.instructionsExcelFile;
+    },
+    canGenerateModifiers() {
+      return this.modifiersCsvFile;
     },
   },
   methods: {
@@ -2360,6 +2550,175 @@ export default {
           return "❌";
         case "processing":
           return "📋";
+        default:
+          return "⏸️";
+      }
+    },
+
+    // Modifiers generation methods
+    onModifiersCsvDrop(e) {
+      e.preventDefault();
+      this.isModifiersCsvDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+        this.modifiersCsvFile = files[0];
+        this.toast.success("Modifiers CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    triggerModifiersCsvUpload() {
+      this.$refs.modifiersCsvInput.click();
+    },
+
+    onModifiersCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".csv")) {
+        this.modifiersCsvFile = file;
+        this.toast.success("Modifiers CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    async startModifiersGeneration() {
+      if (!this.canGenerateModifiers) {
+        this.toast.error("Please upload a CSV file");
+        return;
+      }
+
+      this.isGeneratingModifiers = true;
+      this.modifiersJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("csv_file", this.modifiersCsvFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
+      console.log("🔧 Modifiers Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.modifiersJobId = response.data.job_id;
+        this.toast.success(
+          "Modifiers generation started! Check the status section below."
+        );
+
+        // Set initial status
+        this.modifiersJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Modifiers generation started...",
+        };
+      } catch (error) {
+        console.error("Modifiers generation error:", error);
+        this.toast.error(
+          "Failed to start modifiers generation. Please try again."
+        );
+        this.isGeneratingModifiers = false;
+      }
+    },
+
+    async checkModifiersJobStatus() {
+      if (!this.modifiersJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `status/${this.modifiersJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.modifiersJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Modifiers generation completed!");
+          this.isGeneratingModifiers = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Modifiers generation failed: ${
+              response.data.error || "Unknown error"
+            }`
+          );
+          this.isGeneratingModifiers = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadModifiersResults() {
+      if (!this.modifiersJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.modifiersJobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `modifiers_generated_${this.modifiersJobId}.csv`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetModifiersForm() {
+      this.modifiersCsvFile = null;
+      this.modifiersJobId = null;
+      this.modifiersJobStatus = null;
+      this.isGeneratingModifiers = false;
+      this.isModifiersCsvDragActive = false;
+    },
+
+    getModifiersStatusTitle() {
+      if (!this.modifiersJobStatus) return "";
+
+      switch (this.modifiersJobStatus.status) {
+        case "completed":
+          return "Modifiers Generation Complete";
+        case "failed":
+          return "Modifiers Generation Failed";
+        case "processing":
+          return "Generating Modifiers";
+        default:
+          return "Modifiers Generation Status";
+      }
+    },
+
+    getModifiersStatusIcon() {
+      if (!this.modifiersJobStatus) return "";
+
+      switch (this.modifiersJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "💊";
         default:
           return "⏸️";
       }
