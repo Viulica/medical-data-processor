@@ -397,16 +397,25 @@ def load_mednet_mapping(mapping_file="mednet-maping.csv"):
     Returns a dictionary mapping UNI codes to internal codes.
     """
     try:
-        mapping_df = pd.read_csv(mapping_file)
+        # Get the directory where this script is located
+        script_dir = Path(__file__).parent
+        mapping_path = script_dir / mapping_file
+        
+        print(f"Loading mednet mapping from: {mapping_path}")
+        print(f"File exists: {mapping_path.exists()}")
+        
+        mapping_df = pd.read_csv(mapping_path)
         # Ensure keys are strings for consistent lookup
         mapping_dict = {str(k): v for k, v in zip(mapping_df['InputValue'], mapping_df['OutputValue'])}
         print(f"Loaded {len(mapping_dict)} mednet code mappings")
         return mapping_dict
     except FileNotFoundError:
-        print(f"Warning: {mapping_file} not found. Mednet codes will not be mapped.")
+        print(f"Warning: {mapping_file} not found at {mapping_path}. Mednet codes will not be mapped.")
         return {}
     except Exception as e:
         print(f"Warning: Error loading {mapping_file}: {e}. Mednet codes will not be mapped.")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -497,6 +506,16 @@ def convert_data(input_file, output_file=None):
                         if '-' in value_str:
                             code_part = value_str.split('-')[0].strip()
                             text_part = value_str.split('-', 1)[1].strip()
+                            
+                            # Debug logging for first few rows
+                            if row_idx < 3:
+                                print(f"[DEBUG Row {row_idx}] Primary Plan value: {value_str}")
+                                print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                print(f"[DEBUG Row {row_idx}] Extracted text: {text_part}")
+                                print(f"[DEBUG Row {row_idx}] Mednet mapping exists: {mednet_mapping is not None and len(mednet_mapping) > 0}")
+                                print(f"[DEBUG Row {row_idx}] Code in mapping: {code_part in mednet_mapping if mednet_mapping else False}")
+                                if mednet_mapping and code_part in mednet_mapping:
+                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mednet_mapping[code_part]}")
                             
                             # Try to map the code
                             if mednet_mapping and code_part in mednet_mapping:
