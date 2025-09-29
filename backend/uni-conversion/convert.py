@@ -358,7 +358,7 @@ def get_header_mapping():
         "Billing Status": "Notes",
         "Prim. Member #": "Primary Sub ID",
         "Primary Cvg Payer": "Primary Company Name",
-        "Pat Primary CVG Payer ID": "Primary Mednet Code",
+        "Pat Primary CVG Payer ID": "Pat Primary CVG Payer ID",
         "Primary CVG Address 2": "Primary Company Address 1",
         "Primary CVG Phone": "Primary Sub Auth Num",
         "Primary CVG Sub ID": "Primary Sub ID",
@@ -375,9 +375,6 @@ def get_header_mapping():
         # DOB and Gender (will use "if self" logic based on relationship)
         "DOB": "Patient DOB",
         "Sex": "Patient Sex",
-        
-        # Mednet Code fields
-        "Pat Primary CVG Payer ID": "Primary Mednet Code",
         
         # Company Name fields  
         "Primary Plan": "Primary Company Name",
@@ -404,9 +401,10 @@ def load_mednet_mapping(mapping_file="mednet-maping.csv"):
         print(f"Loading mednet mapping from: {mapping_path}")
         print(f"File exists: {mapping_path.exists()}")
         
-        mapping_df = pd.read_csv(mapping_path)
-        # Ensure keys are strings for consistent lookup
-        mapping_dict = {str(k): v for k, v in zip(mapping_df['InputValue'], mapping_df['OutputValue'])}
+        # Read CSV with dtype=str to preserve leading zeros
+        mapping_df = pd.read_csv(mapping_path, dtype=str)
+        # Ensure both keys and values are strings for consistent lookup and preserve leading zeros
+        mapping_dict = {str(k): str(v) for k, v in zip(mapping_df['InputValue'], mapping_df['OutputValue'])}
         print(f"Loaded {len(mapping_dict)} mednet code mappings")
         return mapping_dict
     except FileNotFoundError:
@@ -476,28 +474,49 @@ def convert_data(input_file, output_file=None):
                     # Explicit "Nill" (leave empty)
                     new_row[new_header] = ""
                 elif "mednet code" in new_header.lower() or "mednet code" in old_col.lower():
-                    # Mednet Code: extract only numeric part and map to internal code
-                    extracted_code = extract_mednet_code(value)
-                    if extracted_code and mednet_mapping:
-                        # Convert to string for mapping lookup
-                        code_str = str(extracted_code)
-                        # Try exact match first
-                        if code_str in mednet_mapping:
-                            mapped_code = mednet_mapping[code_str]
-                            new_row[new_header] = mapped_code
-                        else:
-                            # Try to find best prefix match (4-digit code matching 6-digit codes)
-                            matches = [str(k) for k in mednet_mapping.keys() if str(k).startswith(code_str)]
-                            if matches:
-                                # Use the first match (most common pattern)
-                                mapped_code = mednet_mapping[matches[0]]
+                    # SKIP mednet code mapping for CVG Payer ID fields - just pass through the value as-is
+                    # Only Primary/Secondary/Tertiary Plan processing should populate mednet codes
+                    if "payer id" in old_col.lower() or "cvg payer" in old_col.lower():
+                        # Keep the original value, don't do any mapping
+                        new_row[new_header] = value if not pd.isna(value) else ""
+                    else:
+                        # For other mednet code fields (if any), do the mapping
+                        extracted_code = extract_mednet_code(value)
+                        if extracted_code and mednet_mapping:
+                            # Convert to string for mapping lookup
+                            code_str = str(extracted_code)
+                            # Try exact match first
+                            if code_str in mednet_mapping:
+                                mapped_code = mednet_mapping[code_str]
+                                # Debug logging for TRAN mappings only
+                                if mapped_code == "TRAN":
+                                    print(f"[DEBUG Row {row_idx}] GENERAL MEDNET TRAN MAPPING:")
+                                    print(f"[DEBUG Row {row_idx}] Column: {old_col}")
+                                    print(f"[DEBUG Row {row_idx}] Original value: {value}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted code: {code_str}")
+                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mapped_code}")
                                 new_row[new_header] = mapped_code
                             else:
-                                # No match found, leave empty
-                                new_row[new_header] = ""
-                    else:
-                        # No extracted code or no mapping available, leave empty
-                        new_row[new_header] = ""
+                                # Try to find best prefix match (4-digit code matching 6-digit codes)
+                                matches = [str(k) for k in mednet_mapping.keys() if str(k).startswith(code_str)]
+                                if matches:
+                                    # Use the first match (most common pattern)
+                                    mapped_code = mednet_mapping[matches[0]]
+                                    # Debug logging for TRAN mappings only
+                                    if mapped_code == "TRAN":
+                                        print(f"[DEBUG Row {row_idx}] GENERAL MEDNET TRAN MAPPING (PREFIX):")
+                                        print(f"[DEBUG Row {row_idx}] Column: {old_col}")
+                                        print(f"[DEBUG Row {row_idx}] Original value: {value}")
+                                        print(f"[DEBUG Row {row_idx}] Extracted code: {code_str}")
+                                        print(f"[DEBUG Row {row_idx}] Prefix match: {matches[0]}")
+                                        print(f"[DEBUG Row {row_idx}] Mapped to: {mapped_code}")
+                                    new_row[new_header] = mapped_code
+                                else:
+                                    # No match found, leave empty
+                                    new_row[new_header] = ""
+                        else:
+                            # No extracted code or no mapping available, leave empty
+                            new_row[new_header] = ""
                 elif "primary plan" in old_col.lower():
                     # Primary Plan: extract code before dash, map to mednet code, keep text after dash as company name
                     if not pd.isna(value) and value:
@@ -507,15 +526,21 @@ def convert_data(input_file, output_file=None):
                             code_part = value_str.split('-')[0].strip()
                             text_part = value_str.split('-', 1)[1].strip()
                             
-                            # Debug logging for first few rows
-                            if row_idx < 3:
+                            # Debug logging for TRAN mappings only
+                            if mednet_mapping and code_part in mednet_mapping:
+                                mapped_value = mednet_mapping[code_part]
+                                if mapped_value == "TRAN":
+                                    print(f"[DEBUG Row {row_idx}] PRIMARY TRAN MAPPING:")
+                                    print(f"[DEBUG Row {row_idx}] Primary Plan value: {value_str}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted text: {text_part}")
+                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mapped_value}")
+                            else:
+                                # Only show if no mapping found
+                                print(f"[DEBUG Row {row_idx}] PRIMARY NO MAPPING:")
                                 print(f"[DEBUG Row {row_idx}] Primary Plan value: {value_str}")
                                 print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
-                                print(f"[DEBUG Row {row_idx}] Extracted text: {text_part}")
-                                print(f"[DEBUG Row {row_idx}] Mednet mapping exists: {mednet_mapping is not None and len(mednet_mapping) > 0}")
-                                print(f"[DEBUG Row {row_idx}] Code in mapping: {code_part in mednet_mapping if mednet_mapping else False}")
-                                if mednet_mapping and code_part in mednet_mapping:
-                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mednet_mapping[code_part]}")
+                                print(f"[DEBUG Row {row_idx}] No mapping found for code: {code_part}")
                             
                             # Try to map the code
                             if mednet_mapping and code_part in mednet_mapping:
@@ -544,6 +569,22 @@ def convert_data(input_file, output_file=None):
                             code_part = value_str.split('-')[0].strip()
                             text_part = value_str.split('-', 1)[1].strip()
                             
+                            # Debug logging for TRAN mappings only
+                            if mednet_mapping and code_part in mednet_mapping:
+                                mapped_value = mednet_mapping[code_part]
+                                if mapped_value == "TRAN":
+                                    print(f"[DEBUG Row {row_idx}] SECONDARY TRAN MAPPING:")
+                                    print(f"[DEBUG Row {row_idx}] Secondary Plan value: {value_str}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted text: {text_part}")
+                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mapped_value}")
+                            else:
+                                # Only show if no mapping found
+                                print(f"[DEBUG Row {row_idx}] SECONDARY NO MAPPING:")
+                                print(f"[DEBUG Row {row_idx}] Secondary Plan value: {value_str}")
+                                print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                print(f"[DEBUG Row {row_idx}] No secondary mapping found for code: {code_part}")
+                            
                             # Try to map the code
                             if mednet_mapping and code_part in mednet_mapping:
                                 # Found mapping - use mapped code
@@ -570,6 +611,22 @@ def convert_data(input_file, output_file=None):
                         if '-' in value_str:
                             code_part = value_str.split('-')[0].strip()
                             text_part = value_str.split('-', 1)[1].strip()
+                            
+                            # Debug logging for TRAN mappings only
+                            if mednet_mapping and code_part in mednet_mapping:
+                                mapped_value = mednet_mapping[code_part]
+                                if mapped_value == "TRAN":
+                                    print(f"[DEBUG Row {row_idx}] TERTIARY TRAN MAPPING:")
+                                    print(f"[DEBUG Row {row_idx}] Tertiary Plan value: {value_str}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                    print(f"[DEBUG Row {row_idx}] Extracted text: {text_part}")
+                                    print(f"[DEBUG Row {row_idx}] Mapped to: {mapped_value}")
+                            else:
+                                # Only show if no mapping found
+                                print(f"[DEBUG Row {row_idx}] TERTIARY NO MAPPING:")
+                                print(f"[DEBUG Row {row_idx}] Tertiary Plan value: {value_str}")
+                                print(f"[DEBUG Row {row_idx}] Extracted code: {code_part}")
+                                print(f"[DEBUG Row {row_idx}] No tertiary mapping found for code: {code_part}")
                             
                             # Try to map the code
                             if mednet_mapping and code_part in mednet_mapping:
@@ -744,6 +801,8 @@ def convert_data(input_file, output_file=None):
         if output_file is None:
             output_file = input_file.replace('.csv', '_converted.csv')
         
+        # Ensure all data is treated as strings to preserve leading zeros
+        result_df = result_df.astype(str)
         result_df.to_csv(output_file, index=False)
         print(f"Conversion complete. Output saved to: {output_file}")
         print(f"Processed {len(result_data)} rows of data.")
