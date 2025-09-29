@@ -1697,7 +1697,7 @@ export default {
       formData.append("zip_file", this.zipFileFast);
       formData.append("excel_file", this.excelFileFast);
       formData.append("n_pages", this.pageCountFast);
-      formData.append("model", "gemini-2.5-flash"); // Use the fast model
+      formData.append("model", "gemini-flash-latest"); // Use the fast model
 
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");

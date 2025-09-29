@@ -475,18 +475,20 @@ def convert_data(input_file, output_file=None):
                         # Try exact match first
                         if code_str in mednet_mapping:
                             mapped_code = mednet_mapping[code_str]
+                            new_row[new_header] = mapped_code
                         else:
                             # Try to find best prefix match (4-digit code matching 6-digit codes)
                             matches = [str(k) for k in mednet_mapping.keys() if str(k).startswith(code_str)]
                             if matches:
                                 # Use the first match (most common pattern)
                                 mapped_code = mednet_mapping[matches[0]]
+                                new_row[new_header] = mapped_code
                             else:
-                                # No match found, keep original
-                                mapped_code = extracted_code
-                        new_row[new_header] = mapped_code
+                                # No match found, leave empty
+                                new_row[new_header] = ""
                     else:
-                        new_row[new_header] = extracted_code
+                        # No extracted code or no mapping available, leave empty
+                        new_row[new_header] = ""
                 elif "primary plan" in old_col.lower():
                     # Primary Plan: extract 6-digit code and map to internal code, then keep only text part
                     if mednet_mapping and not pd.isna(value) and value:
@@ -508,32 +510,17 @@ def convert_data(input_file, output_file=None):
                                     else:
                                         new_row[new_header] = new_value
                                 else:
-                                    # Keep only the text part (after the dash)
-                                    if '-' in value_str:
-                                        text_part = value_str.split('-', 1)[1].strip()
-                                        new_row[new_header] = text_part
-                                    else:
-                                        new_row[new_header] = value
+                                    # No mapping found, leave empty
+                                    new_row[new_header] = ""
                             else:
-                                # Keep only the text part (after the dash)
-                                if '-' in value_str:
-                                    text_part = value_str.split('-', 1)[1].strip()
-                                    new_row[new_header] = text_part
-                                else:
-                                    new_row[new_header] = value
+                                # No valid 6-digit code found, leave empty
+                                new_row[new_header] = ""
                         else:
-                            new_row[new_header] = value
+                            # No dash found, leave empty
+                            new_row[new_header] = ""
                     else:
-                        # Keep only the text part (after the dash)
-                        if not pd.isna(value) and value:
-                            value_str = str(value).strip()
-                            if '-' in value_str:
-                                text_part = value_str.split('-', 1)[1].strip()
-                                new_row[new_header] = text_part
-                            else:
-                                new_row[new_header] = value
-                        else:
-                            new_row[new_header] = value
+                        # No mapping available or no value, leave empty
+                        new_row[new_header] = ""
                 elif "secondary plan" in old_col.lower():
                     # Secondary Plan: extract 6-digit code and map to internal code, then keep only text part
                     if mednet_mapping and not pd.isna(value) and value:
@@ -557,35 +544,20 @@ def convert_data(input_file, output_file=None):
                                     # Also create Secondary Mednet Code field
                                     new_row["Secondary Mednet Code"] = mapped_code
                                 else:
-                                    # Keep only the text part (after the dash)
-                                    if '-' in value_str:
-                                        text_part = value_str.split('-', 1)[1].strip()
-                                        new_row[new_header] = text_part
-                                    else:
-                                        new_row[new_header] = value
-                                    new_row["Secondary Mednet Code"] = code_part
+                                    # No mapping found, leave empty
+                                    new_row[new_header] = ""
+                                    new_row["Secondary Mednet Code"] = ""
                             else:
-                                # Keep only the text part (after the dash)
-                                if '-' in value_str:
-                                    text_part = value_str.split('-', 1)[1].strip()
-                                    new_row[new_header] = text_part
-                                else:
-                                    new_row[new_header] = value
+                                # No valid 6-digit code found, leave empty
+                                new_row[new_header] = ""
                                 new_row["Secondary Mednet Code"] = ""
                         else:
-                            new_row[new_header] = value
+                            # No dash found, leave empty
+                            new_row[new_header] = ""
                             new_row["Secondary Mednet Code"] = ""
                     else:
-                        # Keep only the text part (after the dash)
-                        if not pd.isna(value) and value:
-                            value_str = str(value).strip()
-                            if '-' in value_str:
-                                text_part = value_str.split('-', 1)[1].strip()
-                                new_row[new_header] = text_part
-                            else:
-                                new_row[new_header] = value
-                        else:
-                            new_row[new_header] = value
+                        # No mapping available or no value, leave empty
+                        new_row[new_header] = ""
                         new_row["Secondary Mednet Code"] = ""
                 elif "tertiary plan" in old_col.lower():
                     # Tertiary Plan: extract 6-digit code and map to internal code, then keep only text part
@@ -610,35 +582,20 @@ def convert_data(input_file, output_file=None):
                                     # Also create Tertiary Mednet Code field
                                     new_row["Tertiary Mednet Code"] = mapped_code
                                 else:
-                                    # Keep only the text part (after the dash)
-                                    if '-' in value_str:
-                                        text_part = value_str.split('-', 1)[1].strip()
-                                        new_row[new_header] = text_part
-                                    else:
-                                        new_row[new_header] = value
-                                    new_row["Tertiary Mednet Code"] = code_part
+                                    # No mapping found, leave empty
+                                    new_row[new_header] = ""
+                                    new_row["Tertiary Mednet Code"] = ""
                             else:
-                                # Keep only the text part (after the dash)
-                                if '-' in value_str:
-                                    text_part = value_str.split('-', 1)[1].strip()
-                                    new_row[new_header] = text_part
-                                else:
-                                    new_row[new_header] = value
+                                # No valid 6-digit code found, leave empty
+                                new_row[new_header] = ""
                                 new_row["Tertiary Mednet Code"] = ""
                         else:
-                            new_row[new_header] = value
+                            # No dash found, leave empty
+                            new_row[new_header] = ""
                             new_row["Tertiary Mednet Code"] = ""
                     else:
-                        # Keep only the text part (after the dash)
-                        if not pd.isna(value) and value:
-                            value_str = str(value).strip()
-                            if '-' in value_str:
-                                text_part = value_str.split('-', 1)[1].strip()
-                                new_row[new_header] = text_part
-                            else:
-                                new_row[new_header] = value
-                        else:
-                            new_row[new_header] = value
+                        # No mapping available or no value, leave empty
+                        new_row[new_header] = ""
                         new_row["Tertiary Mednet Code"] = ""
                 elif "company name" in new_header.lower() or "company name" in old_col.lower():
                     # Company Names: strip numeric code, keep only alphabetic part
