@@ -272,7 +272,7 @@ def get_header_mapping():
             "Patient Name": "Patient Last Name",  # Will be split into Last, First, Middle
             "MRN": "Patient MRN",
             "Location": "Room",
-        "Procedure": "Procedure",
+        "Procedure": "Procedure Description",
         "POST-OP DIAGNOSIS": "POST-OP DIAGNOSIS",
         "Post-op Diagnosis - Coded": "POST-OP DIAGNOSIS",
         "Responsible Provider": "Responsible Provider",
@@ -369,8 +369,6 @@ def get_header_mapping():
         "Encounter Client": "PatientClass",
         "Admission Comments": "Notes",
         "Admit Status": "PatientClass",
-        "RUSH OR CPT CODE": "ASA Code",
-        "procCPTCode": "Procedure Code",
         
         # DOB and Gender (will use "if self" logic based on relationship)
         "DOB": "Patient DOB",
