@@ -423,8 +423,8 @@ def convert_data(input_file, output_file=None):
         # Load mednet mapping
         mednet_mapping = load_mednet_mapping()
         
-        # Read the CSV file
-        df = pd.read_csv(input_file)
+        # Read the CSV file with dtype=str to preserve leading zeros in codes
+        df = pd.read_csv(input_file, dtype=str)
         
         if len(df) < 1:
             print("Error: CSV file must have at least 1 row (headers)")

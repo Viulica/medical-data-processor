@@ -464,12 +464,12 @@ answer ONLY with the code, nothing else"""
         job.message = "Reading CSV file..."
         job.progress = 20
         
-        # Read CSV file
+        # Read CSV file with dtype=str to preserve leading zeros in MedNet codes
         try:
-            df = pd.read_csv(csv_path, encoding='utf-8')
+            df = pd.read_csv(csv_path, encoding='utf-8', dtype=str)
         except UnicodeDecodeError:
             try:
-                df = pd.read_csv(csv_path, encoding='latin-1')
+                df = pd.read_csv(csv_path, encoding='latin-1', dtype=str)
             except Exception as e:
                 raise Exception(f"Could not read CSV with utf-8 or latin-1 encoding: {e}")
 

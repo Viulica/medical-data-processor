@@ -121,12 +121,12 @@ def generate_modifiers(input_file, output_file=None):
         # Load modifiers definition
         modifiers_dict = load_modifiers_definition()
         
-        # Read the input CSV file
+        # Read the input CSV file with dtype=str to preserve leading zeros in MedNet codes
         try:
-            df = pd.read_csv(input_file, encoding='utf-8')
+            df = pd.read_csv(input_file, encoding='utf-8', dtype=str)
         except UnicodeDecodeError:
             try:
-                df = pd.read_csv(input_file, encoding='latin-1')
+                df = pd.read_csv(input_file, encoding='latin-1', dtype=str)
             except Exception as e:
                 raise Exception(f"Could not read CSV with utf-8 or latin-1 encoding: {e}")
         
@@ -154,6 +154,8 @@ def generate_modifiers(input_file, output_file=None):
         
         # Process each row
         result_rows = []
+        successful_matches = 0
+        total_rows = len(df)
         
         for idx, row in df.iterrows():
             primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
@@ -168,6 +170,9 @@ def generate_modifiers(input_file, output_file=None):
                 # Code not found in definition, add row as-is
                 result_rows.append(row.copy())
                 continue
+            
+            # Code found in definition - increment successful matches
+            successful_matches += 1
             
             # Get the modifiers settings
             medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
@@ -211,6 +216,7 @@ def generate_modifiers(input_file, output_file=None):
         result_df.to_csv(output_file, index=False)
         print(f"Modifiers generation complete. Output saved to: {output_file}")
         print(f"Processed {len(df)} input rows, generated {len(result_df)} output rows.")
+        print(f"Successfully matched {successful_matches} out of {total_rows} MedNet codes ({successful_matches/total_rows*100:.1f}%)")
         
         return True
         

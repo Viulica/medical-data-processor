@@ -446,8 +446,8 @@ def convert_data(input_file, output_file=None):
     Main function to convert GAP CSV with specific transformations
     """
     try:
-        # Read the main CSV file
-        df = pd.read_csv(input_file)
+        # Read the main CSV file with dtype=str to preserve leading zeros in codes
+        df = pd.read_csv(input_file, dtype=str)
         
         if len(df) < 1:
             print("Error: CSV file must have at least 1 row (headers)")
