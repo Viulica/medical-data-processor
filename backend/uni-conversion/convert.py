@@ -222,34 +222,56 @@ def extract_phone_by_type(phone_text, phone_type):
     return ""
 
 
-def format_anesthesia_time(df, row_idx, time_value, time_type):
+def format_time_to_hhmm(time_value):
     """
-    Format anesthesia time by converting 2, 3, or 4-digit time to HH:MM format
-    and combine with the date from the same row.
-    time_type: "start" or "stop"
+    Convert various time formats to HH:MM format.
+    Handles:
+    - Already formatted: 15:34 -> 15:34
+    - 4 digits: 1534 -> 15:34, 0704 -> 07:04
+    - 3 digits: 734 -> 07:34
+    - 2 digits: 34 -> 00:34
     """
     if pd.isna(time_value) or not time_value:
         return ""
     
     time_str = str(time_value).strip()
     
-    # Handle different digit lengths
+    # If already in HH:MM format, return as-is
+    if ':' in time_str and len(time_str) == 5:
+        return time_str
+    
+    # Handle numeric formats
     if time_str.isdigit():
-        if len(time_str) == 2:
-            # Convert 31 to 00:31
-            formatted_time = f"00:{time_str}"
-        elif len(time_str) == 3:
-            # Convert 331 to 03:31
-            formatted_time = f"0{time_str[0]}:{time_str[1:]}"
-        elif len(time_str) == 4:
-            # Convert 1331 to 13:31
+        if len(time_str) == 4:
+            # 4 digits: 1534 -> 15:34, 0704 -> 07:04
             formatted_time = f"{time_str[:2]}:{time_str[2:]}"
+        elif len(time_str) == 3:
+            # 3 digits: 734 -> 07:34
+            formatted_time = f"0{time_str[0]}:{time_str[1:]}"
+        elif len(time_str) == 2:
+            # 2 digits: 34 -> 00:34
+            formatted_time = f"00:{time_str}"
         else:
-            # If not 2, 3, or 4 digits, return as-is
+            # Other digit lengths, return as-is
             formatted_time = time_str
     else:
-        # If not all digits, return as-is
+        # Non-numeric, return as-is
         formatted_time = time_str
+    
+    return formatted_time
+
+
+def format_anesthesia_time(df, row_idx, time_value, time_type):
+    """
+    Format anesthesia time by converting various time formats to HH:MM format
+    and combine with the date from the same row.
+    time_type: "start" or "stop"
+    """
+    if pd.isna(time_value) or not time_value:
+        return ""
+    
+    # Use the comprehensive time formatter
+    formatted_time = format_time_to_hhmm(time_value)
     
     # Get the date from the same row
     date_value = df.iloc[row_idx].get('Date', '')
@@ -315,13 +337,15 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
             
             # Check if time1 already has a date (contains '/')
             if '/' not in time1:
-                # Add date prefix
-                time1 = f"{date_prefix} {time1}"
+                # Format time first, then add date prefix
+                formatted_time1 = format_time_to_hhmm(time1)
+                time1 = f"{date_prefix} {formatted_time1}"
             
             # Check if time2 already has a date (contains '/')
             if '/' not in time2:
-                # Add date prefix
-                time2 = f"{date_prefix} {time2}"
+                # Format time first, then add date prefix
+                formatted_time2 = format_time_to_hhmm(time2)
+                time2 = f"{date_prefix} {formatted_time2}"
             
             # Reconstruct the entry
             fixed_entry = f"{name};{role};{time1};{time2}"
