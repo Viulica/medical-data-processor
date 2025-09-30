@@ -195,19 +195,19 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, n_pages, model = args
+    client, pdf_file_path, extraction_prompt, n_pages, model, order_index = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
     # Extract first n pages as temporary PDF
     temp_patient_pdf = extract_first_n_pages_as_pdf(pdf_file_path, n_pages)
     if not temp_patient_pdf:
-        return pdf_filename, None, temp_patient_pdf
+        return pdf_filename, None, temp_patient_pdf, order_index
         
     # Extract info from this patient's combined pages
     response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
     
-    return pdf_filename, response, temp_patient_pdf
+    return pdf_filename, response, temp_patient_pdf, order_index
 
 
 def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-2.5-pro"):
@@ -249,6 +249,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         print(f"❌ No PDF files found in the '{input_folder}' folder.")
         return
     
+    # Sort PDF files to ensure consistent ordering
+    pdf_files.sort()
     print(f"📁 Found {len(pdf_files)} patient PDF files to process.")
     
     # Process all PDFs concurrently
@@ -257,24 +259,28 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     failed_pdfs = []  # Track PDFs that failed completely
     
     try:
-        # Prepare tasks for all PDFs
+        # Prepare tasks for all PDFs with order tracking
         tasks = []
-        for pdf_file in pdf_files:
-            tasks.append((client, pdf_file, extraction_prompt, n_pages, model))
+        for order_index, pdf_file in enumerate(pdf_files):
+            tasks.append((client, pdf_file, extraction_prompt, n_pages, model, order_index))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
         with ThreadPoolExecutor(max_workers=min(max_workers, len(pdf_files))) as executor:
             # Submit all tasks
-            future_to_pdf = {executor.submit(process_single_patient_pdf_task, task): task[1] for task in tasks}
+            future_to_task = {executor.submit(process_single_patient_pdf_task, task): task for task in tasks}
             
-            # Collect results as they complete
-            for future in as_completed(future_to_pdf):
-                pdf_file_path = future_to_pdf[future]
+            # Collect results as they complete, but store with order index for later sorting
+            results_with_order = []
+            
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                pdf_file_path = task[1]  # PDF file path from task
+                order_index = task[5]    # Order index from task
                 pdf_filename = os.path.basename(pdf_file_path)
                 
                 try:
-                    filename, response, temp_patient_pdf = future.result()
+                    filename, response, temp_patient_pdf, order_idx = future.result()
                     
                     if temp_patient_pdf:
                         temp_files.append(temp_patient_pdf)
@@ -309,7 +315,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                             # Add source file info for reference
                             extracted_record['source_file'] = pdf_filename
                             
-                            all_extracted_data.append(extracted_record)
+                            # Store result with order index for later sorting
+                            results_with_order.append((order_idx, extracted_record))
                             print(f"  ✅ Successfully added data for {pdf_filename}")
                             
                         except json.JSONDecodeError as e:
@@ -322,6 +329,10 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                 except Exception as e:
                     print(f"  ❌ Exception processing {pdf_filename}: {str(e)}")
                     failed_pdfs.append(pdf_filename)
+            
+            # Sort results by original order to preserve PDF order
+            results_with_order.sort(key=lambda x: x[0])
+            all_extracted_data = [result[1] for result in results_with_order]
         
         # Summary of processing
         success_count = len(all_extracted_data)
