@@ -1,4 +1,4 @@
-fix#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Python script to replicate Excel macro functionality for data conversion.
 This script processes CSV data according to hardcoded mapping rules.
