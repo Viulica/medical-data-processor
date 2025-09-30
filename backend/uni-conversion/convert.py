@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+fix#!/usr/bin/env python3
 """
 Python script to replicate Excel macro functionality for data conversion.
 This script processes CSV data according to hardcoded mapping rules.
@@ -352,18 +352,40 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
             time1 = parts[2]
             time2 = parts[3]
             
-            # Fix time formatting first
-            time1 = fix_time_format(time1)
-            time2 = fix_time_format(time2)
-            
             # Check if time1 already has a date (contains '/')
-            if '/' not in time1:
-                # Add date prefix
+            if '/' in time1:
+                # Extract date and time parts
+                date_time_parts = time1.split(' ', 1)
+                if len(date_time_parts) == 2:
+                    date_part = date_time_parts[0]
+                    time_part = date_time_parts[1]
+                    # Fix the time part and recombine
+                    fixed_time_part = fix_time_format(time_part)
+                    time1 = f"{date_part} {fixed_time_part}"
+                else:
+                    # If no space, just fix the time format
+                    time1 = fix_time_format(time1)
+            else:
+                # No date, fix time format and add date prefix
+                time1 = fix_time_format(time1)
                 time1 = f"{date_prefix} {time1}"
             
             # Check if time2 already has a date (contains '/')
-            if '/' not in time2:
-                # Add date prefix
+            if '/' in time2:
+                # Extract date and time parts
+                date_time_parts = time2.split(' ', 1)
+                if len(date_time_parts) == 2:
+                    date_part = date_time_parts[0]
+                    time_part = date_time_parts[1]
+                    # Fix the time part and recombine
+                    fixed_time_part = fix_time_format(time_part)
+                    time2 = f"{date_part} {fixed_time_part}"
+                else:
+                    # If no space, just fix the time format
+                    time2 = fix_time_format(time2)
+            else:
+                # No date, fix time format and add date prefix
+                time2 = fix_time_format(time2)
                 time2 = f"{date_prefix} {time2}"
             
             # Reconstruct the entry
