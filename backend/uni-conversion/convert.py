@@ -222,56 +222,34 @@ def extract_phone_by_type(phone_text, phone_type):
     return ""
 
 
-def format_time_to_hhmm(time_value):
-    """
-    Convert various time formats to HH:MM format.
-    Handles:
-    - Already formatted: 15:34 -> 15:34
-    - 4 digits: 1534 -> 15:34, 0704 -> 07:04
-    - 3 digits: 734 -> 07:34
-    - 2 digits: 34 -> 00:34
-    """
-    if pd.isna(time_value) or not time_value:
-        return ""
-    
-    time_str = str(time_value).strip()
-    
-    # If already in HH:MM format, return as-is
-    if ':' in time_str and len(time_str) == 5:
-        return time_str
-    
-    # Handle numeric formats
-    if time_str.isdigit():
-        if len(time_str) == 4:
-            # 4 digits: 1534 -> 15:34, 0704 -> 07:04
-            formatted_time = f"{time_str[:2]}:{time_str[2:]}"
-        elif len(time_str) == 3:
-            # 3 digits: 734 -> 07:34
-            formatted_time = f"0{time_str[0]}:{time_str[1:]}"
-        elif len(time_str) == 2:
-            # 2 digits: 34 -> 00:34
-            formatted_time = f"00:{time_str}"
-        else:
-            # Other digit lengths, return as-is
-            formatted_time = time_str
-    else:
-        # Non-numeric, return as-is
-        formatted_time = time_str
-    
-    return formatted_time
-
-
 def format_anesthesia_time(df, row_idx, time_value, time_type):
     """
-    Format anesthesia time by converting various time formats to HH:MM format
+    Format anesthesia time by converting 2, 3, or 4-digit time to HH:MM format
     and combine with the date from the same row.
     time_type: "start" or "stop"
     """
     if pd.isna(time_value) or not time_value:
         return ""
     
-    # Use the comprehensive time formatter
-    formatted_time = format_time_to_hhmm(time_value)
+    time_str = str(time_value).strip()
+    
+    # Handle different digit lengths
+    if time_str.isdigit():
+        if len(time_str) == 2:
+            # Convert 31 to 00:31
+            formatted_time = f"00:{time_str}"
+        elif len(time_str) == 3:
+            # Convert 331 to 03:31
+            formatted_time = f"0{time_str[0]}:{time_str[1:]}"
+        elif len(time_str) == 4:
+            # Convert 1331 to 13:31
+            formatted_time = f"{time_str[:2]}:{time_str[2:]}"
+        else:
+            # If not 2, 3, or 4 digits, return as-is
+            formatted_time = time_str
+    else:
+        # If not all digits, return as-is
+        formatted_time = time_str
     
     # Get the date from the same row
     date_value = df.iloc[row_idx].get('Date', '')
@@ -283,16 +261,55 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
     return f"{date_str} {formatted_time}"
 
 
+def fix_time_format(time_str):
+    """
+    Fix malformed time formats by converting them to HH:MM format.
+    
+    Args:
+        time_str: Time string that may be malformed (e.g., "1534", "734", "34")
+    
+    Returns:
+        Properly formatted time string (e.g., "15:34", "07:34", "00:34")
+    """
+    if not time_str or pd.isna(time_str):
+        return time_str
+    
+    time_str = str(time_str).strip()
+    
+    # If it already has a colon, it's probably already formatted correctly
+    if ':' in time_str:
+        return time_str
+    
+    # Check if it's all digits
+    if not time_str.isdigit():
+        return time_str
+    
+    # Handle different digit lengths
+    if len(time_str) == 2:
+        # Convert "34" to "00:34"
+        return f"00:{time_str}"
+    elif len(time_str) == 3:
+        # Convert "734" to "07:34"
+        return f"0{time_str[0]}:{time_str[1:]}"
+    elif len(time_str) == 4:
+        # Convert "1534" to "15:34"
+        return f"{time_str[:2]}:{time_str[2:]}"
+    else:
+        # If not 2, 3, or 4 digits, return as-is
+        return time_str
+
+
 def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     """
-    Fix Concurrent Providers format by adding date prefix to times that don't have it.
+    Fix Concurrent Providers format by adding date prefix to times that don't have it
+    and fixing malformed time formats.
     
     Args:
         concurrent_providers_value: The Concurrent Providers string
         charge_date: The Charge Date value to use for missing dates
     
     Returns:
-        Fixed Concurrent Providers string with dates added where needed
+        Fixed Concurrent Providers string with dates added where needed and times formatted correctly
     """
     if not concurrent_providers_value or pd.isna(concurrent_providers_value):
         return concurrent_providers_value
@@ -335,17 +352,19 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
             time1 = parts[2]
             time2 = parts[3]
             
+            # Fix time formatting first
+            time1 = fix_time_format(time1)
+            time2 = fix_time_format(time2)
+            
             # Check if time1 already has a date (contains '/')
             if '/' not in time1:
-                # Format time first, then add date prefix
-                formatted_time1 = format_time_to_hhmm(time1)
-                time1 = f"{date_prefix} {formatted_time1}"
+                # Add date prefix
+                time1 = f"{date_prefix} {time1}"
             
             # Check if time2 already has a date (contains '/')
             if '/' not in time2:
-                # Format time first, then add date prefix
-                formatted_time2 = format_time_to_hhmm(time2)
-                time2 = f"{date_prefix} {formatted_time2}"
+                # Add date prefix
+                time2 = f"{date_prefix} {time2}"
             
             # Reconstruct the entry
             fixed_entry = f"{name};{role};{time1};{time2}"
