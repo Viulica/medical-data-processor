@@ -213,15 +213,20 @@ IMPORTANT WARNINGS:
 def predict_mednet_code(insurance_name, insurance_address, po_box_to_mednet, special_cases, client):
     """Predict MedNet code for a single insurance entry"""
     
-    # Skip if no insurance name or address
-    if pd.isna(insurance_name) or insurance_name == '' or pd.isna(insurance_address) or insurance_address == '':
+    # Skip if no insurance name
+    if pd.isna(insurance_name) or insurance_name == '':
         return None
     
-    # Check special cases first
+    # Check special cases first (before address validation)
     insurance_name_upper = str(insurance_name).upper().strip()
     if insurance_name_upper in special_cases:
         logger.info(f"Special case match for: {insurance_name}")
         return special_cases[insurance_name_upper]
+    
+    # Now check if address is present for regular matching
+    if pd.isna(insurance_address) or insurance_address == '':
+        logger.info(f"No address provided for: {insurance_name}")
+        return None
     
     # Extract PO Box
     po_box = extract_po_box(insurance_address)
