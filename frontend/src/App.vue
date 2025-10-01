@@ -66,6 +66,13 @@
           >
             💊 Generate Modifiers
           </button>
+          <button
+            @click="activeTab = 'insurance'"
+            :class="{ active: activeTab === 'insurance' }"
+            class="tab-btn"
+          >
+            🏥 Insurance Sorting
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -1243,6 +1250,252 @@
             </div>
           </div>
         </div>
+
+        <!-- Insurance Sorting Tab -->
+        <div v-if="activeTab === 'insurance'" class="upload-section">
+          <div class="section-header">
+            <h2>Insurance MedNet Code Prediction</h2>
+            <p>
+              Upload patient insurance data to automatically predict MedNet
+              codes for primary, secondary, and tertiary insurance using AI
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Data CSV Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Patient Insurance Data (Required)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isInsuranceDataDragActive,
+                  'has-file': insuranceDataCsv,
+                }"
+                @drop="onInsuranceDataCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerInsuranceDataCsvUpload"
+              >
+                <input
+                  ref="insuranceDataCsvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onInsuranceDataCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="insuranceDataCsv" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ insuranceDataCsv.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(insuranceDataCsv.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop insurance data CSV<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="field-info">
+                <p class="info-text">
+                  ℹ️ CSV must contain: <strong>Primary Company Name</strong>,
+                  <strong>Primary Company Address 1</strong> (and optionally
+                  Secondary/Tertiary equivalents)
+                </p>
+              </div>
+            </div>
+
+            <!-- Special Cases CSV Upload (Optional) -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Special Cases (Optional)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isSpecialCasesDragActive,
+                  'has-file': specialCasesCsv,
+                }"
+                @drop="onSpecialCasesCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerSpecialCasesCsvUpload"
+              >
+                <input
+                  ref="specialCasesCsvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onSpecialCasesCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📋</div>
+                  <div v-if="specialCasesCsv" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ specialCasesCsv.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(specialCasesCsv.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Optional: Upload special cases<br />or skip to use defaults
+                  </p>
+                </div>
+              </div>
+              <div class="field-info">
+                <p class="info-text">
+                  ℹ️ Optional CSV with custom mappings. Must contain:
+                  <strong>Company name</strong>, <strong>Mednet code</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Requirements Info -->
+          <div class="upload-grid">
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How It Works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔍</span>
+                    <span>Extracts PO Box from insurance addresses</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🤖</span>
+                    <span>AI matches insurance names to MedNet database</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span
+                      >Predicts codes for Primary, Secondary, and Tertiary
+                      insurance</span
+                    >
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">✨</span>
+                    <span>Special cases override automatic predictions</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
+                <h3>Output</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📊</span>
+                    <span>Original CSV with added MedNet code columns</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🎯</span>
+                    <span>Columns: Primary/Secondary/Tertiary Mednet Code</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Download enriched CSV with predictions</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startInsurancePrediction"
+              :disabled="!canPredictInsurance || isPredictingInsurance"
+              class="process-btn"
+            >
+              <span v-if="isPredictingInsurance" class="spinner"></span>
+              <span v-else class="btn-icon">🏥</span>
+              {{
+                isPredictingInsurance
+                  ? "Predicting Insurance Codes..."
+                  : "Start Insurance Prediction"
+              }}
+            </button>
+
+            <button
+              v-if="insuranceDataCsv || insuranceJobId"
+              @click="resetInsuranceForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Insurance Sorting Status -->
+        <div v-if="insuranceJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="insuranceJobStatus.status">
+                <span class="status-icon">{{ getInsuranceStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getInsuranceStatusTitle() }}</h3>
+                <p class="status-message">
+                  {{ insuranceJobStatus.message }}
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-if="insuranceJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${insuranceJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ insuranceJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkInsuranceJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="insuranceJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <button @click="downloadInsuranceResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download CSV with Insurance Codes
+              </button>
+            </div>
+
+            <div
+              v-if="
+                insuranceJobStatus.status === 'failed' &&
+                insuranceJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ insuranceJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -1334,6 +1587,14 @@ export default {
       modifiersJobStatus: null,
       isGeneratingModifiers: false,
       isModifiersCsvDragActive: false,
+      // Insurance sorting functionality
+      insuranceDataCsv: null,
+      specialCasesCsv: null,
+      insuranceJobId: null,
+      insuranceJobStatus: null,
+      isPredictingInsurance: false,
+      isInsuranceDataDragActive: false,
+      isSpecialCasesDragActive: false,
     };
   },
   computed: {
@@ -1367,6 +1628,9 @@ export default {
     },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
+    },
+    canPredictInsurance() {
+      return this.insuranceDataCsv;
     },
   },
   methods: {
@@ -2723,6 +2987,257 @@ export default {
           return "⏸️";
       }
     },
+
+    // Insurance Sorting Methods
+    onInsuranceDataCsvDrop(e) {
+      e.preventDefault();
+      this.isInsuranceDataDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+        this.insuranceDataCsv = files[0];
+        this.toast.success("Insurance data CSV uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    onInsuranceDataCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".csv")) {
+        this.insuranceDataCsv = file;
+        this.toast.success("Insurance data CSV uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    triggerInsuranceDataCsvUpload() {
+      this.$refs.insuranceDataCsvInput.click();
+    },
+
+    onSpecialCasesCsvDrop(e) {
+      e.preventDefault();
+      this.isSpecialCasesDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+        this.specialCasesCsv = files[0];
+        this.toast.success("Special cases CSV uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    onSpecialCasesCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".csv")) {
+        this.specialCasesCsv = file;
+        this.toast.success("Special cases CSV uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    triggerSpecialCasesCsvUpload() {
+      this.$refs.specialCasesCsvInput.click();
+    },
+
+    async startInsurancePrediction() {
+      if (!this.canPredictInsurance) {
+        this.toast.error("Please upload insurance data CSV");
+        return;
+      }
+
+      this.isPredictingInsurance = true;
+      this.insuranceJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("data_csv", this.insuranceDataCsv);
+      if (this.specialCasesCsv) {
+        formData.append("special_cases_csv", this.specialCasesCsv);
+      }
+
+      const predictUrl = joinUrl(API_BASE_URL, "predict-insurance-codes");
+      console.log("🔧 Insurance Prediction URL:", predictUrl);
+
+      try {
+        const response = await axios.post(predictUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          timeout: 600000, // 10 minute timeout
+        });
+
+        this.insuranceJobId = response.data.job_id;
+        this.toast.success(
+          "Insurance code prediction started! Check the status section below."
+        );
+
+        // Set initial status
+        this.insuranceJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Processing started...",
+        };
+
+        // Start checking status automatically
+        this.startInsuranceStatusPolling();
+      } catch (error) {
+        console.error("Insurance prediction error:", error);
+        let errorMessage =
+          "Failed to start insurance code prediction. Please try again.";
+        if (error.response?.data?.detail) {
+          errorMessage = `Server error: ${error.response.data.detail}`;
+        }
+        this.toast.error(errorMessage);
+        this.isPredictingInsurance = false;
+      }
+    },
+
+    startInsuranceStatusPolling() {
+      // Check status every 5 seconds
+      const pollInterval = setInterval(async () => {
+        if (!this.insuranceJobId) {
+          clearInterval(pollInterval);
+          return;
+        }
+
+        try {
+          const statusUrl = joinUrl(
+            API_BASE_URL,
+            `status/${this.insuranceJobId}`
+          );
+          const response = await axios.get(statusUrl);
+
+          this.insuranceJobStatus = response.data;
+
+          if (response.data.status === "completed") {
+            clearInterval(pollInterval);
+            this.toast.success("Insurance code prediction completed!");
+            this.isPredictingInsurance = false;
+          } else if (response.data.status === "failed") {
+            clearInterval(pollInterval);
+            this.toast.error(
+              `Insurance code prediction failed: ${
+                response.data.error || "Unknown error"
+              }`
+            );
+            this.isPredictingInsurance = false;
+          }
+        } catch (error) {
+          console.error("Status check error:", error);
+        }
+      }, 5000); // Check every 5 seconds
+    },
+
+    async checkInsuranceJobStatus() {
+      if (!this.insuranceJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `status/${this.insuranceJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.insuranceJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Insurance code prediction completed!");
+          this.isPredictingInsurance = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Insurance code prediction failed: ${
+              response.data.error || "Unknown error"
+            }`
+          );
+          this.isPredictingInsurance = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadInsuranceResults() {
+      if (!this.insuranceJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.insuranceJobId}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `insurance_codes_${this.insuranceJobId}.csv`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetInsuranceForm() {
+      this.insuranceDataCsv = null;
+      this.specialCasesCsv = null;
+      this.insuranceJobId = null;
+      this.insuranceJobStatus = null;
+      this.isPredictingInsurance = false;
+      this.isInsuranceDataDragActive = false;
+      this.isSpecialCasesDragActive = false;
+
+      // Reset file inputs
+      if (this.$refs.insuranceDataCsvInput) {
+        this.$refs.insuranceDataCsvInput.value = "";
+      }
+      if (this.$refs.specialCasesCsvInput) {
+        this.$refs.specialCasesCsvInput.value = "";
+      }
+    },
+
+    getInsuranceStatusTitle() {
+      if (!this.insuranceJobStatus) return "";
+
+      switch (this.insuranceJobStatus.status) {
+        case "completed":
+          return "Insurance Code Prediction Complete";
+        case "failed":
+          return "Insurance Code Prediction Failed";
+        case "processing":
+          return "Predicting Insurance Codes";
+        default:
+          return "Insurance Code Prediction Status";
+      }
+    },
+
+    getInsuranceStatusIcon() {
+      if (!this.insuranceJobStatus) return "";
+
+      switch (this.insuranceJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
+        default:
+          return "⏳";
+      }
+    },
   },
 };
 </script>
@@ -3438,6 +3953,26 @@ body {
   font-size: 0.875rem;
   color: #6b7280;
   line-height: 1.5;
+}
+
+/* Field Info Styles */
+.field-info {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f0f9ff;
+  border-left: 3px solid #3b82f6;
+  border-radius: 4px;
+}
+
+.field-info .info-text {
+  font-size: 0.875rem;
+  color: #1e40af;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.field-info strong {
+  font-weight: 600;
 }
 
 /* Requirement List Styles */

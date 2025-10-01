@@ -1069,6 +1069,71 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         job.message = f"Modifiers generation failed: {str(e)}"
         logger.error(f"Modifiers generation job {job_id} failed: {str(e)}")
 
+def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_cases_csv_path: str = None):
+    """Background task to predict MedNet codes for insurance companies"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting insurance code prediction..."
+        job.progress = 10
+        
+        # Import the prediction function
+        import sys
+        sys.path.append(str(Path(__file__).parent / "sorting"))
+        from predict_mednet import process_insurance_predictions
+        
+        job.message = "Loading MedNet database..."
+        job.progress = 20
+        
+        # Path to the mednet.csv file
+        mednet_csv_path = Path(__file__).parent / "sorting" / "mednet.csv"
+        
+        if not mednet_csv_path.exists():
+            raise Exception("MedNet database not found")
+        
+        job.message = "Predicting insurance codes..."
+        job.progress = 30
+        
+        # Create output file path
+        output_file = f"/tmp/results/{job_id}_with_insurance_codes.csv"
+        Path(output_file).parent.mkdir(exist_ok=True)
+        
+        # Run the prediction
+        success = process_insurance_predictions(
+            data_csv_path, 
+            str(mednet_csv_path), 
+            output_file, 
+            special_cases_csv_path,
+            max_workers=10
+        )
+        
+        if not success:
+            raise Exception("Insurance code prediction failed")
+        
+        job.message = "Prediction complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not os.path.exists(output_file):
+            raise Exception("Output file was not created")
+        
+        job.result_file = output_file
+        job.status = "completed"
+        job.progress = 100
+        job.message = "Insurance code prediction completed successfully!"
+        
+        # Clean up input files
+        os.unlink(data_csv_path)
+        if special_cases_csv_path and os.path.exists(special_cases_csv_path):
+            os.unlink(special_cases_csv_path)
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Insurance code prediction failed: {str(e)}"
+        logger.error(f"Insurance code prediction job {job_id} failed: {str(e)}")
+
 @app.post("/convert-uni")
 async def convert_uni(
     background_tasks: BackgroundTasks,
@@ -1187,6 +1252,58 @@ async def generate_modifiers_route(
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/predict-insurance-codes")
+async def predict_insurance_codes(
+    background_tasks: BackgroundTasks,
+    data_csv: UploadFile = File(...),
+    special_cases_csv: UploadFile = File(None)
+):
+    """Upload data CSV and optional special cases CSV to predict MedNet codes"""
+    
+    try:
+        logger.info(f"Received insurance code prediction request - data: {data_csv.filename}")
+        
+        # Validate file type
+        if not data_csv.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="Data file must be a CSV")
+        
+        if special_cases_csv and not special_cases_csv.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="Special cases file must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created insurance prediction job {job_id}")
+        
+        # Save uploaded data CSV
+        data_csv_path = f"/tmp/{job_id}_data_input.csv"
+        
+        with open(data_csv_path, "wb") as f:
+            shutil.copyfileobj(data_csv.file, f)
+        
+        logger.info(f"Data CSV saved - path: {data_csv_path}")
+        
+        # Save special cases CSV if provided
+        special_cases_csv_path = None
+        if special_cases_csv:
+            special_cases_csv_path = f"/tmp/{job_id}_special_cases.csv"
+            with open(special_cases_csv_path, "wb") as f:
+                shutil.copyfileobj(special_cases_csv.file, f)
+            logger.info(f"Special cases CSV saved - path: {special_cases_csv_path}")
+        
+        # Start background processing
+        background_tasks.add_task(predict_insurance_codes_background, job_id, data_csv_path, special_cases_csv_path)
+        
+        logger.info(f"Background insurance prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "CSV uploaded and insurance code prediction started"}
+        
+    except Exception as e:
+        logger.error(f"Insurance prediction upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/memory")
