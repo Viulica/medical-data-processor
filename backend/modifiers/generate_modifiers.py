@@ -42,19 +42,18 @@ def load_modifiers_definition(definition_file="modifiers_definition.csv"):
 
 def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     """
-    Determine the modifier(s) to apply based on provider presence and rules.
+    Determine the modifier to apply based on provider presence and rules.
     
-    Returns a list of tuples: [(row_type, modifier, responsible_provider)]
-    where row_type is 'original' or 'duplicate'
+    Returns the M1 modifier string.
     
     Rules:
     YES medical direction YES medicare modifiers
-    - MD and CRNA -> QK + QX (create two lines)
+    - MD and CRNA -> QK
     - just MD -> AA
     - just CRNA -> QZ
     
     YES medical direction, NO medicare modifiers
-    - MD and CRNA -> QK + QX (create two lines)
+    - MD and CRNA -> QK
     - just MD -> QK
     - just CRNA -> QX
     
@@ -71,45 +70,43 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     
     # NO medical direction, NO medicare modifiers
     if not medical_direction and not medicare_modifiers:
-        return [('original', '', None)]
+        return ''
     
     # YES medical direction YES medicare modifiers
     if medical_direction and medicare_modifiers:
         if has_md and has_crna:
-            # Create two lines: one for MD (QK), one for CRNA (QX)
-            return [('original', 'QK', None), ('duplicate', 'QX', 'crna')]
+            return 'QK'
         elif has_md:
-            return [('original', 'AA', None)]
+            return 'AA'
         elif has_crna:
-            return [('original', 'QZ', None)]
+            return 'QZ'
         else:
-            return [('original', '', None)]
+            return ''
     
     # YES medical direction, NO medicare modifiers
     if medical_direction and not medicare_modifiers:
         if has_md and has_crna:
-            # Create two lines: one for MD (QK), one for CRNA (QX)
-            return [('original', 'QK', None), ('duplicate', 'QX', 'crna')]
+            return 'QK'
         elif has_md:
-            return [('original', 'QK', None)]
+            return 'QK'
         elif has_crna:
-            return [('original', 'QX', None)]
+            return 'QX'
         else:
-            return [('original', '', None)]
+            return ''
     
     # NO medical direction, YES medicare modifiers
     if not medical_direction and medicare_modifiers:
         if has_md and has_crna:
-            return [('original', 'QZ', None)]
+            return 'QZ'
         elif has_md:
-            return [('original', 'AA', None)]
+            return 'AA'
         elif has_crna:
-            return [('original', 'QZ', None)]
+            return 'QZ'
         else:
-            return [('original', '', None)]
+            return ''
     
     # Default case (should not reach here)
-    return [('original', '', None)]
+    return ''
 
 
 def generate_modifiers(input_file, output_file=None):
@@ -148,9 +145,17 @@ def generate_modifiers(input_file, output_file=None):
         if not has_md_column and not has_crna_column:
             print("Warning: Neither 'MD' nor 'CRNA' columns found. No modifiers will be generated.")
         
-        # Ensure M1 column exists
+        # Ensure M1, M2, M3 columns exist
         if 'M1' not in df.columns:
             df['M1'] = ''
+        if 'M2' not in df.columns:
+            df['M2'] = ''
+        if 'M3' not in df.columns:
+            df['M3'] = ''
+        
+        # Check for Anesthesia Type and Physical Status columns
+        has_anesthesia_type = 'Anesthesia Type' in df.columns
+        has_physical_status = 'Physical Status' in df.columns
         
         # Process each row
         result_rows = []
@@ -158,53 +163,92 @@ def generate_modifiers(input_file, output_file=None):
         total_rows = len(df)
         
         for idx, row in df.iterrows():
+            new_row = row.copy()
+            
+            # Reset M1, M2, M3 for this row
+            new_row['M1'] = ''
+            new_row['M2'] = ''
+            new_row['M3'] = ''
+            
             primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
             
-            # If no code, add row as-is and continue
-            if not primary_mednet_code or primary_mednet_code == '' or primary_mednet_code.lower() == 'nan':
-                result_rows.append(row.copy())
-                continue
+            # Variables to track modifiers
+            m1_modifier = ''
+            qs_modifier = ''
+            p_modifier = ''
+            medicare_modifiers = False
             
-            # Look up the code in modifiers definition
-            if primary_mednet_code not in modifiers_dict:
-                # Code not found in definition, add row as-is
-                result_rows.append(row.copy())
-                continue
+            # Determine M1 modifier (AA/QK/QZ) based on mednet code
+            if primary_mednet_code and primary_mednet_code != '' and primary_mednet_code.lower() != 'nan':
+                # Look up the code in modifiers definition
+                if primary_mednet_code in modifiers_dict:
+                    # Code found in definition - increment successful matches
+                    successful_matches += 1
+                    
+                    # Get the modifiers settings
+                    medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
+                    
+                    # Check if MD and CRNA have values
+                    has_md = False
+                    has_crna = False
+                    
+                    if has_md_column:
+                        md_value = row.get('MD', '')
+                        if not pd.isna(md_value) and str(md_value).strip() != '':
+                            has_md = True
+                    
+                    if has_crna_column:
+                        crna_value = row.get('CRNA', '')
+                        if not pd.isna(crna_value) and str(crna_value).strip() != '':
+                            has_crna = True
+                    
+                    # Determine M1 modifier (AA/QK/QZ)
+                    m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
             
-            # Code found in definition - increment successful matches
-            successful_matches += 1
+            # Determine QS modifier based on Anesthesia Type AND medicare modifiers
+            if has_anesthesia_type and medicare_modifiers:
+                anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
+                if anesthesia_type == 'MAC':
+                    qs_modifier = 'QS'
             
-            # Get the modifiers settings
-            medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
+            # Determine P modifier based on Physical Status
+            if has_physical_status:
+                physical_status = str(row.get('Physical Status', '')).strip()
+                if physical_status and physical_status != '' and physical_status.lower() != 'nan':
+                    try:
+                        # Convert to integer to validate it's a number
+                        status_num = int(float(physical_status))
+                        p_modifier = f'P{status_num}'
+                    except (ValueError, TypeError):
+                        # If Physical Status is not a valid number, skip P modifier
+                        pass
             
-            # Check if MD and CRNA have values
-            has_md = False
-            has_crna = False
-            crna_value = ''
+            # Apply hierarchy: M1 (AA/QK/QZ) > M2 (QS) > M3 (P)
+            # Place modifiers in first available slots
+            if m1_modifier:
+                # M1 has AA/QK/QZ
+                new_row['M1'] = m1_modifier
+                if qs_modifier:
+                    new_row['M2'] = qs_modifier
+                    if p_modifier:
+                        new_row['M3'] = p_modifier
+                else:
+                    # No QS, so P goes in M2
+                    if p_modifier:
+                        new_row['M2'] = p_modifier
+            else:
+                # No M1 modifier
+                if qs_modifier:
+                    # QS goes in M2
+                    new_row['M2'] = qs_modifier
+                    if p_modifier:
+                        new_row['M3'] = p_modifier
+                else:
+                    # No M1, no QS, so P goes in M1
+                    if p_modifier:
+                        new_row['M1'] = p_modifier
             
-            if has_md_column:
-                md_value = row.get('MD', '')
-                if not pd.isna(md_value) and str(md_value).strip() != '':
-                    has_md = True
-            
-            if has_crna_column:
-                crna_value = row.get('CRNA', '')
-                if not pd.isna(crna_value) and str(crna_value).strip() != '':
-                    has_crna = True
-            
-            # Determine modifier(s) to apply
-            modifiers_to_apply = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
-            
-            # Apply modifiers
-            for row_type, modifier, responsible_provider_source in modifiers_to_apply:
-                new_row = row.copy()
-                new_row['M1'] = modifier
-                
-                # For duplicate rows, update Responsible Provider with CRNA value
-                if row_type == 'duplicate' and responsible_provider_source == 'crna':
-                    new_row['Responsible Provider'] = crna_value
-                
-                result_rows.append(new_row)
+            result_rows.append(new_row)
         
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)
