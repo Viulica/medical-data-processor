@@ -272,19 +272,44 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
     
     logger.info("Loading data files...")
     
-    # Load input CSV
-    df = pd.read_csv(input_csv, dtype=str)
-    logger.info(f"Loaded input CSV: {len(df)} rows")
+    # Load input CSV with encoding fallback
+    encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+    df = None
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(input_csv, dtype=str, encoding=encoding)
+            logger.info(f"Loaded input CSV with {encoding}: {len(df)} rows")
+            break
+        except UnicodeDecodeError:
+            continue
+    if df is None:
+        raise Exception("Could not read input CSV with any standard encoding")
     
-    # Load MedNet CSV
-    mednet_df = pd.read_csv(mednet_csv, dtype=str)
-    logger.info(f"Loaded MedNet CSV: {len(mednet_df)} rows")
+    # Load MedNet CSV with encoding fallback
+    mednet_df = None
+    for encoding in encodings_to_try:
+        try:
+            mednet_df = pd.read_csv(mednet_csv, dtype=str, encoding=encoding)
+            logger.info(f"Loaded MedNet CSV with {encoding}: {len(mednet_df)} rows")
+            break
+        except UnicodeDecodeError:
+            continue
+    if mednet_df is None:
+        raise Exception("Could not read MedNet CSV with any standard encoding")
     
     # Load special cases if provided
     special_cases = {}
     if special_cases_csv:
         try:
-            special_df = pd.read_csv(special_cases_csv, dtype=str)
+            special_df = None
+            for encoding in encodings_to_try:
+                try:
+                    special_df = pd.read_csv(special_cases_csv, dtype=str, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if special_df is None:
+                raise Exception("Could not read special cases CSV with any standard encoding")
             if 'Company name' in special_df.columns and 'Mednet code' in special_df.columns:
                 for _, row in special_df.iterrows():
                     company_name = str(row['Company name']).upper().strip()

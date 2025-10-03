@@ -561,7 +561,25 @@ def convert_data(input_file, output_file=None):
         mednet_mapping = load_mednet_mapping()
         
         # Read the CSV file with dtype=str to preserve leading zeros in codes
-        df = pd.read_csv(input_file, dtype=str)
+        # Try multiple encodings to handle different file formats
+        encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
+        last_error = None
+        
+        for encoding in encodings_to_try:
+            try:
+                print(f"Attempting to read file with encoding: {encoding}")
+                df = pd.read_csv(input_file, dtype=str, encoding=encoding)
+                print(f"Successfully read file with encoding: {encoding}")
+                break
+            except UnicodeDecodeError as e:
+                print(f"Failed to read with {encoding}: {e}")
+                last_error = e
+                continue
+        
+        if df is None:
+            print(f"Error: Could not read file with any standard encoding. Last error: {last_error}")
+            return False
         
         if len(df) < 1:
             print("Error: CSV file must have at least 1 row (headers)")
