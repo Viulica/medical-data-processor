@@ -205,15 +205,15 @@ def extract_phone_by_type(phone_text, phone_type):
             continue
             
         # Check for phone type indicators
-        if phone_type == "home" and ("Home Phone" in entry or "Home" in entry):
+        if phone_type == "home" and ("Home Phone" in entry or "Home" in entry or "(Home Phone)" in entry):
             # Extract only numeric digits
             phone = ''.join(filter(str.isdigit, entry))
             return phone
-        elif phone_type == "work" and ("Work Phone" in entry or "Work" in entry):
+        elif phone_type == "work" and ("Work Phone" in entry or "Work" in entry or "(Work Phone)" in entry):
             # Extract only numeric digits
             phone = ''.join(filter(str.isdigit, entry))
             return phone
-        elif phone_type == "mobile" and ("Mobile" in entry or "Cell" in entry):
+        elif phone_type == "mobile" and ("Mobile" in entry or "Cell" in entry or "(Mobile)" in entry):
             # Extract only numeric digits
             phone = ''.join(filter(str.isdigit, entry))
             return phone
@@ -611,6 +611,14 @@ def convert_data(input_file, output_file=None):
                 elif str(value).lower().strip() == "none":
                     # Global "None" value cleaning - leave empty for all columns
                     new_row[new_header] = ""
+                elif old_col.lower() == "phone":
+                    # Phone splitting logic - split into Home, Work, Cell
+                    phone_value = str(value).strip()
+                    new_row["Patient HomePhone"] = extract_phone_by_type(phone_value, "home")
+                    new_row["Patient WorkPhone"] = extract_phone_by_type(phone_value, "work")
+                    new_row["Patient CellPhone"] = extract_phone_by_type(phone_value, "mobile")
+                    # Skip regular processing for Phone column to avoid overwriting
+                    continue
                 elif "patient name" in old_col.lower():
                     # Patient name splitting logic - create separate columns
                     patient_name = str(value)
@@ -809,12 +817,6 @@ def convert_data(input_file, output_file=None):
                         # Remove everything from '[' to ']' including the brackets
                         clean_value = clean_value.split('[')[0].strip()
                     new_row[new_header] = clean_value
-                elif "phone" in old_col.lower():
-                    # Phone splitting logic - split into Home, Work, Cell
-                    phone_value = str(value).strip()
-                    new_row["Patient HomePhone"] = extract_phone_by_type(phone_value, "home")
-                    new_row["Patient WorkPhone"] = extract_phone_by_type(phone_value, "work")
-                    new_row["Patient CellPhone"] = extract_phone_by_type(phone_value, "mobile")
                 elif "employer" in new_header.lower() or "employer" in old_col.lower():
                     # Patient Employer: leave empty if "None" (case insensitive)
                     if str(value).lower().strip() == "none":
