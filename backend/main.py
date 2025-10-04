@@ -304,11 +304,41 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         from google.genai import types
         
         # Setup clients
-        client = genai.Client(
-            vertexai=True,
-            project="835764687231",
-            location="us-central1",
-        )        
+        # Check if we have Google credentials in environment
+        if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+            # Use file-based credentials
+            client = genai.Client(
+                vertexai=True,
+                project="835764687231",
+                location="us-central1",
+            )
+        elif os.environ.get("GOOGLE_CREDENTIALS_JSON"):
+            # Use JSON string from environment variable
+            import json
+            import tempfile
+            credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(credentials_json)
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
+            
+            client = genai.Client(
+                vertexai=True,
+                project="835764687231",
+                location="us-central1",
+            )
+        else:
+            # Try to use the key.json file in the backend directory
+            key_file_path = Path(__file__).parent / "key.json"
+            if key_file_path.exists():
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(key_file_path)
+                client = genai.Client(
+                    vertexai=True,
+                    project="835764687231",
+                    location="us-central1",
+                )
+            else:
+                # Fallback to API key method
+                client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
         fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
