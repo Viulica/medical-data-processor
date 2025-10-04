@@ -389,7 +389,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             # Try custom model first
             for attempt in range(retries):
                 try:
-                    response = client_genai.models.generate_content(
+                    response = client.models.generate_content(
                         model=custom_model,
                         contents=[types.Content(role="user", parts=[{"text": prompt}])],
                         config=generate_content_config
