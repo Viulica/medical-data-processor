@@ -304,19 +304,11 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         from google.genai import types
         
         # Setup clients
-        # Check if we have Google credentials in environment
-        if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-            # Use file-based credentials
-            client = genai.Client(
-                vertexai=True,
-                project="835764687231",
-                location="us-central1",
-            )
-        elif os.environ.get("GOOGLE_CREDENTIALS_JSON"):
-            # Use JSON string from environment variable
-            import json
-            import tempfile
-            credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+        # Use JSON string from environment variable (Option 1)
+        import json
+        import tempfile
+        credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+        if credentials_json:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 f.write(credentials_json)
                 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
@@ -327,18 +319,8 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 location="us-central1",
             )
         else:
-            # Try to use the key.json file in the backend directory
-            key_file_path = Path(__file__).parent / "key.json"
-            if key_file_path.exists():
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(key_file_path)
-                client = genai.Client(
-                    vertexai=True,
-                    project="835764687231",
-                    location="us-central1",
-                )
-            else:
-                # Fallback to API key method
-                client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+            # Fallback to API key method
+            client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
         fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
@@ -402,9 +384,10 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             last_error = "Unknown error"
             initial_prediction = None
             model_source = None
+            failure_reason = None
 
             # Try custom model first
-            for _ in range(retries):
+            for attempt in range(retries):
                 try:
                     response = client_genai.models.generate_content(
                         model=custom_model,
@@ -416,8 +399,11 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                         initial_prediction = format_asa_code(result.strip())
                         model_source = "base_model"
                         break
+                    else:
+                        failure_reason = f"Base model returned invalid format: '{result.strip()}'"
                 except Exception as e:
                     last_error = str(e)
+                    failure_reason = f"Base model error (attempt {attempt + 1}/{retries}): {str(e)}"
 
             # Fallback to production model if custom model failed
             if not initial_prediction:
@@ -431,9 +417,9 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                         initial_prediction = format_asa_code(fallback_result.strip())
                         model_source = "fallback"
                     else:
-                        return f"Prediction failed: empty response", "error"
+                        return f"Prediction failed: empty response", "error", f"Fallback model returned empty response. Base model failure: {failure_reason}"
                 except Exception as e:
-                    return f"Prediction failed: {str(e)}", "error"
+                    return f"Prediction failed: {str(e)}", "error", f"Fallback model error: {str(e)}. Base model failure: {failure_reason}"
 
             # Stage 2: Review with custom instructions (if available)
             try:
@@ -447,7 +433,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
 
                 # If no custom instructions, return initial prediction with model source
                 if not custom_instructions:
-                    return initial_prediction, model_source
+                    return initial_prediction, model_source, failure_reason
 
                 # Create review prompt
                 review_prompt = f"""You are a medical coding reviewer. Your job is to REVIEW and potentially CORRECT a CPT code prediction, but ONLY if the custom medical coder instructions specifically apply to this case.
@@ -492,16 +478,16 @@ answer ONLY with the code, nothing else"""
                     final_result = format_asa_code(reviewed_result)
                     # If review changed the code, mark as reviewed
                     if final_result != initial_prediction:
-                        return final_result, "reviewed"
+                        return final_result, "reviewed", failure_reason
                     else:
-                        return final_result, model_source
+                        return final_result, model_source, failure_reason
                 else:
                     # Not a clean numeric code, return original prediction
-                    return initial_prediction, model_source
+                    return initial_prediction, model_source, failure_reason
 
             except Exception as e:
                 logger.warning(f"Review stage failed: {str(e)}, returning initial prediction")
-                return initial_prediction, model_source
+                return initial_prediction, model_source, failure_reason
         
         job.message = "Reading CSV file..."
         job.progress = 20
@@ -524,6 +510,7 @@ answer ONLY with the code, nothing else"""
         # Process predictions with threading
         predictions = [None] * len(df)
         model_sources = [None] * len(df)
+        failure_reasons = [None] * len(df)
         
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
@@ -532,12 +519,17 @@ answer ONLY with the code, nothing else"""
             for future in as_completed(futures):
                 idx = futures[future]
                 result = future.result()
-                if isinstance(result, tuple) and len(result) == 2:
-                    predictions[idx], model_sources[idx] = result
-                else:
+                if isinstance(result, tuple) and len(result) == 3:
+                    predictions[idx], model_sources[idx], failure_reasons[idx] = result
+                elif isinstance(result, tuple) and len(result) == 2:
                     # Handle old format for backward compatibility
+                    predictions[idx], model_sources[idx] = result
+                    failure_reasons[idx] = None
+                else:
+                    # Handle single return value
                     predictions[idx] = result
                     model_sources[idx] = "unknown"
+                    failure_reasons[idx] = None
                 completed += 1
                 job.progress = 30 + int((completed / len(df)) * 50)
                 job.message = f"Processed {completed}/{len(df)} procedures..."
@@ -545,11 +537,12 @@ answer ONLY with the code, nothing else"""
         job.message = "Adding predictions to CSV..."
         job.progress = 85
         
-        # Insert predictions and model sources into dataframe
+        # Insert predictions, model sources, and failure reasons into dataframe
         insert_index = df.columns.get_loc("Procedure Description") + 1
         df.insert(insert_index, "ASA Code", predictions)
         df.insert(insert_index + 1, "Procedure Code", predictions)
         df.insert(insert_index + 2, "Model Source", model_sources)
+        df.insert(insert_index + 3, "Base Model Failure Reason", failure_reasons)
         
         # Save result
         result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
