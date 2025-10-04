@@ -304,7 +304,12 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         from google.genai import types
         
         # Setup clients
-        client_genai = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+        client = genai.Client(
+            vertexai=True,
+            project="835764687231",
+            location="us-central1",
+        )        
+        
         fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
         # Client model mapping
@@ -366,6 +371,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             prompt = f'For this procedure: "{procedure}" give me the most appropriate anesthesia CPT code'
             last_error = "Unknown error"
             initial_prediction = None
+            model_source = None
 
             # Try custom model first
             for _ in range(retries):
@@ -378,6 +384,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     result = response.text
                     if result and result.strip().startswith("0"):
                         initial_prediction = format_asa_code(result.strip())
+                        model_source = "base_model"
                         break
                 except Exception as e:
                     last_error = str(e)
@@ -392,10 +399,11 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     fallback_result = response.text
                     if fallback_result:
                         initial_prediction = format_asa_code(fallback_result.strip())
+                        model_source = "fallback"
                     else:
-                        return f"Prediction failed: empty response"
+                        return f"Prediction failed: empty response", "error"
                 except Exception as e:
-                    return f"Prediction failed: {str(e)}"
+                    return f"Prediction failed: {str(e)}", "error"
 
             # Stage 2: Review with custom instructions (if available)
             try:
@@ -407,9 +415,9 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                         data = json.load(f)
                         custom_instructions = data.get("instructions", "").strip()
 
-                # If no custom instructions, return initial prediction
+                # If no custom instructions, return initial prediction with model source
                 if not custom_instructions:
-                    return initial_prediction
+                    return initial_prediction, model_source
 
                 # Create review prompt
                 review_prompt = f"""You are a medical coding reviewer. Your job is to REVIEW and potentially CORRECT a CPT code prediction, but ONLY if the custom medical coder instructions specifically apply to this case.
@@ -452,14 +460,18 @@ answer ONLY with the code, nothing else"""
                 if reviewed_result and reviewed_result.replace("0", "").replace("1", "").replace("2", "").replace("3", "").replace("4", "").replace("5", "").replace("6", "").replace("7", "").replace("8", "").replace("9", "") == "":
                     # It's a numeric code, format it
                     final_result = format_asa_code(reviewed_result)
-                    return final_result
+                    # If review changed the code, mark as reviewed
+                    if final_result != initial_prediction:
+                        return final_result, "reviewed"
+                    else:
+                        return final_result, model_source
                 else:
                     # Not a clean numeric code, return original prediction
-                    return initial_prediction
+                    return initial_prediction, model_source
 
             except Exception as e:
                 logger.warning(f"Review stage failed: {str(e)}, returning initial prediction")
-                return initial_prediction
+                return initial_prediction, model_source
         
         job.message = "Reading CSV file..."
         job.progress = 20
@@ -481,6 +493,7 @@ answer ONLY with the code, nothing else"""
         
         # Process predictions with threading
         predictions = [None] * len(df)
+        model_sources = [None] * len(df)
         
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
@@ -488,7 +501,13 @@ answer ONLY with the code, nothing else"""
             completed = 0
             for future in as_completed(futures):
                 idx = futures[future]
-                predictions[idx] = future.result()
+                result = future.result()
+                if isinstance(result, tuple) and len(result) == 2:
+                    predictions[idx], model_sources[idx] = result
+                else:
+                    # Handle old format for backward compatibility
+                    predictions[idx] = result
+                    model_sources[idx] = "unknown"
                 completed += 1
                 job.progress = 30 + int((completed / len(df)) * 50)
                 job.message = f"Processed {completed}/{len(df)} procedures..."
@@ -496,10 +515,11 @@ answer ONLY with the code, nothing else"""
         job.message = "Adding predictions to CSV..."
         job.progress = 85
         
-        # Insert predictions into dataframe as two columns
+        # Insert predictions and model sources into dataframe
         insert_index = df.columns.get_loc("Procedure Description") + 1
         df.insert(insert_index, "ASA Code", predictions)
         df.insert(insert_index + 1, "Procedure Code", predictions)
+        df.insert(insert_index + 2, "Model Source", model_sources)
         
         # Save result
         result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
