@@ -146,6 +146,29 @@ def process_dob_gender_logic(df, row_idx, mapping, target_field, is_dob=True):
     return ""
 
 
+def extract_icd_codes(text):
+    """
+    Extract ICD codes from text. Codes are in brackets like [E66.01] or [B18.1, K74.60].
+    Returns a list of ICD codes.
+    """
+    if pd.isna(text) or not text:
+        return []
+    
+    text = str(text)
+    codes = []
+    
+    # Find all patterns in square brackets
+    pattern = r'\[([^\]]+)\]'
+    matches = re.findall(pattern, text)
+    
+    for match in matches:
+        # Split by comma in case there are multiple codes in one bracket
+        codes_in_bracket = [code.strip() for code in match.split(',')]
+        codes.extend(codes_in_bracket)
+    
+    return codes
+
+
 def extract_mednet_code(value):
     """
     Extract only numeric part from Mednet Code.
@@ -958,6 +981,48 @@ def convert_data(input_file, output_file=None):
                     new_row["Concurrent Providers"] = ""
             elif "Concurrent Providers" not in new_row:
                 new_row["Concurrent Providers"] = ""
+            
+            # Extract ICD codes from both POST-OP DIAGNOSIS columns
+            icd_codes = []
+            
+            # First, check if ICD1-ICD4 already exist in the original data and add those first
+            for i in range(4):
+                icd_field = f"ICD{i+1}"
+                if icd_field in df.columns:
+                    existing_value = df.iloc[row_idx].get(icd_field, '')
+                    if not pd.isna(existing_value) and str(existing_value).strip():
+                        icd_codes.append(str(existing_value).strip())
+            
+            # Get POST-OP DIAGNOSIS column
+            post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
+            if post_op_diag_col:
+                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
+                codes_from_col1 = extract_icd_codes(post_op_diag_value)
+                icd_codes.extend(codes_from_col1)
+            
+            # Get Post-op Diagnosis - Coded column
+            post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
+            if post_op_coded_col:
+                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
+                codes_from_col2 = extract_icd_codes(post_op_coded_value)
+                icd_codes.extend(codes_from_col2)
+            
+            # Remove duplicates while preserving order
+            unique_codes = []
+            seen = set()
+            for code in icd_codes:
+                if code and code not in seen:
+                    unique_codes.append(code)
+                    seen.add(code)
+            
+            # Fill ICD1-ICD4 slots sequentially (max 4 codes)
+            for i in range(4):
+                icd_field = f"ICD{i+1}"
+                if i < len(unique_codes):
+                    new_row[icd_field] = unique_codes[i]
+                else:
+                    # If no code available, set to empty
+                    new_row[icd_field] = ""
             
             result_data.append(new_row)
         
