@@ -10,8 +10,11 @@ Modifier Hierarchy:
 4. P modifiers (P1-P6) - Physical status modifiers
 
 Special Cases:
-- Mednet Code 003: If BOTH MD and CRNA are present, proceed with normal modifier generation.
-                   If NOT both MD and CRNA, ONLY apply P modifier (no M1/GC/QS modifiers).
+- Mednet Code 003 (Blue Cross): 
+  * If BOTH MD and CRNA are present: Artificially set Medicare Modifiers = YES and Medical Direction = YES
+  * If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
+  This allows normal modifier generation (including GC) when both providers are present,
+  but limits to only P modifier when they are not.
 """
 
 import pandas as pd
@@ -213,35 +216,34 @@ def generate_modifiers(input_file, output_file=None):
                         if not pd.isna(crna_value) and str(crna_value).strip() != '':
                             has_crna = True
                     
+                    # SPECIAL CASE: Mednet code 003 (Blue Cross)
+                    # Override modifiers settings based on MD and CRNA presence
+                    if primary_mednet_code == '003':
+                        if has_md and has_crna:
+                            # Both MD and CRNA present: artificially set both to YES
+                            medicare_modifiers = True
+                            medical_direction = True
+                        else:
+                            # NOT both present: artificially set both to NO
+                            medicare_modifiers = False
+                            medical_direction = False
+                    
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
             
-            # SPECIAL CASE: Mednet code 003
-            # If code is 003 and NOT both MD and CRNA, then ONLY use P modifier
-            special_case_003 = False
-            if primary_mednet_code == '003':
-                if not (has_md and has_crna):
-                    # Special case: only P modifier, no other modifiers
-                    special_case_003 = True
-                    m1_modifier = ''
-                    gc_modifier = ''
-                    qs_modifier = ''
+            # Determine GC modifier based on Resident AND medicare modifiers
+            if has_resident_column and medicare_modifiers:
+                resident_value = row.get('Resident', '')
+                if not pd.isna(resident_value) and str(resident_value).strip() != '':
+                    gc_modifier = 'GC'
             
-            # Only determine GC and QS modifiers if not in special case 003
-            if not special_case_003:
-                # Determine GC modifier based on Resident AND medicare modifiers
-                if has_resident_column and medicare_modifiers:
-                    resident_value = row.get('Resident', '')
-                    if not pd.isna(resident_value) and str(resident_value).strip() != '':
-                        gc_modifier = 'GC'
-                
-                # Determine QS modifier based on Anesthesia Type AND medicare modifiers
-                if has_anesthesia_type and medicare_modifiers:
-                    anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
-                    if anesthesia_type == 'MAC':
-                        qs_modifier = 'QS'
+            # Determine QS modifier based on Anesthesia Type AND medicare modifiers
+            if has_anesthesia_type and medicare_modifiers:
+                anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
+                if anesthesia_type == 'MAC':
+                    qs_modifier = 'QS'
             
-            # Determine P modifier based on Physical Status (always calculate, even for special case 003)
+            # Determine P modifier based on Physical Status
             if has_physical_status:
                 physical_status = str(row.get('Physical Status', '')).strip()
                 if physical_status and physical_status != '' and physical_status.lower() != 'nan':
@@ -256,12 +258,7 @@ def generate_modifiers(input_file, output_file=None):
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P)
             # Place modifiers in first available slots (M1, M2, M3 only)
             
-            # Special case 003: ONLY place P modifier, ignore all others
-            if special_case_003:
-                if p_modifier:
-                    new_row['M1'] = p_modifier
-                # All other fields remain empty (already set to '' above)
-            elif m1_modifier:
+            if m1_modifier:
                 # M1 has AA/QK/QZ/QX
                 new_row['M1'] = m1_modifier
                 if gc_modifier:
