@@ -150,6 +150,7 @@ def extract_icd_codes(text):
     """
     Extract ICD codes from text. Codes are in brackets like [E66.01] or [B18.1, K74.60].
     Returns a list of ICD codes.
+    Only keeps codes that start with a letter (valid ICD codes).
     """
     if pd.isna(text) or not text:
         return []
@@ -164,7 +165,10 @@ def extract_icd_codes(text):
     for match in matches:
         # Split by comma in case there are multiple codes in one bracket
         codes_in_bracket = [code.strip() for code in match.split(',')]
-        codes.extend(codes_in_bracket)
+        # Only keep codes that start with a letter (valid ICD codes)
+        for code in codes_in_bracket:
+            if code and code[0].isalpha():
+                codes.append(code)
     
     return codes
 
@@ -325,14 +329,15 @@ def fix_time_format(time_str):
 def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     """
     Fix Concurrent Providers format by adding date prefix to times that don't have it
-    and fixing malformed time formats.
+    and fixing malformed time formats. Also filters out any records containing "CRNA".
     
     Args:
         concurrent_providers_value: The Concurrent Providers string
         charge_date: The Charge Date value to use for missing dates
     
     Returns:
-        Fixed Concurrent Providers string with dates added where needed and times formatted correctly
+        Fixed Concurrent Providers string with dates added where needed, times formatted correctly,
+        and CRNA records removed
     """
     if not concurrent_providers_value or pd.isna(concurrent_providers_value):
         return concurrent_providers_value
@@ -366,6 +371,10 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     fixed_entries = []
     
     for entry in provider_entries:
+        # Skip entries that contain "CRNA"
+        if "CRNA" in entry:
+            continue
+        
         # Each entry format: Name;Role;Time1;Time2
         parts = entry.split(';')
         

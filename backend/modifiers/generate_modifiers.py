@@ -2,6 +2,16 @@
 """
 Script to generate medical modifiers based on mednet codes and provider information.
 This script processes CSV data and generates modifiers according to specific business rules.
+
+Modifier Hierarchy:
+1. M1 modifiers (AA/QK/QZ/QX) - Provider type modifiers
+2. GC modifier - Teaching physician (when Resident is present and Medicare Modifiers = YES)
+3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
+4. P modifiers (P1-P6) - Physical status modifiers
+
+Special Cases:
+- Mednet Code 003: If BOTH MD and CRNA are present, proceed with normal modifier generation.
+                   If NOT both MD and CRNA, ONLY apply P modifier (no M1/GC/QS modifiers).
 """
 
 import pandas as pd
@@ -153,9 +163,10 @@ def generate_modifiers(input_file, output_file=None):
         if 'M3' not in df.columns:
             df['M3'] = ''
         
-        # Check for Anesthesia Type and Physical Status columns
+        # Check for Anesthesia Type, Physical Status, and Resident columns
         has_anesthesia_type = 'Anesthesia Type' in df.columns
         has_physical_status = 'Physical Status' in df.columns
+        has_resident_column = 'Resident' in df.columns
         
         # Process each row
         result_rows = []
@@ -174,9 +185,12 @@ def generate_modifiers(input_file, output_file=None):
             
             # Variables to track modifiers
             m1_modifier = ''
+            gc_modifier = ''
             qs_modifier = ''
             p_modifier = ''
             medicare_modifiers = False
+            has_md = False
+            has_crna = False
             
             # Determine M1 modifier (AA/QK/QZ) based on mednet code
             if primary_mednet_code and primary_mednet_code != '' and primary_mednet_code.lower() != 'nan':
@@ -189,9 +203,6 @@ def generate_modifiers(input_file, output_file=None):
                     medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
                     
                     # Check if MD and CRNA have values
-                    has_md = False
-                    has_crna = False
-                    
                     if has_md_column:
                         md_value = row.get('MD', '')
                         if not pd.isna(md_value) and str(md_value).strip() != '':
@@ -205,13 +216,32 @@ def generate_modifiers(input_file, output_file=None):
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
             
-            # Determine QS modifier based on Anesthesia Type AND medicare modifiers
-            if has_anesthesia_type and medicare_modifiers:
-                anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
-                if anesthesia_type == 'MAC':
-                    qs_modifier = 'QS'
+            # SPECIAL CASE: Mednet code 003
+            # If code is 003 and NOT both MD and CRNA, then ONLY use P modifier
+            special_case_003 = False
+            if primary_mednet_code == '003':
+                if not (has_md and has_crna):
+                    # Special case: only P modifier, no other modifiers
+                    special_case_003 = True
+                    m1_modifier = ''
+                    gc_modifier = ''
+                    qs_modifier = ''
             
-            # Determine P modifier based on Physical Status
+            # Only determine GC and QS modifiers if not in special case 003
+            if not special_case_003:
+                # Determine GC modifier based on Resident AND medicare modifiers
+                if has_resident_column and medicare_modifiers:
+                    resident_value = row.get('Resident', '')
+                    if not pd.isna(resident_value) and str(resident_value).strip() != '':
+                        gc_modifier = 'GC'
+                
+                # Determine QS modifier based on Anesthesia Type AND medicare modifiers
+                if has_anesthesia_type and medicare_modifiers:
+                    anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
+                    if anesthesia_type == 'MAC':
+                        qs_modifier = 'QS'
+            
+            # Determine P modifier based on Physical Status (always calculate, even for special case 003)
             if has_physical_status:
                 physical_status = str(row.get('Physical Status', '')).strip()
                 if physical_status and physical_status != '' and physical_status.lower() != 'nan':
@@ -223,30 +253,57 @@ def generate_modifiers(input_file, output_file=None):
                         # If Physical Status is not a valid number, skip P modifier
                         pass
             
-            # Apply hierarchy: M1 (AA/QK/QZ) > M2 (QS) > M3 (P)
-            # Place modifiers in first available slots
-            if m1_modifier:
-                # M1 has AA/QK/QZ
+            # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P)
+            # Place modifiers in first available slots (M1, M2, M3 only)
+            
+            # Special case 003: ONLY place P modifier, ignore all others
+            if special_case_003:
+                if p_modifier:
+                    new_row['M1'] = p_modifier
+                # All other fields remain empty (already set to '' above)
+            elif m1_modifier:
+                # M1 has AA/QK/QZ/QX
                 new_row['M1'] = m1_modifier
-                if qs_modifier:
-                    new_row['M2'] = qs_modifier
-                    if p_modifier:
-                        new_row['M3'] = p_modifier
+                if gc_modifier:
+                    new_row['M2'] = gc_modifier
+                    if qs_modifier:
+                        new_row['M3'] = qs_modifier
+                        # P modifier won't fit
+                    else:
+                        if p_modifier:
+                            new_row['M3'] = p_modifier
                 else:
-                    # No QS, so P goes in M2
-                    if p_modifier:
-                        new_row['M2'] = p_modifier
+                    # No GC
+                    if qs_modifier:
+                        new_row['M2'] = qs_modifier
+                        if p_modifier:
+                            new_row['M3'] = p_modifier
+                    else:
+                        # No QS, so P goes in M2
+                        if p_modifier:
+                            new_row['M2'] = p_modifier
             else:
                 # No M1 modifier
-                if qs_modifier:
-                    # QS goes in M2
-                    new_row['M2'] = qs_modifier
-                    if p_modifier:
-                        new_row['M3'] = p_modifier
+                if gc_modifier:
+                    new_row['M1'] = gc_modifier
+                    if qs_modifier:
+                        new_row['M2'] = qs_modifier
+                        if p_modifier:
+                            new_row['M3'] = p_modifier
+                    else:
+                        if p_modifier:
+                            new_row['M2'] = p_modifier
                 else:
-                    # No M1, no QS, so P goes in M1
-                    if p_modifier:
-                        new_row['M1'] = p_modifier
+                    # No GC
+                    if qs_modifier:
+                        # QS goes in M2
+                        new_row['M2'] = qs_modifier
+                        if p_modifier:
+                            new_row['M3'] = p_modifier
+                    else:
+                        # No M1, no GC, no QS, so P goes in M1
+                        if p_modifier:
+                            new_row['M1'] = p_modifier
             
             result_rows.append(new_row)
         
