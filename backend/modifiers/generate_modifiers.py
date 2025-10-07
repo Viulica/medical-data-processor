@@ -26,6 +26,7 @@ Special Cases:
     - ASA Code and Procedure Code set to 64447
     - Provider fields copied from Peripheral block MD/Resident/CRNA
     - ICD codes cleared except ICD1 = "G89.18"
+    - Concurrent Providers cleared
     - Modifiers set based on "Peripheral block laterality":
       * Left: LT, 59
       * Right: RT, 59
@@ -357,6 +358,10 @@ def generate_modifiers(input_file, output_file=None):
                     
                     # Set ICD1 to G89.18
                     peripheral_row['ICD1'] = 'G89.18'
+                    
+                    # Clear Concurrent Providers
+                    if 'Concurrent Providers' in peripheral_row:
+                        peripheral_row['Concurrent Providers'] = ''
                     
                     # Clear all modifier columns
                     peripheral_row['M1'] = ''
