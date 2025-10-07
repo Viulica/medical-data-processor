@@ -6,8 +6,10 @@ This script processes CSV data and generates modifiers according to specific bus
 Modifier Hierarchy:
 1. M1 modifiers (AA/QK/QZ/QX) - Provider type modifiers
 2. GC modifier - Teaching physician (when Resident is present and Medicare Modifiers = YES)
+   NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
+5. PT modifier - Added to LAST position when "Polyps found" has a value AND Primary Mednet Code = "001"
 
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
@@ -15,6 +17,19 @@ Special Cases:
   * If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
   This allows normal modifier generation (including GC) when both providers are present,
   but limits to only P modifier when they are not.
+
+- Peripheral Block Row Generation (Mednet Code 001):
+  * When "Peripheral block given" = "PERIPHERAL_BLOCK"
+  * AND "Anesthesia Type" = "General" (case insensitive)
+  * AND "Primary Mednet Code" = "001"
+  * A duplicate row is created with:
+    - ASA Code and Procedure Code set to 64447
+    - Provider fields copied from Peripheral block MD/Resident/CRNA
+    - ICD codes cleared except ICD1 = "G89.18"
+    - Modifiers set based on "Peripheral block laterality":
+      * Left: LT, 59
+      * Right: RT, 59
+      * Bilateral: 50, 59
 """
 
 import pandas as pd
@@ -166,10 +181,18 @@ def generate_modifiers(input_file, output_file=None):
         if 'M3' not in df.columns:
             df['M3'] = ''
         
-        # Check for Anesthesia Type, Physical Status, and Resident columns
+        # Check for Anesthesia Type, Physical Status, Resident, and Polyps found columns
         has_anesthesia_type = 'Anesthesia Type' in df.columns
         has_physical_status = 'Physical Status' in df.columns
         has_resident_column = 'Resident' in df.columns
+        has_polyps_found_column = 'Polyps found' in df.columns
+        
+        # Check for Peripheral block columns
+        has_peripheral_block_given = 'Peripheral block given' in df.columns
+        has_peripheral_block_md = 'Peripheral block MD' in df.columns
+        has_peripheral_block_resident = 'Peripheral block Resident' in df.columns
+        has_peripheral_block_crna = 'Peripheral block CRNA' in df.columns
+        has_peripheral_block_laterality = 'Peripheral block laterality' in df.columns
         
         # Process each row
         result_rows = []
@@ -191,6 +214,7 @@ def generate_modifiers(input_file, output_file=None):
             gc_modifier = ''
             qs_modifier = ''
             p_modifier = ''
+            pt_modifier = ''
             medicare_modifiers = False
             has_md = False
             has_crna = False
@@ -232,7 +256,8 @@ def generate_modifiers(input_file, output_file=None):
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
             
             # Determine GC modifier based on Resident AND medicare modifiers
-            if has_resident_column and medicare_modifiers:
+            # BUT NOT when m1_modifier is QK (prevent QK + GC combination)
+            if has_resident_column and medicare_modifiers and m1_modifier != 'QK':
                 resident_value = row.get('Resident', '')
                 if not pd.isna(resident_value) and str(resident_value).strip() != '':
                     gc_modifier = 'GC'
@@ -255,54 +280,107 @@ def generate_modifiers(input_file, output_file=None):
                         # If Physical Status is not a valid number, skip P modifier
                         pass
             
-            # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P)
-            # Place modifiers in first available slots (M1, M2, M3 only)
+            # Determine PT modifier based on Polyps found AND Primary Mednet Code = "001"
+            if has_polyps_found_column and primary_mednet_code == '001':
+                polyps_value = row.get('Polyps found', '')
+                if not pd.isna(polyps_value) and str(polyps_value).strip() != '':
+                    pt_modifier = 'PT'
             
+            # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
+            # Place modifiers in first available slots (M1, M2, M3 only)
+            # PT modifier always goes in the LAST position (M3) if it exists
+            
+            # Collect all modifiers in priority order (excluding PT)
+            modifiers_list = []
             if m1_modifier:
-                # M1 has AA/QK/QZ/QX
-                new_row['M1'] = m1_modifier
-                if gc_modifier:
-                    new_row['M2'] = gc_modifier
-                    if qs_modifier:
-                        new_row['M3'] = qs_modifier
-                        # P modifier won't fit
-                    else:
-                        if p_modifier:
-                            new_row['M3'] = p_modifier
-                else:
-                    # No GC
-                    if qs_modifier:
-                        new_row['M2'] = qs_modifier
-                        if p_modifier:
-                            new_row['M3'] = p_modifier
-                    else:
-                        # No QS, so P goes in M2
-                        if p_modifier:
-                            new_row['M2'] = p_modifier
+                modifiers_list.append(m1_modifier)
+            if gc_modifier:
+                modifiers_list.append(gc_modifier)
+            if qs_modifier:
+                modifiers_list.append(qs_modifier)
+            if p_modifier:
+                modifiers_list.append(p_modifier)
+            
+            # If PT modifier exists, ensure it goes in LAST position (M3)
+            if pt_modifier:
+                # Place first modifiers in M1 and M2, reserve M3 for PT
+                if len(modifiers_list) >= 1:
+                    new_row['M1'] = modifiers_list[0]
+                if len(modifiers_list) >= 2:
+                    new_row['M2'] = modifiers_list[1]
+                # M3 is reserved for PT
+                new_row['M3'] = pt_modifier
             else:
-                # No M1 modifier
-                if gc_modifier:
-                    new_row['M1'] = gc_modifier
-                    if qs_modifier:
-                        new_row['M2'] = qs_modifier
-                        if p_modifier:
-                            new_row['M3'] = p_modifier
-                    else:
-                        if p_modifier:
-                            new_row['M2'] = p_modifier
-                else:
-                    # No GC
-                    if qs_modifier:
-                        # QS goes in M2
-                        new_row['M2'] = qs_modifier
-                        if p_modifier:
-                            new_row['M3'] = p_modifier
-                    else:
-                        # No M1, no GC, no QS, so P goes in M1
-                        if p_modifier:
-                            new_row['M1'] = p_modifier
+                # No PT modifier, place all modifiers normally
+                if len(modifiers_list) >= 1:
+                    new_row['M1'] = modifiers_list[0]
+                if len(modifiers_list) >= 2:
+                    new_row['M2'] = modifiers_list[1]
+                if len(modifiers_list) >= 3:
+                    new_row['M3'] = modifiers_list[2]
             
             result_rows.append(new_row)
+            
+            # Check if we need to create a peripheral block row
+            # Conditions: 
+            # 1. "Peripheral block given" = "PERIPHERAL_BLOCK"
+            # 2. "Anesthesia Type" = "General" (case insensitive)
+            # 3. "Primary Mednet Code" = "001"
+            if (has_peripheral_block_given and has_anesthesia_type and 
+                primary_mednet_code == '001'):
+                
+                peripheral_block_given = str(row.get('Peripheral block given', '')).strip()
+                anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()
+                
+                if (peripheral_block_given == 'PERIPHERAL_BLOCK' and 
+                    anesthesia_type_val == 'GENERAL'):
+                    
+                    # Create a copy of the original row (not the modified new_row)
+                    peripheral_row = row.copy()
+                    
+                    # Set ASA Code and Procedure Code to 64447
+                    peripheral_row['ASA Code'] = '64447'
+                    peripheral_row['Procedure Code'] = '64447'
+                    
+                    # Copy peripheral block provider values
+                    if has_peripheral_block_md:
+                        peripheral_row['MD'] = row.get('Peripheral block MD', '')
+                    if has_peripheral_block_resident:
+                        peripheral_row['Resident'] = row.get('Peripheral block Resident', '')
+                    if has_peripheral_block_crna:
+                        peripheral_row['CRNA'] = row.get('Peripheral block CRNA', '')
+                    
+                    # Clear ICD codes
+                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                        if icd_col in peripheral_row:
+                            peripheral_row[icd_col] = ''
+                    
+                    # Set ICD1 to G89.18
+                    peripheral_row['ICD1'] = 'G89.18'
+                    
+                    # Clear all modifier columns
+                    peripheral_row['M1'] = ''
+                    peripheral_row['M2'] = ''
+                    peripheral_row['M3'] = ''
+                    if 'M4' in peripheral_row:
+                        peripheral_row['M4'] = ''
+                    
+                    # Set modifiers based on laterality
+                    if has_peripheral_block_laterality:
+                        laterality = str(row.get('Peripheral block laterality', '')).strip()
+                        
+                        if laterality == 'Left':
+                            peripheral_row['M1'] = 'LT'
+                            peripheral_row['M2'] = '59'
+                        elif laterality == 'Right':
+                            peripheral_row['M1'] = 'RT'
+                            peripheral_row['M2'] = '59'
+                        elif laterality == 'Bilateral':
+                            peripheral_row['M1'] = '50'
+                            peripheral_row['M2'] = '59'
+                    
+                    # Add the peripheral block row to results
+                    result_rows.append(peripheral_row)
         
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)

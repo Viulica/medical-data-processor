@@ -105,7 +105,7 @@ class ProcessingJob:
         self.result_file = None
         self.error = None
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-pro"):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash"):
     """Background task to process PDFs"""
     job = job_status[job_id]
     
@@ -671,7 +671,7 @@ async def upload_files(
     zip_file: UploadFile = File(...),
     excel_file: UploadFile = File(...),
     n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
-    model: str = Form(default="gemini-2.5-pro")  # Model parameter with default
+    model: str = Form(default="gemini-2.5-flash")  # Model parameter with default
 ):
     """Upload ZIP file, Excel instructions file, and page count"""
     
