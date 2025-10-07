@@ -1,15 +1,45 @@
 import os
 import sys
 import logging
+import gc
+import signal
 
 # Set environment variables to limit threading and prevent resource exhaustion
-os.environ['OPENBLAS_NUM_THREADS'] = '16'
-os.environ['OMP_NUM_THREADS'] = '16'
-os.environ['MKL_NUM_THREADS'] = '16'
+os.environ['OPENBLAS_NUM_THREADS'] = '12'
+os.environ['OMP_NUM_THREADS'] = '12'
+os.environ['MKL_NUM_THREADS'] = '12'
 
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def kill_process_tree(process):
+    """Kill a process and all its children"""
+    try:
+        import psutil
+        parent = psutil.Process(process.pid)
+        children = parent.children(recursive=True)
+        
+        # Kill children first
+        for child in children:
+            try:
+                child.kill()
+                logger.info(f"Killed child process {child.pid}")
+            except psutil.NoSuchProcess:
+                pass
+        
+        # Kill parent
+        process.kill()
+        process.wait()
+        logger.info(f"Killed parent process {process.pid}")
+    except Exception as e:
+        logger.error(f"Error killing process tree: {e}")
+        # Fallback to simple kill
+        try:
+            process.kill()
+            process.wait()
+        except:
+            pass
 
 # Try to import required modules
 try:
@@ -104,9 +134,9 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         env = os.environ.copy()
         env['PYTHONPATH'] = str(Path(__file__).parent / "current")
         # Limit OpenBLAS threads to prevent resource exhaustion
-        env['OPENBLAS_NUM_THREADS'] = '16'
-        env['OMP_NUM_THREADS'] = '16'
-        env['MKL_NUM_THREADS'] = '16'
+        env['OPENBLAS_NUM_THREADS'] = '12'
+        env['OMP_NUM_THREADS'] = '12'
+        env['MKL_NUM_THREADS'] = '12'
         
         # Run the processing script
         script_path = Path(__file__).parent / "current" / "2-extract_info.py"
@@ -114,18 +144,37 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         job.message = f"Processing PDFs (extracting first {n_pages} pages per patient)..."
         job.progress = 30
         
-        # Run the script with subprocess
-        result = subprocess.run([
-            sys.executable, str(script_path),
-            str(temp_dir / "input"),
-            str(excel_dest),
-            str(n_pages),  # n_pages parameter
-            "7",  # max_workers
-            model  # model parameter
-        ], capture_output=True, text=True, cwd=temp_dir, env=env)
-        
-        if result.returncode != 0:
-            raise Exception(f"Processing failed: {result.stderr}")
+        # Run the script with subprocess (with timeout)
+        process = None
+        try:
+            process = subprocess.Popen([
+                sys.executable, str(script_path),
+                str(temp_dir / "input"),
+                str(excel_dest),
+                str(n_pages),  # n_pages parameter
+                "7",  # max_workers
+                model  # model parameter
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+            
+            # Wait for process with timeout (30 minutes max)
+            stdout, stderr = process.communicate(timeout=1800)
+            
+            if process.returncode != 0:
+                raise Exception(f"Processing failed: {stderr}")
+        except subprocess.TimeoutExpired:
+            # Kill the process and all its children if it times out
+            if process:
+                logger.warning(f"Process timed out, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise Exception("Processing timed out after 30 minutes")
+        except Exception as e:
+            # Ensure process is terminated on any error
+            if process and process.poll() is None:
+                logger.warning(f"Process failed, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise e
         
         job.message = "Processing complete, preparing results..."
         job.progress = 80
@@ -152,11 +201,18 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         os.unlink(zip_path)
         os.unlink(excel_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after processing")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
         job.message = f"Processing failed: {str(e)}"
         logger.error(f"Job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
     """Background task to split PDF using the existing detection script"""
@@ -200,9 +256,9 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         env = os.environ.copy()
         env['PYTHONPATH'] = str(current_dir)
         # Limit OpenBLAS threads to prevent resource exhaustion
-        env['OPENBLAS_NUM_THREADS'] = '16'
-        env['OMP_NUM_THREADS'] = '16'
-        env['MKL_NUM_THREADS'] = '16'
+        env['OPENBLAS_NUM_THREADS'] = '12'
+        env['OMP_NUM_THREADS'] = '12'
+        env['MKL_NUM_THREADS'] = '12'
         
         # Original script path
         script_path = current_dir / "1-split_pdf_by_detections.py"
@@ -241,15 +297,34 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         logger.info(f"Working directory: {current_dir}")
         logger.info(f"Input folder contents: {list(input_dir.glob('*.pdf'))}")
         
-        result = subprocess.run([
-            sys.executable, str(temp_script_path)
-        ], capture_output=True, text=True, cwd=current_dir, env=env)
-        
-        logger.info(f"Script stdout: {result.stdout}")
-        logger.info(f"Script stderr: {result.stderr}")
-        
-        if result.returncode != 0:
-            raise Exception(f"Splitting failed: {result.stderr}")
+        process = None
+        try:
+            process = subprocess.Popen([
+                sys.executable, str(temp_script_path)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)
+            
+            # Wait for process with timeout (20 minutes max for splitting)
+            stdout, stderr = process.communicate(timeout=1200)
+            
+            logger.info(f"Script stdout: {stdout}")
+            logger.info(f"Script stderr: {stderr}")
+            
+            if process.returncode != 0:
+                raise Exception(f"Splitting failed: {stderr}")
+        except subprocess.TimeoutExpired:
+            # Kill the process and all its children if it times out
+            if process:
+                logger.warning(f"PDF splitting timed out, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise Exception("PDF splitting timed out after 20 minutes")
+        except Exception as e:
+            # Ensure process is terminated on any error
+            if process and process.poll() is None:
+                logger.warning(f"PDF splitting failed, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise e
         
         job.message = "Creating ZIP archive of split PDFs..."
         job.progress = 80
@@ -284,6 +359,10 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
             temp_script_path.unlink()
             logger.info(f"Cleaned up temp script: {temp_script_path}")
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after PDF splitting")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
@@ -300,6 +379,9 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
                 logger.info(f"Cleaned up temp script on error: {temp_script_path}")
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
     """Background task to predict CPT codes from CSV procedures"""
@@ -570,11 +652,18 @@ answer ONLY with the code, nothing else"""
         # Clean up input file
         os.unlink(csv_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after CPT prediction")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
         job.message = f"CPT prediction failed: {str(e)}"
         logger.error(f"CPT prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 @app.post("/upload")
 async def upload_files(
@@ -974,11 +1063,18 @@ def convert_uni_background(job_id: str, csv_path: str):
         # Clean up input file
         os.unlink(csv_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after UNI conversion")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
         job.message = f"UNI conversion failed: {str(e)}"
         logger.error(f"UNI conversion job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 def convert_instructions_background(job_id: str, excel_path: str):
     """Background task to convert Excel file using the instructions conversion script"""
@@ -1062,6 +1158,10 @@ def convert_instructions_background(job_id: str, excel_path: str):
             os.unlink(additions_dest)
         os.unlink(excel_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after instructions conversion")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
@@ -1076,6 +1176,9 @@ def convert_instructions_background(job_id: str, excel_path: str):
                 os.unlink(additions_dest)
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 def generate_modifiers_background(job_id: str, csv_path: str):
     """Background task to generate medical modifiers using the modifiers script"""
@@ -1119,11 +1222,18 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         # Clean up input file
         os.unlink(csv_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after modifiers generation")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
         job.message = f"Modifiers generation failed: {str(e)}"
         logger.error(f"Modifiers generation job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_cases_csv_path: str = None):
     """Background task to predict MedNet codes for insurance companies"""
@@ -1184,11 +1294,18 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
         if special_cases_csv_path and os.path.exists(special_cases_csv_path):
             os.unlink(special_cases_csv_path)
         
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after insurance code prediction")
+        
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
         job.message = f"Insurance code prediction failed: {str(e)}"
         logger.error(f"Insurance code prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
 
 @app.post("/convert-uni")
 async def convert_uni(
@@ -1366,7 +1483,6 @@ async def predict_insurance_codes(
 async def memory_status():
     """Memory usage and job status endpoint"""
     import psutil
-    import gc
     
     # Get memory info
     process = psutil.Process()
@@ -1391,6 +1507,32 @@ async def memory_status():
         "result_files_count": len(result_files),
         "result_files_size_mb": round(total_result_size / 1024 / 1024, 2),
         "gc_counts": gc.get_count()
+    }
+
+@app.post("/force-gc")
+async def force_garbage_collection():
+    """Force garbage collection to free memory"""
+    import psutil
+    
+    # Get memory before
+    process = psutil.Process()
+    memory_before = process.memory_info().rss / 1024 / 1024
+    
+    # Force garbage collection
+    collected = gc.collect()
+    
+    # Get memory after
+    memory_after = process.memory_info().rss / 1024 / 1024
+    memory_freed = memory_before - memory_after
+    
+    logger.info(f"Forced garbage collection: collected {collected} objects, freed {memory_freed:.2f} MB")
+    
+    return {
+        "message": "Garbage collection completed",
+        "objects_collected": collected,
+        "memory_before_mb": round(memory_before, 2),
+        "memory_after_mb": round(memory_after, 2),
+        "memory_freed_mb": round(memory_freed, 2)
     }
 
 if __name__ == "__main__":
