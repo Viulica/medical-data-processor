@@ -9,7 +9,7 @@ Modifier Hierarchy:
    NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
-5. PT modifier - Added to LAST position when "Polyps found" has a value AND Primary Mednet Code = "001"
+5. PT modifier - Added to LAST position when "Polyps found" has a value AND Medicare Modifiers = YES
 
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
@@ -281,8 +281,8 @@ def generate_modifiers(input_file, output_file=None):
                         # If Physical Status is not a valid number, skip P modifier
                         pass
             
-            # Determine PT modifier based on Polyps found AND Primary Mednet Code = "001"
-            if has_polyps_found_column and primary_mednet_code == '001':
+            # Determine PT modifier based on Polyps found AND medicare_modifiers = YES
+            if has_polyps_found_column and medicare_modifiers:
                 polyps_value = row.get('Polyps found', '')
                 if not pd.isna(polyps_value) and str(polyps_value).strip() != '':
                     pt_modifier = 'PT'

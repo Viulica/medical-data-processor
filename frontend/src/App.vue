@@ -591,6 +591,7 @@
                     <option value="sio-stl">SIO-STL</option>
                     <option value="gap-fin">GAP-FIN</option>
                     <option value="apo-utp">APO-UTP</option>
+                    <option value="tan-esc">TAN-ESC (Custom Model)</option>
                   </select>
                 </div>
               </div>
@@ -2318,10 +2319,18 @@ export default {
 
       const formData = new FormData();
       formData.append("csv_file", this.csvFile);
-      formData.append("client", this.selectedClient);
-
-      const uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
-      console.log("🔧 CPT Upload URL:", uploadUrl);
+      
+      // Use custom endpoint for tan-esc model
+      let uploadUrl;
+      if (this.selectedClient === "tan-esc") {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
+        formData.append("confidence_threshold", "0.5");
+        console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
+      } else {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
+        formData.append("client", this.selectedClient);
+        console.log("🔧 CPT Upload URL:", uploadUrl);
+      }
 
       try {
         const response = await axios.post(uploadUrl, formData, {

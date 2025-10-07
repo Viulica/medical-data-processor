@@ -665,6 +665,74 @@ answer ONLY with the code, nothing else"""
         # Clean up memory even on failure
         gc.collect()
 
+def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_threshold: float = 0.5):
+    """Background task to predict CPT codes using custom TAN-ESC model"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting custom model CPT prediction..."
+        job.progress = 10
+        
+        # Import the custom prediction function
+        import sys
+        custom_coding_path = Path(__file__).parent / "custom-coding"
+        sys.path.insert(0, str(custom_coding_path))
+        
+        from predict import predict_codes_api
+        
+        job.message = f"Loading TAN-ESC model and processing {csv_path}..."
+        job.progress = 30
+        
+        # Create output file path
+        result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
+        result_file.parent.mkdir(exist_ok=True)
+        
+        # Run the prediction using the custom model
+        # Model files should be in backend/custom-coding/ directory
+        model_dir = custom_coding_path
+        
+        job.message = "Making predictions with TAN-ESC model..."
+        job.progress = 50
+        
+        success = predict_codes_api(
+            input_file=csv_path,
+            output_file=str(result_file),
+            model_dir=str(model_dir),
+            confidence_threshold=confidence_threshold
+        )
+        
+        if not success:
+            raise Exception("Custom model prediction failed")
+        
+        job.message = "Prediction complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not result_file.exists():
+            raise Exception("Output file was not created")
+        
+        job.result_file = str(result_file)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"TAN-ESC prediction completed successfully!"
+        
+        # Clean up input file
+        os.unlink(csv_path)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after custom model prediction")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Custom model prediction failed: {str(e)}"
+        logger.error(f"Custom model prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 @app.post("/upload")
 async def upload_files(
     background_tasks: BackgroundTasks,
@@ -862,6 +930,47 @@ async def predict_cpt(
         
     except Exception as e:
         logger.error(f"CPT prediction upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/predict-cpt-custom")
+async def predict_cpt_custom(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...),
+    confidence_threshold: float = Form(default=0.5)
+):
+    """Upload a CSV file to predict CPT codes using custom TAN-ESC model"""
+    
+    try:
+        logger.info(f"Received custom model CPT prediction request - csv: {csv_file.filename}, threshold: {confidence_threshold}")
+        
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created custom model CPT prediction job {job_id}")
+        
+        # Save uploaded CSV
+        csv_path = f"/tmp/{job_id}_custom_input.csv"
+        
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+        
+        logger.info(f"CSV saved - path: {csv_path}")
+        
+        # Start background processing with custom model
+        background_tasks.add_task(predict_cpt_custom_background, job_id, csv_path, confidence_threshold)
+        
+        logger.info(f"Background custom model CPT prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "CSV uploaded and TAN-ESC prediction started"}
+        
+    except Exception as e:
+        logger.error(f"Custom model CPT prediction upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/split-pdf")
