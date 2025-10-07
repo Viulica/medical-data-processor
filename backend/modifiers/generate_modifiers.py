@@ -9,7 +9,7 @@ Modifier Hierarchy:
    NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
-5. PT modifier - Added to LAST position when "Polyps found" has a value AND Medicare Modifiers = YES
+5. PT modifier - Added to LAST position (M4) when "Polyps found" has a value AND Medicare Modifiers = YES
 
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
@@ -174,13 +174,15 @@ def generate_modifiers(input_file, output_file=None):
         if not has_md_column and not has_crna_column:
             print("Warning: Neither 'MD' nor 'CRNA' columns found. No modifiers will be generated.")
         
-        # Ensure M1, M2, M3 columns exist
+        # Ensure M1, M2, M3, M4 columns exist
         if 'M1' not in df.columns:
             df['M1'] = ''
         if 'M2' not in df.columns:
             df['M2'] = ''
         if 'M3' not in df.columns:
             df['M3'] = ''
+        if 'M4' not in df.columns:
+            df['M4'] = ''
         
         # Check for Anesthesia Type, Physical Status, Resident, and Polyps found columns
         has_anesthesia_type = 'Anesthesia Type' in df.columns
@@ -203,10 +205,11 @@ def generate_modifiers(input_file, output_file=None):
         for idx, row in df.iterrows():
             new_row = row.copy()
             
-            # Reset M1, M2, M3 for this row
+            # Reset M1, M2, M3, M4 for this row
             new_row['M1'] = ''
             new_row['M2'] = ''
             new_row['M3'] = ''
+            new_row['M4'] = ''
             
             primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
             
@@ -288,8 +291,8 @@ def generate_modifiers(input_file, output_file=None):
                     pt_modifier = 'PT'
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
-            # Place modifiers in first available slots (M1, M2, M3 only)
-            # PT modifier always goes in the LAST position (M3) if it exists
+            # Place modifiers in first available slots (M1, M2, M3, M4)
+            # PT modifier always goes in the LAST position (M4) if it exists
             
             # Collect all modifiers in priority order (excluding PT)
             modifiers_list = []
@@ -302,15 +305,17 @@ def generate_modifiers(input_file, output_file=None):
             if p_modifier:
                 modifiers_list.append(p_modifier)
             
-            # If PT modifier exists, ensure it goes in LAST position (M3)
+            # If PT modifier exists, ensure it goes in LAST position (M4)
             if pt_modifier:
-                # Place first modifiers in M1 and M2, reserve M3 for PT
+                # Place first modifiers in M1, M2, M3, reserve M4 for PT
                 if len(modifiers_list) >= 1:
                     new_row['M1'] = modifiers_list[0]
                 if len(modifiers_list) >= 2:
                     new_row['M2'] = modifiers_list[1]
-                # M3 is reserved for PT
-                new_row['M3'] = pt_modifier
+                if len(modifiers_list) >= 3:
+                    new_row['M3'] = modifiers_list[2]
+                # M4 is reserved for PT
+                new_row['M4'] = pt_modifier
             else:
                 # No PT modifier, place all modifiers normally
                 if len(modifiers_list) >= 1:
@@ -319,6 +324,8 @@ def generate_modifiers(input_file, output_file=None):
                     new_row['M2'] = modifiers_list[1]
                 if len(modifiers_list) >= 3:
                     new_row['M3'] = modifiers_list[2]
+                if len(modifiers_list) >= 4:
+                    new_row['M4'] = modifiers_list[3]
             
             result_rows.append(new_row)
             
@@ -367,8 +374,7 @@ def generate_modifiers(input_file, output_file=None):
                     peripheral_row['M1'] = ''
                     peripheral_row['M2'] = ''
                     peripheral_row['M3'] = ''
-                    if 'M4' in peripheral_row:
-                        peripheral_row['M4'] = ''
+                    peripheral_row['M4'] = ''
                     
                     # Set modifiers based on laterality
                     if has_peripheral_block_laterality:
