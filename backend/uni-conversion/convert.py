@@ -440,7 +440,7 @@ def get_header_mapping():
             "Date": "Charge Date",
             "Patient Name": "Patient Last Name",  # Will be split into Last, First, Middle
             "MRN": "Patient MRN",
-            "Location": "Room",
+            "Location": "Location",
         "Procedure": "Procedure Description",
         "POST-OP DIAGNOSIS": "POST-OP DIAGNOSIS",
         "Post-op Diagnosis - Coded": "POST-OP DIAGNOSIS",
