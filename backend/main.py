@@ -2,6 +2,11 @@ import os
 import sys
 import logging
 
+# Set environment variables to limit threading and prevent resource exhaustion
+os.environ['OPENBLAS_NUM_THREADS'] = '16'
+os.environ['OMP_NUM_THREADS'] = '16'
+os.environ['MKL_NUM_THREADS'] = '16'
+
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,6 +103,10 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         # Set up environment for the processing script
         env = os.environ.copy()
         env['PYTHONPATH'] = str(Path(__file__).parent / "current")
+        # Limit OpenBLAS threads to prevent resource exhaustion
+        env['OPENBLAS_NUM_THREADS'] = '16'
+        env['OMP_NUM_THREADS'] = '16'
+        env['MKL_NUM_THREADS'] = '16'
         
         # Run the processing script
         script_path = Path(__file__).parent / "current" / "2-extract_info.py"
@@ -190,6 +199,10 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Set up environment for the splitting script
         env = os.environ.copy()
         env['PYTHONPATH'] = str(current_dir)
+        # Limit OpenBLAS threads to prevent resource exhaustion
+        env['OPENBLAS_NUM_THREADS'] = '16'
+        env['OMP_NUM_THREADS'] = '16'
+        env['MKL_NUM_THREADS'] = '16'
         
         # Original script path
         script_path = current_dir / "1-split_pdf_by_detections.py"
