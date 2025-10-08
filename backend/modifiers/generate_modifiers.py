@@ -378,17 +378,17 @@ def generate_modifiers(input_file, output_file=None):
                     peripheral_row['M3'] = ''
                     peripheral_row['M4'] = ''
                     
-                    # Set modifiers based on laterality
+                    # Set modifiers based on laterality (case-insensitive)
                     if has_peripheral_block_laterality:
-                        laterality = str(row.get('Peripheral block laterality', '')).strip()
+                        laterality = str(row.get('Peripheral block laterality', '')).strip().upper()
                         
-                        if laterality == 'Left':
+                        if laterality == 'LEFT':
                             peripheral_row['M1'] = 'LT'
                             peripheral_row['M2'] = '59'
-                        elif laterality == 'Right':
+                        elif laterality == 'RIGHT':
                             peripheral_row['M1'] = 'RT'
                             peripheral_row['M2'] = '59'
-                        elif laterality == 'Bilateral':
+                        elif laterality == 'BILATERAL':
                             peripheral_row['M1'] = '50'
                             peripheral_row['M2'] = '59'
                     
