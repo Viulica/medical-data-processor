@@ -408,14 +408,14 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 f.write(credentials_json)
                 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
             
-            client = genai.Client(
+            genai_client = genai.Client(
                 vertexai=True,
                 project="835764687231",
                 location="us-central1",
             )
         else:
             # Fallback to API key method
-            client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+            genai_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
         fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
@@ -558,7 +558,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             # Try custom model first
             for attempt in range(retries):
                 try:
-                    response = client.models.generate_content(
+                    response = genai_client.models.generate_content(
                         model=custom_model,
                         contents=[types.Content(role="user", parts=[{"text": prompt}])],
                         config=generate_content_config
