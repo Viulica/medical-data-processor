@@ -210,7 +210,7 @@ IMPORTANT WARNINGS:
         }
 
 
-def predict_mednet_code(insurance_name, insurance_address, po_box_to_mednet, special_cases, client):
+def predict_mednet_code(insurance_name, insurance_address, po_box_to_mednet, special_cases, client, enable_ai=True):
     """Predict MedNet code for a single insurance entry"""
     
     # Skip if no insurance name
@@ -222,6 +222,11 @@ def predict_mednet_code(insurance_name, insurance_address, po_box_to_mednet, spe
     if insurance_name_upper in special_cases:
         logger.info(f"Special case match for: {insurance_name}")
         return special_cases[insurance_name_upper]
+    
+    # If AI is disabled, only special cases are mapped
+    if not enable_ai:
+        logger.info(f"AI disabled - only special cases mapped for: {insurance_name}")
+        return None
     
     # Now check if address is present for regular matching
     if pd.isna(insurance_address) or insurance_address == '':
@@ -258,7 +263,7 @@ def predict_mednet_code(insurance_name, insurance_address, po_box_to_mednet, spe
         return None
 
 
-def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cases_csv=None, max_workers=10):
+def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cases_csv=None, max_workers=10, enable_ai=True):
     """
     Main function to predict MedNet codes for primary, secondary, and tertiary insurance.
     
@@ -268,6 +273,7 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
         output_csv: Path to save output CSV with predicted codes
         special_cases_csv: Optional path to CSV with special case mappings (Company name, Mednet code)
         max_workers: Number of concurrent workers for AI predictions
+        enable_ai: Whether to enable AI matching (if False, only special cases are mapped)
     """
     
     logger.info("Loading data files...")
@@ -340,6 +346,12 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
         api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
     )
     
+    # Log AI status
+    if enable_ai:
+        logger.info("🤖 AI matching is ENABLED")
+    else:
+        logger.info("🚫 AI matching is DISABLED - Only special cases will be mapped")
+    
     # Add MedNet code columns if they don't exist
     if 'Primary Mednet Code' not in df.columns:
         df['Primary Mednet Code'] = ''
@@ -364,7 +376,8 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
                 address, 
                 po_box_to_mednet, 
                 special_cases, 
-                client
+                client,
+                enable_ai
             ): idx 
             for idx, name, address in primary_tasks
         }
@@ -400,7 +413,8 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
                     address, 
                     po_box_to_mednet, 
                     special_cases, 
-                    client
+                    client,
+                    enable_ai
                 ): idx 
                 for idx, name, address in secondary_tasks
             }
@@ -436,7 +450,8 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
                     address, 
                     po_box_to_mednet, 
                     special_cases, 
-                    client
+                    client,
+                    enable_ai
                 ): idx 
                 for idx, name, address in tertiary_tasks
             }

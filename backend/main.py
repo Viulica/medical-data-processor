@@ -470,6 +470,80 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
             else:
                 # Return as is for other lengths
                 return numeric_code
+        
+        def apply_colonoscopy_correction(row, predicted_code, insurances_df):
+            """
+            Apply colonoscopy-specific correction rules based on procedure type,
+            insurance plan, and polyp findings.
+            
+            Args:
+                row: DataFrame row containing procedure information
+                predicted_code: The AI-predicted CPT code
+                insurances_df: DataFrame containing insurance information
+            
+            Returns:
+                Corrected CPT code or original predicted code if no correction applies
+            """
+            try:
+                # Simple fix: always change 01926 to 01924
+                if predicted_code == "01926":
+                    logger.info(f"Code correction: 01926 -> 01924")
+                    return "01924"
+                
+                # Get the required fields from the row
+                is_colonoscopy = str(row.get('is_colonoscopy', '')).strip().upper() == 'TRUE'
+                colonoscopy_is_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() == 'TRUE'
+                is_upper_endonoscopy = str(row.get('is_upper_endonoscopy', '')).strip().upper() == 'TRUE'
+                polyps_found = str(row.get('Polyps found', '')).strip().upper() == 'FOUND'
+                primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
+                
+                # Priority rule: if both upper endoscopy and colonoscopy, always return 00813
+                if is_upper_endonoscopy and is_colonoscopy:
+                    logger.info(f"Colonoscopy correction: Both upper endoscopy and colonoscopy detected -> 00813")
+                    return "00813"
+                
+                # Only proceed if it's a colonoscopy
+                if not is_colonoscopy:
+                    return predicted_code
+                
+                # Check if insurance is Medicare
+                is_medicare = False
+                if primary_mednet_code and not insurances_df.empty:
+                    # Find the insurance plan by MedNet Code
+                    insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
+                    if not insurance_match.empty:
+                        insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
+                        if 'Medicare' in insurance_plan:
+                            is_medicare = True
+                            logger.info(f"Colonoscopy correction: Medicare insurance detected ({insurance_plan})")
+                
+                # Apply correction rules
+                if is_medicare:
+                    # MEDICARE rules
+                    if colonoscopy_is_screening and not polyps_found:
+                        logger.info(f"Colonoscopy correction: Medicare + screening + no polyps -> 00812")
+                        return "00812"
+                    elif colonoscopy_is_screening and polyps_found:
+                        logger.info(f"Colonoscopy correction: Medicare + screening + polyps found -> 00811")
+                        return "00811"
+                    else:  # not screening (polyps don't matter)
+                        logger.info(f"Colonoscopy correction: Medicare + not screening -> 00811")
+                        return "00811"
+                else:
+                    # NOT MEDICARE rules
+                    if colonoscopy_is_screening and not polyps_found:
+                        logger.info(f"Colonoscopy correction: Non-Medicare + screening + no polyps -> 00812")
+                        return "00812"
+                    elif colonoscopy_is_screening and polyps_found:
+                        logger.info(f"Colonoscopy correction: Non-Medicare + screening + polyps found -> 00812")
+                        return "00812"
+                    else:  # not screening (polyps don't matter)
+                        logger.info(f"Colonoscopy correction: Non-Medicare + not screening -> 00811")
+                        return "00811"
+                
+            except Exception as e:
+                logger.warning(f"Colonoscopy correction failed: {str(e)}, returning original prediction")
+                return predicted_code
 
         def get_prediction_and_review(procedure, retries=5):
             """Two-stage prediction: 1) Custom model predicts, 2) Gemini Flash reviews"""
@@ -598,6 +672,19 @@ answer ONLY with the code, nothing else"""
 
         if "Procedure Description" not in df.columns:
             raise Exception("CSV file missing 'Procedure Description' column")
+        
+        # Load insurances.csv for colonoscopy correction
+        job.message = "Loading insurance data for colonoscopy corrections..."
+        insurances_df = pd.DataFrame()
+        try:
+            insurances_path = Path(__file__).parent / "insurances.csv"
+            if insurances_path.exists():
+                insurances_df = pd.read_csv(insurances_path, dtype=str)
+                logger.info(f"Loaded {len(insurances_df)} insurance records for colonoscopy correction")
+            else:
+                logger.warning(f"insurances.csv not found at {insurances_path}, colonoscopy corrections may not work properly")
+        except Exception as e:
+            logger.warning(f"Failed to load insurances.csv: {str(e)}, colonoscopy corrections may not work properly")
 
         job.message = f"Processing {len(df)} procedures..."
         job.progress = 30
@@ -629,15 +716,29 @@ answer ONLY with the code, nothing else"""
                 job.progress = 30 + int((completed / len(df)) * 50)
                 job.message = f"Processed {completed}/{len(df)} procedures..."
 
-        job.message = "Adding predictions to CSV..."
+        job.message = "Applying colonoscopy corrections..."
         job.progress = 85
+        
+        # Apply colonoscopy corrections to predictions
+        corrected_predictions = []
+        correction_applied = []
+        for idx, row in df.iterrows():
+            original_prediction = predictions[idx]
+            corrected_code = apply_colonoscopy_correction(row, original_prediction, insurances_df)
+            corrected_predictions.append(corrected_code)
+            # Track if correction was applied
+            correction_applied.append("Yes" if corrected_code != original_prediction else "No")
+        
+        job.message = "Adding predictions to CSV..."
+        job.progress = 90
         
         # Insert predictions, model sources, and failure reasons into dataframe
         insert_index = df.columns.get_loc("Procedure Description") + 1
-        df.insert(insert_index, "ASA Code", predictions)
-        df.insert(insert_index + 1, "Procedure Code", predictions)
+        df.insert(insert_index, "ASA Code", corrected_predictions)
+        df.insert(insert_index + 1, "Procedure Code", corrected_predictions)
         df.insert(insert_index + 2, "Model Source", model_sources)
-        df.insert(insert_index + 3, "Base Model Failure Reason", failure_reasons)
+        df.insert(insert_index + 3, "Colonoscopy Correction Applied", correction_applied)
+        df.insert(insert_index + 4, "Base Model Failure Reason", failure_reasons)
         
         # Save result
         result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
@@ -1344,7 +1445,7 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         # Clean up memory even on failure
         gc.collect()
 
-def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_cases_csv_path: str = None):
+def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_cases_csv_path: str = None, enable_ai: bool = True):
     """Background task to predict MedNet codes for insurance companies"""
     job = job_status[job_id]
     
@@ -1367,7 +1468,7 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
         if not mednet_csv_path.exists():
             raise Exception("MedNet database not found")
         
-        job.message = "Predicting insurance codes..."
+        job.message = "Predicting insurance codes..." + (" (AI enabled)" if enable_ai else " (special cases only)")
         job.progress = 30
         
         # Create output file path
@@ -1380,7 +1481,8 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
             str(mednet_csv_path), 
             output_file, 
             special_cases_csv_path,
-            max_workers=10
+            max_workers=10,
+            enable_ai=enable_ai
         )
         
         if not success:
@@ -1540,12 +1642,13 @@ async def generate_modifiers_route(
 async def predict_insurance_codes(
     background_tasks: BackgroundTasks,
     data_csv: UploadFile = File(...),
-    special_cases_csv: UploadFile = File(None)
+    special_cases_csv: UploadFile = File(None),
+    enable_ai: bool = Form(True)
 ):
     """Upload data CSV and optional special cases CSV to predict MedNet codes"""
     
     try:
-        logger.info(f"Received insurance code prediction request - data: {data_csv.filename}")
+        logger.info(f"Received insurance code prediction request - data: {data_csv.filename}, AI enabled: {enable_ai}")
         
         # Validate file type
         if not data_csv.filename.endswith('.csv'):
@@ -1578,9 +1681,9 @@ async def predict_insurance_codes(
             logger.info(f"Special cases CSV saved - path: {special_cases_csv_path}")
         
         # Start background processing
-        background_tasks.add_task(predict_insurance_codes_background, job_id, data_csv_path, special_cases_csv_path)
+        background_tasks.add_task(predict_insurance_codes_background, job_id, data_csv_path, special_cases_csv_path, enable_ai)
         
-        logger.info(f"Background insurance prediction task started for job {job_id}")
+        logger.info(f"Background insurance prediction task started for job {job_id} with AI: {enable_ai}")
         
         return {"job_id": job_id, "message": "CSV uploaded and insurance code prediction started"}
         

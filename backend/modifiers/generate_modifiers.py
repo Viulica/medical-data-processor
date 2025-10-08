@@ -9,7 +9,8 @@ Modifier Hierarchy:
    NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
-5. PT modifier - Added to LAST position (M4) when "Polyps found" has a value AND Medicare Modifiers = YES
+5. PT modifier - Added to LAST position (M4) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
+   NOTE: PT modifier does NOT require Medicare Modifiers
 
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
@@ -18,10 +19,9 @@ Special Cases:
   This allows normal modifier generation (including GC) when both providers are present,
   but limits to only P modifier when they are not.
 
-- Peripheral Block Row Generation (Mednet Code 001):
+- Peripheral Block Row Generation:
   * When "Peripheral block given" = "PERIPHERAL_BLOCK"
   * AND "Anesthesia Type" = "General" (case insensitive)
-  * AND "Primary Mednet Code" = "001"
   * A duplicate row is created with:
     - ASA Code and Procedure Code set to 64447
     - Provider fields copied from Peripheral block MD/Resident/CRNA
@@ -184,11 +184,12 @@ def generate_modifiers(input_file, output_file=None):
         if 'M4' not in df.columns:
             df['M4'] = ''
         
-        # Check for Anesthesia Type, Physical Status, Resident, and Polyps found columns
+        # Check for Anesthesia Type, Physical Status, Resident, Polyps found, and colonoscopy screening columns
         has_anesthesia_type = 'Anesthesia Type' in df.columns
         has_physical_status = 'Physical Status' in df.columns
         has_resident_column = 'Resident' in df.columns
         has_polyps_found_column = 'Polyps found' in df.columns
+        has_colonoscopy_screening_column = 'colonoscopy_is_screening' in df.columns
         
         # Check for Peripheral block columns
         has_peripheral_block_given = 'Peripheral block given' in df.columns
@@ -284,10 +285,13 @@ def generate_modifiers(input_file, output_file=None):
                         # If Physical Status is not a valid number, skip P modifier
                         pass
             
-            # Determine PT modifier based on Polyps found AND medicare_modifiers = YES
-            if has_polyps_found_column and medicare_modifiers:
-                polyps_value = row.get('Polyps found', '')
-                if not pd.isna(polyps_value) and str(polyps_value).strip() != '':
+            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE
+            # PT modifier does NOT require medicare modifiers
+            if has_polyps_found_column and has_colonoscopy_screening_column:
+                polyps_value = str(row.get('Polyps found', '')).strip().upper()
+                colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper()
+                # PT is added only when polyps are found AND it's a screening colonoscopy
+                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE':
                     pt_modifier = 'PT'
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
@@ -333,9 +337,7 @@ def generate_modifiers(input_file, output_file=None):
             # Conditions: 
             # 1. "Peripheral block given" = "PERIPHERAL_BLOCK"
             # 2. "Anesthesia Type" = "General" (case insensitive)
-            # 3. "Primary Mednet Code" = "001"
-            if (has_peripheral_block_given and has_anesthesia_type and 
-                primary_mednet_code == '001'):
+            if has_peripheral_block_given and has_anesthesia_type:
                 
                 peripheral_block_given = str(row.get('Peripheral block given', '')).strip()
                 anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()

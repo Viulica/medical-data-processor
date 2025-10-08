@@ -1362,17 +1362,42 @@
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
-                <h3>How It Works</h3>
+                <h3>AI Settings</h3>
               </div>
               <div class="settings-content">
-                <div class="requirement-list">
+                <div class="ai-toggle-container">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">🤖</span>
+                      <span class="toggle-text">Enable AI Matching</span>
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="enableAi" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      enableAi
+                        ? "AI will analyze insurance names and addresses to predict MedNet codes with high confidence matching."
+                        : "Only special cases will be mapped. Regular PO Box matching is disabled."
+                    }}
+                  </p>
+                </div>
+                <div class="requirement-list" style="margin-top: 20px">
                   <div class="requirement-item">
                     <span class="requirement-icon">🔍</span>
                     <span>Extracts PO Box from insurance addresses</span>
                   </div>
                   <div class="requirement-item">
-                    <span class="requirement-icon">🤖</span>
-                    <span>AI matches insurance names to MedNet database</span>
+                    <span
+                      class="requirement-icon"
+                      :style="{ opacity: enableAi ? 1 : 0.3 }"
+                      >🤖</span
+                    >
+                    <span :style="{ opacity: enableAi ? 1 : 0.5 }"
+                      >AI matches insurance names to MedNet database</span
+                    >
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">📋</span>
@@ -1596,6 +1621,7 @@ export default {
       isPredictingInsurance: false,
       isInsuranceDataDragActive: false,
       isSpecialCasesDragActive: false,
+      enableAi: true, // Toggle for AI-powered insurance matching
     };
   },
   computed: {
@@ -2319,7 +2345,7 @@ export default {
 
       const formData = new FormData();
       formData.append("csv_file", this.csvFile);
-      
+
       // Use custom endpoint for tan-esc model
       let uploadUrl;
       if (this.selectedClient === "tan-esc") {
@@ -3064,9 +3090,11 @@ export default {
       if (this.specialCasesCsv) {
         formData.append("special_cases_csv", this.specialCasesCsv);
       }
+      formData.append("enable_ai", this.enableAi);
 
       const predictUrl = joinUrl(API_BASE_URL, "predict-insurance-codes");
       console.log("🔧 Insurance Prediction URL:", predictUrl);
+      console.log("🤖 AI Enabled:", this.enableAi);
 
       try {
         const response = await axios.post(predictUrl, formData, {
@@ -3078,7 +3106,9 @@ export default {
 
         this.insuranceJobId = response.data.job_id;
         this.toast.success(
-          "Insurance code prediction started! Check the status section below."
+          `Insurance code prediction started${
+            this.enableAi ? " with AI" : " (special cases only)"
+          }! Check the status section below.`
         );
 
         // Set initial status
@@ -4124,5 +4154,103 @@ body {
     text-align: center;
     gap: 1rem;
   }
+}
+
+/* AI Toggle Switch Styles */
+.ai-toggle-container {
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 2px solid #e2e8f0;
+}
+
+.toggle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #334155;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.toggle-icon {
+  font-size: 1.5rem;
+}
+
+.toggle-text {
+  user-select: none;
+}
+
+.toggle-description {
+  font-size: 0.875rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Toggle Switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 28px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: 0.4s;
+  border-radius: 28px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: 0.4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #3b82f6;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #3b82f6;
+}
+
+input:checked + .slider:before {
+  transform: translateX(24px);
+}
+
+.slider:hover {
+  background-color: #94a3b8;
+}
+
+input:checked + .slider:hover {
+  background-color: #2563eb;
 }
 </style>
