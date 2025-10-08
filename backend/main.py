@@ -719,12 +719,16 @@ answer ONLY with the code, nothing else"""
         job.message = "Applying colonoscopy corrections..."
         job.progress = 85
         
-        # Apply colonoscopy corrections to predictions
+        # Apply colonoscopy corrections to predictions (only for uni client)
         corrected_predictions = []
         correction_applied = []
         for idx, row in df.iterrows():
             original_prediction = predictions[idx]
-            corrected_code = apply_colonoscopy_correction(row, original_prediction, insurances_df)
+            # Only apply colonoscopy correction for uni client
+            if client == "uni":
+                corrected_code = apply_colonoscopy_correction(row, original_prediction, insurances_df)
+            else:
+                corrected_code = original_prediction
             corrected_predictions.append(corrected_code)
             # Track if correction was applied
             correction_applied.append("Yes" if corrected_code != original_prediction else "No")
