@@ -350,7 +350,12 @@ def generate_modifiers(input_file, output_file=None):
                     anesthesia_type_val == 'GENERAL'):
                     
                     # Check required fields before creating the row
-                    laterality = str(row.get('Peripheral block laterality', '')).strip().upper() if has_peripheral_block_laterality else ''
+                    laterality_val = row.get('Peripheral block laterality', '') if has_peripheral_block_laterality else ''
+                    # Handle NaN/empty values properly
+                    if pd.isna(laterality_val) or str(laterality_val).strip() == '':
+                        laterality = ''
+                    else:
+                        laterality = str(laterality_val).strip().upper()
                     
                     # Check if at least one provider field is non-empty
                     has_provider = False

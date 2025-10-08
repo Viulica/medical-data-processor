@@ -994,27 +994,27 @@ def convert_data(input_file, output_file=None):
             # Extract ICD codes from both POST-OP DIAGNOSIS columns
             icd_codes = []
             
-            # First, check if ICD1-ICD4 already exist in the original data and add those first
-            for i in range(4):
-                icd_field = f"ICD{i+1}"
-                if icd_field in df.columns:
-                    existing_value = df.iloc[row_idx].get(icd_field, '')
-                    if not pd.isna(existing_value) and str(existing_value).strip():
-                        icd_codes.append(str(existing_value).strip())
-            
-            # Get POST-OP DIAGNOSIS column
+            # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
             post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
             if post_op_diag_col:
                 post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
                 codes_from_col1 = extract_icd_codes(post_op_diag_value)
                 icd_codes.extend(codes_from_col1)
             
-            # Get Post-op Diagnosis - Coded column
+            # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
             post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
             if post_op_coded_col:
                 post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
                 codes_from_col2 = extract_icd_codes(post_op_coded_value)
                 icd_codes.extend(codes_from_col2)
+            
+            # PRIORITY 3: Add any existing ICD1-ICD4 codes last (as fallback)
+            for i in range(4):
+                icd_field = f"ICD{i+1}"
+                if icd_field in df.columns:
+                    existing_value = df.iloc[row_idx].get(icd_field, '')
+                    if not pd.isna(existing_value) and str(existing_value).strip():
+                        icd_codes.append(str(existing_value).strip())
             
             # Remove duplicates while preserving order
             unique_codes = []
