@@ -22,6 +22,8 @@ Special Cases:
 - Peripheral Block Row Generation:
   * When "Peripheral block given" = "PERIPHERAL_BLOCK"
   * AND "Anesthesia Type" = "General" (case insensitive)
+  * AND "Peripheral block laterality" is non-empty
+  * AND at least one provider field (MD, Resident, or CRNA) is non-empty
   * A duplicate row is created with:
     - ASA Code and Procedure Code set to 64447
     - Provider fields copied from Peripheral block MD/Resident/CRNA
@@ -337,6 +339,8 @@ def generate_modifiers(input_file, output_file=None):
             # Conditions: 
             # 1. "Peripheral block given" = "PERIPHERAL_BLOCK"
             # 2. "Anesthesia Type" = "General" (case insensitive)
+            # 3. "Peripheral block laterality" must be non-empty
+            # 4. At least one provider field (MD, Resident, or CRNA) must be non-empty
             if has_peripheral_block_given and has_anesthesia_type:
                 
                 peripheral_block_given = str(row.get('Peripheral block given', '')).strip()
@@ -345,43 +349,54 @@ def generate_modifiers(input_file, output_file=None):
                 if (peripheral_block_given == 'PERIPHERAL_BLOCK' and 
                     anesthesia_type_val == 'GENERAL'):
                     
-                    # Create a copy of the original row (not the modified new_row)
-                    peripheral_row = row.copy()
+                    # Check required fields before creating the row
+                    laterality = str(row.get('Peripheral block laterality', '')).strip().upper() if has_peripheral_block_laterality else ''
                     
-                    # Set ASA Code and Procedure Code to 64447
-                    peripheral_row['ASA Code'] = '64447'
-                    peripheral_row['Procedure Code'] = '64447'
+                    # Check if at least one provider field is non-empty
+                    has_provider = False
+                    if has_peripheral_block_md and str(row.get('Peripheral block MD', '')).strip():
+                        has_provider = True
+                    if has_peripheral_block_resident and str(row.get('Peripheral block Resident', '')).strip():
+                        has_provider = True
+                    if has_peripheral_block_crna and str(row.get('Peripheral block CRNA', '')).strip():
+                        has_provider = True
                     
-                    # Copy peripheral block provider values
-                    if has_peripheral_block_md:
-                        peripheral_row['MD'] = row.get('Peripheral block MD', '')
-                    if has_peripheral_block_resident:
-                        peripheral_row['Resident'] = row.get('Peripheral block Resident', '')
-                    if has_peripheral_block_crna:
-                        peripheral_row['CRNA'] = row.get('Peripheral block CRNA', '')
-                    
-                    # Clear ICD codes
-                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                        if icd_col in peripheral_row:
-                            peripheral_row[icd_col] = ''
-                    
-                    # Set ICD1 to G89.18
-                    peripheral_row['ICD1'] = 'G89.18'
-                    
-                    # Clear Concurrent Providers
-                    if 'Concurrent Providers' in peripheral_row:
-                        peripheral_row['Concurrent Providers'] = ''
-                    
-                    # Clear all modifier columns
-                    peripheral_row['M1'] = ''
-                    peripheral_row['M2'] = ''
-                    peripheral_row['M3'] = ''
-                    peripheral_row['M4'] = ''
-                    
-                    # Set modifiers based on laterality (case-insensitive)
-                    if has_peripheral_block_laterality:
-                        laterality = str(row.get('Peripheral block laterality', '')).strip().upper()
+                    # Only create peripheral block row if laterality is provided and at least one provider exists
+                    if laterality and has_provider:
+                        # Create a copy of the original row (not the modified new_row)
+                        peripheral_row = row.copy()
                         
+                        # Set ASA Code and Procedure Code to 64447
+                        peripheral_row['ASA Code'] = '64447'
+                        peripheral_row['Procedure Code'] = '64447'
+                        
+                        # Copy peripheral block provider values
+                        if has_peripheral_block_md:
+                            peripheral_row['MD'] = row.get('Peripheral block MD', '')
+                        if has_peripheral_block_resident:
+                            peripheral_row['Resident'] = row.get('Peripheral block Resident', '')
+                        if has_peripheral_block_crna:
+                            peripheral_row['CRNA'] = row.get('Peripheral block CRNA', '')
+                        
+                        # Clear ICD codes
+                        for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                            if icd_col in peripheral_row:
+                                peripheral_row[icd_col] = ''
+                        
+                        # Set ICD1 to G89.18
+                        peripheral_row['ICD1'] = 'G89.18'
+                        
+                        # Clear Concurrent Providers
+                        if 'Concurrent Providers' in peripheral_row:
+                            peripheral_row['Concurrent Providers'] = ''
+                        
+                        # Clear all modifier columns
+                        peripheral_row['M1'] = ''
+                        peripheral_row['M2'] = ''
+                        peripheral_row['M3'] = ''
+                        peripheral_row['M4'] = ''
+                        
+                        # Set modifiers based on laterality (case-insensitive)
                         if laterality == 'LEFT':
                             peripheral_row['M1'] = 'LT'
                             peripheral_row['M2'] = '59'
@@ -391,9 +406,9 @@ def generate_modifiers(input_file, output_file=None):
                         elif laterality == 'BILATERAL':
                             peripheral_row['M1'] = '50'
                             peripheral_row['M2'] = '59'
-                    
-                    # Add the peripheral block row to results
-                    result_rows.append(peripheral_row)
+                        
+                        # Add the peripheral block row to results
+                        result_rows.append(peripheral_row)
         
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)
