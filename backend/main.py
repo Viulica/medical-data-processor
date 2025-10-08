@@ -513,7 +513,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
                     if not insurance_match.empty:
                         insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
-                        if 'Medicare' in insurance_plan:
+                        if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
                             is_medicare = True
                             logger.info(f"Colonoscopy correction: Medicare insurance detected ({insurance_plan})")
                 
