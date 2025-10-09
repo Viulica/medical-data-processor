@@ -17,12 +17,11 @@
         <!-- Tab Navigation -->
         <div class="tab-navigation">
           <button
-            @click="activeTab = 'process'"
+            @click="handleStandardProcessingTab"
             :class="{ active: activeTab === 'process' }"
-            class="tab-btn disabled"
-            disabled
+            class="tab-btn"
           >
-            📊 Process Documents (Disabled)
+            📊 Process Documents (Standard)
           </button>
           <button
             @click="activeTab = 'process-fast'"
@@ -77,37 +76,189 @@
 
         <!-- Process Documents Tab -->
         <div v-if="activeTab === 'process'" class="upload-section">
-          <div class="section-header">
-            <h2>Document Processing (Disabled)</h2>
+          <!-- Password Unlock Interface -->
+          <div v-if="!isStandardProcessingUnlocked" class="section-header">
+            <h2>Document Processing (Standard) - Locked 🔒</h2>
             <p>
-              This processing option has been temporarily disabled. Please use
-              the "Process Documents (Fast)" option instead.
+              This processing option uses Gemini 2.5 Pro with extended thinking
+              for higher accuracy. Please enter the password to unlock.
             </p>
-          </div>
-
-          <div class="disabled-section">
-            <div class="disabled-card">
-              <div class="disabled-icon">🚫</div>
-              <h3>Standard Processing Disabled</h3>
-              <p>
-                The standard document processing feature has been temporarily
-                disabled. Please use the "Process Documents (Fast)" tab for
-                document processing.
-              </p>
-              <div class="disabled-features">
-                <div class="feature-item">
-                  <span class="feature-icon">⚡</span>
-                  <span>Use Fast Processing instead</span>
+            <div class="password-unlock-section">
+              <div class="password-card">
+                <div class="password-icon">🔐</div>
+                <h3>Unlock Standard Processing</h3>
+                <p>
+                  Enter the password to access Gemini 2.5 Pro processing with
+                  thinking enabled
+                </p>
+                <div class="password-input-group">
+                  <input
+                    v-model="passwordInput"
+                    type="password"
+                    class="password-input"
+                    placeholder="Enter password"
+                    @keyup.enter="unlockStandardProcessing"
+                  />
+                  <button @click="unlockStandardProcessing" class="unlock-btn">
+                    🔓 Unlock
+                  </button>
                 </div>
-                <div class="feature-item">
-                  <span class="feature-icon">🔧</span>
-                  <span>Same functionality, better performance</span>
-                </div>
-                <div class="feature-item">
-                  <span class="feature-icon">💰</span>
-                  <span>More cost-effective processing</span>
+                <div class="password-features">
+                  <div class="feature-item">
+                    <span class="feature-icon">🧠</span>
+                    <span>Gemini 2.5 Pro with thinking enabled</span>
+                  </div>
+                  <div class="feature-item">
+                    <span class="feature-icon">🎯</span>
+                    <span>Higher accuracy for complex documents</span>
+                  </div>
+                  <div class="feature-item">
+                    <span class="feature-icon">⏱️</span>
+                    <span>Slower but more thorough processing</span>
+                  </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Standard Processing Upload Interface (Unlocked) -->
+          <div v-else>
+            <div class="section-header">
+              <h2>Document Processing (Standard) - Unlocked 🔓</h2>
+              <p>
+                Upload patient documents and processing instructions to extract
+                structured medical data using Gemini 2.5 Pro with thinking
+                enabled
+              </p>
+            </div>
+
+            <div class="upload-grid">
+              <!-- Step 1: ZIP File Upload -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">1</div>
+                  <h3>Patient Documents</h3>
+                </div>
+                <div
+                  class="dropzone"
+                  :class="{
+                    active: isZipDragActive,
+                    'has-file': zipFile,
+                  }"
+                  @drop="onZipDrop"
+                  @dragover.prevent
+                  @dragenter.prevent
+                  @click="triggerZipUpload"
+                >
+                  <input
+                    ref="zipInput"
+                    type="file"
+                    accept=".zip"
+                    @change="onZipFileSelect"
+                    style="display: none"
+                  />
+                  <div v-if="!zipFile" class="dropzone-content">
+                    <div class="upload-icon">📦</div>
+                    <p class="upload-text">
+                      Drop ZIP file here or click to browse
+                    </p>
+                    <p class="upload-hint">Contains patient PDF documents</p>
+                  </div>
+                  <div v-else class="file-preview">
+                    <div class="file-icon">📦</div>
+                    <div class="file-info">
+                      <p class="file-name">{{ zipFile.name }}</p>
+                      <p class="file-size">
+                        {{ formatFileSize(zipFile.size) }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 2: Excel File Upload -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">2</div>
+                  <h3>Processing Template</h3>
+                </div>
+                <div
+                  class="dropzone"
+                  :class="{
+                    active: isExcelDragActive,
+                    'has-file': excelFile,
+                  }"
+                  @drop="onExcelDrop"
+                  @dragover.prevent
+                  @dragenter.prevent
+                  @click="triggerExcelUpload"
+                >
+                  <input
+                    ref="excelInput"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    @change="onExcelFileSelect"
+                    style="display: none"
+                  />
+                  <div v-if="!excelFile" class="dropzone-content">
+                    <div class="upload-icon">📊</div>
+                    <p class="upload-text">
+                      Drop Excel file here or click to browse
+                    </p>
+                    <p class="upload-hint">Contains field definitions</p>
+                  </div>
+                  <div v-else class="file-preview">
+                    <div class="file-icon">📊</div>
+                    <div class="file-info">
+                      <p class="file-name">{{ excelFile.name }}</p>
+                      <p class="file-size">
+                        {{ formatFileSize(excelFile.size) }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 3: Page Count -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">3</div>
+                  <h3>Pages Per Patient</h3>
+                </div>
+                <div class="page-count-selector">
+                  <label for="page-count">Number of pages to process:</label>
+                  <input
+                    id="page-count"
+                    v-model.number="pageCount"
+                    type="number"
+                    min="1"
+                    max="50"
+                    class="page-input"
+                  />
+                  <p class="page-hint">
+                    Extract first N pages from each patient PDF (1-50)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="action-section">
+              <button
+                @click="startProcessing"
+                :disabled="!canProcess || isProcessing"
+                class="process-btn"
+                :class="{ processing: isProcessing }"
+              >
+                <span v-if="!isProcessing" class="btn-icon">🚀</span>
+                <span v-else class="btn-icon spinning">⏳</span>
+                {{
+                  isProcessing ? "Processing..." : "Start Standard Processing"
+                }}
+              </button>
+              <button v-if="!isProcessing" @click="resetForm" class="reset-btn">
+                <span class="btn-icon">🔄</span>
+                Reset Form
+              </button>
             </div>
           </div>
         </div>
@@ -1568,6 +1719,9 @@ export default {
       isProcessing: false,
       isZipDragActive: false,
       isExcelDragActive: false,
+      // Standard processing password protection
+      isStandardProcessingUnlocked: false,
+      passwordInput: "",
       // Fast processing functionality
       zipFileFast: null,
       excelFileFast: null,
@@ -1986,6 +2140,29 @@ export default {
     },
 
     // Processing methods
+    handleStandardProcessingTab() {
+      if (!this.isStandardProcessingUnlocked) {
+        // Just navigate to the tab to show password unlock interface
+        this.activeTab = "process";
+      } else {
+        this.activeTab = "process";
+      }
+    },
+
+    unlockStandardProcessing() {
+      const correctPassword = "AMP_AI_2025";
+      if (this.passwordInput === correctPassword) {
+        this.isStandardProcessingUnlocked = true;
+        this.passwordInput = "";
+        this.toast.success(
+          "Standard processing unlocked! You can now use Gemini 2.5 Pro with thinking."
+        );
+      } else {
+        this.toast.error("Incorrect password. Please try again.");
+        this.passwordInput = "";
+      }
+    },
+
     async startProcessing() {
       if (!this.canProcess) {
         this.toast.error("Please upload both files and set a valid page count");
@@ -1999,6 +2176,7 @@ export default {
       formData.append("zip_file", this.zipFile);
       formData.append("excel_file", this.excelFile);
       formData.append("n_pages", this.pageCount);
+      formData.append("model", "gemini-2.5-pro"); // Use Gemini 2.5 Pro with thinking enabled
 
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");
@@ -2014,14 +2192,14 @@ export default {
 
         this.jobId = response.data.job_id;
         this.toast.success(
-          "Processing started! Check the status section below."
+          "Standard processing started with Gemini 2.5 Pro! Check the status section below."
         );
 
         // Set initial status
         this.jobStatus = {
           status: "processing",
           progress: 0,
-          message: "Processing started...",
+          message: "Processing started with Gemini 2.5 Pro...",
         };
       } catch (error) {
         console.error("Upload error:", error);
@@ -4104,6 +4282,119 @@ body {
 .feature-item span:last-child {
   color: #374151;
   font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Password Unlock Section */
+.password-unlock-section {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+}
+
+.password-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px;
+  padding: 3rem;
+  text-align: center;
+  max-width: 600px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+}
+
+.password-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.password-card h3 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 1rem;
+}
+
+.password-card > p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+.password-input-group {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.password-input {
+  flex: 1;
+  padding: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.password-input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.password-input:focus {
+  outline: none;
+  border-color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.unlock-btn {
+  padding: 1rem 2rem;
+  background: white;
+  color: #667eea;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.unlock-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.unlock-btn:active {
+  transform: translateY(0);
+}
+
+.password-features {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.password-features .feature-item {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.password-features .feature-item span:last-child {
+  color: white;
   font-weight: 500;
 }
 
