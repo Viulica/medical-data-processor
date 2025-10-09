@@ -529,7 +529,7 @@ def get_header_mapping():
         "Primary Cvg Payer": "Primary Company Name",
         "Pat Primary CVG Payer ID": "Pat Primary CVG Payer ID",
         "Primary CVG Address 2": "Primary Company Address 1",
-        "Primary CVG Phone": "Primary Sub Auth Num",
+        "Primary CVG Phone": "Primary CVG Phone",
         "Primary CVG Sub ID": "Primary Sub ID",
         "Anes Type": "Anesthesia Type",
         "CSN": "Case #",
