@@ -190,6 +190,19 @@ def generate_modifiers(input_file, output_file=None):
         # Load modifiers definition
         modifiers_dict = load_modifiers_definition()
         
+        # Load insurances.csv for PT modifier Medicare check
+        insurances_df = pd.DataFrame()
+        try:
+            script_dir = Path(__file__).parent
+            insurances_path = script_dir.parent / "insurances.csv"
+            if insurances_path.exists():
+                insurances_df = pd.read_csv(insurances_path, dtype=str)
+                print(f"Loaded {len(insurances_df)} insurance records for PT modifier Medicare check")
+            else:
+                print(f"Warning: insurances.csv not found at {insurances_path}, PT modifier Medicare check may not work properly")
+        except Exception as e:
+            print(f"Warning: Failed to load insurances.csv: {str(e)}, PT modifier Medicare check may not work properly")
+        
         # Read the input CSV file with dtype=str to preserve leading zeros in MedNet codes
         try:
             df = pd.read_csv(input_file, encoding='utf-8', dtype=str)
@@ -325,13 +338,24 @@ def generate_modifiers(input_file, output_file=None):
                         # If Physical Status is not a valid number, skip P modifier
                         pass
             
-            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE
-            # PT modifier does NOT require medicare modifiers
+            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE AND Medicare insurance
+            # PT modifier requires Medicare insurance
             if has_polyps_found_column and has_colonoscopy_screening_column:
                 polyps_value = str(row.get('Polyps found', '')).strip().upper()
                 colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper()
-                # PT is added only when polyps are found AND it's a screening colonoscopy
-                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE':
+                
+                # Check if insurance is Medicare
+                is_medicare = False
+                if primary_mednet_code and not insurances_df.empty:
+                    # Find the insurance plan by MedNet Code
+                    insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
+                    if not insurance_match.empty:
+                        insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
+                        if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
+                            is_medicare = True
+                
+                # PT is added only when polyps are found AND it's a screening colonoscopy AND it's Medicare
+                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE' and is_medicare:
                     pt_modifier = 'PT'
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
@@ -440,6 +464,12 @@ def generate_modifiers(input_file, output_file=None):
                         # Clear Concurrent Providers
                         if 'Concurrent Providers' in block_row:
                             block_row['Concurrent Providers'] = ''
+                        
+                        # Clear An Start and An Stop columns (keep only in original row)
+                        if 'An Start' in block_row:
+                            block_row['An Start'] = ''
+                        if 'An Stop' in block_row:
+                            block_row['An Stop'] = ''
                         
                         # Clear all modifier columns and set M1 and M2 from the block
                         block_row['M1'] = block['m1']
