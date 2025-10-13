@@ -7,6 +7,11 @@ This script transforms the GAP instruction format to the required output format.
 import pandas as pd
 import sys
 from pathlib import Path
+import os
+
+# Add parent directory to path to import export_utils
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from export_utils import save_dataframe_dual_format
 
 
 def get_output_columns():
@@ -545,12 +550,25 @@ def convert_data(input_file, output_file=None):
         # Create result dataframe with exact column order
         result_df = pd.DataFrame(result_data, columns=output_columns)
         
-        # Save to output file
+        # Save to output file(s)
         if output_file is None:
             output_file = input_file.replace('.csv', '_converted.csv')
         
-        result_df.to_csv(output_file, index=False)
-        print(f"Conversion complete. Output saved to: {output_file}")
+        # Save in both CSV and XLSX formats
+        try:
+            # Remove extension to use base path
+            base_path = Path(output_file).with_suffix('')
+            csv_path, xlsx_path = save_dataframe_dual_format(result_df, base_path)
+            print(f"Conversion complete.")
+            print(f"CSV output saved to: {csv_path}")
+            if xlsx_path:
+                print(f"XLSX output saved to: {xlsx_path}")
+        except Exception as e:
+            # Fallback to CSV only if dual format fails
+            print(f"Warning: Could not save XLSX format ({e}), saving CSV only")
+            result_df.to_csv(output_file, index=False)
+            print(f"Conversion complete. Output saved to: {output_file}")
+        
         print(f"Processed {len(result_data)} rows of data.")
         
         return True

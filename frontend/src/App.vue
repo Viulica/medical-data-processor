@@ -299,10 +299,19 @@
               v-if="jobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download Results (CSV)
-              </button>
+              <div class="download-format-group">
+                <button @click="downloadResults('csv')" class="download-btn">
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -499,10 +508,22 @@
               v-if="jobStatusFast.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadResultsFast" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download Results (CSV)
-              </button>
+              <div class="download-format-group">
+                <button
+                  @click="downloadResultsFast('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadResultsFast('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -884,10 +905,19 @@
               v-if="cptJobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadCptResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download Results (CSV)
-              </button>
+              <div class="download-format-group">
+                <button @click="downloadCptResults('csv')" class="download-btn">
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadCptResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -1040,10 +1070,19 @@
               v-if="uniJobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadUniResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download Converted CSV
-              </button>
+              <div class="download-format-group">
+                <button @click="downloadUniResults('csv')" class="download-btn">
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadUniResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -1208,10 +1247,22 @@
               v-if="instructionsJobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadInstructionsResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download Converted Excel
-              </button>
+              <div class="download-format-group">
+                <button
+                  @click="downloadInstructionsResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadInstructionsResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -1382,10 +1433,22 @@
               v-if="modifiersJobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadModifiersResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download CSV with Modifiers
-              </button>
+              <div class="download-format-group">
+                <button
+                  @click="downloadModifiersResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadModifiersResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -1653,10 +1716,22 @@
               v-if="insuranceJobStatus.status === 'completed'"
               class="success-section"
             >
-              <button @click="downloadInsuranceResults" class="download-btn">
-                <span class="btn-icon">📥</span>
-                Download CSV with Insurance Codes
-              </button>
+              <div class="download-format-group">
+                <button
+                  @click="downloadInsuranceResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadInsuranceResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
             </div>
 
             <div
@@ -2236,12 +2311,12 @@ export default {
       }
     },
 
-    async downloadResults() {
+    async downloadResults(format = "csv") {
       if (!this.jobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.jobId}`),
+          joinUrl(API_BASE_URL, `download/${this.jobId}?format=${format}`),
           {
             responseType: "blob",
           }
@@ -2250,13 +2325,14 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `patient_data_${this.jobId}.csv`);
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute("download", `patient_data_${this.jobId}.${ext}`);
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -2416,12 +2492,12 @@ export default {
       }
     },
 
-    async downloadResultsFast() {
+    async downloadResultsFast(format = "csv") {
       if (!this.jobIdFast) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.jobIdFast}`),
+          joinUrl(API_BASE_URL, `download/${this.jobIdFast}?format=${format}`),
           {
             responseType: "blob",
           }
@@ -2430,16 +2506,17 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
         link.setAttribute(
           "download",
-          `patient_data_fast_${this.jobIdFast}.csv`
+          `patient_data_fast_${this.jobIdFast}.${ext}`
         );
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -2588,12 +2665,12 @@ export default {
       }
     },
 
-    async downloadCptResults() {
+    async downloadCptResults(format = "csv") {
       if (!this.cptJobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.cptJobId}`),
+          joinUrl(API_BASE_URL, `download/${this.cptJobId}?format=${format}`),
           {
             responseType: "blob",
           }
@@ -2602,13 +2679,17 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `cpt_predictions_${this.cptJobId}.csv`);
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute(
+          "download",
+          `cpt_predictions_${this.cptJobId}.${ext}`
+        );
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -2795,12 +2876,12 @@ export default {
       }
     },
 
-    async downloadUniResults() {
+    async downloadUniResults(format = "csv") {
       if (!this.uniJobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.uniJobId}`),
+          joinUrl(API_BASE_URL, `download/${this.uniJobId}?format=${format}`),
           {
             responseType: "blob",
           }
@@ -2809,13 +2890,14 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `uni_converted_${this.uniJobId}.csv`);
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute("download", `uni_converted_${this.uniJobId}.${ext}`);
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -2964,12 +3046,15 @@ export default {
       }
     },
 
-    async downloadInstructionsResults() {
+    async downloadInstructionsResults(format = "csv") {
       if (!this.instructionsJobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.instructionsJobId}`),
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.instructionsJobId}?format=${format}`
+          ),
           {
             responseType: "blob",
           }
@@ -2978,16 +3063,17 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
         link.setAttribute(
           "download",
-          `instructions_converted_${this.instructionsJobId}.xlsx`
+          `instructions_converted_${this.instructionsJobId}.${ext}`
         );
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -3133,12 +3219,15 @@ export default {
       }
     },
 
-    async downloadModifiersResults() {
+    async downloadModifiersResults(format = "csv") {
       if (!this.modifiersJobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.modifiersJobId}`),
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.modifiersJobId}?format=${format}`
+          ),
           {
             responseType: "blob",
           }
@@ -3147,16 +3236,17 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
         link.setAttribute(
           "download",
-          `modifiers_generated_${this.modifiersJobId}.csv`
+          `modifiers_generated_${this.modifiersJobId}.${ext}`
         );
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -3378,12 +3468,15 @@ export default {
       }
     },
 
-    async downloadInsuranceResults() {
+    async downloadInsuranceResults(format = "csv") {
       if (!this.insuranceJobId) return;
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.insuranceJobId}`),
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.insuranceJobId}?format=${format}`
+          ),
           {
             responseType: "blob",
           }
@@ -3392,16 +3485,17 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
         link.setAttribute(
           "download",
-          `insurance_codes_${this.insuranceJobId}.csv`
+          `insurance_codes_${this.insuranceJobId}.${ext}`
         );
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("Download started!");
+        this.toast.success(`${format.toUpperCase()} download started!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
@@ -4059,6 +4153,23 @@ body {
 .download-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 25px -3px rgba(59, 130, 246, 0.4);
+}
+
+.download-format-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.download-btn-alt {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+}
+
+.download-btn-alt:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -3px rgba(16, 185, 129, 0.4);
 }
 
 .check-status-btn {

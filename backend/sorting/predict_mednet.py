@@ -469,9 +469,22 @@ def process_insurance_predictions(input_csv, mednet_csv, output_csv, special_cas
                 except Exception as e:
                     logger.error(f"Error processing tertiary insurance at row {idx}: {str(e)}")
     
-    # Save output
-    logger.info(f"Saving results to {output_csv}")
-    df.to_csv(output_csv, index=False)
+    # Save output in both formats
+    logger.info(f"Saving results...")
+    
+    # Save in both CSV and XLSX formats
+    try:
+        # Remove extension to use base path
+        base_path = Path(output_csv).with_suffix('')
+        csv_path, xlsx_path = save_dataframe_dual_format(df, base_path)
+        logger.info(f"CSV output saved to: {csv_path}")
+        if xlsx_path:
+            logger.info(f"XLSX output saved to: {xlsx_path}")
+    except Exception as e:
+        # Fallback to CSV only if dual format fails
+        logger.warning(f"Could not save XLSX format ({e}), saving CSV only")
+        df.to_csv(output_csv, index=False)
+        logger.info(f"CSV output saved to: {output_csv}")
     
     # Print summary statistics
     primary_mapped = (df['Primary Mednet Code'] != '').sum()

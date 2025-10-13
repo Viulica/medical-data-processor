@@ -38,6 +38,11 @@ Peripheral Blocks Row Generation:
 import pandas as pd
 import sys
 from pathlib import Path
+import os
+
+# Add parent directory to path to import export_utils
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from export_utils import save_dataframe_dual_format
 
 
 def load_modifiers_definition(definition_file="modifiers_definition.csv"):
@@ -483,12 +488,25 @@ def generate_modifiers(input_file, output_file=None):
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)
         
-        # Save to output file
+        # Save to output file(s)
         if output_file is None:
             output_file = input_file.replace('.csv', '_with_modifiers.csv')
         
-        result_df.to_csv(output_file, index=False)
-        print(f"Modifiers generation complete. Output saved to: {output_file}")
+        # Save in both CSV and XLSX formats
+        try:
+            # Remove extension to use base path
+            base_path = Path(output_file).with_suffix('')
+            csv_path, xlsx_path = save_dataframe_dual_format(result_df, base_path)
+            print(f"Modifiers generation complete.")
+            print(f"CSV output saved to: {csv_path}")
+            if xlsx_path:
+                print(f"XLSX output saved to: {xlsx_path}")
+        except Exception as e:
+            # Fallback to CSV only if dual format fails
+            print(f"Warning: Could not save XLSX format ({e}), saving CSV only")
+            result_df.to_csv(output_file, index=False)
+            print(f"Modifiers generation complete. Output saved to: {output_file}")
+        
         print(f"Processed {len(df)} input rows, generated {len(result_df)} output rows.")
         print(f"Successfully matched {successful_matches} out of {total_rows} MedNet codes ({successful_matches/total_rows*100:.1f}%)")
         

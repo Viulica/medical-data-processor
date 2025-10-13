@@ -127,9 +127,23 @@ def predict_codes_api(input_file, output_file, model_dir=None, confidence_thresh
         logger.info(f"   ✗ Low confidence (< {confidence_threshold:.0%}): {rejected_count}")
         logger.info(f"   Average confidence: {max_probabilities.mean():.3f}")
         
-        # Save output
-        logger.info(f"💾 Saving results to: {output_file}")
-        df.to_csv(output_file, index=False)
+        # Save output in both formats
+        logger.info(f"💾 Saving results...")
+        
+        # Save in both CSV and XLSX formats
+        try:
+            # Remove extension to use base path
+            base_path = Path(output_file).with_suffix('')
+            csv_path, xlsx_path = save_dataframe_dual_format(df, base_path)
+            logger.info(f"✅ CSV output saved to: {csv_path}")
+            if xlsx_path:
+                logger.info(f"✅ XLSX output saved to: {xlsx_path}")
+        except Exception as e:
+            # Fallback to CSV only if dual format fails
+            logger.warning(f"Could not save XLSX format ({e}), saving CSV only")
+            df.to_csv(output_file, index=False)
+            logger.info(f"✅ CSV output saved to: {output_file}")
+        
         logger.info("✅ Prediction completed successfully!")
         
         return True
@@ -279,8 +293,20 @@ def predict_codes(input_file, output_file=None, confidence_threshold=0.5):
         else:
             output_file = input_file + '_predicted.csv'
     
-    print(f"\n💾 Saving results to: {output_file}")
-    df.to_csv(output_file, index=False)
+    # Save in both CSV and XLSX formats
+    try:
+        # Remove extension to use base path
+        base_path = Path(output_file).with_suffix('')
+        csv_path, xlsx_path = save_dataframe_dual_format(df, base_path)
+        print(f"\n💾 CSV results saved to: {csv_path}")
+        if xlsx_path:
+            print(f"💾 XLSX results saved to: {xlsx_path}")
+    except Exception as e:
+        # Fallback to CSV only if dual format fails
+        print(f"\nWarning: Could not save XLSX format ({e}), saving CSV only")
+        df.to_csv(output_file, index=False)
+        print(f"\n💾 CSV results saved to: {output_file}")
+    
     print("✅ Prediction completed successfully!")
     
     # Show low confidence predictions for review

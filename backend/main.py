@@ -13,6 +13,9 @@ os.environ['MKL_NUM_THREADS'] = '12'
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import export utilities
+from export_utils import save_dataframe_dual_format, convert_csv_to_xlsx
+
 def kill_process_tree(process):
     """Kill a process and all its children"""
     try:
@@ -103,6 +106,7 @@ class ProcessingJob:
         self.progress = 0
         self.message = "Job created"
         self.result_file = None
+        self.result_file_xlsx = None  # Store XLSX version
         self.error = None
 
 def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash"):
@@ -186,10 +190,24 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         if not csv_files:
             raise Exception("No CSV file generated")
         
-        # Copy the CSV to a permanent location
-        result_file = Path(f"/tmp/results/{job_id}.csv")
-        result_file.parent.mkdir(exist_ok=True)
+        # Copy the CSV to a permanent location and create XLSX version
+        result_base = Path(f"/tmp/results/{job_id}")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        # Copy CSV
+        result_file = result_base.with_suffix('.csv')
         shutil.copy2(csv_files[0], result_file)
+        
+        # Create XLSX version
+        try:
+            import pandas as pd
+            df = pd.read_csv(result_file, dtype=str)
+            result_file_xlsx = result_base.with_suffix('.xlsx')
+            df.to_excel(result_file_xlsx, index=False, engine='openpyxl')
+            job.result_file_xlsx = str(result_file_xlsx)
+            logger.info(f"Created XLSX version: {result_file_xlsx}")
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
         
         job.result_file = str(result_file)
         job.status = "completed"
@@ -744,12 +762,14 @@ answer ONLY with the code, nothing else"""
         df.insert(insert_index + 3, "Colonoscopy Correction Applied", correction_applied)
         df.insert(insert_index + 4, "Base Model Failure Reason", failure_reasons)
         
-        # Save result
-        result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
-        result_file.parent.mkdir(exist_ok=True)
-        df.to_csv(result_file, index=False)
+        # Save result in both formats
+        result_base = Path(f"/tmp/results/{job_id}_with_codes")
+        result_base.parent.mkdir(exist_ok=True)
         
-        job.result_file = str(result_file)
+        result_csv_path, result_xlsx_path = save_dataframe_dual_format(df, result_base)
+        
+        job.result_file = result_csv_path
+        job.result_file_xlsx = result_xlsx_path
         job.status = "completed"
         job.progress = 100
         job.message = f"CPT prediction completed! Processed {len(df)} procedures."
@@ -790,8 +810,8 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         job.progress = 30
         
         # Create output file path
-        result_file = Path(f"/tmp/results/{job_id}_with_codes.csv")
-        result_file.parent.mkdir(exist_ok=True)
+        result_base = Path(f"/tmp/results/{job_id}_with_codes")
+        result_base.parent.mkdir(exist_ok=True)
         
         # Run the prediction using the custom model
         # Model files should be in backend/custom-coding/ directory
@@ -800,9 +820,11 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         job.message = "Making predictions with TAN-ESC model..."
         job.progress = 50
         
+        # Save to CSV first
+        result_file_csv = result_base.with_suffix('.csv')
         success = predict_codes_api(
             input_file=csv_path,
-            output_file=str(result_file),
+            output_file=str(result_file_csv),
             model_dir=str(model_dir),
             confidence_threshold=confidence_threshold
         )
@@ -814,10 +836,17 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         job.progress = 90
         
         # Verify output file exists
-        if not result_file.exists():
+        if not result_file_csv.exists():
             raise Exception("Output file was not created")
         
-        job.result_file = str(result_file)
+        # Create XLSX version
+        try:
+            result_file_xlsx = convert_csv_to_xlsx(result_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = result_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(result_file_csv)
         job.status = "completed"
         job.progress = 100
         job.message = f"TAN-ESC prediction completed successfully!"
@@ -911,13 +940,21 @@ async def cleanup_job(job_id: str):
     
     job = job_status[job_id]
     
-    # Clean up result file if it exists
+    # Clean up CSV result file if it exists
     if job.result_file and os.path.exists(job.result_file):
         try:
             os.unlink(job.result_file)
-            logger.info(f"Cleaned up result file: {job.result_file}")
+            logger.info(f"Cleaned up CSV result file: {job.result_file}")
         except Exception as e:
-            logger.error(f"Failed to clean up result file: {e}")
+            logger.error(f"Failed to clean up CSV result file: {e}")
+    
+    # Clean up XLSX result file if it exists
+    if job.result_file_xlsx and os.path.exists(job.result_file_xlsx):
+        try:
+            os.unlink(job.result_file_xlsx)
+            logger.info(f"Cleaned up XLSX result file: {job.result_file_xlsx}")
+        except Exception as e:
+            logger.error(f"Failed to clean up XLSX result file: {e}")
     
     # Remove job from memory
     del job_status[job_id]
@@ -933,15 +970,25 @@ async def cleanup_all_jobs():
     
     for job_id, job in list(job_status.items()):
         if job.status in ["completed", "failed"]:
-            # Clean up result file if it exists
+            # Clean up CSV result file if it exists
             if job.result_file and os.path.exists(job.result_file):
                 try:
                     file_size = os.path.getsize(job.result_file)
                     os.unlink(job.result_file)
                     total_size_freed += file_size
-                    logger.info(f"Cleaned up result file: {job.result_file}")
+                    logger.info(f"Cleaned up CSV result file: {job.result_file}")
                 except Exception as e:
-                    logger.error(f"Failed to clean up result file: {e}")
+                    logger.error(f"Failed to clean up CSV result file: {e}")
+            
+            # Clean up XLSX result file if it exists
+            if job.result_file_xlsx and os.path.exists(job.result_file_xlsx):
+                try:
+                    file_size = os.path.getsize(job.result_file_xlsx)
+                    os.unlink(job.result_file_xlsx)
+                    total_size_freed += file_size
+                    logger.info(f"Cleaned up XLSX result file: {job.result_file_xlsx}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up XLSX result file: {e}")
             
             # Remove job from memory
             del job_status[job_id]
@@ -1120,8 +1167,13 @@ async def split_pdf(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/download/{job_id}")
-async def download_result(job_id: str):
-    """Download the processed CSV file"""
+async def download_result(job_id: str, format: str = "csv"):
+    """Download the processed file in CSV or XLSX format
+    
+    Args:
+        job_id: The job identifier
+        format: File format - 'csv' or 'xlsx' (default: 'csv')
+    """
     if job_id not in job_status:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -1130,15 +1182,34 @@ async def download_result(job_id: str):
     if job.status != "completed":
         raise HTTPException(status_code=400, detail="Job not completed yet")
     
-    if not job.result_file or not os.path.exists(job.result_file):
+    # Determine which file to download based on format parameter
+    if format.lower() == "xlsx":
+        # User wants XLSX format
+        if not job.result_file_xlsx or not os.path.exists(job.result_file_xlsx):
+            # XLSX not available, fallback to CSV
+            logger.warning(f"XLSX file not available for job {job_id}, falling back to CSV")
+            result_file = job.result_file
+            filename_suffix = "csv"
+            media_type = "text/csv"
+        else:
+            result_file = job.result_file_xlsx
+            filename_suffix = "xlsx"
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        # Default to CSV
+        result_file = job.result_file
+        filename_suffix = "csv"
+        media_type = "text/csv"
+    
+    if not result_file or not os.path.exists(result_file):
         raise HTTPException(status_code=404, detail="Result file not found")
     
-    # Determine file type and filename based on job type
-    if job.result_file.endswith('.zip'):
+    # Determine filename based on job type
+    if result_file.endswith('.zip'):
         filename = f"split_pdfs_{job_id}.zip"
         media_type = "application/zip"
-    elif job.result_file.endswith('.xlsx'):
-        filename = f"converted_data_{job_id}.xlsx"
+    elif result_file.endswith('.xlsx'):
+        filename = f"processed_data_{job_id}.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         filename = f"processed_data_{job_id}.csv"
@@ -1149,7 +1220,7 @@ async def download_result(job_id: str):
     asyncio.create_task(cleanup_after_download(job_id))
     
     return FileResponse(
-        job.result_file,
+        result_file,
         media_type=media_type,
         filename=filename
     )
@@ -1162,13 +1233,21 @@ async def cleanup_after_download(job_id: str):
     if job_id in job_status:
         job = job_status[job_id]
         
-        # Clean up result file
+        # Clean up CSV result file
         if job.result_file and os.path.exists(job.result_file):
             try:
                 os.unlink(job.result_file)
-                logger.info(f"Auto-cleaned up result file: {job.result_file}")
+                logger.info(f"Auto-cleaned up CSV result file: {job.result_file}")
             except Exception as e:
-                logger.error(f"Failed to auto-cleanup result file: {e}")
+                logger.error(f"Failed to auto-cleanup CSV result file: {e}")
+        
+        # Clean up XLSX result file
+        if job.result_file_xlsx and os.path.exists(job.result_file_xlsx):
+            try:
+                os.unlink(job.result_file_xlsx)
+                logger.info(f"Auto-cleaned up XLSX result file: {job.result_file_xlsx}")
+            except Exception as e:
+                logger.error(f"Failed to auto-cleanup XLSX result file: {e}")
         
         # Remove job from memory
         del job_status[job_id]
@@ -1253,11 +1332,13 @@ def convert_uni_background(job_id: str, csv_path: str):
         job.progress = 50
         
         # Create output file path
-        output_file = f"/tmp/results/{job_id}_converted.csv"
-        Path(output_file).parent.mkdir(exist_ok=True)
+        result_base = Path(f"/tmp/results/{job_id}_converted")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_csv = result_base.with_suffix('.csv')
         
         # Run the conversion
-        success = convert_data(csv_path, output_file)
+        success = convert_data(csv_path, str(output_file_csv))
         
         if not success:
             raise Exception("UNI conversion failed")
@@ -1266,10 +1347,17 @@ def convert_uni_background(job_id: str, csv_path: str):
         job.progress = 90
         
         # Verify output file exists
-        if not os.path.exists(output_file):
+        if not os.path.exists(output_file_csv):
             raise Exception("Output file was not created")
         
-        job.result_file = output_file
+        # Create XLSX version
+        try:
+            output_file_xlsx = convert_csv_to_xlsx(output_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = output_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(output_file_csv)
         job.status = "completed"
         job.progress = 100
         job.message = "UNI conversion completed successfully!"
@@ -1337,11 +1425,13 @@ def convert_instructions_background(job_id: str, excel_path: str):
         job.progress = 60
         
         # Create output file path
-        output_file = f"/tmp/results/{job_id}_converted.csv"
-        Path(output_file).parent.mkdir(exist_ok=True)
+        result_base = Path(f"/tmp/results/{job_id}_converted")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_csv = result_base.with_suffix('.csv')
         
         # Run the conversion using the convert_instructions script
-        success = convert_data(temp_csv_path, output_file)
+        success = convert_data(temp_csv_path, str(output_file_csv))
         
         if not success:
             raise Exception("Instructions conversion failed")
@@ -1349,17 +1439,19 @@ def convert_instructions_background(job_id: str, excel_path: str):
         job.message = "Conversion complete, preparing Excel output..."
         job.progress = 85
         
-        # Convert back to Excel format
-        excel_output_file = f"/tmp/results/{job_id}_converted.xlsx"
+        # Convert to Excel format
+        excel_output_file = result_base.with_suffix('.xlsx')
         try:
-            converted_df = pd.read_csv(output_file)
-            converted_df.to_excel(excel_output_file, index=False)
-            # Use Excel file as the final result
-            job.result_file = excel_output_file
+            converted_df = pd.read_csv(output_file_csv, dtype=str)
+            converted_df.to_excel(excel_output_file, index=False, engine='openpyxl')
+            # Store both file paths
+            job.result_file = str(output_file_csv)
+            job.result_file_xlsx = str(excel_output_file)
+            logger.info(f"Created both CSV and XLSX outputs")
         except Exception as e:
-            # If Excel conversion fails, use CSV
-            logger.warning(f"Excel conversion failed, using CSV: {str(e)}")
-            job.result_file = output_file
+            # If Excel conversion fails, use CSV only
+            logger.warning(f"Excel conversion failed, using CSV only: {str(e)}")
+            job.result_file = str(output_file_csv)
         
         job.status = "completed"
         job.progress = 100
@@ -1412,11 +1504,13 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         job.progress = 50
         
         # Create output file path
-        output_file = f"/tmp/results/{job_id}_with_modifiers.csv"
-        Path(output_file).parent.mkdir(exist_ok=True)
+        result_base = Path(f"/tmp/results/{job_id}_with_modifiers")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_csv = result_base.with_suffix('.csv')
         
         # Run the modifiers generation
-        success = generate_modifiers(csv_path, output_file)
+        success = generate_modifiers(csv_path, str(output_file_csv))
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -1425,10 +1519,17 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         job.progress = 90
         
         # Verify output file exists
-        if not os.path.exists(output_file):
+        if not os.path.exists(output_file_csv):
             raise Exception("Output file was not created")
         
-        job.result_file = output_file
+        # Create XLSX version
+        try:
+            output_file_xlsx = convert_csv_to_xlsx(output_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = output_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(output_file_csv)
         job.status = "completed"
         job.progress = 100
         job.message = "Modifiers generation completed successfully!"
@@ -1476,14 +1577,16 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
         job.progress = 30
         
         # Create output file path
-        output_file = f"/tmp/results/{job_id}_with_insurance_codes.csv"
-        Path(output_file).parent.mkdir(exist_ok=True)
+        result_base = Path(f"/tmp/results/{job_id}_with_insurance_codes")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_csv = result_base.with_suffix('.csv')
         
         # Run the prediction
         success = process_insurance_predictions(
             data_csv_path, 
             str(mednet_csv_path), 
-            output_file, 
+            str(output_file_csv), 
             special_cases_csv_path,
             max_workers=10,
             enable_ai=enable_ai
@@ -1496,10 +1599,17 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
         job.progress = 90
         
         # Verify output file exists
-        if not os.path.exists(output_file):
+        if not os.path.exists(output_file_csv):
             raise Exception("Output file was not created")
         
-        job.result_file = output_file
+        # Create XLSX version
+        try:
+            output_file_xlsx = convert_csv_to_xlsx(output_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = output_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(output_file_csv)
         job.status = "completed"
         job.progress = 100
         job.message = "Insurance code prediction completed successfully!"
