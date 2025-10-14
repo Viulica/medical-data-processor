@@ -12,6 +12,7 @@ import os
 import json
 import google.genai as genai
 from google.genai import types
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path to import export_utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -181,6 +182,32 @@ def extract_icd_codes(text):
     return codes
 
 
+def process_icd_reordering_task(args):
+    """
+    Process a single ICD reordering task (for threading).
+    
+    Args:
+        args: Tuple of (row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded)
+    
+    Returns:
+        Tuple of (row_idx, reordered_codes)
+    """
+    row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
+    
+    # Initialize client for this thread
+    try:
+        client = genai.Client(
+            api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
+        )
+    except Exception as e:
+        print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
+        return (row_idx, icd_codes)
+    
+    # Reorder codes
+    reordered = reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
+    return (row_idx, reordered)
+
+
 def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client=None):
     """
     Use Gemini AI to reorder ICD codes by relevance to the procedure.
@@ -227,7 +254,7 @@ ICD CODES TO ORDER:
 TASK:
 Reorder these ICD codes by relevance to the procedure, where:
 1. ICD1 should be the PRIMARY diagnosis (the main reason for the procedure)
-2. ICD2 is often also related to the procedure itself
+2. ICD2 is often also related to the procedure itself (but mostly not)
 3. ICD3 and ICD4 should be ordered by decreasing relevance to the procedure
 
 Consider:
@@ -258,13 +285,13 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="text/plain",
             thinking_config=types.ThinkingConfig(
-                thinking_budget=-1,
+                thinking_budget=0,
             ),
         )
 
         # Get AI response
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite",
             contents=contents,
             config=generate_content_config,
         )
@@ -756,7 +783,111 @@ def convert_data(input_file, output_file=None):
         # Create new dataframe with mapped headers
         result_data = []
         
-        # Process each data row
+        # PHASE 1: Extract ICD codes for all rows and prepare for parallel AI reordering
+        print("\n🔍 Phase 1: Extracting ICD codes from all rows...")
+        icd_extraction_data = []  # Store (row_idx, unique_codes, procedure, post_op_diag, post_op_coded)
+        
+        for row_idx in range(len(df)):
+            # Extract ICD codes from both POST-OP DIAGNOSIS columns
+            icd_codes = []
+            
+            # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
+            post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
+            post_op_diag_value = ''
+            if post_op_diag_col:
+                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
+                codes_from_col1 = extract_icd_codes(post_op_diag_value)
+                icd_codes.extend(codes_from_col1)
+            
+            # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
+            post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
+            post_op_coded_value = ''
+            if post_op_coded_col:
+                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
+                codes_from_col2 = extract_icd_codes(post_op_coded_value)
+                icd_codes.extend(codes_from_col2)
+            
+            # PRIORITY 3: Add any existing ICD1-ICD4 codes last (as fallback)
+            for i in range(4):
+                icd_field = f"ICD{i+1}"
+                if icd_field in df.columns:
+                    existing_value = df.iloc[row_idx].get(icd_field, '')
+                    if not pd.isna(existing_value) and str(existing_value).strip():
+                        icd_codes.append(str(existing_value).strip())
+            
+            # Remove duplicates while preserving order
+            unique_codes = []
+            seen = set()
+            for code in icd_codes:
+                if code and code not in seen:
+                    unique_codes.append(code)
+                    seen.add(code)
+            
+            # Get procedure value for AI reordering
+            procedure_value = df.iloc[row_idx].get('Procedure', '')
+            
+            # Store for AI reordering
+            icd_extraction_data.append({
+                'row_idx': row_idx,
+                'unique_codes': unique_codes,
+                'procedure': procedure_value,
+                'post_op_diag': post_op_diag_value,
+                'post_op_coded': post_op_coded_value
+            })
+        
+        print(f"✓ Extracted ICD codes from {len(icd_extraction_data)} rows")
+        
+        # PHASE 2: Parallel AI reordering of ICD codes
+        icd_reordered_map = {}  # Map row_idx -> reordered_codes
+        
+        if ai_client is not None:
+            # Prepare tasks for rows that need reordering (2+ codes)
+            reordering_tasks = []
+            for data in icd_extraction_data:
+                if len(data['unique_codes']) >= 2:
+                    reordering_tasks.append((
+                        data['row_idx'],
+                        data['unique_codes'],
+                        data['procedure'],
+                        data['post_op_diag'],
+                        data['post_op_coded']
+                    ))
+            
+            if reordering_tasks:
+                print(f"\n🤖 Phase 2: AI reordering {len(reordering_tasks)} rows with 2+ ICD codes (10 workers)...")
+                
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    # Submit all tasks
+                    future_to_row = {executor.submit(process_icd_reordering_task, task): task[0] for task in reordering_tasks}
+                    
+                    completed = 0
+                    total = len(future_to_row)
+                    
+                    # Collect results as they complete
+                    for future in as_completed(future_to_row):
+                        completed += 1
+                        row_idx = future_to_row[future]
+                        
+                        try:
+                            result_row_idx, reordered_codes = future.result()
+                            icd_reordered_map[result_row_idx] = reordered_codes
+                            
+                            # Progress update every 10%
+                            if completed % max(1, total // 10) == 0:
+                                progress = (completed / total) * 100
+                                print(f"    📊 Progress: {completed}/{total} ({progress:.1f}%)")
+                        except Exception as e:
+                            print(f"    ⚠️  Row {row_idx}: Exception during AI reordering: {str(e)}")
+                
+                print(f"✓ AI reordering complete for {len(icd_reordered_map)} rows")
+            else:
+                print("\n⏭️  Phase 2: No rows with 2+ ICD codes, skipping AI reordering")
+        else:
+            print("\n⏭️  Phase 2: AI client not available, skipping ICD reordering")
+        
+        # PHASE 3: Process each data row with regular conversion + apply reordered ICD codes
+        print(f"\n📝 Phase 3: Processing {len(df)} rows with field mapping...")
+        
         for row_idx in range(len(df)):
             new_row = {}
             
@@ -1124,64 +1255,12 @@ def convert_data(input_file, output_file=None):
             elif "Concurrent Providers" not in new_row:
                 new_row["Concurrent Providers"] = ""
             
-            # Extract ICD codes from both POST-OP DIAGNOSIS columns
-            icd_codes = []
-            
-            # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
-            post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
-            if post_op_diag_col:
-                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
-                codes_from_col1 = extract_icd_codes(post_op_diag_value)
-                icd_codes.extend(codes_from_col1)
-            
-            # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
-            post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
-            if post_op_coded_col:
-                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
-                codes_from_col2 = extract_icd_codes(post_op_coded_value)
-                icd_codes.extend(codes_from_col2)
-            
-            # PRIORITY 3: Add any existing ICD1-ICD4 codes last (as fallback)
-            for i in range(4):
-                icd_field = f"ICD{i+1}"
-                if icd_field in df.columns:
-                    existing_value = df.iloc[row_idx].get(icd_field, '')
-                    if not pd.isna(existing_value) and str(existing_value).strip():
-                        icd_codes.append(str(existing_value).strip())
-            
-            # Remove duplicates while preserving order
-            unique_codes = []
-            seen = set()
-            for code in icd_codes:
-                if code and code not in seen:
-                    unique_codes.append(code)
-                    seen.add(code)
-            
-            # Use AI to reorder ICD codes by relevance to procedure (only if we have 2+ codes and AI client is available)
-            if len(unique_codes) >= 2 and ai_client is not None:
-                # Get procedure and diagnosis information from the row
-                procedure_value = df.iloc[row_idx].get('Procedure', '')
-                post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
-                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '') if post_op_diag_col else ''
-                post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
-                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '') if post_op_coded_col else ''
-                
-                # Reorder codes using AI
-                try:
-                    reordered_codes = reorder_icd_codes_with_ai(
-                        unique_codes, 
-                        procedure_value, 
-                        post_op_diag_value, 
-                        post_op_coded_value,
-                        ai_client
-                    )
-                    # Only use reordered codes if AI succeeded
-                    if reordered_codes and len(reordered_codes) == len(unique_codes):
-                        unique_codes = reordered_codes
-                        if row_idx % 10 == 0:  # Log every 10th row to avoid spam
-                            print(f"    ✓ Row {row_idx}: ICD codes reordered by AI")
-                except Exception as e:
-                    print(f"    ⚠️  Row {row_idx}: AI reordering failed, using original order: {str(e)}")
+            # Get ICD codes from Phase 1 extraction and Phase 2 AI reordering
+            # Check if this row was AI-reordered, otherwise use original extracted codes
+            if row_idx in icd_reordered_map:
+                unique_codes = icd_reordered_map[row_idx]
+            else:
+                unique_codes = icd_extraction_data[row_idx]['unique_codes']
             
             # Fill ICD1-ICD4 slots sequentially (max 4 codes)
             for i in range(4):

@@ -32,6 +32,7 @@ Peripheral Blocks Row Generation:
   * An Start and An Stop cleared
   * SRNA cleared
   * ICD codes:
+    - ASA Code 01967 or 1967: Clear all, set ICD1 = "080"
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
     - CVP/Ultrasound (36556, 93503, 76937): Clear all ICD1-ICD4
@@ -437,6 +438,15 @@ def generate_modifiers(input_file, output_file=None):
                         # Handle ICD codes based on CPT code
                         cpt_code = block['cpt_code']
                         
+                        # Special case: ASA Code 01967 or 1967
+                        asa_code = str(block_row.get('ASA Code', '')).strip()
+                        if asa_code in ['01967', '1967']:
+                            # Clear all ICD codes and set ICD1 = "080"
+                            for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                if icd_col in block_row:
+                                    block_row[icd_col] = ''
+                            block_row['ICD1'] = '080'
+                        
                         # Define peripheral nerve block CPT codes
                         peripheral_nerve_blocks = [
                             '64445', '64446',  # Sciatic
@@ -446,7 +456,7 @@ def generate_modifiers(input_file, output_file=None):
                             '64488'  # TAP
                         ]
                         
-                        if cpt_code in peripheral_nerve_blocks:
+                        elif cpt_code in peripheral_nerve_blocks:
                             # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
                             for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                 if icd_col in block_row:
