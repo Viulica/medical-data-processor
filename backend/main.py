@@ -503,11 +503,6 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 Corrected CPT code or original predicted code if no correction applies
             """
             try:
-                # Simple fix: always change 01926 to 01924
-                if predicted_code == "01926":
-                    logger.info(f"Code correction: 01926 -> 01924")
-                    return "01924"
-                
                 # Get the required fields from the row
                 is_colonoscopy = str(row.get('is_colonoscopy', '')).strip().upper() == 'TRUE'
                 colonoscopy_is_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() == 'TRUE'
