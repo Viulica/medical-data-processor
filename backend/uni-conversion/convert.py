@@ -288,7 +288,7 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="text/plain",
             thinking_config=types.ThinkingConfig(
-                thinking_budget=0,
+                thinking_budget=2500,
             ),
         )
 
