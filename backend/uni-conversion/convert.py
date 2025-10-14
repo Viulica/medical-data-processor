@@ -271,6 +271,9 @@ Return ONLY a JSON object with this exact structure:
 Where the codes are listed in order of relevance (most relevant first).
 Include all {len(icd_codes)} codes in your response, in the new order.
 
+
+That json is your ENTIRE RESPONSE.
+
 CRITICAL: Return ONLY the JSON object, no other text or explanation.
 """
     
@@ -291,7 +294,7 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
 
         # Get AI response
         response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             contents=contents,
             config=generate_content_config,
         )
