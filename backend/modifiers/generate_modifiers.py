@@ -26,8 +26,11 @@ Peripheral Blocks Row Generation:
 - Each duplicate row:
   * ASA Code and Procedure Code = CPT code from block
   * MD/Resident/CRNA = values from block
+  * Responsible Provider = MD value from block
   * Modifiers M1-M4 cleared, then M1 and M2 set from block
   * Concurrent Providers cleared
+  * An Start and An Stop cleared
+  * SRNA cleared
   * ICD codes:
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
@@ -475,6 +478,14 @@ def generate_modifiers(input_file, output_file=None):
                             block_row['An Start'] = ''
                         if 'An Stop' in block_row:
                             block_row['An Stop'] = ''
+                        
+                        # Clear SRNA field
+                        if 'SRNA' in block_row:
+                            block_row['SRNA'] = ''
+                        
+                        # Set Responsible Provider to MD value from block
+                        if 'Responsible Provider' in block_row:
+                            block_row['Responsible Provider'] = block['md']
                         
                         # Clear all modifier columns and set M1 and M2 from the block
                         block_row['M1'] = block['m1']

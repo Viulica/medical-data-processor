@@ -9,6 +9,9 @@ import re
 import sys
 from pathlib import Path
 import os
+import json
+import google.genai as genai
+from google.genai import types
 
 # Add parent directory to path to import export_utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -176,6 +179,121 @@ def extract_icd_codes(text):
                 codes.append(code)
     
     return codes
+
+
+def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client=None):
+    """
+    Use Gemini AI to reorder ICD codes by relevance to the procedure.
+    The primary diagnosis (reason for procedure) should come first.
+    
+    Args:
+        icd_codes: List of ICD codes (up to 4)
+        procedure: Procedure description string
+        post_op_diagnosis: POST-OP DIAGNOSIS string (supplementary)
+        post_op_coded: Post-op Diagnosis - Coded string (supplementary)
+        client: Google AI client (optional, will create if not provided)
+    
+    Returns:
+        List of reordered ICD codes
+    """
+    # If no codes or only one code, no need to reorder
+    if not icd_codes or len(icd_codes) <= 1:
+        return icd_codes
+    
+    # Initialize Google AI client if not provided
+    if client is None:
+        try:
+            client = genai.Client(
+                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
+            )
+        except Exception as e:
+            print(f"    ⚠️  Could not initialize AI client: {str(e)}")
+            return icd_codes  # Return original order if AI fails
+    
+    # Prepare the prompt
+    prompt = f"""
+You are a medical coding expert tasked with ordering ICD diagnosis codes by relevance to a surgical procedure.
+
+PROCEDURE:
+{procedure if procedure and not pd.isna(procedure) else "Not specified"}
+
+SUPPLEMENTARY INFORMATION:
+Post-op Diagnosis: {post_op_diagnosis if post_op_diagnosis and not pd.isna(post_op_diagnosis) else "Not specified"}
+Post-op Diagnosis - Coded: {post_op_coded if post_op_coded and not pd.isna(post_op_coded) else "Not specified"}
+
+ICD CODES TO ORDER:
+{', '.join(icd_codes)}
+
+TASK:
+Reorder these ICD codes by relevance to the procedure, where:
+1. ICD1 should be the PRIMARY diagnosis (the main reason for the procedure)
+2. ICD2 is often also related to the procedure itself
+3. ICD3 and ICD4 should be ordered by decreasing relevance to the procedure
+
+Consider:
+- Which diagnosis is the primary reason the procedure was performed?
+- Which diagnoses are directly related to the surgical intervention?
+- Which diagnoses are secondary or comorbid conditions?
+
+RESPONSE FORMAT:
+Return ONLY a JSON object with this exact structure:
+{{
+    "ordered_codes": ["ICD1", "ICD2", "ICD3", "ICD4"]
+}}
+
+Where the codes are listed in order of relevance (most relevant first).
+Include all {len(icd_codes)} codes in your response, in the new order.
+
+CRITICAL: Return ONLY the JSON object, no other text or explanation.
+"""
+    
+    try:
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            )
+        ]
+        
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=-1,
+            ),
+        )
+
+        # Get AI response
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=generate_content_config,
+        )
+        
+        response_text = response.text.strip()
+        
+        # Clean the response by removing markdown code block formatting
+        if response_text.startswith('```json'):
+            response_text = response_text[7:]  # Remove ```json
+        if response_text.startswith('```'):
+            response_text = response_text[3:]   # Remove ```
+        if response_text.endswith('```'):
+            response_text = response_text[:-3]  # Remove trailing ```
+        response_text = response_text.strip()
+        
+        # Parse the JSON response
+        ai_decision = json.loads(response_text)
+        ordered_codes = ai_decision.get('ordered_codes', icd_codes)
+        
+        # Validate that all original codes are present
+        if len(ordered_codes) == len(icd_codes) and set(ordered_codes) == set(icd_codes):
+            return ordered_codes
+        else:
+            print(f"    ⚠️  AI returned invalid code list, using original order")
+            return icd_codes
+            
+    except Exception as e:
+        print(f"    ⚠️  AI reordering failed: {str(e)}")
+        return icd_codes  # Return original order if AI fails
 
 
 def extract_mednet_code(value):
@@ -596,6 +714,16 @@ def convert_data(input_file, output_file=None):
     try:
         # Load mednet mapping
         mednet_mapping = load_mednet_mapping()
+        
+        # Initialize AI client for ICD code reordering
+        ai_client = None
+        try:
+            ai_client = genai.Client(
+                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
+            )
+            print("AI client initialized for ICD code reordering")
+        except Exception as e:
+            print(f"Warning: Could not initialize AI client: {e}. ICD codes will not be reordered.")
         
         # Read the CSV file with dtype=str to preserve leading zeros in codes
         # Try multiple encodings to handle different file formats
@@ -1028,6 +1156,32 @@ def convert_data(input_file, output_file=None):
                 if code and code not in seen:
                     unique_codes.append(code)
                     seen.add(code)
+            
+            # Use AI to reorder ICD codes by relevance to procedure (only if we have 2+ codes and AI client is available)
+            if len(unique_codes) >= 2 and ai_client is not None:
+                # Get procedure and diagnosis information from the row
+                procedure_value = df.iloc[row_idx].get('Procedure', '')
+                post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
+                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '') if post_op_diag_col else ''
+                post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
+                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '') if post_op_coded_col else ''
+                
+                # Reorder codes using AI
+                try:
+                    reordered_codes = reorder_icd_codes_with_ai(
+                        unique_codes, 
+                        procedure_value, 
+                        post_op_diag_value, 
+                        post_op_coded_value,
+                        ai_client
+                    )
+                    # Only use reordered codes if AI succeeded
+                    if reordered_codes and len(reordered_codes) == len(unique_codes):
+                        unique_codes = reordered_codes
+                        if row_idx % 10 == 0:  # Log every 10th row to avoid spam
+                            print(f"    ✓ Row {row_idx}: ICD codes reordered by AI")
+                except Exception as e:
+                    print(f"    ⚠️  Row {row_idx}: AI reordering failed, using original order: {str(e)}")
             
             # Fill ICD1-ICD4 slots sequentially (max 4 codes)
             for i in range(4):
