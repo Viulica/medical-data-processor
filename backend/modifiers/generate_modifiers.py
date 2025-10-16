@@ -456,7 +456,7 @@ def generate_modifiers(input_file, output_file=None):
                             '64488'  # TAP
                         ]
                         
-                        elif cpt_code in peripheral_nerve_blocks:
+                        if cpt_code in peripheral_nerve_blocks:
                             # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
                             for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                 if icd_col in block_row:
