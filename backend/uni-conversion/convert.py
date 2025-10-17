@@ -291,9 +291,15 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
                     parts=[types.Part.from_text(text=prompt)],
                 )
             ]
+
+            tools = [
+                types.Tool(googleSearch=types.GoogleSearch(
+                )),
+            ]
             
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain"
+                tools=tools,
             )
 
             # Get AI response
