@@ -298,8 +298,8 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
             ]
             
             generate_content_config = types.GenerateContentConfig(
-                response_mime_type="text/plain"
-                tools=tools,
+                response_mime_type="text/plain",
+                tools=tools
             )
 
             # Get AI response
