@@ -190,7 +190,7 @@ def process_icd_reordering_task(args):
         args: Tuple of (row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded)
     
     Returns:
-        Tuple of (row_idx, reordered_codes, success_flag)
+        Tuple of (row_idx, reordered_codes, success_flag, final_prompt, final_response)
     """
     row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
     
@@ -201,11 +201,11 @@ def process_icd_reordering_task(args):
         )
     except Exception as e:
         print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
-        return (row_idx, icd_codes, False)
+        return (row_idx, icd_codes, False, "", "")
     
     # Reorder codes
-    reordered_codes, success_flag = reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
-    return (row_idx, reordered_codes, success_flag)
+    reordered_codes, success_flag, final_prompt, final_response = reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
+    return (row_idx, reordered_codes, success_flag, final_prompt, final_response)
 
 
 def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client=None):
@@ -221,11 +221,15 @@ def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_c
         client: Google AI client (optional, will create if not provided)
     
     Returns:
-        Tuple of (reordered_codes, success_flag) where success_flag indicates if AI reordering was successful
+        Tuple of (reordered_codes, success_flag, final_prompt, final_response) where:
+        - reordered_codes: List of reordered ICD codes
+        - success_flag: Boolean indicating if AI reordering was successful
+        - final_prompt: The exact prompt sent to the AI
+        - final_response: The exact response received from the AI
     """
     # If no codes or only one code, no need to reorder
     if not icd_codes or len(icd_codes) <= 1:
-        return (icd_codes, True)  # Success = True since no reordering needed
+        return (icd_codes, True, "", "")  # Success = True since no reordering needed
     
     # Initialize Google AI client if not provided
     if client is None:
@@ -235,7 +239,7 @@ def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_c
             )
         except Exception as e:
             print(f"    ⚠️  Could not initialize AI client: {str(e)}")
-            return (icd_codes, False)  # Return original order if AI fails
+            return (icd_codes, False, "", "")  # Return original order if AI fails
     
     # Prepare the prompt
     prompt = f"""
@@ -289,15 +293,12 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
             ]
             
             generate_content_config = types.GenerateContentConfig(
-                response_mime_type="text/plain",
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=2500,
-                ),
+                response_mime_type="text/plain"
             )
 
             # Get AI response
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.5-pro",
                 contents=contents,
                 config=generate_content_config,
             )
@@ -319,14 +320,14 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
             
             # Validate that all original codes are present
             if len(ordered_codes) == len(icd_codes) and set(ordered_codes) == set(icd_codes):
-                return (ordered_codes, True)  # Success!
+                return (ordered_codes, True, prompt, response_text)  # Success!
             else:
                 if attempt < max_retries - 1:
                     print(f"    ⚠️  AI returned invalid code list (attempt {attempt + 1}/{max_retries}), retrying...")
                     continue
                 else:
                     print(f"    ⚠️  AI returned invalid code list after {max_retries} attempts, using original order")
-                    return (icd_codes, False)
+                    return (icd_codes, False, prompt, response_text)
                 
         except Exception as e:
             if attempt < max_retries - 1:
@@ -334,10 +335,10 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
                 continue
             else:
                 print(f"    ⚠️  AI reordering failed after {max_retries} attempts: {str(e)}")
-                return (icd_codes, False)  # Return original order if AI fails
+                return (icd_codes, False, prompt, "")  # Return original order if AI fails
     
     # This should never be reached, but just in case
-    return (icd_codes, False)
+    return (icd_codes, False, prompt, "")
 
 
 def extract_mednet_code(value):
@@ -857,6 +858,8 @@ def convert_data(input_file, output_file=None):
         # PHASE 2: Parallel AI reordering of ICD codes
         icd_reordered_map = {}  # Map row_idx -> reordered_codes
         icd_success_map = {}    # Map row_idx -> success_flag
+        icd_prompt_map = {}     # Map row_idx -> final_prompt
+        icd_response_map = {}   # Map row_idx -> final_response
         
         if ai_client is not None:
             # Prepare tasks for rows that need reordering (2+ codes)
@@ -888,9 +891,11 @@ def convert_data(input_file, output_file=None):
                         row_idx = future_to_row[future]
                         
                         try:
-                            result_row_idx, reordered_codes, success_flag = future.result()
+                            result_row_idx, reordered_codes, success_flag, final_prompt, final_response = future.result()
                             icd_reordered_map[result_row_idx] = reordered_codes
                             icd_success_map[result_row_idx] = success_flag
+                            icd_prompt_map[result_row_idx] = final_prompt
+                            icd_response_map[result_row_idx] = final_response
                             
                             if success_flag:
                                 successful_reorders += 1
@@ -902,6 +907,8 @@ def convert_data(input_file, output_file=None):
                         except Exception as e:
                             print(f"    ⚠️  Row {row_idx}: Exception during AI reordering: {str(e)}")
                             icd_success_map[row_idx] = False
+                            icd_prompt_map[row_idx] = ""
+                            icd_response_map[row_idx] = ""
                 
                 print(f"✓ AI reordering complete for {len(icd_reordered_map)} rows ({successful_reorders} successful)")
             else:
@@ -1285,13 +1292,21 @@ def convert_data(input_file, output_file=None):
                 unique_codes = icd_reordered_map[row_idx]
                 # Check if AI reordering was successful for this row
                 ai_success = icd_success_map.get(row_idx, False)
+                final_prompt = icd_prompt_map.get(row_idx, "")
+                final_response = icd_response_map.get(row_idx, "")
             else:
                 unique_codes = icd_extraction_data[row_idx]['unique_codes']
                 # If no AI reordering attempted (less than 2 codes), mark as successful
                 ai_success = True if len(unique_codes) <= 1 else False
+                final_prompt = ""
+                final_response = ""
             
             # Add ICD AI Reordering Success column
             new_row["ICD AI Reordering Success"] = "Yes" if ai_success else "No"
+            
+            # Add logging columns for AI interaction
+            new_row["ICD AI Final Prompt"] = final_prompt
+            new_row["ICD AI Final Response"] = final_response
             
             # Fill ICD1-ICD4 slots sequentially (max 4 codes)
             for i in range(4):
