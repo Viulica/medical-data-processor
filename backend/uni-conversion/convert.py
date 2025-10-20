@@ -269,16 +269,19 @@ Consider:
 RESPONSE FORMAT:
 Return ONLY a JSON object with this exact structure:
 {{
-    "ordered_codes": ["ICD1", "ICD2", "ICD3", "ICD4"]
+    "ordered_codes": ["ICD1", "ICD2", "ICD3", "ICD4"],
+    "reasoning": "Brief explanation of why you ordered the codes this way, focusing on why the primary diagnosis was chosen."
 }}
 
-Where the codes are listed in order of relevance (most relevant first).
-Include all {len(icd_codes)} codes in your response, in the new order.
+Where:
+- "ordered_codes" contains all {len(icd_codes)} codes in order of relevance (most relevant first)
+- "reasoning" explains your decision-making process (1-3 sentences)
 
-
-That json is your ENTIRE RESPONSE.
-
-CRITICAL: Return ONLY the JSON object, no other text or explanation.
+CRITICAL RULES:
+1. Return ONLY valid JSON, no markdown formatting, no code blocks, no other text
+2. Include ALL {len(icd_codes)} codes in "ordered_codes"
+3. Use the EXACT code strings provided above (preserve case and format)
+4. Your entire response must be parseable as JSON
 """
     
     # Retry logic - attempt up to 5 times
@@ -291,15 +294,11 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
                     parts=[types.Part.from_text(text=prompt)],
                 )
             ]
-
-            tools = [
-                types.Tool(googleSearch=types.GoogleSearch(
-                )),
-            ]
             
+            # Force JSON output mode and remove tools to prevent search results
             generate_content_config = types.GenerateContentConfig(
-                response_mime_type="text/plain",
-                tools=tools
+                response_mime_type="application/json",
+                temperature=0.3,  # Lower temperature for more consistent output
             )
 
             # Get AI response
@@ -311,7 +310,7 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
             
             response_text = response.text.strip()
             
-            # Clean the response by removing markdown code block formatting
+            # Clean the response by removing any markdown code block formatting
             if response_text.startswith('```json'):
                 response_text = response_text[7:]  # Remove ```json
             if response_text.startswith('```'):
@@ -323,16 +322,30 @@ CRITICAL: Return ONLY the JSON object, no other text or explanation.
             # Parse the JSON response
             ai_decision = json.loads(response_text)
             ordered_codes = ai_decision.get('ordered_codes', icd_codes)
+            reasoning = ai_decision.get('reasoning', 'No reasoning provided')
             
-            # Validate that all original codes are present
-            if len(ordered_codes) == len(icd_codes) and set(ordered_codes) == set(icd_codes):
-                return (ordered_codes, True, prompt, response_text)  # Success!
+            # Normalize codes for comparison (case-insensitive, strip whitespace)
+            original_codes_normalized = [c.strip().upper() for c in icd_codes]
+            ordered_codes_normalized = [c.strip().upper() for c in ordered_codes]
+            
+            # Validate that all original codes are present (case-insensitive comparison)
+            if len(ordered_codes) == len(icd_codes) and set(ordered_codes_normalized) == set(original_codes_normalized):
+                # Build detailed response with reasoning
+                response_with_reasoning = json.dumps({
+                    "ordered_codes": ordered_codes,
+                    "reasoning": reasoning
+                }, indent=2)
+                return (ordered_codes, True, prompt, response_with_reasoning)  # Success!
             else:
                 if attempt < max_retries - 1:
-                    print(f"    ⚠️  AI returned invalid code list (attempt {attempt + 1}/{max_retries}), retrying...")
+                    print(f"    ⚠️  AI returned invalid code list (attempt {attempt + 1}/{max_retries})")
+                    print(f"        Expected: {icd_codes}")
+                    print(f"        Received: {ordered_codes}")
                     continue
                 else:
                     print(f"    ⚠️  AI returned invalid code list after {max_retries} attempts, using original order")
+                    print(f"        Expected: {icd_codes}")
+                    print(f"        Received: {ordered_codes}")
                     return (icd_codes, False, prompt, response_text)
                 
         except Exception as e:
@@ -818,26 +831,31 @@ def convert_data(input_file, output_file=None):
             # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
             post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
             post_op_diag_value = ''
+            codes_from_post_op_diag = []
             if post_op_diag_col:
                 post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
-                codes_from_col1 = extract_icd_codes(post_op_diag_value)
-                icd_codes.extend(codes_from_col1)
+                codes_from_post_op_diag = extract_icd_codes(post_op_diag_value)
+                icd_codes.extend(codes_from_post_op_diag)
             
             # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
             post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
             post_op_coded_value = ''
+            codes_from_post_op_coded = []
             if post_op_coded_col:
                 post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
-                codes_from_col2 = extract_icd_codes(post_op_coded_value)
-                icd_codes.extend(codes_from_col2)
+                codes_from_post_op_coded = extract_icd_codes(post_op_coded_value)
+                icd_codes.extend(codes_from_post_op_coded)
             
             # PRIORITY 3: Add any existing ICD1-ICD4 codes last (as fallback)
+            codes_from_existing_icd = []
             for i in range(4):
                 icd_field = f"ICD{i+1}"
                 if icd_field in df.columns:
                     existing_value = df.iloc[row_idx].get(icd_field, '')
                     if not pd.isna(existing_value) and str(existing_value).strip():
-                        icd_codes.append(str(existing_value).strip())
+                        code_value = str(existing_value).strip()
+                        codes_from_existing_icd.append(code_value)
+                        icd_codes.append(code_value)
             
             # Remove duplicates while preserving order
             unique_codes = []
@@ -850,13 +868,16 @@ def convert_data(input_file, output_file=None):
             # Get procedure value for AI reordering
             procedure_value = df.iloc[row_idx].get('Procedure', '')
             
-            # Store for AI reordering
+            # Store for AI reordering with detailed logging
             icd_extraction_data.append({
                 'row_idx': row_idx,
                 'unique_codes': unique_codes,
                 'procedure': procedure_value,
                 'post_op_diag': post_op_diag_value,
-                'post_op_coded': post_op_coded_value
+                'post_op_coded': post_op_coded_value,
+                'codes_from_post_op_diag': codes_from_post_op_diag,
+                'codes_from_post_op_coded': codes_from_post_op_coded,
+                'codes_from_existing_icd': codes_from_existing_icd
             })
         
         print(f"✓ Extracted ICD codes from {len(icd_extraction_data)} rows")
@@ -1313,6 +1334,12 @@ def convert_data(input_file, output_file=None):
             # Add logging columns for AI interaction
             new_row["ICD AI Final Prompt"] = final_prompt
             new_row["ICD AI Final Response"] = final_response
+            
+            # Add detailed ICD extraction logging columns
+            extraction_data = icd_extraction_data[row_idx]
+            new_row["ICD Codes from POST-OP DIAGNOSIS"] = "; ".join(extraction_data['codes_from_post_op_diag']) if extraction_data['codes_from_post_op_diag'] else ""
+            new_row["ICD Codes from Post-op Diagnosis - Coded"] = "; ".join(extraction_data['codes_from_post_op_coded']) if extraction_data['codes_from_post_op_coded'] else ""
+            new_row["ICD Codes from Existing ICD1-ICD4"] = "; ".join(extraction_data['codes_from_existing_icd']) if extraction_data['codes_from_existing_icd'] else ""
             
             # Fill ICD1-ICD4 slots sequentially (max 4 codes)
             for i in range(4):
