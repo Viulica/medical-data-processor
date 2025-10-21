@@ -493,6 +493,10 @@ def generate_modifiers(input_file, output_file=None):
                         if 'SRNA' in block_row:
                             block_row['SRNA'] = ''
                         
+                        # Clear Anesthesia Type field
+                        if 'Anesthesia Type' in block_row:
+                            block_row['Anesthesia Type'] = ''
+                        
                         # Set Responsible Provider to MD value from block
                         if 'Responsible Provider' in block_row:
                             block_row['Responsible Provider'] = block['md']
