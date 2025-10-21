@@ -862,7 +862,7 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-4o", max_workers: int = 5):
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-5", max_workers: int = 5):
     """Background task to predict CPT codes using OpenAI general model"""
     job = job_status[job_id]
     
@@ -1201,7 +1201,7 @@ async def predict_cpt_custom(
 async def predict_cpt_general(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
-    model: str = Form(default="gpt-4o"),
+    model: str = Form(default="gpt-5"),
     max_workers: int = Form(default=5)
 ):
     """Upload a CSV file to predict CPT codes using OpenAI general model"""

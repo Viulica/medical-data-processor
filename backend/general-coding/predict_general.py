@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt-4o", api_key=None):
+def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt-5", api_key=None):
     """
     Predict ASA code using OpenAI API with web search
     
@@ -157,7 +157,7 @@ def load_cpt_codes():
         return ""
 
 
-def predict_codes_general_api(input_file, output_file, model="gpt-4o", api_key=None, max_workers=5, progress_callback=None):
+def predict_codes_general_api(input_file, output_file, model="gpt-5", api_key=None, max_workers=5, progress_callback=None):
     """
     Predict ASA codes for a CSV file using OpenAI general model
     
