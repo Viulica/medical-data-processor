@@ -862,6 +862,83 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-4o", max_workers: int = 5):
+    """Background task to predict CPT codes using OpenAI general model"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting OpenAI general model CPT prediction..."
+        job.progress = 10
+        
+        # Import the general prediction function
+        import sys
+        general_coding_path = Path(__file__).parent / "general-coding"
+        sys.path.insert(0, str(general_coding_path))
+        
+        from predict_general import predict_codes_general_api
+        
+        job.message = f"Processing with OpenAI {model} model..."
+        job.progress = 30
+        
+        # Create output file path
+        result_base = Path(f"/tmp/results/{job_id}_with_codes")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        # Progress callback to update job status
+        def progress_callback(completed, total, message):
+            job.progress = 30 + int((completed / total) * 60)
+            job.message = message
+        
+        # Save to CSV first
+        result_file_csv = result_base.with_suffix('.csv')
+        success = predict_codes_general_api(
+            input_file=csv_path,
+            output_file=str(result_file_csv),
+            model=model,
+            api_key=os.getenv("OPENAI_API_KEY"),
+            max_workers=max_workers,
+            progress_callback=progress_callback
+        )
+        
+        if not success:
+            raise Exception("OpenAI general model prediction failed")
+        
+        job.message = "Prediction complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not result_file_csv.exists():
+            raise Exception("Output file was not created")
+        
+        # Create XLSX version
+        try:
+            result_file_xlsx = convert_csv_to_xlsx(result_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = result_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(result_file_csv)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"OpenAI general model prediction completed successfully!"
+        
+        # Clean up input file
+        os.unlink(csv_path)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after general model prediction")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"OpenAI general model prediction failed: {str(e)}"
+        logger.error(f"General model prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 @app.post("/upload")
 async def upload_files(
     background_tasks: BackgroundTasks,
@@ -1118,6 +1195,48 @@ async def predict_cpt_custom(
         
     except Exception as e:
         logger.error(f"Custom model CPT prediction upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/predict-cpt-general")
+async def predict_cpt_general(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...),
+    model: str = Form(default="gpt-4o"),
+    max_workers: int = Form(default=5)
+):
+    """Upload a CSV file to predict CPT codes using OpenAI general model"""
+    
+    try:
+        logger.info(f"Received general model CPT prediction request - csv: {csv_file.filename}, model: {model}, workers: {max_workers}")
+        
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created general model CPT prediction job {job_id}")
+        
+        # Save uploaded CSV
+        csv_path = f"/tmp/{job_id}_general_input.csv"
+        
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+        
+        logger.info(f"CSV saved - path: {csv_path}")
+        
+        # Start background processing with general model
+        background_tasks.add_task(predict_cpt_general_background, job_id, csv_path, model, max_workers)
+        
+        logger.info(f"Background general model CPT prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": f"CSV uploaded and OpenAI {model} prediction started"}
+        
+    except Exception as e:
+        logger.error(f"General model CPT prediction upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/split-pdf")

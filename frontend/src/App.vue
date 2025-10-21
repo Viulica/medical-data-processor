@@ -764,6 +764,7 @@
                     <option value="gap-fin">GAP-FIN</option>
                     <option value="apo-utp">APO-UTP</option>
                     <option value="tan-esc">TAN-ESC (Custom Model)</option>
+                    <option value="general">GENERAL (OpenAI Model)</option>
                   </select>
                 </div>
               </div>
@@ -2601,12 +2602,17 @@ export default {
       const formData = new FormData();
       formData.append("csv_file", this.csvFile);
 
-      // Use custom endpoint for tan-esc model
+      // Route to appropriate endpoint based on client selection
       let uploadUrl;
       if (this.selectedClient === "tan-esc") {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
         formData.append("confidence_threshold", "0.5");
         console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
+      } else if (this.selectedClient === "general") {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
+        formData.append("model", "gpt-4o");
+        formData.append("max_workers", "5");
+        console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
       } else {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
         formData.append("client", this.selectedClient);
