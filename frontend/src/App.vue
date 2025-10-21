@@ -1332,10 +1332,44 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Settings -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
+                <h3>Modifier Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="ai-toggle-container">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">🚫</span>
+                      <span class="toggle-text"
+                        >Turn Off Medical Direction</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input
+                        type="checkbox"
+                        v-model="turnOffMedicalDirection"
+                      />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      turnOffMedicalDirection
+                        ? "Medical Direction is DISABLED. All medical direction rules will be treated as NO during processing."
+                        : "Medical Direction is ENABLED. Normal medical direction rules from the database will be applied."
+                    }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Requirements -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
                 <h3>Requirements</h3>
               </div>
               <div class="settings-content">
@@ -1843,6 +1877,7 @@ export default {
       modifiersJobStatus: null,
       isGeneratingModifiers: false,
       isModifiersCsvDragActive: false,
+      turnOffMedicalDirection: false, // Toggle for medical direction override
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -3162,9 +3197,17 @@ export default {
 
       const formData = new FormData();
       formData.append("csv_file", this.modifiersCsvFile);
+      formData.append(
+        "turn_off_medical_direction",
+        this.turnOffMedicalDirection
+      );
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
+      console.log(
+        "🚫 Turn Off Medical Direction:",
+        this.turnOffMedicalDirection
+      );
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -3175,7 +3218,9 @@ export default {
 
         this.modifiersJobId = response.data.job_id;
         this.toast.success(
-          "Modifiers generation started! Check the status section below."
+          `Modifiers generation started${
+            this.turnOffMedicalDirection ? " (Medical Direction OFF)" : ""
+          }! Check the status section below.`
         );
 
         // Set initial status

@@ -12,9 +12,15 @@ Modifier Hierarchy:
 5. PT modifier - Added to LAST position (M4) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
    NOTE: PT modifier does NOT require Medicare Modifiers
 
+Medical Direction Override:
+- When turn_off_medical_direction=True, all medical direction YES values from the database
+  are automatically overridden to NO during processing. This affects modifier generation
+  by treating all cases as if medical direction is disabled.
+
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
   * If BOTH MD and CRNA are present: Artificially set Medicare Modifiers = YES and Medical Direction = YES
+    (unless turn_off_medical_direction is True, then Medical Direction stays NO)
   * If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
   This allows normal modifier generation (including GC) when both providers are present,
   but limits to only P modifier when they are not.
@@ -190,14 +196,26 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
+    
+    Args:
+        input_file: Path to input CSV file
+        output_file: Path to output CSV file (optional)
+        turn_off_medical_direction: If True, override all medical direction YES to NO
     """
     try:
         # Load modifiers definition
         modifiers_dict = load_modifiers_definition()
+        
+        # Log medical direction override mode
+        if turn_off_medical_direction:
+            print("=" * 80)
+            print("⚠️  MEDICAL DIRECTION OVERRIDE MODE ENABLED ⚠️")
+            print("All medical direction YES values will be treated as NO")
+            print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
         insurances_df = pd.DataFrame()
@@ -296,6 +314,10 @@ def generate_modifiers(input_file, output_file=None):
                     # Get the modifiers settings
                     medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
                     
+                    # Override medical direction if turn_off_medical_direction is enabled
+                    if turn_off_medical_direction:
+                        medical_direction = False
+                    
                     # Check if MD and CRNA have values
                     if has_md_column:
                         md_value = row.get('MD', '')
@@ -309,11 +331,14 @@ def generate_modifiers(input_file, output_file=None):
                     
                     # SPECIAL CASE: Mednet code 003 (Blue Cross)
                     # Override modifiers settings based on MD and CRNA presence
+                    # Note: If turn_off_medical_direction is True, we don't allow medical_direction to be set to True
                     if primary_mednet_code == '003':
                         if has_md and has_crna:
                             # Both MD and CRNA present: artificially set both to YES
                             medicare_modifiers = True
-                            medical_direction = True
+                            # Only set medical_direction to True if turn_off_medical_direction is False
+                            if not turn_off_medical_direction:
+                                medical_direction = True
                         else:
                             # NOT both present: artificially set both to NO
                             medicare_modifiers = False

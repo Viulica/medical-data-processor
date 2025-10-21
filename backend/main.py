@@ -1600,13 +1600,19 @@ def convert_instructions_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
-def generate_modifiers_background(job_id: str, csv_path: str):
-    """Background task to generate medical modifiers using the modifiers script"""
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False):
+    """Background task to generate medical modifiers using the modifiers script
+    
+    Args:
+        job_id: Unique job identifier
+        csv_path: Path to input CSV file
+        turn_off_medical_direction: If True, override all medical direction YES to NO
+    """
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = "Starting modifiers generation..."
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -1623,8 +1629,8 @@ def generate_modifiers_background(job_id: str, csv_path: str):
         
         output_file_csv = result_base.with_suffix('.csv')
         
-        # Run the modifiers generation
-        success = generate_modifiers(csv_path, str(output_file_csv))
+        # Run the modifiers generation with medical direction override parameter
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -1829,12 +1835,18 @@ async def convert_instructions(
 @app.post("/generate-modifiers")
 async def generate_modifiers_route(
     background_tasks: BackgroundTasks,
-    csv_file: UploadFile = File(...)
+    csv_file: UploadFile = File(...),
+    turn_off_medical_direction: bool = Form(False)
 ):
-    """Upload a CSV file to generate medical modifiers"""
+    """Upload a CSV file to generate medical modifiers
+    
+    Args:
+        csv_file: CSV file with billing data
+        turn_off_medical_direction: If True, override all medical direction YES to NO
+    """
     
     try:
-        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}")
+        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}")
         
         # Validate file type
         if not csv_file.filename.endswith('.csv'):
@@ -1856,11 +1868,11 @@ async def generate_modifiers_route(
         logger.info(f"CSV saved - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
-        return {"job_id": job_id, "message": "CSV uploaded and modifiers generation started"}
+        return {"job_id": job_id, "message": f"CSV uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
