@@ -56,6 +56,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
 
+IMPORTANT: The Procedure field is REQUIRED. Pre-operative and Post-operative diagnoses are SUPPLEMENTARY only.
+If only the procedure is present and any other information is not available, do your best to determine the correct anesthesia CPT code based on the procedure text alone.
+
 Here is the clinical information:
 - Procedure: {procedure}
 - Pre-operative diagnosis: {preop_diagnosis}

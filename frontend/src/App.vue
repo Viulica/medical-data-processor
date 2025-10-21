@@ -2610,7 +2610,7 @@ export default {
         console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
       } else if (this.selectedClient === "general") {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
-        formData.append("model", "gpt-4o");
+        formData.append("model", "gpt-5");
         formData.append("max_workers", "5");
         console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
       } else {
