@@ -440,6 +440,7 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
     """
     Format anesthesia time by converting 2, 3, or 4-digit time to HH:MM format
     and combine with the date from the same row.
+    Handles multi-day scenarios intelligently by detecting time rollovers.
     time_type: "start" or "stop"
     """
     if pd.isna(time_value) or not time_value:
@@ -449,7 +450,10 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
     
     # Handle different digit lengths
     if time_str.isdigit():
-        if len(time_str) == 2:
+        if len(time_str) == 1:
+            # Convert 2 to 00:02
+            formatted_time = f"00:0{time_str}"
+        elif len(time_str) == 2:
             # Convert 31 to 00:31
             formatted_time = f"00:{time_str}"
         elif len(time_str) == 3:
@@ -459,7 +463,7 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
             # Convert 1331 to 13:31
             formatted_time = f"{time_str[:2]}:{time_str[2:]}"
         else:
-            # If not 2, 3, or 4 digits, return as-is
+            # If not 1, 2, 3, or 4 digits, return as-is
             formatted_time = time_str
     else:
         # If not all digits, return as-is
@@ -470,9 +474,134 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
     if pd.isna(date_value) or not date_value:
         return formatted_time
     
-    # Combine date and time with one space
-    date_str = str(date_value).strip()
+    # Parse the base date intelligently
+    base_date = parse_date_intelligently(str(date_value).strip())
+    if not base_date:
+        return formatted_time
+    
+    # For stop times, check if we need to roll over to the next day
+    if time_type == "stop":
+        # Get the start time from the same row to detect rollover
+        start_time_value = df.iloc[row_idx].get('An Start', '')
+        if not pd.isna(start_time_value) and start_time_value:
+            start_time_str = str(start_time_value).strip()
+            start_formatted_time = format_time_only(start_time_str)
+            stop_formatted_time = format_time_only(time_str)
+            
+            # Check if we have a rollover scenario (stop time is earlier than start time)
+            if is_time_rollover(start_formatted_time, stop_formatted_time):
+                # Add one day to the base date
+                base_date = add_one_day(base_date)
+    
+    # Format the final date-time string
+    date_str = format_date_for_output(base_date)
     return f"{date_str} {formatted_time}"
+
+
+def format_time_only(time_value):
+    """
+    Format time value to HH:MM format only (no date).
+    Returns time in HH:MM format for comparison purposes.
+    """
+    if pd.isna(time_value) or not time_value:
+        return "00:00"
+    
+    time_str = str(time_value).strip()
+    
+    if time_str.isdigit():
+        if len(time_str) == 1:
+            return f"00:0{time_str}"
+        elif len(time_str) == 2:
+            return f"00:{time_str}"
+        elif len(time_str) == 3:
+            return f"0{time_str[0]}:{time_str[1:]}"
+        elif len(time_str) == 4:
+            return f"{time_str[:2]}:{time_str[2:]}"
+    
+    # If already has colon, try to extract time part
+    if ':' in time_str:
+        return time_str
+    
+    return "00:00"
+
+
+def is_time_rollover(start_time, stop_time):
+    """
+    Check if stop time represents a rollover to the next day.
+    Returns True if stop_time is earlier than start_time (indicating next day).
+    """
+    try:
+        # Convert times to minutes since midnight for easy comparison
+        start_minutes = time_to_minutes(start_time)
+        stop_minutes = time_to_minutes(stop_time)
+        
+        # If stop time is significantly earlier than start time, it's likely next day
+        # Use a threshold of 4 hours (240 minutes) to avoid false positives
+        if stop_minutes < start_minutes and (start_minutes - stop_minutes) > 240:
+            return True
+        
+        return False
+    except:
+        return False
+
+
+def time_to_minutes(time_str):
+    """
+    Convert HH:MM time string to minutes since midnight.
+    """
+    try:
+        if ':' in time_str:
+            hours, minutes = time_str.split(':')
+            return int(hours) * 60 + int(minutes)
+        return 0
+    except:
+        return 0
+
+
+def parse_date_intelligently(date_str):
+    """
+    Parse date string in MM/DD/YYYY format (the standard format used by this system).
+    Returns a datetime object or None if parsing fails.
+    """
+    from datetime import datetime
+    
+    if not date_str:
+        return None
+    
+    try:
+        # Handle MM/DD/YYYY format (standard for this system)
+        return datetime.strptime(date_str.strip(), '%m/%d/%Y')
+    except ValueError:
+        # Try MM/DD/YY format (2-digit year)
+        try:
+            return datetime.strptime(date_str.strip(), '%m/%d/%y')
+        except ValueError:
+            # If all parsing fails, return None
+            return None
+
+
+def add_one_day(date_obj):
+    """
+    Add one day to a datetime object, handling month/year rollovers.
+    """
+    from datetime import timedelta
+    
+    try:
+        return date_obj + timedelta(days=1)
+    except:
+        # Fallback: return original date if addition fails
+        return date_obj
+
+
+def format_date_for_output(date_obj):
+    """
+    Format datetime object back to MM/DD/YYYY string for output.
+    """
+    try:
+        return date_obj.strftime('%m/%d/%Y')
+    except:
+        # Fallback: return original date as string
+        return str(date_obj)
 
 
 def fix_time_format(time_str):
