@@ -1358,6 +1358,28 @@
                     }}
                   </p>
                 </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">🔄</span>
+                      <span class="toggle-text"
+                        >Generate QK Duplicate Lines</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="enableQkDuplicate" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      enableQkDuplicate
+                        ? "QK Duplicate Lines are ENABLED. When QK modifier is applied, a duplicate line will be created with CRNA as Responsible Provider and QX modifier."
+                        : "QK Duplicate Lines are DISABLED. Only one line will be generated per case."
+                    }}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1390,8 +1412,8 @@
                   <div class="requirement-item">
                     <span class="requirement-icon">🔀</span>
                     <span
-                      >Rows may be duplicated for QK+QX modifier
-                      combinations</span
+                      >Duplicate lines can be generated for QK modifiers (when
+                      enabled)</span
                     >
                   </div>
                 </div>
@@ -1873,6 +1895,7 @@ export default {
       isGeneratingModifiers: false,
       isModifiersCsvDragActive: false,
       enableMedicalDirection: true, // Toggle for medical direction (true = enabled, false = disabled)
+      enableQkDuplicate: false, // Toggle for QK duplicate line generation (false = disabled by default)
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -3197,10 +3220,13 @@ export default {
         "turn_off_medical_direction",
         !this.enableMedicalDirection
       );
+      // Add QK duplicate generation parameter
+      formData.append("generate_qk_duplicate", this.enableQkDuplicate);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
       console.log("⚕️ Enable Medical Direction:", this.enableMedicalDirection);
+      console.log("🔄 Enable QK Duplicate:", this.enableQkDuplicate);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -3210,10 +3236,11 @@ export default {
         });
 
         this.modifiersJobId = response.data.job_id;
+        const qkMsg = this.enableQkDuplicate ? " + QK Duplicates" : "";
         this.toast.success(
           `Modifiers generation started${
             !this.enableMedicalDirection ? " (Medical Direction OFF)" : ""
-          }! Check the status section below.`
+          }${qkMsg}! Check the status section below.`
         );
 
         // Set initial status
@@ -3303,6 +3330,8 @@ export default {
       this.modifiersJobStatus = null;
       this.isGeneratingModifiers = false;
       this.isModifiersCsvDragActive = false;
+      this.enableMedicalDirection = true;
+      this.enableQkDuplicate = false;
     },
 
     getModifiersStatusTitle() {

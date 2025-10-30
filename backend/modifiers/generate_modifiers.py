@@ -196,7 +196,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -205,6 +205,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         input_file: Path to input CSV file
         output_file: Path to output CSV file (optional)
         turn_off_medical_direction: If True, override all medical direction YES to NO
+        generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
     """
     try:
         # Load modifiers definition
@@ -215,6 +216,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("=" * 80)
             print("⚠️  MEDICAL DIRECTION OVERRIDE MODE ENABLED ⚠️")
             print("All medical direction YES values will be treated as NO")
+            print("=" * 80)
+        
+        # Log QK duplicate generation mode
+        if generate_qk_duplicate:
+            print("=" * 80)
+            print("🔄 QK DUPLICATE LINE GENERATION ENABLED 🔄")
+            print("Duplicate lines will be created for QK modifiers with CRNA as Responsible Provider")
             print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
@@ -430,6 +438,28 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     new_row['M4'] = modifiers_list[3]
             
             result_rows.append(new_row)
+            
+            # Check if we need to create a QK duplicate row
+            # Conditions:
+            # 1. generate_qk_duplicate is True
+            # 2. M1 modifier is QK
+            # 3. CRNA field has a value
+            if generate_qk_duplicate and m1_modifier == 'QK' and has_crna:
+                # Create a duplicate row
+                qk_duplicate_row = new_row.copy()
+                
+                # Get the CRNA value
+                crna_value = row.get('CRNA', '') if has_crna_column else ''
+                
+                # Set the Responsible Provider to the CRNA value
+                if 'Responsible Provider' in qk_duplicate_row:
+                    qk_duplicate_row['Responsible Provider'] = crna_value
+                
+                # Change M1 modifier from QK to QX
+                qk_duplicate_row['M1'] = 'QX'
+                
+                # Add the duplicate row to results
+                result_rows.append(qk_duplicate_row)
             
             # Check if we need to create peripheral block rows
             # Conditions:

@@ -1600,19 +1600,21 @@ def convert_instructions_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
         job_id: Unique job identifier
         csv_path: Path to input CSV file
         turn_off_medical_direction: If True, override all medical direction YES to NO
+        generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
     """
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}..."
+        qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -1629,8 +1631,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         
         output_file_csv = result_base.with_suffix('.csv')
         
-        # Run the modifiers generation with medical direction override parameter
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction)
+        # Run the modifiers generation with medical direction override parameter and QK duplicate parameter
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -1836,17 +1838,19 @@ async def convert_instructions(
 async def generate_modifiers_route(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
-    turn_off_medical_direction: bool = Form(False)
+    turn_off_medical_direction: bool = Form(False),
+    generate_qk_duplicate: bool = Form(False)
 ):
     """Upload a CSV file to generate medical modifiers
     
     Args:
         csv_file: CSV file with billing data
         turn_off_medical_direction: If True, override all medical direction YES to NO
+        generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
     """
     
     try:
-        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}")
+        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}")
         
         # Validate file type
         if not csv_file.filename.endswith('.csv'):
@@ -1868,11 +1872,12 @@ async def generate_modifiers_route(
         logger.info(f"CSV saved - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
-        return {"job_id": job_id, "message": f"CSV uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}"}
+        qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
+        return {"job_id": job_id, "message": f"CSV uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
