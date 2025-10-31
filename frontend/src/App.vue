@@ -696,15 +696,46 @@
         <div v-if="activeTab === 'cpt'" class="upload-section">
           <div class="section-header">
             <h2>CPT Code Prediction</h2>
-            <p>
+            <p v-if="!useVisionPrediction">
               Upload a CSV file with a 'Procedure Description' column to predict
               anesthesia CPT codes using AI
             </p>
+            <p v-else>
+              Upload a ZIP file containing patient PDFs to predict anesthesia
+              CPT codes by analyzing PDF pages with AI vision
+            </p>
+          </div>
+
+          <!-- Vision Mode Toggle -->
+          <div class="upload-card" style="margin-bottom: 20px">
+            <div class="settings-content">
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    v-model="useVisionPrediction"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    📸 Predict ASA codes from PDF pages (Vision Mode - uses
+                    GPT-5)
+                  </span>
+                </label>
+                <p
+                  class="form-hint"
+                  v-if="useVisionPrediction"
+                  style="margin-top: 10px; color: #6b7280"
+                >
+                  Vision mode analyzes actual PDF pages instead of extracted
+                  text. Great for handwritten notes or complex document layouts.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div class="upload-grid">
-            <!-- CSV File Upload -->
-            <div class="upload-card">
+            <!-- CSV File Upload (Traditional Mode) -->
+            <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
                 <h3>CSV File with Procedures</h3>
@@ -743,8 +774,72 @@
               </div>
             </div>
 
+            <!-- ZIP File Upload (Vision Mode) -->
+            <div v-if="useVisionPrediction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>ZIP File with Patient PDFs</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isVisionZipDragActive,
+                  'has-file': visionZipFile,
+                }"
+                @drop="onVisionZipDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerVisionZipUpload"
+              >
+                <input
+                  ref="visionZipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onVisionZipFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📦</div>
+                  <div v-if="visionZipFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ visionZipFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(visionZipFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Vision Page Count -->
+            <div v-if="useVisionPrediction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Pages to Analyze</h3>
+              </div>
+              <div class="page-count-selector">
+                <label for="vision-page-count"
+                  >Number of PDF pages per patient:</label
+                >
+                <input
+                  id="vision-page-count"
+                  v-model.number="visionPageCount"
+                  type="number"
+                  min="1"
+                  max="50"
+                  class="page-input"
+                />
+                <p class="page-hint">
+                  AI will analyze the first N pages from each patient PDF (1-50)
+                </p>
+              </div>
+            </div>
+
             <!-- Client Selection -->
-            <div class="upload-card">
+            <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
                 <h3>Select Client</h3>
@@ -771,7 +866,7 @@
             </div>
 
             <!-- Custom Instructions -->
-            <div class="upload-card">
+            <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
                 <h3>Custom Coding Instructions</h3>
@@ -814,8 +909,8 @@
               </div>
             </div>
 
-            <!-- Requirements -->
-            <div class="upload-card">
+            <!-- Requirements (Traditional Mode) -->
+            <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">4</div>
                 <h3>Requirements</h3>
@@ -842,6 +937,37 @@
                 </div>
               </div>
             </div>
+
+            <!-- Requirements (Vision Mode) -->
+            <div v-if="useVisionPrediction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How It Works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📦</span>
+                    <span>ZIP file should contain patient PDF documents</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📸</span>
+                    <span>GPT-5 will analyze PDF pages visually</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🏥</span>
+                    <span>Identifies procedures and diagnoses from images</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">⚡</span>
+                    <span
+                      >Predicts CPT codes in 'ASA Code' and 'Procedure Code'
+                      columns</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Action Buttons -->
@@ -861,7 +987,7 @@
             </button>
 
             <button
-              v-if="csvFile || cptJobId"
+              v-if="csvFile || visionZipFile || cptJobId"
               @click="resetCptForm"
               class="reset-btn"
             >
@@ -1876,6 +2002,11 @@ export default {
       cptJobStatus: null,
       isPredictingCpt: false,
       isCsvDragActive: false,
+      // Vision-based CPT prediction from PDFs
+      useVisionPrediction: false,
+      visionZipFile: null,
+      visionPageCount: 1,
+      isVisionZipDragActive: false,
       // UNI conversion functionality
       uniCsvFile: null,
       uniJobId: null,
@@ -1928,7 +2059,15 @@ export default {
       return this.pdfFile && this.filterString.trim();
     },
     canPredictCpt() {
-      return this.csvFile;
+      if (this.useVisionPrediction) {
+        return (
+          this.visionZipFile &&
+          this.visionPageCount >= 1 &&
+          this.visionPageCount <= 50
+        );
+      } else {
+        return this.csvFile;
+      }
     },
     canConvertUni() {
       return this.uniCsvFile;
@@ -2643,9 +2782,40 @@ export default {
       }
     },
 
+    // Vision-based prediction handlers
+    onVisionZipDrop(e) {
+      e.preventDefault();
+      this.isVisionZipDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".zip")) {
+        this.visionZipFile = files[0];
+        this.toast.success("PDF ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid ZIP file");
+      }
+    },
+
+    triggerVisionZipUpload() {
+      this.$refs.visionZipInput.click();
+    },
+
+    onVisionZipFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".zip")) {
+        this.visionZipFile = file;
+        this.toast.success("PDF ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid ZIP file");
+      }
+    },
+
     async startCptPrediction() {
       if (!this.canPredictCpt) {
-        this.toast.error("Please upload a CSV file");
+        if (this.useVisionPrediction) {
+          this.toast.error("Please upload a ZIP file containing PDFs");
+        } else {
+          this.toast.error("Please upload a CSV file");
+        }
         return;
       }
 
@@ -2653,23 +2823,41 @@ export default {
       this.cptJobStatus = null;
 
       const formData = new FormData();
-      formData.append("csv_file", this.csvFile);
 
-      // Route to appropriate endpoint based on client selection
+      // Route to appropriate endpoint based on vision prediction or CSV
       let uploadUrl;
-      if (this.selectedClient === "tan-esc") {
-        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
-        formData.append("confidence_threshold", "0.5");
-        console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
-      } else if (this.selectedClient === "general") {
-        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
+
+      if (this.useVisionPrediction) {
+        // Vision-based prediction from PDFs
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
+        formData.append("zip_file", this.visionZipFile);
+        formData.append("n_pages", this.visionPageCount);
         formData.append("model", "gpt-5");
         formData.append("max_workers", "5");
-        console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
+        console.log(
+          "🔧 CPT Vision Upload URL:",
+          uploadUrl,
+          "Pages:",
+          this.visionPageCount
+        );
       } else {
-        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
-        formData.append("client", this.selectedClient);
-        console.log("🔧 CPT Upload URL:", uploadUrl);
+        // Traditional CSV-based prediction
+        formData.append("csv_file", this.csvFile);
+
+        if (this.selectedClient === "tan-esc") {
+          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
+          formData.append("confidence_threshold", "0.5");
+          console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
+        } else if (this.selectedClient === "general") {
+          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
+          formData.append("model", "gpt-5");
+          formData.append("max_workers", "5");
+          console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
+        } else {
+          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
+          formData.append("client", this.selectedClient);
+          console.log("🔧 CPT Upload URL:", uploadUrl);
+        }
       }
 
       try {
@@ -2757,10 +2945,14 @@ export default {
 
     resetCptForm() {
       this.csvFile = null;
+      this.visionZipFile = null;
+      this.useVisionPrediction = false;
+      this.visionPageCount = 1;
       this.cptJobId = null;
       this.cptJobStatus = null;
       this.isPredictingCpt = false;
       this.isCsvDragActive = false;
+      this.isVisionZipDragActive = false;
     },
 
     async saveInstructions() {

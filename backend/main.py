@@ -939,6 +939,96 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "gpt-5", max_workers: int = 5):
+    """Background task to predict CPT codes from PDF images using OpenAI vision model"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Extracting PDFs from ZIP archive..."
+        job.progress = 10
+        
+        # Create temporary directory for processing
+        temp_dir = Path(f"/tmp/processing_{job_id}")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Unzip files
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir / "pdfs")
+        
+        job.message = f"Starting image-based CPT prediction (analyzing {n_pages} page(s) per PDF)..."
+        job.progress = 20
+        
+        # Import the general prediction function
+        import sys
+        general_coding_path = Path(__file__).parent / "general-coding"
+        sys.path.insert(0, str(general_coding_path))
+        
+        from predict_general import predict_codes_from_pdfs_api
+        
+        job.message = f"Processing PDFs with OpenAI {model} vision model..."
+        job.progress = 30
+        
+        # Create output file path
+        result_base = Path(f"/tmp/results/{job_id}_with_codes")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        # Progress callback to update job status
+        def progress_callback(completed, total, message):
+            job.progress = 30 + int((completed / total) * 60)
+            job.message = message
+        
+        # Save to CSV first
+        result_file_csv = result_base.with_suffix('.csv')
+        success = predict_codes_from_pdfs_api(
+            pdf_folder=str(temp_dir / "pdfs"),
+            output_file=str(result_file_csv),
+            n_pages=n_pages,
+            model=model,
+            api_key=os.getenv("OPENAI_API_KEY"),
+            max_workers=max_workers,
+            progress_callback=progress_callback
+        )
+        
+        if not success:
+            raise Exception("OpenAI vision model prediction failed")
+        
+        job.message = "Prediction complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not result_file_csv.exists():
+            raise Exception("Output file was not created")
+        
+        # Create XLSX version
+        try:
+            result_file_xlsx = convert_csv_to_xlsx(result_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = result_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(result_file_csv)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Vision-based CPT prediction completed successfully!"
+        
+        # Clean up input files
+        os.unlink(zip_path)
+        shutil.rmtree(temp_dir)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after vision-based prediction")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Vision-based prediction failed: {str(e)}"
+        logger.error(f"Vision-based prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 @app.post("/upload")
 async def upload_files(
     background_tasks: BackgroundTasks,
@@ -1237,6 +1327,49 @@ async def predict_cpt_general(
         
     except Exception as e:
         logger.error(f"General model CPT prediction upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/predict-cpt-from-pdfs")
+async def predict_cpt_from_pdfs(
+    background_tasks: BackgroundTasks,
+    zip_file: UploadFile = File(...),
+    n_pages: int = Form(default=1, ge=1, le=50),
+    model: str = Form(default="gpt-5"),
+    max_workers: int = Form(default=5)
+):
+    """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""
+    
+    try:
+        logger.info(f"Received vision-based CPT prediction request - zip: {zip_file.filename}, pages: {n_pages}, model: {model}, workers: {max_workers}")
+        
+        # Validate file type
+        if not zip_file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created vision-based CPT prediction job {job_id}")
+        
+        # Save uploaded ZIP
+        zip_path = f"/tmp/{job_id}_pdfs.zip"
+        
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        
+        logger.info(f"ZIP saved - path: {zip_path}")
+        
+        # Start background processing with vision model
+        background_tasks.add_task(predict_cpt_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers)
+        
+        logger.info(f"Background vision-based CPT prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": f"ZIP uploaded and OpenAI {model} vision prediction started"}
+        
+    except Exception as e:
+        logger.error(f"Vision-based CPT prediction upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/split-pdf")
