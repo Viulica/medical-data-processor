@@ -243,11 +243,24 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     client = genai.Client(api_key=api_key)
     
     # Find all PDF files in the input folder (both uppercase and lowercase extensions)
+    # Search recursively to handle ZIP files with folder structures
     pdf_files = glob.glob(os.path.join(input_folder, "*.pdf")) + glob.glob(os.path.join(input_folder, "*.PDF"))
+    pdf_files += glob.glob(os.path.join(input_folder, "**", "*.pdf"), recursive=True)
+    pdf_files += glob.glob(os.path.join(input_folder, "**", "*.PDF"), recursive=True)
+    
+    # Remove duplicates (in case a file is found both ways)
+    pdf_files = list(set(pdf_files))
     
     if not pdf_files:
-        print(f"❌ No PDF files found in the '{input_folder}' folder.")
-        return
+        print(f"❌ ERROR: No PDF files found in the '{input_folder}' folder.")
+        print(f"❌ Searched directory: {os.path.abspath(input_folder)}")
+        print(f"❌ Directory exists: {os.path.exists(input_folder)}")
+        if os.path.exists(input_folder):
+            all_files = []
+            for root, dirs, files in os.walk(input_folder):
+                all_files.extend([os.path.join(root, f) for f in files])
+            print(f"❌ Files found in directory: {all_files[:20]}")  # Show first 20 files
+        sys.exit(1)  # Exit with error code so the main script can catch it
     
     # Sort PDF files to ensure consistent ordering
     pdf_files.sort()
@@ -402,10 +415,17 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             print(f"📊 Created {combined_excel_filename} with {len(filtered_data)} patient records (Excel format, no scientific notation)")
             print(f"   Excel saved to: {extracted_excel_path}")
         else:
-            print(f"❌ No data extracted from any PDF files")
+            print(f"❌ ERROR: No data extracted from any PDF files")
+            print(f"❌ Total PDFs processed: {len(pdf_files)}")
+            print(f"❌ Successful extractions: {success_count}")
+            print(f"❌ Failed extractions: {fail_count}")
+            sys.exit(1)  # Exit with error code
                 
     except Exception as e:
-        print(f"❌ Error during processing: {str(e)}")
+        print(f"❌ FATAL ERROR during processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)  # Exit with error code
     
     finally:
         # Clean up temporary files

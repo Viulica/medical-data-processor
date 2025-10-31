@@ -163,6 +163,11 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             # Wait for process with timeout (30 minutes max)
             stdout, stderr = process.communicate(timeout=1800)
             
+            # Log stdout and stderr for debugging
+            logger.info(f"Script stdout: {stdout}")
+            if stderr:
+                logger.info(f"Script stderr: {stderr}")
+            
             if process.returncode != 0:
                 raise Exception(f"Processing failed: {stderr}")
         except subprocess.TimeoutExpired:
@@ -188,7 +193,20 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         csv_files = list(extracted_dir.glob("*.csv"))
         
         if not csv_files:
-            raise Exception("No CSV file generated")
+            # Provide detailed diagnostic information
+            input_dir = temp_dir / "input"
+            input_exists = input_dir.exists()
+            input_files = list(input_dir.rglob("*")) if input_exists else []
+            extracted_exists = extracted_dir.exists()
+            
+            error_msg = f"No CSV file generated. Diagnostics:\n"
+            error_msg += f"- Input dir exists: {input_exists}\n"
+            error_msg += f"- Input files: {[f.name for f in input_files[:10]]}\n"  # Show first 10 files
+            error_msg += f"- Extracted dir exists: {extracted_exists}\n"
+            error_msg += f"- Script stdout (last 500 chars): {stdout[-500:] if stdout else 'empty'}\n"
+            error_msg += f"- Script stderr (last 500 chars): {stderr[-500:] if stderr else 'empty'}"
+            logger.error(error_msg)
+            raise Exception("No CSV file generated - check logs for details")
         
         # Copy the CSV to a permanent location and create XLSX version
         result_base = Path(f"/tmp/results/{job_id}")
