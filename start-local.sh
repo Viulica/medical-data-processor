@@ -68,8 +68,17 @@ trap cleanup SIGINT SIGTERM
 # Start backend
 echo -e "${BLUE}📡 Starting backend server on port 8000...${NC}"
 cd "$BACKEND_DIR"
-python3 main.py > /tmp/medical-backend.log 2>&1 &
-BACKEND_PID=$!
+
+# Check if virtual environment exists
+if [ -d "venv" ]; then
+    echo -e "${GREEN}✓ Using virtual environment${NC}"
+    source venv/bin/activate
+    python main.py > /tmp/medical-backend.log 2>&1 &
+    BACKEND_PID=$!
+else
+    python3 main.py > /tmp/medical-backend.log 2>&1 &
+    BACKEND_PID=$!
+fi
 
 # Wait for backend to start
 sleep 3

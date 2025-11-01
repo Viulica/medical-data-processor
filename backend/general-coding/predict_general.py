@@ -145,12 +145,12 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
 
 def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="gpt-5", api_key=None):
     """
-    Predict ASA code using OpenAI API from PDF page images
+    Predict ASA code using OpenAI Vision API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (gpt-5, gpt-4o, etc.)
+        model: Model to use (gpt-5, gpt-4o, gpt-4o-mini, etc.) - must be a vision-capable model
         api_key: OpenAI API key
     
     Returns:
@@ -197,9 +197,10 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
 
     try:
         # Build content list with text prompt first, then images
+        # Using Chat Completions API format for vision
         content = [
             {
-                "type": "input_text",
+                "type": "text",
                 "text": prompt
             }
         ]
@@ -207,54 +208,41 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
         # Add images to content
         for img_data in image_data_list:
             content.append({
-                "type": "input_image",
-                "image_url": f"data:image/png;base64,{img_data}"
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_data}"
+                }
             })
         
-        response = client.responses.create(
+        # Use Chat Completions API for vision support
+        response = client.chat.completions.create(
             model=model,
-            input=[
+            messages=[
                 {
-                    "role": "developer",
+                    "role": "user",
                     "content": content
                 }
             ],
-            text={
-                "format": {
-                    "type": "text"
-                },
-                "verbosity": "medium"
-            },
-            tools=[
-                {
-                    "type": "web_search",
-                    "user_location": {
-                        "type": "approximate"
-                    },
-                    "search_context_size": "medium"
-                }
-            ],
-            store=True,
-            include=[
-                "web_search_call.action.sources"
-            ]
+            max_tokens=50,
+            temperature=0.3
         )
         
         # Extract the predicted code from the response
-        predicted_code = response.output_text.strip()
+        predicted_code = response.choices[0].message.content.strip()
         
         # Handle usage and cost calculation
         tokens = 0
         cost = 0.0
-        if hasattr(response, 'usage'):
+        if hasattr(response, 'usage') and response.usage:
             usage = response.usage
-            total_tokens = getattr(usage, 'total_tokens', 0)
-            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-            completion_tokens = getattr(usage, 'completion_tokens', 0)
+            total_tokens = usage.total_tokens
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
             tokens = total_tokens
             
             # Cost estimation based on model
             if "gpt-5" in model:
+                # GPT-5 pricing (same as gpt-4o-mini for now)
                 input_cost = prompt_tokens * 0.00015 / 1000
                 output_cost = completion_tokens * 0.0006 / 1000
             elif "gpt-4o-mini" in model:
@@ -267,15 +255,16 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 input_cost = prompt_tokens * 0.01 / 1000
                 output_cost = completion_tokens * 0.03 / 1000
             else:
-                input_cost = 0
-                output_cost = 0
+                # Default to gpt-4o pricing
+                input_cost = prompt_tokens * 0.0025 / 1000
+                output_cost = completion_tokens * 0.01 / 1000
             
             cost = input_cost + output_cost
         
         return predicted_code, tokens, cost, None
         
     except Exception as e:
-        logger.error(f"Error calling OpenAI API with images: {e}")
+        logger.error(f"Error calling OpenAI Vision API: {e}")
         return None, 0, 0.0, str(e)
 
 
