@@ -880,7 +880,7 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-5", max_workers: int = 5):
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-4o-mini", max_workers: int = 5):
     """Background task to predict CPT codes using OpenAI general model"""
     job = job_status[job_id]
     
@@ -957,7 +957,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "gpt-5", max_workers: int = 5):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "gpt-4o-mini", max_workers: int = 5):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1309,7 +1309,7 @@ async def predict_cpt_custom(
 async def predict_cpt_general(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
-    model: str = Form(default="gpt-5"),
+    model: str = Form(default="gpt-4o-mini"),
     max_workers: int = Form(default=5)
 ):
     """Upload a CSV file to predict CPT codes using OpenAI general model"""
@@ -1352,7 +1352,7 @@ async def predict_cpt_from_pdfs(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
-    model: str = Form(default="gpt-5"),
+    model: str = Form(default="gpt-4o-mini"),
     max_workers: int = Form(default=5)
 ):
     """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""

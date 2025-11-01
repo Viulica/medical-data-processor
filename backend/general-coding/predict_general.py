@@ -13,16 +13,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt-5", api_key=None):
+def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt-4o-mini", api_key=None):
     """
-    Predict ASA code using OpenAI API with web search
+    Predict ASA code using OpenAI Responses API
     
     Args:
         procedure: Procedure description
         preop_diagnosis: Pre-operative diagnosis
         postop_diagnosis: Post-operative diagnosis
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (gpt-5, gpt-4o, etc.)
+        model: Model to use (gpt-4o-mini, gpt-4o, etc.)
         api_key: OpenAI API key
     
     Returns:
@@ -74,7 +74,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
             model=model,
             input=[
                 {
-                    "role": "developer",
+                    "role": "user",
                     "content": [
                         {
                             "type": "input_text",
@@ -82,25 +82,6 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                         }
                     ]
                 }
-            ],
-            text={
-                "format": {
-                    "type": "text"
-                },
-                "verbosity": "medium"
-            },
-            tools=[
-                {
-                    "type": "web_search",
-                    "user_location": {
-                        "type": "approximate"
-                    },
-                    "search_context_size": "medium"
-                }
-            ],
-            store=True,
-            include=[
-                "web_search_call.action.sources"
             ]
         )
         
@@ -110,18 +91,15 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
         # Handle usage and cost calculation
         tokens = 0
         cost = 0.0
-        if hasattr(response, 'usage'):
+        if hasattr(response, 'usage') and response.usage:
             usage = response.usage
             total_tokens = getattr(usage, 'total_tokens', 0)
             prompt_tokens = getattr(usage, 'prompt_tokens', 0)
             completion_tokens = getattr(usage, 'completion_tokens', 0)
             tokens = total_tokens
             
-            # Cost estimation based on model
-            if "gpt-5" in model:
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            elif "gpt-4o-mini" in model:
+            # Cost estimation based on model (OpenAI pricing as of 2024)
+            if "gpt-4o-mini" in model:
                 input_cost = prompt_tokens * 0.00015 / 1000
                 output_cost = completion_tokens * 0.0006 / 1000
             elif "gpt-4o" in model:
@@ -131,8 +109,9 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 input_cost = prompt_tokens * 0.01 / 1000
                 output_cost = completion_tokens * 0.03 / 1000
             else:
-                input_cost = 0
-                output_cost = 0
+                # Default to gpt-4o-mini pricing
+                input_cost = prompt_tokens * 0.00015 / 1000
+                output_cost = completion_tokens * 0.0006 / 1000
             
             cost = input_cost + output_cost
         
@@ -143,14 +122,14 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
         return None, 0, 0.0, str(e)
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="gpt-5", api_key=None):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="gpt-4o-mini", api_key=None):
     """
-    Predict ASA code using OpenAI Vision API from PDF page images
+    Predict ASA code using OpenAI Responses API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (gpt-5, gpt-4o, gpt-4o-mini, etc.) - must be a vision-capable model
+        model: Model to use (gpt-4o-mini, gpt-4o, etc.)
         api_key: OpenAI API key
     
     Returns:
@@ -196,56 +175,46 @@ Give me the most relevant anesthesia CPT code for anesthesia billing for this ce
 Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
 
     try:
-        # Build content list with text prompt first, then images
-        # Using Chat Completions API format for vision
+        # Build content list with text prompt first, then images (following docs format)
         content = [
             {
-                "type": "text",
+                "type": "input_text",
                 "text": prompt
             }
         ]
         
-        # Add images to content
+        # Add images to content (following docs format: direct string for image_url)
         for img_data in image_data_list:
             content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{img_data}"
-                }
+                "type": "input_image",
+                "image_url": f"data:image/png;base64,{img_data}"
             })
         
-        # Use Chat Completions API for vision support
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=model,
-            messages=[
+            input=[
                 {
                     "role": "user",
                     "content": content
                 }
-            ],
-            max_tokens=50,
-            temperature=0.3
+            ]
         )
         
         # Extract the predicted code from the response
-        predicted_code = response.choices[0].message.content.strip()
+        predicted_code = response.output_text.strip()
         
         # Handle usage and cost calculation
         tokens = 0
         cost = 0.0
         if hasattr(response, 'usage') and response.usage:
             usage = response.usage
-            total_tokens = usage.total_tokens
-            prompt_tokens = usage.prompt_tokens
-            completion_tokens = usage.completion_tokens
+            total_tokens = getattr(usage, 'total_tokens', 0)
+            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+            completion_tokens = getattr(usage, 'completion_tokens', 0)
             tokens = total_tokens
             
-            # Cost estimation based on model
-            if "gpt-5" in model:
-                # GPT-5 pricing (same as gpt-4o-mini for now)
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            elif "gpt-4o-mini" in model:
+            # Cost estimation based on model (OpenAI pricing as of 2024)
+            if "gpt-4o-mini" in model:
                 input_cost = prompt_tokens * 0.00015 / 1000
                 output_cost = completion_tokens * 0.0006 / 1000
             elif "gpt-4o" in model:
@@ -255,16 +224,16 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 input_cost = prompt_tokens * 0.01 / 1000
                 output_cost = completion_tokens * 0.03 / 1000
             else:
-                # Default to gpt-4o pricing
-                input_cost = prompt_tokens * 0.0025 / 1000
-                output_cost = completion_tokens * 0.01 / 1000
+                # Default to gpt-4o-mini pricing
+                input_cost = prompt_tokens * 0.00015 / 1000
+                output_cost = completion_tokens * 0.0006 / 1000
             
             cost = input_cost + output_cost
         
         return predicted_code, tokens, cost, None
         
     except Exception as e:
-        logger.error(f"Error calling OpenAI Vision API: {e}")
+        logger.error(f"Error calling OpenAI API with images: {e}")
         return None, 0, 0.0, str(e)
 
 
@@ -286,7 +255,7 @@ def load_cpt_codes():
         return ""
 
 
-def predict_codes_general_api(input_file, output_file, model="gpt-5", api_key=None, max_workers=5, progress_callback=None):
+def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_key=None, max_workers=5, progress_callback=None):
     """
     Predict ASA codes for a CSV file using OpenAI general model
     
@@ -444,7 +413,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-5", api_key=None, max_workers=5, progress_callback=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4o-mini", api_key=None, max_workers=5, progress_callback=None):
     """
     Predict ASA codes from PDF files using OpenAI vision model
     
