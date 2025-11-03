@@ -41,7 +41,8 @@ Peripheral Blocks Row Generation:
     - ASA Code 01967 or 1967: Clear all, set ICD1 = "080"
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
-    - CVP/Ultrasound (36556, 93503, 76937): Clear all ICD1-ICD4
+    - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
+    - CVP (36556, 93503): Clear all ICD1-ICD4
     - Other codes: Clear all ICD1-ICD4
 """
 
@@ -474,7 +475,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     blocks = parse_peripheral_blocks(peripheral_blocks_value)
                     
                     # Create a duplicate row for each block
-                    for block in blocks:
+                    for block_idx, block in enumerate(blocks):
                         # Create a copy of the original input row (not the modified new_row)
                         block_row = row.copy()
                         
@@ -522,8 +523,19 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             # Arterial line: Keep ICD codes from original input row (already in block_row)
                             pass
                         
-                        elif cpt_code in ['36556', '93503', '76937']:
-                            # CVP and Ultrasound guidance: Clear all ICD codes
+                        elif cpt_code == '76937':
+                            # Ultrasound guidance: Keep ICD codes ONLY if it comes after 36620
+                            if block_idx > 0 and blocks[block_idx - 1]['cpt_code'] == '36620':
+                                # Keep ICD codes from original input row (already in block_row)
+                                pass
+                            else:
+                                # Clear all ICD codes
+                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = ''
+                        
+                        elif cpt_code in ['36556', '93503']:
+                            # CVP: Clear all ICD codes
                             for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                 if icd_col in block_row:
                                     block_row[icd_col] = ''
