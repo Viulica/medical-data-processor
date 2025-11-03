@@ -10,6 +10,7 @@ import base64
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -69,57 +70,78 @@ Give me the most relevant anesthesia CPT code for anesthesia billing for this ce
 
 Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
 
-    try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ]
-        )
-        
-        # Extract the predicted code from the response
-        predicted_code = response.output_text.strip()
-        
-        # Handle usage and cost calculation
-        tokens = 0
-        cost = 0.0
-        if hasattr(response, 'usage') and response.usage:
-            usage = response.usage
-            total_tokens = getattr(usage, 'total_tokens', 0)
-            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-            completion_tokens = getattr(usage, 'completion_tokens', 0)
-            tokens = total_tokens
+    # Retry mechanism with exponential backoff
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            )
             
-            # Cost estimation based on model (OpenAI pricing as of 2024)
-            if "gpt-4o-mini" in model:
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            elif "gpt-4o" in model:
-                input_cost = prompt_tokens * 0.0025 / 1000
-                output_cost = completion_tokens * 0.01 / 1000
-            elif "gpt-4-turbo" in model:
-                input_cost = prompt_tokens * 0.01 / 1000
-                output_cost = completion_tokens * 0.03 / 1000
+            # Extract the predicted code from the response
+            predicted_code = response.output_text.strip()
+            
+            # Handle usage and cost calculation
+            tokens = 0
+            cost = 0.0
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                total_tokens = getattr(usage, 'total_tokens', 0)
+                prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                completion_tokens = getattr(usage, 'completion_tokens', 0)
+                tokens = total_tokens
+                
+                # Cost estimation based on model (OpenAI pricing as of 2024)
+                if "gpt-4o-mini" in model:
+                    input_cost = prompt_tokens * 0.00015 / 1000
+                    output_cost = completion_tokens * 0.0006 / 1000
+                elif "gpt-4o" in model:
+                    input_cost = prompt_tokens * 0.0025 / 1000
+                    output_cost = completion_tokens * 0.01 / 1000
+                elif "gpt-4-turbo" in model:
+                    input_cost = prompt_tokens * 0.01 / 1000
+                    output_cost = completion_tokens * 0.03 / 1000
+                else:
+                    # Default to gpt-4o-mini pricing
+                    input_cost = prompt_tokens * 0.00015 / 1000
+                    output_cost = completion_tokens * 0.0006 / 1000
+                
+                cost = input_cost + output_cost
+            
+            return predicted_code, tokens, cost, None
+            
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check if it's a 429 rate limit error
+            if "429" in error_str or "rate_limit" in error_str.lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 2^attempt seconds
+                    wait_time = 2 ** attempt
+                    logger.warning(f"Rate limit error (429), retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Max retries reached for rate limit error: {e}")
+                    return None, 0, 0.0, str(e)
             else:
-                # Default to gpt-4o-mini pricing
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            
-            cost = input_cost + output_cost
-        
-        return predicted_code, tokens, cost, None
-        
-    except Exception as e:
-        logger.error(f"Error calling OpenAI API: {e}")
-        return None, 0, 0.0, str(e)
+                # For non-429 errors, don't retry
+                logger.error(f"Error calling OpenAI API: {e}")
+                return None, 0, 0.0, str(e)
+    
+    # Should never reach here, but just in case
+    return None, 0, 0.0, "Max retries reached"
 
 
 def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="gpt-4o-mini", api_key=None):
@@ -174,67 +196,88 @@ Give me the most relevant anesthesia CPT code for anesthesia billing for this ce
 
 Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
 
-    try:
-        # Build content list with text prompt first, then images (following docs format)
-        content = [
-            {
-                "type": "input_text",
-                "text": prompt
-            }
-        ]
-        
-        # Add images to content (following docs format: direct string for image_url)
-        for img_data in image_data_list:
-            content.append({
-                "type": "input_image",
-                "image_url": f"data:image/png;base64,{img_data}"
-            })
-        
-        response = client.responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ]
-        )
-        
-        # Extract the predicted code from the response
-        predicted_code = response.output_text.strip()
-        
-        # Handle usage and cost calculation
-        tokens = 0
-        cost = 0.0
-        if hasattr(response, 'usage') and response.usage:
-            usage = response.usage
-            total_tokens = getattr(usage, 'total_tokens', 0)
-            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-            completion_tokens = getattr(usage, 'completion_tokens', 0)
-            tokens = total_tokens
+    # Build content list with text prompt first, then images (following docs format)
+    content = [
+        {
+            "type": "input_text",
+            "text": prompt
+        }
+    ]
+    
+    # Add images to content (following docs format: direct string for image_url)
+    for img_data in image_data_list:
+        content.append({
+            "type": "input_image",
+            "image_url": f"data:image/png;base64,{img_data}"
+        })
+    
+    # Retry mechanism with exponential backoff
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ]
+            )
             
-            # Cost estimation based on model (OpenAI pricing as of 2024)
-            if "gpt-4o-mini" in model:
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            elif "gpt-4o" in model:
-                input_cost = prompt_tokens * 0.0025 / 1000
-                output_cost = completion_tokens * 0.01 / 1000
-            elif "gpt-4-turbo" in model:
-                input_cost = prompt_tokens * 0.01 / 1000
-                output_cost = completion_tokens * 0.03 / 1000
+            # Extract the predicted code from the response
+            predicted_code = response.output_text.strip()
+            
+            # Handle usage and cost calculation
+            tokens = 0
+            cost = 0.0
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                total_tokens = getattr(usage, 'total_tokens', 0)
+                prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                completion_tokens = getattr(usage, 'completion_tokens', 0)
+                tokens = total_tokens
+                
+                # Cost estimation based on model (OpenAI pricing as of 2024)
+                if "gpt-4o-mini" in model:
+                    input_cost = prompt_tokens * 0.00015 / 1000
+                    output_cost = completion_tokens * 0.0006 / 1000
+                elif "gpt-4o" in model:
+                    input_cost = prompt_tokens * 0.0025 / 1000
+                    output_cost = completion_tokens * 0.01 / 1000
+                elif "gpt-4-turbo" in model:
+                    input_cost = prompt_tokens * 0.01 / 1000
+                    output_cost = completion_tokens * 0.03 / 1000
+                else:
+                    # Default to gpt-4o-mini pricing
+                    input_cost = prompt_tokens * 0.00015 / 1000
+                    output_cost = completion_tokens * 0.0006 / 1000
+                
+                cost = input_cost + output_cost
+            
+            return predicted_code, tokens, cost, None
+            
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check if it's a 429 rate limit error
+            if "429" in error_str or "rate_limit" in error_str.lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 2^attempt seconds
+                    wait_time = 2 ** attempt
+                    logger.warning(f"Rate limit error (429) on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Max retries reached for rate limit error on image prediction: {e}")
+                    return None, 0, 0.0, str(e)
             else:
-                # Default to gpt-4o-mini pricing
-                input_cost = prompt_tokens * 0.00015 / 1000
-                output_cost = completion_tokens * 0.0006 / 1000
-            
-            cost = input_cost + output_cost
-        
-        return predicted_code, tokens, cost, None
-        
-    except Exception as e:
-        logger.error(f"Error calling OpenAI API with images: {e}")
-        return None, 0, 0.0, str(e)
+                # For non-429 errors, don't retry
+                logger.error(f"Error calling OpenAI API with images: {e}")
+                return None, 0, 0.0, str(e)
+    
+    # Should never reach here, but just in case
+    return None, 0, 0.0, "Max retries reached"
 
 
 def load_cpt_codes():
@@ -255,7 +298,7 @@ def load_cpt_codes():
         return ""
 
 
-def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_key=None, max_workers=5, progress_callback=None):
+def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_key=None, max_workers=3, progress_callback=None):
     """
     Predict ASA codes for a CSV file using OpenAI general model
     
@@ -413,7 +456,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4o-mini", api_key=None, max_workers=5, progress_callback=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4o-mini", api_key=None, max_workers=3, progress_callback=None):
     """
     Predict ASA codes from PDF files using OpenAI vision model
     
