@@ -184,6 +184,7 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 1. COLONOSCOPY CODING (Most Common Errors):
    - Use 00812 (screening colonoscopy) if ANY of these are present:
+     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
      * Procedure states "screening"
      * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
      * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
