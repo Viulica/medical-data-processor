@@ -11,10 +11,11 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import time
+import requests
 
 logger = logging.getLogger(__name__)
 
-def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt-4o-mini", api_key=None):
+def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt5", api_key=None):
     """
     Predict ASA code using OpenAI Responses API
     
@@ -23,7 +24,7 @@ def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_c
         preop_diagnosis: Pre-operative diagnosis
         postop_diagnosis: Post-operative diagnosis
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (gpt-4o-mini, gpt-4o, etc.)
+        model: Model to use (gpt5, gpt-4o, etc.)
         api_key: OpenAI API key
     
     Returns:
@@ -103,7 +104,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 tokens = total_tokens
                 
                 # Cost estimation based on model (OpenAI pricing as of 2024)
-                if "gpt-4o-mini" in model:
+                if "gpt5" in model or "gpt-4o-mini" in model:
                     input_cost = prompt_tokens * 0.00015 / 1000
                     output_cost = completion_tokens * 0.0006 / 1000
                 elif "gpt-4o" in model:
@@ -113,7 +114,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                     input_cost = prompt_tokens * 0.01 / 1000
                     output_cost = completion_tokens * 0.03 / 1000
                 else:
-                    # Default to gpt-4o-mini pricing
+                    # Default to gpt5 pricing
                     input_cost = prompt_tokens * 0.00015 / 1000
                     output_cost = completion_tokens * 0.0006 / 1000
                 
@@ -123,6 +124,10 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
             
         except Exception as e:
             error_str = str(e)
+            error_type = type(e).__name__
+            
+            # Build descriptive error message
+            error_message = f"{error_type}: {error_str}"
             
             # Check if it's a 429 rate limit error
             if "429" in error_str or "rate_limit" in error_str.lower():
@@ -133,35 +138,38 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"Max retries reached for rate limit error: {e}")
-                    return None, 0, 0.0, str(e)
+                    logger.error(f"Max retries reached for rate limit error: {error_message}")
+                    return None, 0, 0.0, f"Rate limit exceeded after {max_retries} attempts: {error_str}"
             else:
                 # For non-429 errors, don't retry
-                logger.error(f"Error calling OpenAI API: {e}")
-                return None, 0, 0.0, str(e)
+                logger.error(f"Error calling OpenAI API: {error_message}")
+                return None, 0, 0.0, error_message
     
     # Should never reach here, but just in case
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="gpt-4o-mini", api_key=None):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5", api_key=None):
     """
-    Predict ASA code using OpenAI Responses API from PDF page images
+    Predict ASA code using OpenRouter API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (gpt-4o-mini, gpt-4o, etc.)
-        api_key: OpenAI API key
+        model: Model to use (default: openai/gpt-5). For OpenRouter, must use format "openai/gpt-5"
+        api_key: OpenRouter API key
     
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
     """
-    # Initialize OpenAI client
+    # Get API key
     if api_key:
-        client = OpenAI(api_key=api_key)
+        api_key_value = api_key
     else:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    
+    if not api_key_value:
+        return None, 0, 0.0, "No API key provided"
     
     # Prepare the prompt
     prompt = f"""You are a medical anesthesia CPT coder.
@@ -196,50 +204,80 @@ Give me the most relevant anesthesia CPT code for anesthesia billing for this ce
 
 Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
 
-    # Build content list with text prompt first, then images (following docs format)
+    # Build content list with text prompt first, then images (OpenRouter format)
     content = [
         {
-            "type": "input_text",
+            "type": "text",
             "text": prompt
         }
     ]
     
-    # Add images to content (following docs format: direct string for image_url)
+    # Add images to content (OpenRouter format)
     for img_data in image_data_list:
         content.append({
-            "type": "input_image",
-            "image_url": f"data:image/png;base64,{img_data}"
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{img_data}"
+            }
         })
+    
+    # Prepare messages for OpenRouter API
+    messages = [
+        {
+            "role": "user",
+            "content": content
+        }
+    ]
+    
+    # OpenRouter API endpoint
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key_value}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": model,
+        "messages": messages
+    }
     
     # Retry mechanism with exponential backoff
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            response = client.responses.create(
-                model=model,
-                input=[
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ]
-            )
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            response_data = response.json()
             
             # Extract the predicted code from the response
-            predicted_code = response.output_text.strip()
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                content = response_data["choices"][0]["message"]["content"]
+                if content:
+                    predicted_code = content.strip()
+                else:
+                    raise Exception(f"Empty response content. Response: {response_data}")
+            else:
+                error_info = response_data.get('error', response_data)
+                raise Exception(f"Unexpected response format. Missing 'choices' field. Error: {error_info}")
             
             # Handle usage and cost calculation
             tokens = 0
             cost = 0.0
-            if hasattr(response, 'usage') and response.usage:
-                usage = response.usage
-                total_tokens = getattr(usage, 'total_tokens', 0)
-                prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-                completion_tokens = getattr(usage, 'completion_tokens', 0)
+            if "usage" in response_data:
+                usage = response_data["usage"]
+                total_tokens = usage.get("total_tokens", 0)
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
                 tokens = total_tokens
                 
-                # Cost estimation based on model (OpenAI pricing as of 2024)
-                if "gpt-4o-mini" in model:
+                # OpenRouter provides cost in response, but we'll estimate if not available
+                # Cost estimation based on model (rough estimates for gpt-5)
+                if "openai/gpt-5" in model or "gpt-5" in model:
+                    # Estimate pricing (adjust based on actual OpenRouter pricing)
+                    input_cost = prompt_tokens * 0.01 / 1000  # Estimate
+                    output_cost = completion_tokens * 0.03 / 1000  # Estimate
+                elif "gpt-4o-mini" in model:
                     input_cost = prompt_tokens * 0.00015 / 1000
                     output_cost = completion_tokens * 0.0006 / 1000
                 elif "gpt-4o" in model:
@@ -249,16 +287,61 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                     input_cost = prompt_tokens * 0.01 / 1000
                     output_cost = completion_tokens * 0.03 / 1000
                 else:
-                    # Default to gpt-4o-mini pricing
-                    input_cost = prompt_tokens * 0.00015 / 1000
-                    output_cost = completion_tokens * 0.0006 / 1000
+                    # Default estimate
+                    input_cost = prompt_tokens * 0.01 / 1000
+                    output_cost = completion_tokens * 0.03 / 1000
                 
                 cost = input_cost + output_cost
             
             return predicted_code, tokens, cost, None
             
+        except requests.exceptions.HTTPError as e:
+            error_str = str(e)
+            status_code = e.response.status_code if hasattr(e, 'response') and e.response else None
+            
+            # Try to extract detailed error message from response
+            error_detail = error_str
+            try:
+                if hasattr(e, 'response') and e.response:
+                    response_data = e.response.json()
+                    if isinstance(response_data, dict):
+                        error_detail = response_data.get('error', {}).get('message', str(e))
+                        if not error_detail or error_detail == str(e):
+                            error_detail = response_data.get('error', str(e))
+            except:
+                pass
+            
+            # Build descriptive error message
+            if status_code:
+                error_message = f"HTTP {status_code}: {error_detail}"
+            else:
+                error_message = f"HTTP Error: {error_detail}"
+            
+            # Check if it's a 429 rate limit error
+            if status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 2^attempt seconds
+                    wait_time = 2 ** attempt
+                    logger.warning(f"Rate limit error (429) on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Max retries reached for rate limit error on image prediction: {error_message}")
+                    return None, 0, 0.0, error_message
+            else:
+                # For non-429 errors, don't retry
+                logger.error(f"Error calling OpenRouter API with images: {error_message}")
+                return None, 0, 0.0, error_message
+        except requests.exceptions.RequestException as e:
+            error_message = f"Request Error: {str(e)}"
+            logger.error(f"Request exception on image prediction: {error_message}")
+            return None, 0, 0.0, error_message
         except Exception as e:
             error_str = str(e)
+            error_type = type(e).__name__
+            
+            # Build descriptive error message
+            error_message = f"{error_type}: {error_str}"
             
             # Check if it's a 429 rate limit error
             if "429" in error_str or "rate_limit" in error_str.lower():
@@ -269,12 +352,12 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"Max retries reached for rate limit error on image prediction: {e}")
-                    return None, 0, 0.0, str(e)
+                    logger.error(f"Max retries reached for rate limit error on image prediction: {error_message}")
+                    return None, 0, 0.0, error_message
             else:
                 # For non-429 errors, don't retry
-                logger.error(f"Error calling OpenAI API with images: {e}")
-                return None, 0, 0.0, str(e)
+                logger.error(f"Error calling OpenRouter API with images: {error_message}")
+                return None, 0, 0.0, error_message
     
     # Should never reach here, but just in case
     return None, 0, 0.0, "Max retries reached"
@@ -298,7 +381,7 @@ def load_cpt_codes():
         return ""
 
 
-def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_key=None, max_workers=3, progress_callback=None):
+def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=None, max_workers=3, progress_callback=None):
     """
     Predict ASA codes for a CSV file using OpenAI general model
     
@@ -354,15 +437,31 @@ def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_
         
         # Process predictions with threading
         def process_row(idx, row):
-            procedure = str(row.get('Procedure Description', '')) if pd.notna(row.get('Procedure Description')) else ""
-            preop = str(row.get('Pre-op diagnosis', '')) if pd.notna(row.get('Pre-op diagnosis')) else ""
-            postop = str(row.get('Post-op diagnosis', '')) if pd.notna(row.get('Post-op diagnosis')) else ""
-            
-            predicted_code, tokens, cost, error = predict_asa_code_general(
-                procedure, preop, postop, cpt_codes_text, model, api_key
-            )
-            
-            return idx, predicted_code, tokens, cost, error
+            try:
+                procedure = str(row.get('Procedure Description', '')) if pd.notna(row.get('Procedure Description')) else ""
+                preop = str(row.get('Pre-op diagnosis', '')) if pd.notna(row.get('Pre-op diagnosis')) else ""
+                postop = str(row.get('Post-op diagnosis', '')) if pd.notna(row.get('Post-op diagnosis')) else ""
+                
+                if not procedure or procedure.strip() == "":
+                    return idx, "ERROR: Empty procedure", 0, 0.0, "Procedure Description is empty or missing"
+                
+                predicted_code, tokens, cost, error = predict_asa_code_general(
+                    procedure, preop, postop, cpt_codes_text, model, api_key
+                )
+                
+                # If prediction failed, format error message
+                if not predicted_code:
+                    if error:
+                        error_display = f"ERROR: {error[:50]}" if len(error) > 50 else f"ERROR: {error}"
+                        return idx, error_display, tokens, cost, error
+                    else:
+                        return idx, "ERROR: No prediction returned", tokens, cost, "No prediction returned from API"
+                
+                return idx, predicted_code, tokens, cost, error
+            except Exception as e:
+                error_msg = f"Unexpected error processing row {idx}: {str(e)}"
+                logger.error(error_msg)
+                return idx, f"ERROR: {type(e).__name__}", 0, 0.0, error_msg
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_row, idx, row): idx for idx, row in df.iterrows()}
@@ -370,7 +469,8 @@ def predict_codes_general_api(input_file, output_file, model="gpt-4o-mini", api_
             completed = 0
             for future in as_completed(futures):
                 idx, predicted_code, tokens, cost, error = future.result()
-                predictions[idx] = predicted_code if predicted_code else "ERROR"
+                # Use the returned prediction (which may already contain "ERROR: ..." format)
+                predictions[idx] = predicted_code if predicted_code else "ERROR: No prediction"
                 tokens_list[idx] = tokens
                 costs_list[idx] = cost
                 errors_list[idx] = error
@@ -456,16 +556,16 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4o-mini", api_key=None, max_workers=3, progress_callback=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5", api_key=None, max_workers=3, progress_callback=None):
     """
-    Predict ASA codes from PDF files using OpenAI vision model
+    Predict ASA codes from PDF files using OpenRouter vision model
     
     Args:
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
         n_pages: Number of pages to extract from each PDF (default 1)
-        model: OpenAI model to use (default gpt-5)
-        api_key: OpenAI API key
+        model: OpenRouter model to use (default openai/gpt-5). Must use format "openai/gpt-5" for OpenRouter
+        api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
     
@@ -482,12 +582,25 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4
         # Load CPT codes reference
         cpt_codes_text = load_cpt_codes()
         
-        # Find all PDF files in folder
+        # Find all PDF files in folder (recursively search subdirectories)
         pdf_folder_path = Path(pdf_folder)
-        pdf_files = list(pdf_folder_path.glob("*.pdf"))
+        
+        # Search recursively for PDF files (case-insensitive)
+        pdf_files = []
+        for ext in ['*.pdf', '*.PDF']:
+            pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
+        
+        # Also check case-insensitive manually
+        if not pdf_files:
+            all_files = list(pdf_folder_path.rglob("*"))
+            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.pdf']
         
         if not pdf_files:
+            # Log what files are actually in the directory for debugging
+            all_files = list(pdf_folder_path.rglob("*"))
+            files_list = [str(f.relative_to(pdf_folder_path)) for f in all_files if f.is_file()][:20]
             logger.error(f"No PDF files found in {pdf_folder}")
+            logger.error(f"Files in directory: {files_list}")  # Show first 20 files
             return False
         
         logger.info(f"Found {len(pdf_files)} PDF files to process")
@@ -505,18 +618,33 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="gpt-4
         def process_pdf(idx, pdf_path):
             filename = pdf_path.name
             
-            # Extract pages as base64 images
-            image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
-            
-            if not image_data_list:
-                return idx, filename, "ERROR", 0, 0.0, "Failed to extract PDF pages", "openai_vision"
-            
-            # Predict ASA code from images
-            predicted_code, tokens, cost, error = predict_asa_code_from_images(
-                image_data_list, cpt_codes_text, model, api_key
-            )
-            
-            return idx, filename, predicted_code if predicted_code else "ERROR", tokens, cost, error, "openai_vision"
+            try:
+                # Extract pages as base64 images
+                image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
+                
+                if not image_data_list:
+                    error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
+                    return idx, filename, "ERROR", 0, 0.0, error_msg, "openrouter_vision"
+                
+                # Predict ASA code from images
+                predicted_code, tokens, cost, error = predict_asa_code_from_images(
+                    image_data_list, cpt_codes_text, model, api_key
+                )
+                
+                # If prediction failed, use error message
+                if not predicted_code:
+                    if error:
+                        # Put error in ASA Code column for visibility, but also keep in Error Message
+                        return idx, filename, f"ERROR: {error[:50]}", tokens, cost, error, "openrouter_vision"
+                    else:
+                        return idx, filename, "ERROR: No prediction returned", tokens, cost, "No prediction returned from API", "openrouter_vision"
+                
+                return idx, filename, predicted_code, tokens, cost, error, "openrouter_vision"
+                
+            except Exception as e:
+                error_msg = f"Unexpected error processing {filename}: {str(e)}"
+                logger.error(error_msg)
+                return idx, filename, f"ERROR: {type(e).__name__}", 0, 0.0, error_msg, "openrouter_vision"
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_pdf, idx, pdf_path): idx for idx, pdf_path in enumerate(pdf_files)}

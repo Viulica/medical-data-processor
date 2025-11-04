@@ -3,6 +3,10 @@ import sys
 import logging
 import gc
 import signal
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Set environment variables to limit threading and prevent resource exhaustion
 os.environ['OPENBLAS_NUM_THREADS'] = '12'
@@ -81,6 +85,8 @@ async def startup_event():
     logger.info("🚀 Medical Data Processor API starting up...")
     logger.info(f"📡 Port: {PORT}")
     logger.info(f"🔑 Google API Key: {'Set' if os.environ.get('GOOGLE_API_KEY') else 'Not set'}")
+    logger.info(f"🔑 OpenRouter API Key: {'Set' if os.environ.get('OPENROUTER_API_KEY') else 'Not set'}")
+    logger.info(f"🔑 OpenAI API Key: {'Set' if os.environ.get('OPENAI_API_KEY') else 'Not set'} (fallback for OpenRouter)")
     logger.info(f"🌍 Environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'development')}")
     logger.info(f"🏗️ Railway Project: {os.environ.get('RAILWAY_PROJECT_ID', 'unknown')}")
     logger.info(f"🚂 Railway Service: {os.environ.get('RAILWAY_SERVICE_NAME', 'unknown')}")
@@ -880,7 +886,7 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt-4o-mini", max_workers: int = 5):
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt5", max_workers: int = 5):
     """Background task to predict CPT codes using OpenAI general model"""
     job = job_status[job_id]
     
@@ -957,7 +963,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "gpt-4o-mini", max_workers: int = 5):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -971,8 +977,16 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         temp_dir.mkdir(exist_ok=True)
         
         # Unzip files
+        pdfs_dir = temp_dir / "pdfs"
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir / "pdfs")
+            zip_ref.extractall(pdfs_dir)
+        
+        # Log what was extracted for debugging
+        extracted_files = list(pdfs_dir.rglob("*"))
+        pdf_files_extracted = [f for f in extracted_files if f.is_file() and f.suffix.lower() == '.pdf']
+        logger.info(f"Extracted {len(extracted_files)} total items, {len(pdf_files_extracted)} PDF files")
+        if pdf_files_extracted:
+            logger.info(f"PDF files found: {[f.name for f in pdf_files_extracted]}")
         
         job.message = f"Starting image-based CPT prediction (analyzing {n_pages} page(s) per PDF)..."
         job.progress = 20
@@ -984,7 +998,7 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         from predict_general import predict_codes_from_pdfs_api
         
-        job.message = f"Processing PDFs with OpenAI {model} vision model..."
+        job.message = f"Processing PDFs with OpenRouter {model} vision model..."
         job.progress = 30
         
         # Create output file path
@@ -998,18 +1012,20 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         # Save to CSV first
         result_file_csv = result_base.with_suffix('.csv')
+        # Use OPENROUTER_API_KEY if available, fallback to OPENAI_API_KEY
+        api_key = os.getenv("OPENROUTER_API_KEY") 
         success = predict_codes_from_pdfs_api(
             pdf_folder=str(temp_dir / "pdfs"),
             output_file=str(result_file_csv),
             n_pages=n_pages,
             model=model,
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=api_key,
             max_workers=max_workers,
             progress_callback=progress_callback
         )
         
         if not success:
-            raise Exception("OpenAI vision model prediction failed")
+            raise Exception("OpenRouter vision model prediction failed")
         
         job.message = "Prediction complete, preparing results..."
         job.progress = 90
@@ -1309,7 +1325,7 @@ async def predict_cpt_custom(
 async def predict_cpt_general(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
-    model: str = Form(default="gpt-4o-mini"),
+    model: str = Form(default="gpt5"),
     max_workers: int = Form(default=5)
 ):
     """Upload a CSV file to predict CPT codes using OpenAI general model"""
@@ -1352,7 +1368,7 @@ async def predict_cpt_from_pdfs(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
-    model: str = Form(default="gpt-4o-mini"),
+    model: str = Form(default="openai/gpt-5"),
     max_workers: int = Form(default=5)
 ):
     """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""

@@ -718,7 +718,7 @@
                   />
                   <span class="checkbox-text">
                     📸 Predict ASA codes from PDF pages (Vision Mode - uses
-                    GPT-4o-mini)
+                    GPT-5)
                   </span>
                 </label>
                 <p
@@ -952,7 +952,7 @@
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">📸</span>
-                    <span>GPT-4o-mini will analyze PDF pages visually</span>
+                    <span>GPT-5 will analyze PDF pages visually</span>
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">🏥</span>
@@ -2832,7 +2832,7 @@ export default {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
         formData.append("zip_file", this.visionZipFile);
         formData.append("n_pages", this.visionPageCount);
-        formData.append("model", "gpt-4o-mini");
+        formData.append("model", "openai/gpt-5");
         formData.append("max_workers", "5");
         console.log(
           "🔧 CPT Vision Upload URL:",
@@ -2850,7 +2850,7 @@ export default {
           console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
         } else if (this.selectedClient === "general") {
           uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
-          formData.append("model", "gpt-4o-mini");
+          formData.append("model", "gpt5");
           formData.append("max_workers", "5");
           console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
         } else {
