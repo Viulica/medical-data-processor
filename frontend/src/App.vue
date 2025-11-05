@@ -72,6 +72,13 @@
           >
             🏥 Insurance Sorting
           </button>
+          <button
+            @click="loadModifiers"
+            :class="{ active: activeTab === 'config' }"
+            class="tab-btn"
+          >
+            ⚙️ Modifiers Config
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -1926,6 +1933,219 @@
             </div>
           </div>
         </div>
+
+        <!-- Modifiers Config Tab -->
+        <div v-if="activeTab === 'config'" class="upload-section">
+          <div class="section-header">
+            <h2>⚙️ Modifiers Configuration</h2>
+            <p>
+              Manage modifier settings for different MedNet insurance codes.
+              Configure Medicare modifiers and medical direction billing.
+            </p>
+          </div>
+
+          <!-- Search and Add New -->
+          <div class="modifiers-controls">
+            <div class="search-box">
+              <input
+                v-model="modifierSearch"
+                @input="onModifierSearchChange"
+                type="text"
+                placeholder="Search by MedNet Code..."
+                class="search-input"
+              />
+            </div>
+            <button @click="showAddModal = true" class="add-btn">
+              ➕ Add New Modifier
+            </button>
+          </div>
+
+          <!-- Modifiers Table -->
+          <div v-if="modifiers.length > 0" class="modifiers-table-container">
+            <table class="modifiers-table">
+              <thead>
+                <tr>
+                  <th>MedNet Code</th>
+                  <th>Medicare Modifiers</th>
+                  <th>Bill Medical Direction</th>
+                  <th>Last Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="modifier in modifiers" :key="modifier.mednet_code">
+                  <td>
+                    <strong>{{ modifier.mednet_code }}</strong>
+                  </td>
+                  <td>
+                    <span
+                      :class="
+                        modifier.medicare_modifiers ? 'badge-yes' : 'badge-no'
+                      "
+                    >
+                      {{ modifier.medicare_modifiers ? "YES" : "NO" }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      :class="
+                        modifier.bill_medical_direction
+                          ? 'badge-yes'
+                          : 'badge-no'
+                      "
+                    >
+                      {{ modifier.bill_medical_direction ? "YES" : "NO" }}
+                    </span>
+                  </td>
+                  <td>{{ formatDate(modifier.updated_at) }}</td>
+                  <td>
+                    <button
+                      @click="editModifier(modifier)"
+                      class="action-btn edit-btn"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      @click="deleteModifierConfirm(modifier.mednet_code)"
+                      class="action-btn delete-btn"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Pagination Controls -->
+            <div class="pagination-container">
+              <div class="pagination-info">
+                Showing {{ (currentPage - 1) * pageSize + 1 }} -
+                {{ Math.min(currentPage * pageSize, totalModifiers) }} of
+                {{ totalModifiers }} modifiers
+              </div>
+
+              <div class="pagination-controls">
+                <button
+                  @click="goToPage(1)"
+                  :disabled="currentPage === 1"
+                  class="pagination-btn"
+                >
+                  ⏮️ First
+                </button>
+                <button
+                  @click="goToPage(currentPage - 1)"
+                  :disabled="currentPage === 1"
+                  class="pagination-btn"
+                >
+                  ◀️ Prev
+                </button>
+
+                <span class="page-info">
+                  Page {{ currentPage }} of {{ totalPages }}
+                </span>
+
+                <button
+                  @click="goToPage(currentPage + 1)"
+                  :disabled="currentPage === totalPages"
+                  class="pagination-btn"
+                >
+                  Next ▶️
+                </button>
+                <button
+                  @click="goToPage(totalPages)"
+                  :disabled="currentPage === totalPages"
+                  class="pagination-btn"
+                >
+                  Last ⏭️
+                </button>
+              </div>
+
+              <div class="page-size-selector">
+                <label>Per page:</label>
+                <select
+                  v-model.number="pageSize"
+                  @change="changePageSize(pageSize)"
+                  class="page-size-select"
+                >
+                  <option :value="25">25</option>
+                  <option :value="50">50</option>
+                  <option :value="100">100</option>
+                  <option :value="200">200</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="modifiersLoading" class="loading-section">
+            <div class="spinner"></div>
+            <p>Loading modifiers...</p>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>
+              No modifiers configured yet. Click "Add New Modifier" to get
+              started.
+            </p>
+          </div>
+        </div>
+
+        <!-- Add/Edit Modifier Modal -->
+        <div
+          v-if="showAddModal || showEditModal"
+          class="modal-overlay"
+          @click="closeModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>
+                {{ showEditModal ? "Edit Modifier" : "Add New Modifier" }}
+              </h3>
+              <button @click="closeModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>MedNet Code</label>
+                <input
+                  v-model="currentModifier.mednet_code"
+                  type="text"
+                  :disabled="showEditModal"
+                  class="form-input"
+                  placeholder="e.g., 003, 0546"
+                />
+              </div>
+              <div class="form-group">
+                <label>
+                  <input
+                    v-model="currentModifier.medicare_modifiers"
+                    type="checkbox"
+                    class="form-checkbox"
+                  />
+                  Medicare Modifiers
+                </label>
+              </div>
+              <div class="form-group">
+                <label>
+                  <input
+                    v-model="currentModifier.bill_medical_direction"
+                    type="checkbox"
+                    class="form-checkbox"
+                  />
+                  Bill Medical Direction
+                </label>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeModals" class="btn-secondary">Cancel</button>
+              <button
+                @click="saveModifier"
+                class="btn-primary"
+                :disabled="!currentModifier.mednet_code"
+              >
+                {{ showEditModal ? "Update" : "Create" }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -2036,6 +2256,22 @@ export default {
       isInsuranceDataDragActive: false,
       isSpecialCasesDragActive: false,
       enableAi: true, // Toggle for AI-powered insurance matching
+      // Modifiers Config functionality
+      modifiers: [],
+      modifiersLoading: false,
+      modifierSearch: "",
+      modifierSearchTimeout: null,
+      currentPage: 1,
+      pageSize: 50,
+      totalModifiers: 0,
+      totalPages: 0,
+      showAddModal: false,
+      showEditModal: false,
+      currentModifier: {
+        mednet_code: "",
+        medicare_modifiers: false,
+        bill_medical_direction: false,
+      },
     };
   },
   computed: {
@@ -3785,6 +4021,157 @@ export default {
       }
     },
 
+    // ========================================================================
+    // Modifiers Config Methods
+    // ========================================================================
+
+    async loadModifiers(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "config";
+        this.currentPage = 1;
+      }
+
+      this.modifiersLoading = true;
+      try {
+        const params = new URLSearchParams({
+          page: this.currentPage.toString(),
+          page_size: this.pageSize.toString(),
+        });
+
+        if (this.modifierSearch) {
+          params.append("search", this.modifierSearch);
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `api/modifiers?${params}`)
+        );
+
+        this.modifiers = response.data.modifiers || [];
+        this.totalModifiers = response.data.total || 0;
+        this.totalPages = response.data.total_pages || 0;
+        this.currentPage = response.data.page || 1;
+
+        if (resetPage) {
+          this.toast.success(`Loaded ${this.totalModifiers} modifiers`);
+        }
+      } catch (error) {
+        console.error("Failed to load modifiers:", error);
+        this.toast.error("Failed to load modifiers from database");
+        this.modifiers = [];
+        this.totalModifiers = 0;
+        this.totalPages = 0;
+      } finally {
+        this.modifiersLoading = false;
+      }
+    },
+
+    onModifierSearchChange() {
+      // Debounce search
+      clearTimeout(this.modifierSearchTimeout);
+      this.modifierSearchTimeout = setTimeout(() => {
+        this.loadModifiers(true);
+      }, 500);
+    },
+
+    goToPage(page) {
+      if (page >= 1 && page <= this.totalPages) {
+        this.currentPage = page;
+        this.loadModifiers(false);
+      }
+    },
+
+    changePageSize(newSize) {
+      this.pageSize = newSize;
+      this.currentPage = 1;
+      this.loadModifiers(false);
+    },
+
+    editModifier(modifier) {
+      this.currentModifier = {
+        mednet_code: modifier.mednet_code,
+        medicare_modifiers: modifier.medicare_modifiers,
+        bill_medical_direction: modifier.bill_medical_direction,
+      };
+      this.showEditModal = true;
+    },
+
+    async saveModifier() {
+      if (!this.currentModifier.mednet_code) {
+        this.toast.error("MedNet Code is required");
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("mednet_code", this.currentModifier.mednet_code);
+        formData.append(
+          "medicare_modifiers",
+          this.currentModifier.medicare_modifiers
+        );
+        formData.append(
+          "bill_medical_direction",
+          this.currentModifier.bill_medical_direction
+        );
+
+        if (this.showEditModal) {
+          // Update existing
+          await axios.put(
+            joinUrl(
+              API_BASE_URL,
+              `api/modifiers/${this.currentModifier.mednet_code}`
+            ),
+            formData
+          );
+          this.toast.success("Modifier updated successfully!");
+        } else {
+          // Create new
+          await axios.post(joinUrl(API_BASE_URL, "api/modifiers"), formData);
+          this.toast.success("Modifier created successfully!");
+        }
+
+        this.closeModals();
+        await this.loadModifiers(false); // Keep current page
+      } catch (error) {
+        console.error("Failed to save modifier:", error);
+        this.toast.error("Failed to save modifier");
+      }
+    },
+
+    async deleteModifierConfirm(mednetCode) {
+      if (
+        !confirm(`Are you sure you want to delete modifier "${mednetCode}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(API_BASE_URL, `api/modifiers/${mednetCode}`)
+        );
+        this.toast.success("Modifier deleted successfully!");
+        await this.loadModifiers(false); // Keep current page
+      } catch (error) {
+        console.error("Failed to delete modifier:", error);
+        this.toast.error("Failed to delete modifier");
+      }
+    },
+
+    closeModals() {
+      this.showAddModal = false;
+      this.showEditModal = false;
+      this.currentModifier = {
+        mednet_code: "",
+        medicare_modifiers: false,
+        bill_medical_direction: false,
+      };
+    },
+
+    formatDate(dateString) {
+      if (!dateString) return "N/A";
+      const date = new Date(dateString);
+      return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+    },
+
     getInsuranceStatusTitle() {
       if (!this.insuranceJobStatus) return "";
 
@@ -4919,5 +5306,422 @@ input:checked + .slider:before {
 
 input:checked + .slider:hover {
   background-color: #2563eb;
+}
+
+/* ========================================================================
+   Modifiers Config Styles
+   ======================================================================== */
+
+.modifiers-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+
+.search-box {
+  flex: 1;
+  max-width: 400px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.add-btn {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.modifiers-table-container {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.modifiers-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.modifiers-table thead {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+.modifiers-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.modifiers-table tbody tr {
+  border-bottom: 1px solid #e2e8f0;
+  transition: background-color 0.2s ease;
+}
+
+.modifiers-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.modifiers-table td {
+  padding: 1rem;
+  font-size: 0.938rem;
+}
+
+.badge-yes {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  background-color: #d1fae5;
+  color: #065f46;
+  border-radius: 9999px;
+  font-size: 0.813rem;
+  font-weight: 600;
+}
+
+.badge-no {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  background-color: #fee2e2;
+  color: #991b1b;
+  border-radius: 9999px;
+  font-size: 0.813rem;
+  font-weight: 600;
+}
+
+.action-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: 0.5rem;
+}
+
+.edit-btn {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.edit-btn:hover {
+  background-color: #bfdbfe;
+  transform: translateY(-1px);
+}
+
+.delete-btn {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.delete-btn:hover {
+  background-color: #fecaca;
+  transform: translateY(-1px);
+}
+
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.pagination-info {
+  color: #64748b;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pagination-btn {
+  padding: 0.5rem 1rem;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #475569;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  color: #3b82f6;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-info {
+  padding: 0 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.938rem;
+}
+
+.page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-size-selector label {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.page-size-select {
+  padding: 0.5rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: white;
+  color: #475569;
+  transition: all 0.2s ease;
+}
+
+.page-size-select:hover {
+  border-color: #3b82f6;
+}
+
+.page-size-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.loading-section {
+  text-align: center;
+  padding: 3rem;
+}
+
+.spinner {
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #1e293b;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #64748b;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.938rem;
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-input:disabled {
+  background-color: #f1f5f9;
+  cursor: not-allowed;
+}
+
+.form-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-right: 0.5rem;
+  cursor: pointer;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-primary {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 0.75rem 1.5rem;
+  background: white;
+  color: #64748b;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-secondary:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
 }
 </style>

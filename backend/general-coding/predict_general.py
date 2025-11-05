@@ -318,25 +318,34 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
             else:
                 error_message = f"HTTP Error: {error_detail}"
             
-            # Check if it's a 429 rate limit error
-            if status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
-                if attempt < max_retries - 1:
-                    # Exponential backoff: 2^attempt seconds
+            # Retry on all errors
+            if attempt < max_retries - 1:
+                # Use exponential backoff for rate limits, shorter delay for other errors
+                if status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
                     wait_time = 2 ** attempt
                     logger.warning(f"Rate limit error (429) on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
                 else:
-                    logger.error(f"Max retries reached for rate limit error on image prediction: {error_message}")
-                    return None, 0, 0.0, error_message
+                    wait_time = min(2 ** attempt, 4)  # Cap at 4 seconds for non-rate-limit errors
+                    logger.warning(f"HTTP error on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries}): {error_message}")
+                time.sleep(wait_time)
+                continue
             else:
-                # For non-429 errors, don't retry
-                logger.error(f"Error calling OpenRouter API with images: {error_message}")
+                logger.error(f"Max retries reached for image prediction: {error_message}")
                 return None, 0, 0.0, error_message
+                
         except requests.exceptions.RequestException as e:
             error_message = f"Request Error: {str(e)}"
-            logger.error(f"Request exception on image prediction: {error_message}")
-            return None, 0, 0.0, error_message
+            
+            # Retry on request errors
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 4)  # Cap at 4 seconds
+                logger.warning(f"Request error on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries}): {error_message}")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Max retries reached for request error on image prediction: {error_message}")
+                return None, 0, 0.0, error_message
+                
         except Exception as e:
             error_str = str(e)
             error_type = type(e).__name__
@@ -344,20 +353,19 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
             # Build descriptive error message
             error_message = f"{error_type}: {error_str}"
             
-            # Check if it's a 429 rate limit error
-            if "429" in error_str or "rate_limit" in error_str.lower():
-                if attempt < max_retries - 1:
-                    # Exponential backoff: 2^attempt seconds
+            # Retry on all errors
+            if attempt < max_retries - 1:
+                # Use exponential backoff for rate limits, shorter delay for other errors
+                if "429" in error_str or "rate_limit" in error_str.lower():
                     wait_time = 2 ** attempt
-                    logger.warning(f"Rate limit error (429) on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
+                    logger.warning(f"Rate limit error on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
                 else:
-                    logger.error(f"Max retries reached for rate limit error on image prediction: {error_message}")
-                    return None, 0, 0.0, error_message
+                    wait_time = min(2 ** attempt, 4)  # Cap at 4 seconds for non-rate-limit errors
+                    logger.warning(f"Error on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries}): {error_message}")
+                time.sleep(wait_time)
+                continue
             else:
-                # For non-429 errors, don't retry
-                logger.error(f"Error calling OpenRouter API with images: {error_message}")
+                logger.error(f"Max retries reached for image prediction: {error_message}")
                 return None, 0, 0.0, error_message
     
     # Should never reach here, but just in case

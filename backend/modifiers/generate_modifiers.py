@@ -58,9 +58,27 @@ from export_utils import save_dataframe_dual_format
 
 def load_modifiers_definition(definition_file="modifiers_definition.csv"):
     """
-    Load the modifiers definition CSV file.
+    Load the modifiers definition from PostgreSQL database.
+    Falls back to CSV file if database is not available.
     Returns a dictionary mapping mednet codes to (medicare_modifiers, medical_direction) tuples.
     """
+    # Try to load from database first
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from db_utils import get_modifiers_dict
+        
+        modifiers_dict = get_modifiers_dict()
+        if modifiers_dict:
+            print(f"✅ Loaded {len(modifiers_dict)} modifiers definitions from database")
+            return modifiers_dict
+        else:
+            print("⚠️  Database returned empty results, falling back to CSV...")
+    except ImportError:
+        print("⚠️  db_utils not available, falling back to CSV...")
+    except Exception as e:
+        print(f"⚠️  Database error ({e}), falling back to CSV...")
+    
+    # Fallback to CSV file
     try:
         # Get the directory where this script is located
         script_dir = Path(__file__).parent
@@ -76,14 +94,14 @@ def load_modifiers_definition(definition_file="modifiers_definition.csv"):
             medical_direction = str(row['Bill Medical Direction']).strip().upper() == 'YES'
             modifiers_dict[mednet_code] = (medicare_modifiers, medical_direction)
         
-        print(f"Loaded {len(modifiers_dict)} modifiers definitions")
+        print(f"📄 Loaded {len(modifiers_dict)} modifiers definitions from CSV (fallback)")
         return modifiers_dict
     
     except FileNotFoundError:
-        print(f"Warning: {definition_file} not found. No modifiers will be generated.")
+        print(f"❌ Warning: {definition_file} not found. No modifiers will be generated.")
         return {}
     except Exception as e:
-        print(f"Warning: Error loading {definition_file}: {e}. No modifiers will be generated.")
+        print(f"❌ Warning: Error loading {definition_file}: {e}. No modifiers will be generated.")
         return {}
 
 

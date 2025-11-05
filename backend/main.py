@@ -2159,6 +2159,103 @@ async def force_garbage_collection():
         "memory_freed_mb": round(memory_freed, 2)
     }
 
+# ============================================================================
+# Modifiers Configuration API Endpoints
+# ============================================================================
+
+@app.get("/api/modifiers")
+async def get_modifiers(page: int = 1, page_size: int = 50, search: str = None):
+    """Get modifier configurations from database with pagination"""
+    try:
+        from db_utils import get_all_modifiers
+        result = get_all_modifiers(page=page, page_size=page_size, search=search)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get modifiers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve modifiers: {str(e)}")
+
+@app.get("/api/modifiers/{mednet_code}")
+async def get_modifier(mednet_code: str):
+    """Get a specific modifier configuration by MedNet code"""
+    try:
+        from db_utils import get_modifier as get_modifier_by_code
+        modifier = get_modifier_by_code(mednet_code)
+        if modifier:
+            return modifier
+        else:
+            raise HTTPException(status_code=404, detail=f"Modifier {mednet_code} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get modifier {mednet_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve modifier: {str(e)}")
+
+@app.post("/api/modifiers")
+async def create_or_update_modifier(
+    mednet_code: str = Form(...),
+    medicare_modifiers: bool = Form(...),
+    bill_medical_direction: bool = Form(...)
+):
+    """Create or update a modifier configuration"""
+    try:
+        from db_utils import upsert_modifier
+        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction)
+        if success:
+            return {
+                "message": "Modifier saved successfully",
+                "mednet_code": mednet_code,
+                "medicare_modifiers": medicare_modifiers,
+                "bill_medical_direction": bill_medical_direction
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save modifier")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save modifier {mednet_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save modifier: {str(e)}")
+
+@app.put("/api/modifiers/{mednet_code}")
+async def update_modifier(
+    mednet_code: str,
+    medicare_modifiers: bool = Form(...),
+    bill_medical_direction: bool = Form(...)
+):
+    """Update an existing modifier configuration"""
+    try:
+        from db_utils import upsert_modifier
+        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction)
+        if success:
+            return {
+                "message": "Modifier updated successfully",
+                "mednet_code": mednet_code,
+                "medicare_modifiers": medicare_modifiers,
+                "bill_medical_direction": bill_medical_direction
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update modifier")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update modifier {mednet_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update modifier: {str(e)}")
+
+@app.delete("/api/modifiers/{mednet_code}")
+async def delete_modifier(mednet_code: str):
+    """Delete a modifier configuration"""
+    try:
+        from db_utils import delete_modifier as delete_modifier_by_code
+        success = delete_modifier_by_code(mednet_code)
+        if success:
+            return {"message": f"Modifier {mednet_code} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete modifier")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete modifier {mednet_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete modifier: {str(e)}")
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json

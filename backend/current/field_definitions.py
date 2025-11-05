@@ -37,6 +37,9 @@ def load_field_definitions_from_excel(excel_file_path):
         # Read the output format row (row index 2 after header)
         output_format_row = df.iloc[2] if len(df) > 2 else None
         
+        # Read the priority row (row index 3 after header)
+        priority_row = df.iloc[3] if len(df) > 3 else None
+        
         field_definitions = []
         
         for i, field_name in enumerate(field_names):
@@ -44,11 +47,16 @@ def load_field_definitions_from_excel(excel_file_path):
             if pd.isna(field_name) or str(field_name).strip() == '' or str(field_name).startswith('Unnamed'):
                 continue
                 
+            # Check if priority is set to YES (case insensitive)
+            priority_value = str(priority_row.iloc[i]).strip().upper() if priority_row is not None and not pd.isna(priority_row.iloc[i]) else ''
+            is_priority = priority_value == 'YES'
+                
             field_def = {
                 'name': str(field_name).strip(),
                 'description': str(description_row.iloc[i]).strip() if description_row is not None and not pd.isna(description_row.iloc[i]) else '',
                 'location': str(location_row.iloc[i]).strip() if location_row is not None and not pd.isna(location_row.iloc[i]) else '',
-                'output_format': str(output_format_row.iloc[i]).strip() if output_format_row is not None and not pd.isna(output_format_row.iloc[i]) else ''
+                'output_format': str(output_format_row.iloc[i]).strip() if output_format_row is not None and not pd.isna(output_format_row.iloc[i]) else '',
+                'priority': is_priority
             }
             
             field_definitions.append(field_def)
@@ -74,9 +82,28 @@ def get_fieldnames(excel_file_path):
     field_definitions = get_field_definitions(excel_file_path)
     return [field['name'] for field in field_definitions]
 
-def generate_extraction_prompt(excel_file_path):
-    """Generate the extraction prompt from field definitions."""
+def get_priority_fields(excel_file_path):
+    """Return list of field definitions that are marked as priority."""
     field_definitions = get_field_definitions(excel_file_path)
+    return [field for field in field_definitions if field.get('priority', False) and field['name'] not in ['source_file', 'page_number']]
+
+def get_normal_fields(excel_file_path):
+    """Return list of field definitions that are NOT marked as priority."""
+    field_definitions = get_field_definitions(excel_file_path)
+    return [field for field in field_definitions if not field.get('priority', False) and field['name'] not in ['source_file', 'page_number']]
+
+def generate_extraction_prompt(excel_file_path, fields_to_include=None):
+    """Generate the extraction prompt from field definitions.
+    
+    Args:
+        excel_file_path: Path to Excel file with field definitions
+        fields_to_include: Optional list of field definitions to include. If None, includes all non-priority fields.
+    """
+    if fields_to_include is None:
+        # Get only normal (non-priority) fields
+        field_definitions = get_normal_fields(excel_file_path)
+    else:
+        field_definitions = fields_to_include
     
     prompt_header = """You are an expert in extracting structured data from medical documents. For each patient record provided in the following text, extract the information specified below.
 If a field is not present or cannot be determined from the provided text, output null for that field.
@@ -87,25 +114,22 @@ Extraction Instructions per Patient Record:
     
     field_instructions = []
     for field in field_definitions:
-        # Skip the metadata fields that are automatically added
-        if field['name'] not in ['source_file', 'page_number']:
-            
-            # Build a clear, structured instruction for each field
-            field_instruction = f"""
+        # Build a clear, structured instruction for each field
+        field_instruction = f"""
 === {field['name']} ===
 """
-            
-            if field.get('description'):
-                field_instruction += f"Description: {field['description']}\n"
-            
-            if field.get('location'):
-                field_instruction += f"Where to find: {field['location']}\n"
-            
-            if field.get('output_format'):
-                field_instruction += f"Output format: {field['output_format']}\n"
-            
-            field_instruction += f"Extract: {field['name']}\n"
-            field_instructions.append(field_instruction)
+        
+        if field.get('description'):
+            field_instruction += f"Description: {field['description']}\n"
+        
+        if field.get('location'):
+            field_instruction += f"Where to find: {field['location']}\n"
+        
+        if field.get('output_format'):
+            field_instruction += f"Output format: {field['output_format']}\n"
+        
+        field_instruction += f"Extract: {field['name']}\n"
+        field_instructions.append(field_instruction)
 
 
     field_specific_instructions = """
@@ -144,4 +168,47 @@ Extraction Instructions per Patient Record:
     with open('extraction_prompt.txt', 'w') as f:
         f.write(prompt_header + '\n'.join(field_instructions) + prompt_footer)
 
-    return prompt_header + '\n'.join(field_instructions) + prompt_footer 
+    return prompt_header + '\n'.join(field_instructions) + prompt_footer
+
+def generate_priority_field_prompt(field_definition):
+    """Generate a focused extraction prompt for a single priority field.
+    
+    Args:
+        field_definition: Dictionary containing field definition (name, description, location, output_format)
+    
+    Returns:
+        String containing the extraction prompt focused on this single field
+    """
+    prompt_header = f"""You are an expert in extracting structured data from medical documents. 
+
+IMPORTANT: Focus ONLY on extracting the following specific field. Pay close attention to the details provided.
+
+BE VERY CAREFUL to not confuse zero and the letter O. If the sign is completely round then it is an O (letter O), if it is a little bit oval then it is an O.
+
+=== {field_definition['name']} ===
+"""
+    
+    if field_definition.get('description'):
+        prompt_header += f"Description: {field_definition['description']}\n"
+    
+    if field_definition.get('location'):
+        prompt_header += f"Where to find: {field_definition['location']}\n"
+    
+    if field_definition.get('output_format'):
+        prompt_header += f"Output format: {field_definition['output_format']}\n"
+    
+    prompt_footer = """
+
+IMPORTANT RULES:
+1. NEVER DROP leading zeros from any number. Always write all the strings and numbers as they are.
+2. If the field is not present or cannot be determined from the provided text, output null for that field.
+3. Be very careful to not confuse the number 1 and the letter l, double check you did not confuse them.
+4. If you see any random ID looking numbers in a different color and font than the original pdf (they look copy pasted), ignore them.
+
+Your entire response must be a single JSON object with ONE key: "{field_definition['name']}" and its extracted value. Do not include any other text or commentary.
+
+Example response format:
+{{"field_name": "extracted_value"}}
+"""
+    
+    return prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name']) 

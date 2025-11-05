@@ -10,7 +10,7 @@ import pandas as pd
 import google.genai as genai
 from google.genai import types
 from PyPDF2 import PdfReader, PdfWriter
-from field_definitions import get_fieldnames, generate_extraction_prompt
+from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_normal_fields, generate_priority_field_prompt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import re
@@ -103,8 +103,14 @@ def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
         return None
 
 
-def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-2.5-pro", max_retries=5):
-    """Extract patient information from a multi-page patient PDF file."""
+def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-2.5-pro", max_retries=5, field_name_for_log=None):
+    """Extract patient information from a multi-page patient PDF file.
+    
+    Args:
+        field_name_for_log: Optional field name to include in log messages (for priority field extraction)
+    """
+    
+    log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
     for attempt in range(max_retries):
         try:
@@ -158,28 +164,28 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 json.loads(cleaned_response)
                 
                 # If we get here, everything worked
-                print(f"    ✅ Successfully processed {pdf_filename} on attempt {attempt + 1}")
+                print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} on attempt {attempt + 1}")
                 return response_text
                 
             except json.JSONDecodeError as e:
-                print(f"    ⚠️  JSON parsing failed for {pdf_filename} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                print(f"    ⚠️  JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
-                    print(f"    ❌ Final JSON parsing failure for {pdf_filename}")
+                    print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
                     print(f"    Raw response: {response_text[:200]}...")
                     return None
                 # Continue to retry logic below
                 
             except Exception as api_error:
-                print(f"    ⚠️  API call failed for {pdf_filename} (attempt {attempt + 1}/{max_retries}): {str(api_error)}")
+                print(f"    ⚠️  API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(api_error)}")
                 if attempt == max_retries - 1:
-                    print(f"    ❌ Final API failure for {pdf_filename}")
+                    print(f"    ❌ Final API failure for {pdf_filename}{log_suffix}")
                     return None
                 # Continue to retry logic below
         
         except Exception as e:
-            print(f"    ⚠️  Unexpected error for {pdf_filename} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            print(f"    ⚠️  Unexpected error for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             if attempt == max_retries - 1:
-                print(f"    ❌ Final failure for {pdf_filename}")
+                print(f"    ❌ Final failure for {pdf_filename}{log_suffix}")
                 return None
         
         # Exponential backoff with jitter for retries
@@ -187,7 +193,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
             base_delay = 2 ** attempt  # 1, 2, 4, 8 seconds
             jitter = random.uniform(0.5, 1.5)  # Add randomness to prevent thundering herd
             delay = base_delay * jitter
-            print(f"    ⏳ Retrying {pdf_filename} in {delay:.1f} seconds...")
+            print(f"    ⏳ Retrying {pdf_filename}{log_suffix} in {delay:.1f} seconds...")
             time.sleep(delay)
     
     return None
@@ -195,7 +201,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, n_pages, model, order_index = args
+    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, order_index = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
@@ -203,11 +209,73 @@ def process_single_patient_pdf_task(args):
     temp_patient_pdf = extract_first_n_pages_as_pdf(pdf_file_path, n_pages)
     if not temp_patient_pdf:
         return pdf_filename, None, temp_patient_pdf, order_index
-        
-    # Extract info from this patient's combined pages
-    response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
     
-    return pdf_filename, response, temp_patient_pdf, order_index
+    # Extract normal (non-priority) fields with one API call
+    normal_response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
+    
+    if not normal_response:
+        return pdf_filename, None, temp_patient_pdf, order_index
+    
+    # Parse the normal response
+    try:
+        cleaned_response = normal_response.strip()
+        if cleaned_response.startswith('```json'):
+            cleaned_response = cleaned_response[7:]
+        if cleaned_response.startswith('```'):
+            cleaned_response = cleaned_response[3:]
+        if cleaned_response.endswith('```'):
+            cleaned_response = cleaned_response[:-3]
+        cleaned_response = cleaned_response.strip()
+        
+        merged_data = json.loads(cleaned_response)
+    except json.JSONDecodeError as e:
+        print(f"    ❌ Failed to parse normal fields response for {pdf_filename}: {str(e)}")
+        return pdf_filename, None, temp_patient_pdf, order_index
+    
+    # Extract each priority field separately and merge into the result
+    if priority_fields:
+        print(f"    🎯 Processing {len(priority_fields)} priority field(s) for {pdf_filename}")
+        
+        for priority_field in priority_fields:
+            field_name = priority_field['name']
+            priority_prompt = generate_priority_field_prompt(priority_field)
+            
+            # Extract this priority field
+            priority_response = extract_info_from_patient_pdf(
+                client, temp_patient_pdf, pdf_filename, priority_prompt, model, 
+                field_name_for_log=field_name
+            )
+            
+            if priority_response:
+                try:
+                    # Parse the priority field response
+                    cleaned_priority = priority_response.strip()
+                    if cleaned_priority.startswith('```json'):
+                        cleaned_priority = cleaned_priority[7:]
+                    if cleaned_priority.startswith('```'):
+                        cleaned_priority = cleaned_priority[3:]
+                    if cleaned_priority.endswith('```'):
+                        cleaned_priority = cleaned_priority[:-3]
+                    cleaned_priority = cleaned_priority.strip()
+                    
+                    priority_data = json.loads(cleaned_priority)
+                    
+                    # Merge this priority field into the main result
+                    if field_name in priority_data:
+                        merged_data[field_name] = priority_data[field_name]
+                        print(f"    ✅ Merged priority field '{field_name}' for {pdf_filename}")
+                    else:
+                        print(f"    ⚠️  Priority field '{field_name}' not found in response for {pdf_filename}")
+                        
+                except json.JSONDecodeError as e:
+                    print(f"    ❌ Failed to parse priority field '{field_name}' for {pdf_filename}: {str(e)}")
+            else:
+                print(f"    ❌ Failed to extract priority field '{field_name}' for {pdf_filename}")
+    
+    # Convert merged data back to JSON string for compatibility with existing code
+    merged_response = json.dumps(merged_data)
+    
+    return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
 def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-2.5-pro"):
@@ -222,7 +290,20 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     print(f"📄 Processing first {n_pages} pages per patient PDF")
     print(f"🧵 Max concurrent threads: {max_workers}")
     
-    # Generate extraction prompt from Excel file
+    # Get priority and normal fields
+    priority_fields = get_priority_fields(excel_file_path)
+    normal_fields = get_normal_fields(excel_file_path)
+    
+    if priority_fields:
+        priority_field_names = [f['name'] for f in priority_fields]
+        print(f"🎯 Priority fields (separate API calls): {', '.join(priority_field_names)}")
+    else:
+        print(f"ℹ️  No priority fields defined")
+    
+    if normal_fields:
+        print(f"📊 Normal fields (single API call): {len(normal_fields)} fields")
+    
+    # Generate extraction prompt from Excel file (only for normal fields)
     extraction_prompt = generate_extraction_prompt(excel_file_path)
     fieldnames = get_fieldnames(excel_file_path)
     
@@ -275,7 +356,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, n_pages, model, order_index))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, order_index))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
