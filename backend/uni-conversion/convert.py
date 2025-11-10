@@ -287,6 +287,7 @@ CRITICAL RULES:
     # Retry logic - attempt up to 5 times
     max_retries = 5
     for attempt in range(max_retries):
+        raw_response_text = ""  # Initialize to handle early exceptions
         try:
             contents = [
                 types.Content(
@@ -294,11 +295,16 @@ CRITICAL RULES:
                     parts=[types.Part.from_text(text=prompt)],
                 )
             ]
+
+            tools = [
+                types.Tool(googleSearch=types.GoogleSearch(
+                )),
+            ]
             
-            # Force JSON output mode and remove tools to prevent search results
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,  # Lower temperature for more consistent output
+                tools=tools
             )
 
             # Get AI response
@@ -308,6 +314,10 @@ CRITICAL RULES:
                 config=generate_content_config,
             )
             
+            # Capture the RAW response exactly as returned by the model
+            raw_response_text = response.text
+            
+            # Now clean the response for parsing
             response_text = response.text.strip()
             
             # Clean the response by removing any markdown code block formatting
@@ -330,12 +340,8 @@ CRITICAL RULES:
             
             # Validate that all original codes are present (case-insensitive comparison)
             if len(ordered_codes) == len(icd_codes) and set(ordered_codes_normalized) == set(original_codes_normalized):
-                # Build detailed response with reasoning
-                response_with_reasoning = json.dumps({
-                    "ordered_codes": ordered_codes,
-                    "reasoning": reasoning
-                }, indent=2)
-                return (ordered_codes, True, prompt, response_with_reasoning)  # Success!
+                # Return the RAW response exactly as received from the model for logging
+                return (ordered_codes, True, prompt, raw_response_text)  # Success!
             else:
                 if attempt < max_retries - 1:
                     print(f"    ⚠️  AI returned invalid code list (attempt {attempt + 1}/{max_retries})")
@@ -346,7 +352,7 @@ CRITICAL RULES:
                     print(f"    ⚠️  AI returned invalid code list after {max_retries} attempts, using original order")
                     print(f"        Expected: {icd_codes}")
                     print(f"        Received: {ordered_codes}")
-                    return (icd_codes, False, prompt, response_text)
+                    return (icd_codes, False, prompt, raw_response_text)
                 
         except Exception as e:
             if attempt < max_retries - 1:
@@ -354,7 +360,7 @@ CRITICAL RULES:
                 continue
             else:
                 print(f"    ⚠️  AI reordering failed after {max_retries} attempts: {str(e)}")
-                return (icd_codes, False, prompt, "")  # Return original order if AI fails
+                return (icd_codes, False, prompt, raw_response_text)  # Return original order and any captured response
     
     # This should never be reached, but just in case
     return (icd_codes, False, prompt, "")
