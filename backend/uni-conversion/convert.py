@@ -1418,6 +1418,9 @@ def convert_data(input_file, output_file=None):
                 elif "anesthesia staff" in old_col.lower():
                     # Skip Anesthesia Staff field - don't include in output
                     pass
+                elif old_col.lower().strip() == "csn":
+                    # CSN: map to Case # (case-insensitive matching)
+                    new_row["Case #"] = value if not pd.isna(value) else ""
                 else:
                     # Direct mapping
                     new_row[new_header] = value
