@@ -151,14 +151,14 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5", api_key=None):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5:online", api_key=None):
     """
     Predict ASA code using OpenRouter API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (default: openai/gpt-5). For OpenRouter, must use format "openai/gpt-5"
+        model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
         api_key: OpenRouter API key
     
     Returns:
@@ -276,7 +276,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 
                 # OpenRouter provides cost in response, but we'll estimate if not available
                 # Cost estimation based on model (rough estimates for gpt-5)
-                if "openai/gpt-5" in model or "gpt-5" in model:
+                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model:
                     # Estimate pricing (adjust based on actual OpenRouter pricing)
                     input_cost = prompt_tokens * 0.01 / 1000  # Estimate
                     output_cost = completion_tokens * 0.03 / 1000  # Estimate
@@ -374,13 +374,13 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5", api_key=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", api_key=None):
     """
     Predict ICD codes using OpenRouter API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
-        model: Model to use (default: openai/gpt-5). For OpenRouter, must use format "openai/gpt-5"
+        model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
         api_key: OpenRouter API key
     
     Returns:
@@ -529,7 +529,7 @@ Respond with ONLY the JSON object, nothing else."""
                 tokens = total_tokens
                 
                 # Cost estimation based on model
-                if "openai/gpt-5" in model or "gpt-5" in model:
+                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model:
                     input_cost = prompt_tokens * 0.01 / 1000
                     output_cost = completion_tokens * 0.03 / 1000
                 elif "gpt-4o-mini" in model:
@@ -813,7 +813,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5", api_key=None, max_workers=3, progress_callback=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
     
@@ -821,7 +821,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
         n_pages: Number of pages to extract from each PDF (default 1)
-        model: OpenRouter model to use (default openai/gpt-5). Must use format "openai/gpt-5" for OpenRouter
+        model: OpenRouter model to use (default openai/gpt-5:online). Must use format "openai/gpt-5" or "openai/gpt-5:online" for OpenRouter
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
@@ -967,7 +967,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5", api_key=None, max_workers=3, progress_callback=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
     
@@ -975,7 +975,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
         n_pages: Number of pages to extract from each PDF (default 1)
-        model: OpenRouter model to use (default openai/gpt-5). Must use format "openai/gpt-5" for OpenRouter
+        model: OpenRouter model to use (default openai/gpt-5:online). Must use format "openai/gpt-5" or "openai/gpt-5:online" for OpenRouter
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
