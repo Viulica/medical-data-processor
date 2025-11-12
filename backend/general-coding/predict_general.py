@@ -408,6 +408,7 @@ IMPORTANT INSTRUCTIONS:
 4. Only include ICD codes that are directly relevant to the procedure or patient condition
 5. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
 6. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+7. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
