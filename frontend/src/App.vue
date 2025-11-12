@@ -710,86 +710,15 @@
         <div v-if="activeTab === 'cpt'" class="upload-section">
           <div class="section-header">
             <h2>CPT Code Prediction</h2>
-            <p v-if="!useVisionPrediction">
-              Upload a CSV file with a 'Procedure Description' column to predict
-              anesthesia CPT codes using AI
-            </p>
-            <p v-else>
+            <p>
               Upload a ZIP file containing patient PDFs to predict anesthesia
               CPT codes by analyzing PDF pages with AI vision
             </p>
           </div>
 
-          <!-- Vision Mode Toggle -->
-          <div class="upload-card" style="margin-bottom: 20px">
-            <div class="settings-content">
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    v-model="useVisionPrediction"
-                    class="checkbox-input"
-                  />
-                  <span class="checkbox-text">
-                    📸 Predict ASA codes from PDF pages (Vision Mode - uses
-                    GPT-5)
-                  </span>
-                </label>
-                <p
-                  class="form-hint"
-                  v-if="useVisionPrediction"
-                  style="margin-top: 10px; color: #6b7280"
-                >
-                  Vision mode analyzes actual PDF pages instead of extracted
-                  text. Great for handwritten notes or complex document layouts.
-                </p>
-              </div>
-            </div>
-          </div>
-
           <div class="upload-grid">
-            <!-- CSV File Upload (Traditional Mode) -->
-            <div v-if="!useVisionPrediction" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">1</div>
-                <h3>CSV File with Procedures</h3>
-              </div>
-              <div
-                class="dropzone"
-                :class="{
-                  active: isCsvDragActive,
-                  'has-file': csvFile,
-                }"
-                @drop="onCsvDrop"
-                @dragover.prevent
-                @dragenter.prevent
-                @click="triggerCsvUpload"
-              >
-                <input
-                  ref="csvInput"
-                  type="file"
-                  accept=".csv"
-                  @change="onCsvFileSelect"
-                  style="display: none"
-                />
-                <div class="upload-content">
-                  <div class="upload-icon">📊</div>
-                  <div v-if="csvFile" class="file-info">
-                    <div class="file-icon">📄</div>
-                    <span class="file-name">{{ csvFile.name }}</span>
-                    <span class="file-size">{{
-                      formatFileSize(csvFile.size)
-                    }}</span>
-                  </div>
-                  <p v-else class="upload-text">
-                    Drag & drop CSV file here<br />or click to browse
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <!-- ZIP File Upload (Vision Mode) -->
-            <div v-if="useVisionPrediction" class="upload-card">
+            <!-- ZIP File Upload -->
+            <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
                 <h3>ZIP File with Patient PDFs</h3>
@@ -829,7 +758,7 @@
             </div>
 
             <!-- Vision Page Count -->
-            <div v-if="useVisionPrediction" class="upload-card">
+            <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
                 <h3>Pages to Analyze</h3>
@@ -852,108 +781,8 @@
               </div>
             </div>
 
-            <!-- Client Selection -->
-            <div v-if="!useVisionPrediction" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">2</div>
-                <h3>Select Client</h3>
-              </div>
-              <div class="settings-content">
-                <div class="form-group">
-                  <label for="client-select" class="form-label"
-                    >Choose Client for CPT Coding:</label
-                  >
-                  <select
-                    id="client-select"
-                    v-model="selectedClient"
-                    class="form-select"
-                  >
-                    <option value="uni">UNI</option>
-                    <option value="sio-stl">SIO-STL</option>
-                    <option value="gap-fin">GAP-FIN</option>
-                    <option value="apo-utp">APO-UTP</option>
-                    <option value="tan-esc">TAN-ESC (Custom Model)</option>
-                    <option value="general">GENERAL (OpenAI Model)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Custom Instructions -->
-            <div v-if="!useVisionPrediction" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">3</div>
-                <h3>Custom Coding Instructions</h3>
-              </div>
-              <div class="settings-content">
-                <div class="form-group">
-                  <label for="custom-instructions" class="form-label">
-                    Additional instructions for medical coder (optional):
-                  </label>
-                  <textarea
-                    id="custom-instructions"
-                    v-model="customInstructions"
-                    class="form-textarea"
-                    rows="4"
-                    placeholder="Enter specific coding guidelines, corrections, or preferences that should override AI predictions..."
-                  ></textarea>
-                  <div class="instruction-actions">
-                    <button
-                      @click="saveInstructions"
-                      class="save-btn"
-                      :disabled="isSavingInstructions"
-                    >
-                      <span v-if="isSavingInstructions" class="spinner"></span>
-                      <span v-else>💾</span>
-                      {{
-                        isSavingInstructions ? "Saving..." : "Save Instructions"
-                      }}
-                    </button>
-                    <button
-                      @click="loadInstructions"
-                      class="load-btn"
-                      :disabled="isLoadingInstructions"
-                    >
-                      <span v-if="isLoadingInstructions" class="spinner"></span>
-                      <span v-else>📂</span>
-                      {{ isLoadingInstructions ? "Loading..." : "Load Saved" }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Requirements (Traditional Mode) -->
-            <div v-if="!useVisionPrediction" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">4</div>
-                <h3>Requirements</h3>
-              </div>
-              <div class="settings-content">
-                <div class="requirement-list">
-                  <div class="requirement-item">
-                    <span class="requirement-icon">📋</span>
-                    <span
-                      >CSV must contain a 'Procedure Description' column</span
-                    >
-                  </div>
-                  <div class="requirement-item">
-                    <span class="requirement-icon">🏥</span>
-                    <span>Each row should have a procedure description</span>
-                  </div>
-                  <div class="requirement-item">
-                    <span class="requirement-icon">⚡</span>
-                    <span
-                      >AI will predict CPT codes in 'ASA Code' and 'Procedure
-                      Code' columns</span
-                    >
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Requirements (Vision Mode) -->
-            <div v-if="useVisionPrediction" class="upload-card">
+            <!-- How It Works -->
+            <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
                 <h3>How It Works</h3>
@@ -1001,7 +830,7 @@
             </button>
 
             <button
-              v-if="csvFile || visionZipFile || cptJobId"
+              v-if="visionZipFile || cptJobId"
               @click="resetCptForm"
               class="reset-btn"
             >
@@ -2515,15 +2344,11 @@ export default {
       return this.pdfFile && this.filterString.trim();
     },
     canPredictCpt() {
-      if (this.useVisionPrediction) {
-        return (
-          this.visionZipFile &&
-          this.visionPageCount >= 1 &&
-          this.visionPageCount <= 50
-        );
-      } else {
-        return this.csvFile;
-      }
+      return (
+        this.visionZipFile &&
+        this.visionPageCount >= 1 &&
+        this.visionPageCount <= 50
+      );
     },
     canConvertUni() {
       return this.uniCsvFile;
@@ -3272,11 +3097,7 @@ export default {
 
     async startCptPrediction() {
       if (!this.canPredictCpt) {
-        if (this.useVisionPrediction) {
-          this.toast.error("Please upload a ZIP file containing PDFs");
-        } else {
-          this.toast.error("Please upload a CSV file");
-        }
+        this.toast.error("Please upload a ZIP file containing PDFs");
         return;
       }
 
@@ -3285,41 +3106,18 @@ export default {
 
       const formData = new FormData();
 
-      // Route to appropriate endpoint based on vision prediction or CSV
-      let uploadUrl;
-
-      if (this.useVisionPrediction) {
-        // Vision-based prediction from PDFs
-        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
-        formData.append("zip_file", this.visionZipFile);
-        formData.append("n_pages", this.visionPageCount);
-        formData.append("model", "openai/gpt-5");
-        formData.append("max_workers", "5");
-        console.log(
-          "🔧 CPT Vision Upload URL:",
-          uploadUrl,
-          "Pages:",
-          this.visionPageCount
-        );
-      } else {
-        // Traditional CSV-based prediction
-        formData.append("csv_file", this.csvFile);
-
-        if (this.selectedClient === "tan-esc") {
-          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
-          formData.append("confidence_threshold", "0.5");
-          console.log("🔧 CPT Upload URL (Custom Model):", uploadUrl);
-        } else if (this.selectedClient === "general") {
-          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
-          formData.append("model", "gpt5");
-          formData.append("max_workers", "5");
-          console.log("🔧 CPT Upload URL (General Model):", uploadUrl);
-        } else {
-          uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
-          formData.append("client", this.selectedClient);
-          console.log("🔧 CPT Upload URL:", uploadUrl);
-        }
-      }
+      // Vision-based prediction from PDFs
+      const uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
+      formData.append("zip_file", this.visionZipFile);
+      formData.append("n_pages", this.visionPageCount);
+      formData.append("model", "openai/gpt-5");
+      formData.append("max_workers", "5");
+      console.log(
+        "🔧 CPT Vision Upload URL:",
+        uploadUrl,
+        "Pages:",
+        this.visionPageCount
+      );
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -3405,14 +3203,11 @@ export default {
     },
 
     resetCptForm() {
-      this.csvFile = null;
       this.visionZipFile = null;
-      this.useVisionPrediction = false;
       this.visionPageCount = 1;
       this.cptJobId = null;
       this.cptJobStatus = null;
       this.isPredictingCpt = false;
-      this.isCsvDragActive = false;
       this.isVisionZipDragActive = false;
     },
 
