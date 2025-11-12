@@ -1322,6 +1322,10 @@ def convert_data(input_file, output_file=None):
                     # Surgeon field: create both Surgeon and Referring fields
                     new_row[new_header] = value  # Original Surgeon field
                     new_row["Referring"] = value  # Duplicate as Referring field
+                elif "csn" in old_col.lower():
+                    # CSN field: create both Case # and CSN fields
+                    new_row[new_header] = value  # Original Case # field (via mapping)
+                    new_row["CSN"] = value  # Also populate CSN field
                 elif "patient class" in old_col.lower():
                     # Patient Class: take first word, add "hospital", and capitalize
                     if pd.isna(value) or not value:
@@ -1418,9 +1422,6 @@ def convert_data(input_file, output_file=None):
                 elif "anesthesia staff" in old_col.lower():
                     # Skip Anesthesia Staff field - don't include in output
                     pass
-                elif old_col.lower().strip() == "csn":
-                    # CSN: map to Case # (case-insensitive matching)
-                    new_row["Case #"] = value if not pd.isna(value) else ""
                 else:
                     # Direct mapping
                     new_row[new_header] = value

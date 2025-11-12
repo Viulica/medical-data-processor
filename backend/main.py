@@ -1063,6 +1063,106 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         # Clean up memory even on failure
         gc.collect()
 
+def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5):
+    """Background task to predict ICD codes from PDF images using OpenAI vision model"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Extracting PDFs from ZIP archive..."
+        job.progress = 10
+        
+        # Create temporary directory for processing
+        temp_dir = Path(f"/tmp/processing_{job_id}")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Unzip files
+        pdfs_dir = temp_dir / "pdfs"
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(pdfs_dir)
+        
+        # Log what was extracted for debugging
+        extracted_files = list(pdfs_dir.rglob("*"))
+        pdf_files_extracted = [f for f in extracted_files if f.is_file() and f.suffix.lower() == '.pdf']
+        logger.info(f"Extracted {len(extracted_files)} total items, {len(pdf_files_extracted)} PDF files")
+        if pdf_files_extracted:
+            logger.info(f"PDF files found: {[f.name for f in pdf_files_extracted]}")
+        
+        job.message = f"Starting image-based ICD prediction (analyzing {n_pages} page(s) per PDF)..."
+        job.progress = 20
+        
+        # Import the general prediction function
+        import sys
+        general_coding_path = Path(__file__).parent / "general-coding"
+        sys.path.insert(0, str(general_coding_path))
+        
+        from predict_general import predict_icd_codes_from_pdfs_api
+        
+        job.message = f"Processing PDFs with OpenRouter {model} vision model..."
+        job.progress = 30
+        
+        # Create output file path
+        result_base = Path(f"/tmp/results/{job_id}_with_icd_codes")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        # Progress callback to update job status
+        def progress_callback(completed, total, message):
+            job.progress = 30 + int((completed / total) * 60)
+            job.message = message
+        
+        # Save to CSV first
+        result_file_csv = result_base.with_suffix('.csv')
+        # Use OPENROUTER_API_KEY if available, fallback to OPENAI_API_KEY
+        api_key = os.getenv("OPENROUTER_API_KEY") 
+        success = predict_icd_codes_from_pdfs_api(
+            pdf_folder=str(temp_dir / "pdfs"),
+            output_file=str(result_file_csv),
+            n_pages=n_pages,
+            model=model,
+            api_key=api_key,
+            max_workers=max_workers,
+            progress_callback=progress_callback
+        )
+        
+        if not success:
+            raise Exception("OpenRouter vision model ICD prediction failed")
+        
+        job.message = "Prediction complete, preparing results..."
+        job.progress = 90
+        
+        # Verify output file exists
+        if not result_file_csv.exists():
+            raise Exception("Output file was not created")
+        
+        # Create XLSX version
+        try:
+            result_file_xlsx = convert_csv_to_xlsx(result_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = result_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(result_file_csv)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Vision-based ICD prediction completed successfully!"
+        
+        # Clean up input files
+        os.unlink(zip_path)
+        shutil.rmtree(temp_dir)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after vision-based ICD prediction")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Vision-based ICD prediction failed: {str(e)}"
+        logger.error(f"Vision-based ICD prediction job {job_id} failed: {str(e)}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 @app.post("/upload")
 async def upload_files(
     background_tasks: BackgroundTasks,
@@ -1404,6 +1504,49 @@ async def predict_cpt_from_pdfs(
         
     except Exception as e:
         logger.error(f"Vision-based CPT prediction upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/predict-icd-from-pdfs")
+async def predict_icd_from_pdfs(
+    background_tasks: BackgroundTasks,
+    zip_file: UploadFile = File(...),
+    n_pages: int = Form(default=1, ge=1, le=50),
+    model: str = Form(default="openai/gpt-5"),
+    max_workers: int = Form(default=5)
+):
+    """Upload a ZIP file containing PDFs to predict ICD codes using OpenAI vision model"""
+    
+    try:
+        logger.info(f"Received vision-based ICD prediction request - zip: {zip_file.filename}, pages: {n_pages}, model: {model}, workers: {max_workers}")
+        
+        # Validate file type
+        if not zip_file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created vision-based ICD prediction job {job_id}")
+        
+        # Save uploaded ZIP
+        zip_path = f"/tmp/{job_id}_icd_pdfs.zip"
+        
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        
+        logger.info(f"ZIP saved - path: {zip_path}")
+        
+        # Start background processing with vision model
+        background_tasks.add_task(predict_icd_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers)
+        
+        logger.info(f"Background vision-based ICD prediction task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": f"ZIP uploaded and OpenAI {model} vision ICD prediction started"}
+        
+    except Exception as e:
+        logger.error(f"Vision-based ICD prediction upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/split-pdf")

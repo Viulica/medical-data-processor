@@ -45,6 +45,13 @@
             🏥 Predict CPT Codes
           </button>
           <button
+            @click="activeTab = 'icd'"
+            :class="{ active: activeTab === 'icd' }"
+            class="tab-btn"
+          >
+            📋 Predict ICD Codes
+          </button>
+          <button
             @click="activeTab = 'uni'"
             :class="{ active: activeTab === 'uni' }"
             class="tab-btn"
@@ -1061,6 +1068,212 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ cptJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ICD Prediction Tab -->
+        <div v-if="activeTab === 'icd'" class="upload-section">
+          <div class="section-header">
+            <h2>ICD Code Prediction</h2>
+            <p>
+              Upload a ZIP file containing patient PDFs to predict ICD diagnosis
+              codes by analyzing PDF pages with AI vision. The AI will identify
+              up to 4 ICD codes sorted by relevance to the procedure.
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- ZIP File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>ZIP File with Patient PDFs</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isIcdZipDragActive,
+                  'has-file': icdZipFile,
+                }"
+                @drop="onIcdZipDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerIcdZipUpload"
+              >
+                <input
+                  ref="icdZipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onIcdZipFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📦</div>
+                  <div v-if="icdZipFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ icdZipFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(icdZipFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pages to Analyze -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Pages to Analyze</h3>
+              </div>
+              <div class="page-count-selector">
+                <label for="icd-page-count"
+                  >Number of PDF pages per patient:</label
+                >
+                <input
+                  id="icd-page-count"
+                  v-model.number="icdPageCount"
+                  type="number"
+                  min="1"
+                  max="50"
+                  class="page-input"
+                />
+                <p class="page-hint">
+                  AI will analyze the first N pages from each patient PDF (1-50)
+                </p>
+              </div>
+            </div>
+
+            <!-- How It Works -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How It Works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📦</span>
+                    <span>ZIP file should contain patient PDF documents</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📸</span>
+                    <span>GPT-5 will analyze PDF pages visually</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🏥</span>
+                    <span
+                      >Identifies primary diagnosis and related ICD codes</span
+                    >
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span
+                      >Predicts up to 4 ICD codes (ICD1, ICD2, ICD3, ICD4)
+                      sorted by relevance</span
+                    >
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🎯</span>
+                    <span
+                      >ICD1 is the primary diagnosis (main reason for
+                      procedure)</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startIcdPrediction"
+              :disabled="!canPredictIcd || isPredictingIcd"
+              class="process-btn"
+            >
+              <span v-if="isPredictingIcd" class="spinner"></span>
+              <span v-else class="btn-icon">📋</span>
+              {{
+                isPredictingIcd
+                  ? "Predicting ICD Codes..."
+                  : "Start ICD Prediction"
+              }}
+            </button>
+
+            <button
+              v-if="icdZipFile || icdJobId"
+              @click="resetIcdForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- ICD Prediction Status -->
+        <div v-if="icdJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="icdJobStatus.status">
+                <span class="status-icon">{{ getIcdStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getIcdStatusTitle() }}</h3>
+                <p class="status-message">{{ icdJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="icdJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${icdJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ icdJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkIcdJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="icdJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button @click="downloadIcdResults('csv')" class="download-btn">
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadIcdResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="icdJobStatus.status === 'failed' && icdJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ icdJobStatus.error }}</span>
               </div>
             </div>
           </div>
@@ -2227,6 +2440,13 @@ export default {
       visionZipFile: null,
       visionPageCount: 1,
       isVisionZipDragActive: false,
+      // ICD prediction functionality
+      icdZipFile: null,
+      icdPageCount: 1,
+      icdJobId: null,
+      icdJobStatus: null,
+      isPredictingIcd: false,
+      isIcdZipDragActive: false,
       // UNI conversion functionality
       uniCsvFile: null,
       uniJobId: null,
@@ -2316,6 +2536,11 @@ export default {
     },
     canPredictInsurance() {
       return this.insuranceDataCsv;
+    },
+    canPredictIcd() {
+      return (
+        this.icdZipFile && this.icdPageCount >= 1 && this.icdPageCount <= 50
+      );
     },
   },
   methods: {
@@ -3264,6 +3489,173 @@ export default {
           return "❌";
         case "processing":
           return "🏥";
+        default:
+          return "⏸️";
+      }
+    },
+
+    // ICD prediction methods
+    onIcdZipDrop(e) {
+      e.preventDefault();
+      this.isIcdZipDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith(".zip")) {
+        this.icdZipFile = files[0];
+        this.toast.success("PDF ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid ZIP file");
+      }
+    },
+
+    triggerIcdZipUpload() {
+      this.$refs.icdZipInput.click();
+    },
+
+    onIcdZipFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith(".zip")) {
+        this.icdZipFile = file;
+        this.toast.success("PDF ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid ZIP file");
+      }
+    },
+
+    async startIcdPrediction() {
+      if (!this.canPredictIcd) {
+        this.toast.error("Please upload a ZIP file containing PDFs");
+        return;
+      }
+
+      this.isPredictingIcd = true;
+      this.icdJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("zip_file", this.icdZipFile);
+      formData.append("n_pages", this.icdPageCount);
+      formData.append("model", "openai/gpt-5");
+      formData.append("max_workers", "5");
+
+      const uploadUrl = joinUrl(API_BASE_URL, "predict-icd-from-pdfs");
+      console.log("🔧 ICD Upload URL:", uploadUrl, "Pages:", this.icdPageCount);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.icdJobId = response.data.job_id;
+        this.toast.success(
+          "ICD prediction started! Check the status section below."
+        );
+
+        // Set initial status
+        this.icdJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "ICD prediction started...",
+        };
+      } catch (error) {
+        console.error("ICD prediction error:", error);
+        this.toast.error("Failed to start ICD prediction. Please try again.");
+        this.isPredictingIcd = false;
+      }
+    },
+
+    async checkIcdJobStatus() {
+      if (!this.icdJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.icdJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.icdJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("ICD prediction completed!");
+          this.isPredictingIcd = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `ICD prediction failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isPredictingIcd = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadIcdResults(format = "csv") {
+      if (!this.icdJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.icdJobId}?format=${format}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute(
+          "download",
+          `icd_predictions_${this.icdJobId}.${ext}`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetIcdForm() {
+      this.icdZipFile = null;
+      this.icdPageCount = 1;
+      this.icdJobId = null;
+      this.icdJobStatus = null;
+      this.isPredictingIcd = false;
+      this.isIcdZipDragActive = false;
+    },
+
+    getIcdStatusTitle() {
+      if (!this.icdJobStatus) return "";
+
+      switch (this.icdJobStatus.status) {
+        case "completed":
+          return "ICD Prediction Complete";
+        case "failed":
+          return "ICD Prediction Failed";
+        case "processing":
+          return "Predicting ICD Codes";
+        default:
+          return "ICD Prediction Status";
+      }
+    },
+
+    getIcdStatusIcon() {
+      if (!this.icdJobStatus) return "";
+
+      switch (this.icdJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "📋";
         default:
           return "⏸️";
       }
