@@ -752,144 +752,6 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     return '|'.join(fixed_entries)
 
 
-def get_desired_column_order():
-    """
-    Returns the desired column order for the output CSV.
-    Fields are ordered according to the specification provided.
-    Only fields that are actually output by the conversion script are included.
-    """
-    return [
-        "Charge Date",
-        "Patient Last Name",
-        "Patient First Name",
-        "Patient Middle Name",
-        "Patient DOB",
-        "Patient Marital Status",
-        "Patient Sex",
-        "Patient EmploymentStatus",
-        "Patient Street Address",
-        "Patient City",
-        "Patient State",
-        "Patient ZIP Code",
-        "Patient HomePhone",
-        "Patient WorkPhone",
-        "Patient CellPhone",
-        "Patient E-mail Address",
-        "Patient Employer",
-        "Patient MRN",
-        "Case #",
-        "Patient Race",
-        "Patient SSN",
-        "Guarantor Relation",
-        "Guarantor First Name",
-        "Guarantor Last Name",
-        "Guarantor Middle Name",
-        "Guarantor DOB",
-        "Guarantor Address",
-        "Guarantor City",
-        "Guarantor State",
-        "Guarantor ZIP",
-        "Procedure Description",
-        "Location",
-        "PatientClass",
-        "Surgeon",
-        "Referring",
-        "Responsible Provider",
-        "MD",
-        "CRNA",
-        "SRNA",
-        "Locum",
-        "Resident",
-        "Revenue",
-        "Concurrent Providers",
-        "Place Of Service",
-        "Type Of Service",
-        "ICD1",
-        "ICD2",
-        "ICD3",
-        "ICD4",
-        "POST-OP DIAGNOSIS",
-        "An Start",
-        "An Stop",
-        "Anesthesia Type",
-        "M1",
-        "M2",
-        "M3",
-        "M4",
-        "Physical Status",
-        "Admit Date",
-        "Discharge Date",
-        "Notes",
-        "Primary Cvg Mem Rel to Sub",
-        "Primary Mednet Code",
-        "Primary Company Name",
-        "Primary Company Address 1",
-        "Primary Company City",
-        "Primary Company State",
-        "Primary Company ZIP",
-        "Primary Sub ID",
-        "Primary Sub Name",
-        "Primary Sub DOB",
-        "Primary Sub Gender",
-        "Primary Sub Group Num",
-        "Primary Sub Auth Num",
-        "Secondary Cvg Mem Rel to Sub",
-        "Secondary Mednet Code",
-        "Secondary Company Name",
-        "Secondary Company Address 1",
-        "Secondary Company City",
-        "Secondary Company State",
-        "Secondary Company ZIP",
-        "Secondary Sub ID",
-        "Secondary Sub Name",
-        "Secondary Sub DOB",
-        "Secondary Sub Gender",
-        "Secondary Sub Group Num",
-        "Secondary Auth Num",
-        "Tertiary Cvg Mem Rel to Sub",
-        "Tertiary Mednet Code",
-        "Tertiary Company Name",
-        "Tertiary Company Address 1",
-        "Tertiary Company City",
-        "Tertiary Company State",
-        "Tertiary Company ZIP",
-        "Tertiary Sub ID",
-        "Tertiary Sub Name",
-        "Tertiary Sub DOB",
-        "Tertiary Sub Gender",
-        "Tertiary Sub Group",
-        "Tertiary Sub Auth Num",
-        "EhrPath",
-        "Local",
-    ]
-
-
-def reorder_dataframe_columns(df, desired_order):
-    """
-    Reorder DataFrame columns according to desired order.
-    Columns in desired_order that exist in df are placed first in that order.
-    Columns in df that are not in desired_order are appended at the end.
-    
-    Args:
-        df: pandas DataFrame to reorder
-        desired_order: List of column names in desired order
-    
-    Returns:
-        DataFrame with reordered columns
-    """
-    # Get columns that exist in both df and desired_order
-    existing_ordered_cols = [col for col in desired_order if col in df.columns]
-    
-    # Get columns that exist in df but not in desired_order
-    other_cols = [col for col in df.columns if col not in desired_order]
-    
-    # Combine: ordered columns first, then other columns
-    final_column_order = existing_ordered_cols + other_cols
-    
-    # Reorder the DataFrame
-    return df[final_column_order]
-
-
 def get_header_mapping():
     """
     Returns the hardcoded header mapping from old headers to new headers.
@@ -1468,7 +1330,7 @@ def convert_data(input_file, output_file=None):
                     # Patient Class: take first word, add "hospital", and capitalize
                     if pd.isna(value) or not value:
                         new_row[new_header] = ""
-                        new_row["Place Of Service"] = ""
+                        new_row["Place of Service"] = ""
                     else:
                         value_str = str(value).strip()
                         # Get first word (split by space or dash)
@@ -1638,10 +1500,6 @@ def convert_data(input_file, output_file=None):
         result_df = result_df.astype(str)
         # Replace any remaining 'nan' strings with empty strings
         result_df = result_df.replace('nan', '')
-        
-        # Reorder columns according to desired order
-        desired_order = get_desired_column_order()
-        result_df = reorder_dataframe_columns(result_df, desired_order)
         
         # Save to output file(s)
         if output_file is None:
