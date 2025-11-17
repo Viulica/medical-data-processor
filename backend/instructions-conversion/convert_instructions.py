@@ -41,6 +41,8 @@ def get_output_columns():
         "Patient Employer",
         "Patient MRN",
         "Case #",
+        "Patient Race",
+        "Patient SSN",
         "Guarantor Relation",
         "Guarantor First Name",
         "Guarantor Last Name",
@@ -51,25 +53,38 @@ def get_output_columns():
         "Guarantor State",
         "Guarantor ZIP",
         "Procedure Description",
+        "Location",
+        "PatientClass",
         "Surgeon",
         "Referring",
         "Responsible Provider",
         "MD",
         "CRNA",
         "SRNA",
+        "Locum",
         "Resident",
+        "Revenue",
         "Concurrent Providers",
-        "Physical Status",
+        "Place Of Service",
+        "Type Of Service",
         "ICD1",
         "ICD2",
         "ICD3",
         "ICD4",
+        "POST-OP DIAGNOSIS",
         "An Start",
         "An Stop",
         "Anesthesia Type",
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "Physical Status",
         "Admit Date",
         "Discharge Date",
+        "Notes",
         "Primary Cvg Mem Rel to Sub",
+        "Primary Mednet Code",
         "Primary Company Name",
         "Primary Company Address 1",
         "Primary Company City",
@@ -82,6 +97,7 @@ def get_output_columns():
         "Primary Sub Group Num",
         "Primary Sub Auth Num",
         "Secondary Cvg Mem Rel to Sub",
+        "Secondary Mednet Code",
         "Secondary Company Name",
         "Secondary Company Address 1",
         "Secondary Company City",
@@ -94,6 +110,7 @@ def get_output_columns():
         "Secondary Sub Group Num",
         "Secondary Auth Num",
         "Tertiary Cvg Mem Rel to Sub",
+        "Tertiary Mednet Code",
         "Tertiary Company Name",
         "Tertiary Company Address 1",
         "Tertiary Company City",
@@ -104,7 +121,9 @@ def get_output_columns():
         "Tertiary Sub DOB",
         "Tertiary Sub Gender",
         "Tertiary Sub Group",
-        "Tertiary Sub Auth Num"
+        "Tertiary Sub Auth Num",
+        "EhrPath",
+        "Local"
     ]
 
 
@@ -311,6 +330,26 @@ def add_manual_descriptions(new_row, row_idx):
         new_row["Tertiary Company ZIP"] = "zip code of the tertiary insurance"
         new_row["Tertiary Sub Group"] = "group number of tertiary insurance"
         new_row["Tertiary Sub Auth Num"] = "always leave empty string!!"
+        # New fields with blank instructions
+        new_row["Patient Race"] = ""
+        new_row["Patient SSN"] = ""
+        new_row["Location"] = ""
+        new_row["PatientClass"] = ""
+        new_row["Locum"] = ""
+        new_row["Revenue"] = ""
+        new_row["Place Of Service"] = ""
+        new_row["Type Of Service"] = ""
+        new_row["POST-OP DIAGNOSIS"] = ""
+        new_row["M1"] = ""
+        new_row["M2"] = ""
+        new_row["M3"] = ""
+        new_row["M4"] = ""
+        new_row["Notes"] = ""
+        new_row["Primary Mednet Code"] = ""
+        new_row["Secondary Mednet Code"] = ""
+        new_row["Tertiary Mednet Code"] = ""
+        new_row["EhrPath"] = ""
+        new_row["Local"] = ""
         # Clear Patient WorkPhone and other fields for row 2
         new_row["Patient WorkPhone"] = ""
         
@@ -367,6 +406,26 @@ def add_manual_descriptions(new_row, row_idx):
         new_row["Tertiary Sub Group"] = ""
         new_row["Tertiary Sub Auth Num"] = ""
         new_row["Patient WorkPhone"] = ""
+        # Clear new fields
+        new_row["Patient Race"] = ""
+        new_row["Patient SSN"] = ""
+        new_row["Location"] = ""
+        new_row["PatientClass"] = ""
+        new_row["Locum"] = ""
+        new_row["Revenue"] = ""
+        new_row["Place Of Service"] = ""
+        new_row["Type Of Service"] = ""
+        new_row["POST-OP DIAGNOSIS"] = ""
+        new_row["M1"] = ""
+        new_row["M2"] = ""
+        new_row["M3"] = ""
+        new_row["M4"] = ""
+        new_row["Notes"] = ""
+        new_row["Primary Mednet Code"] = ""
+        new_row["Secondary Mednet Code"] = ""
+        new_row["Tertiary Mednet Code"] = ""
+        new_row["EhrPath"] = ""
+        new_row["Local"] = ""
         
     elif row_idx == 2:  # Third data row (row 4 in CSV) - CLEAR ALL TEXT
         new_row["Patient Last Name"] = ""
@@ -421,6 +480,26 @@ def add_manual_descriptions(new_row, row_idx):
         new_row["Tertiary Sub Group"] = ""
         new_row["Tertiary Sub Auth Num"] = ""
         new_row["Patient WorkPhone"] = ""
+        # Clear new fields
+        new_row["Patient Race"] = ""
+        new_row["Patient SSN"] = ""
+        new_row["Location"] = ""
+        new_row["PatientClass"] = ""
+        new_row["Locum"] = ""
+        new_row["Revenue"] = ""
+        new_row["Place Of Service"] = ""
+        new_row["Type Of Service"] = ""
+        new_row["POST-OP DIAGNOSIS"] = ""
+        new_row["M1"] = ""
+        new_row["M2"] = ""
+        new_row["M3"] = ""
+        new_row["M4"] = ""
+        new_row["Notes"] = ""
+        new_row["Primary Mednet Code"] = ""
+        new_row["Secondary Mednet Code"] = ""
+        new_row["Tertiary Mednet Code"] = ""
+        new_row["EhrPath"] = ""
+        new_row["Local"] = ""
 
 
 def add_additions_data(new_row, row_idx, additions_df):
