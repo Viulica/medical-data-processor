@@ -57,7 +57,7 @@ def ensure_csv_file(input_file_path: str, output_file_path: str = None) -> str:
     # Unknown format
     raise Exception(f"Unsupported file format: {input_path.suffix}")
 
-def kill_process_tree(process):
+adef kill_process_tree(process):
     """Kill a process and all its children"""
     try:
         import psutil
@@ -103,7 +103,7 @@ try:
     from pathlib import Path
     import subprocess
     import json
-    from typing import List
+    from typing import List, Optional
     logger.info("✅ Standard library modules imported successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import standard library module: {e}")
@@ -1000,7 +1000,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5, custom_instructions: str = None):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1058,7 +1058,8 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
             model=model,
             api_key=api_key,
             max_workers=max_workers,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            custom_instructions=custom_instructions
         )
         
         if not success:
@@ -1100,7 +1101,7 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         # Clean up memory even on failure
         gc.collect()
 
-def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5):
+def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5, custom_instructions: str = None):
     """Background task to predict ICD codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1158,7 +1159,8 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
             model=model,
             api_key=api_key,
             max_workers=max_workers,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            custom_instructions=custom_instructions
         )
         
         if not success:
@@ -1533,7 +1535,8 @@ async def predict_cpt_from_pdfs(
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5"),
-    max_workers: int = Form(default=5)
+    max_workers: int = Form(default=5),
+    custom_instructions: Optional[str] = Form(default=None)
 ):
     """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""
     
@@ -1560,7 +1563,7 @@ async def predict_cpt_from_pdfs(
         logger.info(f"ZIP saved - path: {zip_path}")
         
         # Start background processing with vision model
-        background_tasks.add_task(predict_cpt_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers)
+        background_tasks.add_task(predict_cpt_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers, custom_instructions)
         
         logger.info(f"Background vision-based CPT prediction task started for job {job_id}")
         
@@ -1576,7 +1579,8 @@ async def predict_icd_from_pdfs(
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5"),
-    max_workers: int = Form(default=5)
+    max_workers: int = Form(default=5),
+    custom_instructions: Optional[str] = Form(default=None)
 ):
     """Upload a ZIP file containing PDFs to predict ICD codes using OpenAI vision model"""
     
@@ -1603,7 +1607,7 @@ async def predict_icd_from_pdfs(
         logger.info(f"ZIP saved - path: {zip_path}")
         
         # Start background processing with vision model
-        background_tasks.add_task(predict_icd_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers)
+        background_tasks.add_task(predict_icd_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers, custom_instructions)
         
         logger.info(f"Background vision-based ICD prediction task started for job {job_id}")
         

@@ -852,6 +852,35 @@
               </div>
             </div>
 
+            <!-- Custom Instructions for Vision Mode -->
+            <div v-if="useVisionPrediction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>Custom Coding Instructions</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label
+                    for="cpt-vision-custom-instructions"
+                    class="form-label"
+                  >
+                    Additional instructions for CPT code prediction (optional):
+                  </label>
+                  <textarea
+                    id="cpt-vision-custom-instructions"
+                    v-model="cptVisionCustomInstructions"
+                    class="form-textarea"
+                    rows="4"
+                    placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
+                  ></textarea>
+                  <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                    These instructions will be appended to the AI prompt for all
+                    predictions in this batch.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <!-- Client Selection -->
             <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
@@ -1149,10 +1178,36 @@
               </div>
             </div>
 
-            <!-- How It Works -->
+            <!-- Custom Instructions for ICD -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Custom Coding Instructions</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label for="icd-custom-instructions" class="form-label">
+                    Additional instructions for ICD code prediction (optional):
+                  </label>
+                  <textarea
+                    id="icd-custom-instructions"
+                    v-model="icdCustomInstructions"
+                    class="form-textarea"
+                    rows="4"
+                    placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
+                  ></textarea>
+                  <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                    These instructions will be appended to the AI prompt for all
+                    predictions in this batch.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- How It Works -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>How It Works</h3>
               </div>
               <div class="settings-content">
@@ -2443,6 +2498,7 @@ export default {
       visionZipFile: null,
       visionPageCount: 1,
       isVisionZipDragActive: false,
+      cptVisionCustomInstructions: "",
       // ICD prediction functionality
       icdZipFile: null,
       icdPageCount: 1,
@@ -2450,6 +2506,7 @@ export default {
       icdJobStatus: null,
       isPredictingIcd: false,
       isIcdZipDragActive: false,
+      icdCustomInstructions: "",
       // UNI conversion functionality
       uniCsvFile: null,
       uniJobId: null,
@@ -3307,6 +3364,15 @@ export default {
         formData.append("n_pages", this.visionPageCount);
         formData.append("model", "openai/gpt-5");
         formData.append("max_workers", "5");
+        if (
+          this.cptVisionCustomInstructions &&
+          this.cptVisionCustomInstructions.trim()
+        ) {
+          formData.append(
+            "custom_instructions",
+            this.cptVisionCustomInstructions.trim()
+          );
+        }
         console.log(
           "🔧 CPT Vision Upload URL:",
           uploadUrl,
@@ -3421,6 +3487,7 @@ export default {
       this.visionZipFile = null;
       this.useVisionPrediction = false;
       this.visionPageCount = 1;
+      this.cptVisionCustomInstructions = "";
       this.cptJobId = null;
       this.cptJobStatus = null;
       this.isPredictingCpt = false;
@@ -3547,6 +3614,12 @@ export default {
       formData.append("n_pages", this.icdPageCount);
       formData.append("model", "openai/gpt-5");
       formData.append("max_workers", "5");
+      if (this.icdCustomInstructions && this.icdCustomInstructions.trim()) {
+        formData.append(
+          "custom_instructions",
+          this.icdCustomInstructions.trim()
+        );
+      }
 
       const uploadUrl = joinUrl(API_BASE_URL, "predict-icd-from-pdfs");
       console.log("🔧 ICD Upload URL:", uploadUrl, "Pages:", this.icdPageCount);
@@ -3637,6 +3710,7 @@ export default {
     resetIcdForm() {
       this.icdZipFile = null;
       this.icdPageCount = 1;
+      this.icdCustomInstructions = "";
       this.icdJobId = null;
       this.icdJobStatus = null;
       this.isPredictingIcd = false;

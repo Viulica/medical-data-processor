@@ -151,7 +151,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5:online", api_key=None):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
     """
     Predict ASA code using OpenRouter API from PDF page images
     
@@ -160,6 +160,7 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
         cpt_codes_text: Reference text containing all valid CPT codes
         model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
         api_key: OpenRouter API key
+        custom_instructions: Optional custom instructions to append to the prompt
     
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
@@ -206,6 +207,10 @@ IMPORTANT: Look at the document images carefully to identify:
 Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
 
 Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
+    
+    # Append custom instructions if provided
+    if custom_instructions and custom_instructions.strip():
+        prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
 
     # Build content list with text prompt first, then images (OpenRouter format)
     content = [
@@ -374,7 +379,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", api_key=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
     """
     Predict ICD codes using OpenRouter API from PDF page images
     
@@ -382,6 +387,7 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", 
         image_data_list: List of base64 encoded image strings
         model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
         api_key: OpenRouter API key
+        custom_instructions: Optional custom instructions to append to the prompt
     
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
@@ -430,6 +436,10 @@ Example response:
 }
 
 Respond with ONLY the JSON object, nothing else."""
+    
+    # Append custom instructions if provided
+    if custom_instructions and custom_instructions.strip():
+        prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
 
     # Build content list with text prompt first, then images (OpenRouter format)
     content = [
@@ -814,7 +824,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
     
@@ -826,6 +836,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
+        custom_instructions: Optional custom instructions to append to the prompt
     
     Returns:
         bool: True if successful, False otherwise
@@ -886,7 +897,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                 
                 # Predict ASA code from images
                 predicted_code, tokens, cost, error = predict_asa_code_from_images(
-                    image_data_list, cpt_codes_text, model, api_key
+                    image_data_list, cpt_codes_text, model, api_key, custom_instructions
                 )
                 
                 # If prediction failed, use error message
@@ -968,7 +979,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
     
@@ -980,6 +991,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
+        custom_instructions: Optional custom instructions to append to the prompt
     
     Returns:
         bool: True if successful, False otherwise
@@ -1036,7 +1048,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 
                 # Predict ICD codes from images
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
-                    image_data_list, model, api_key
+                    image_data_list, model, api_key, custom_instructions
                 )
                 
                 # If prediction failed, use error message
