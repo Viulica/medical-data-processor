@@ -20,6 +20,43 @@ logger = logging.getLogger(__name__)
 # Import export utilities
 from export_utils import save_dataframe_dual_format, convert_csv_to_xlsx
 
+def ensure_csv_file(input_file_path: str, output_file_path: str = None) -> str:
+    """
+    Convert XLSX/XLS file to CSV if needed, or return the CSV path as-is.
+    
+    Args:
+        input_file_path: Path to input file (CSV, XLSX, or XLS)
+        output_file_path: Optional output path. If not provided, uses input path with .csv extension
+    
+    Returns:
+        str: Path to CSV file (either original or converted)
+    """
+    import pandas as pd
+    
+    input_path = Path(input_file_path)
+    
+    # If already CSV, return as-is
+    if input_path.suffix.lower() == '.csv':
+        return str(input_path)
+    
+    # If XLSX or XLS, convert to CSV
+    if input_path.suffix.lower() in ('.xlsx', '.xls'):
+        if output_file_path is None:
+            output_file_path = str(input_path.with_suffix('.csv'))
+        
+        try:
+            # Read Excel file
+            df = pd.read_excel(input_file_path, dtype=str)
+            # Save as CSV
+            df.to_csv(output_file_path, index=False)
+            logger.info(f"Converted {input_file_path} to {output_file_path}")
+            return output_file_path
+        except Exception as e:
+            raise Exception(f"Failed to convert Excel file to CSV: {str(e)}")
+    
+    # Unknown format
+    raise Exception(f"Unsupported file format: {input_path.suffix}")
+
 def kill_process_tree(process):
     """Kill a process and all its children"""
     try:
@@ -1345,14 +1382,14 @@ async def predict_cpt(
     csv_file: UploadFile = File(...),
     client: str = Form(default="uni")
 ):
-    """Upload a CSV file to predict CPT codes for procedures"""
+    """Upload a CSV or XLSX file to predict CPT codes for procedures"""
     
     try:
-        logger.info(f"Received CPT prediction request - csv: {csv_file.filename}, client: {client}")
+        logger.info(f"Received CPT prediction request - file: {csv_file.filename}, client: {client}")
         
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1361,20 +1398,29 @@ async def predict_cpt(
         
         logger.info(f"Created CPT prediction job {job_id}")
         
-        # Save uploaded CSV
-        csv_path = f"/tmp/{job_id}_input.csv"
+        # Save uploaded file
+        input_path = f"/tmp/{job_id}_input{Path(csv_file.filename).suffix}"
         
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
         
-        logger.info(f"CSV saved - path: {csv_path}")
+        logger.info(f"File saved - path: {input_path}")
+        
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_input.csv")
+        
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        
+        logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
         background_tasks.add_task(predict_cpt_background, job_id, csv_path, client)
         
         logger.info(f"Background CPT prediction task started for job {job_id}")
         
-        return {"job_id": job_id, "message": "CSV uploaded and CPT prediction started"}
+        return {"job_id": job_id, "message": "File uploaded and CPT prediction started"}
         
     except Exception as e:
         logger.error(f"CPT prediction upload error: {str(e)}")
@@ -1386,14 +1432,14 @@ async def predict_cpt_custom(
     csv_file: UploadFile = File(...),
     confidence_threshold: float = Form(default=0.5)
 ):
-    """Upload a CSV file to predict CPT codes using custom TAN-ESC model"""
+    """Upload a CSV or XLSX file to predict CPT codes using custom TAN-ESC model"""
     
     try:
-        logger.info(f"Received custom model CPT prediction request - csv: {csv_file.filename}, threshold: {confidence_threshold}")
+        logger.info(f"Received custom model CPT prediction request - file: {csv_file.filename}, threshold: {confidence_threshold}")
         
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1402,20 +1448,29 @@ async def predict_cpt_custom(
         
         logger.info(f"Created custom model CPT prediction job {job_id}")
         
-        # Save uploaded CSV
-        csv_path = f"/tmp/{job_id}_custom_input.csv"
+        # Save uploaded file
+        input_path = f"/tmp/{job_id}_custom_input{Path(csv_file.filename).suffix}"
         
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
         
-        logger.info(f"CSV saved - path: {csv_path}")
+        logger.info(f"File saved - path: {input_path}")
+        
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_custom_input.csv")
+        
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        
+        logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing with custom model
         background_tasks.add_task(predict_cpt_custom_background, job_id, csv_path, confidence_threshold)
         
         logger.info(f"Background custom model CPT prediction task started for job {job_id}")
         
-        return {"job_id": job_id, "message": "CSV uploaded and TAN-ESC prediction started"}
+        return {"job_id": job_id, "message": "File uploaded and TAN-ESC prediction started"}
         
     except Exception as e:
         logger.error(f"Custom model CPT prediction upload error: {str(e)}")
@@ -1428,14 +1483,14 @@ async def predict_cpt_general(
     model: str = Form(default="gpt5"),
     max_workers: int = Form(default=5)
 ):
-    """Upload a CSV file to predict CPT codes using OpenAI general model"""
+    """Upload a CSV or XLSX file to predict CPT codes using OpenAI general model"""
     
     try:
-        logger.info(f"Received general model CPT prediction request - csv: {csv_file.filename}, model: {model}, workers: {max_workers}")
+        logger.info(f"Received general model CPT prediction request - file: {csv_file.filename}, model: {model}, workers: {max_workers}")
         
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1444,20 +1499,29 @@ async def predict_cpt_general(
         
         logger.info(f"Created general model CPT prediction job {job_id}")
         
-        # Save uploaded CSV
-        csv_path = f"/tmp/{job_id}_general_input.csv"
+        # Save uploaded file
+        input_path = f"/tmp/{job_id}_general_input{Path(csv_file.filename).suffix}"
         
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
         
-        logger.info(f"CSV saved - path: {csv_path}")
+        logger.info(f"File saved - path: {input_path}")
+        
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_general_input.csv")
+        
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        
+        logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing with general model
         background_tasks.add_task(predict_cpt_general_background, job_id, csv_path, model, max_workers)
         
         logger.info(f"Background general model CPT prediction task started for job {job_id}")
         
-        return {"job_id": job_id, "message": f"CSV uploaded and OpenAI {model} prediction started"}
+        return {"job_id": job_id, "message": f"File uploaded and OpenAI {model} prediction started"}
         
     except Exception as e:
         logger.error(f"General model CPT prediction upload error: {str(e)}")
@@ -2069,14 +2133,14 @@ async def convert_uni(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...)
 ):
-    """Upload a UNI CSV file to convert using the conversion script"""
+    """Upload a UNI CSV or XLSX file to convert using the conversion script"""
     
     try:
-        logger.info(f"Received UNI conversion request - csv: {csv_file.filename}")
+        logger.info(f"Received UNI conversion request - file: {csv_file.filename}")
         
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -2085,20 +2149,29 @@ async def convert_uni(
         
         logger.info(f"Created UNI conversion job {job_id}")
         
-        # Save uploaded CSV
-        csv_path = f"/tmp/{job_id}_uni_input.csv"
+        # Save uploaded file
+        input_path = f"/tmp/{job_id}_uni_input{Path(csv_file.filename).suffix}"
         
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
         
-        logger.info(f"UNI CSV saved - path: {csv_path}")
+        logger.info(f"File saved - path: {input_path}")
+        
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_uni_input.csv")
+        
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        
+        logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
         background_tasks.add_task(convert_uni_background, job_id, csv_path)
         
         logger.info(f"Background UNI conversion task started for job {job_id}")
         
-        return {"job_id": job_id, "message": "UNI CSV uploaded and conversion started"}
+        return {"job_id": job_id, "message": "UNI file uploaded and conversion started"}
         
     except Exception as e:
         logger.error(f"UNI conversion upload error: {str(e)}")
@@ -2151,20 +2224,20 @@ async def generate_modifiers_route(
     turn_off_medical_direction: bool = Form(False),
     generate_qk_duplicate: bool = Form(False)
 ):
-    """Upload a CSV file to generate medical modifiers
+    """Upload a CSV or XLSX file to generate medical modifiers
     
     Args:
-        csv_file: CSV file with billing data
+        csv_file: CSV or XLSX file with billing data
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
     """
     
     try:
-        logger.info(f"Received modifiers generation request - csv: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}")
+        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}")
         
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -2173,13 +2246,22 @@ async def generate_modifiers_route(
         
         logger.info(f"Created modifiers generation job {job_id}")
         
-        # Save uploaded CSV
-        csv_path = f"/tmp/{job_id}_modifiers_input.csv"
+        # Save uploaded file
+        input_path = f"/tmp/{job_id}_modifiers_input{Path(csv_file.filename).suffix}"
         
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
         
-        logger.info(f"CSV saved - path: {csv_path}")
+        logger.info(f"File saved - path: {input_path}")
+        
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_modifiers_input.csv")
+        
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        
+        logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
         background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate)
@@ -2187,7 +2269,7 @@ async def generate_modifiers_route(
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
-        return {"job_id": job_id, "message": f"CSV uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}"}
+        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
@@ -2200,17 +2282,17 @@ async def predict_insurance_codes(
     special_cases_csv: UploadFile = File(None),
     enable_ai: bool = Form(True)
 ):
-    """Upload data CSV and optional special cases CSV to predict MedNet codes"""
+    """Upload data CSV/XLSX and optional special cases CSV/XLSX to predict MedNet codes"""
     
     try:
         logger.info(f"Received insurance code prediction request - data: {data_csv.filename}, AI enabled: {enable_ai}")
         
         # Validate file type
-        if not data_csv.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="Data file must be a CSV")
+        if not data_csv.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Data file must be a CSV or XLSX")
         
-        if special_cases_csv and not special_cases_csv.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="Special cases file must be a CSV")
+        if special_cases_csv and not special_cases_csv.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Special cases file must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -2219,28 +2301,46 @@ async def predict_insurance_codes(
         
         logger.info(f"Created insurance prediction job {job_id}")
         
-        # Save uploaded data CSV
-        data_csv_path = f"/tmp/{job_id}_data_input.csv"
+        # Save uploaded data file
+        data_input_path = f"/tmp/{job_id}_data_input{Path(data_csv.filename).suffix}"
         
-        with open(data_csv_path, "wb") as f:
+        with open(data_input_path, "wb") as f:
             shutil.copyfileobj(data_csv.file, f)
         
-        logger.info(f"Data CSV saved - path: {data_csv_path}")
+        logger.info(f"Data file saved - path: {data_input_path}")
         
-        # Save special cases CSV if provided
+        # Convert to CSV if needed
+        data_csv_path = ensure_csv_file(data_input_path, f"/tmp/{job_id}_data_input.csv")
+        
+        # Clean up original file if it was converted
+        if data_csv_path != data_input_path and os.path.exists(data_input_path):
+            os.unlink(data_input_path)
+        
+        logger.info(f"Data CSV ready - path: {data_csv_path}")
+        
+        # Save special cases file if provided
         special_cases_csv_path = None
         if special_cases_csv:
-            special_cases_csv_path = f"/tmp/{job_id}_special_cases.csv"
-            with open(special_cases_csv_path, "wb") as f:
+            special_cases_input_path = f"/tmp/{job_id}_special_cases{Path(special_cases_csv.filename).suffix}"
+            with open(special_cases_input_path, "wb") as f:
                 shutil.copyfileobj(special_cases_csv.file, f)
-            logger.info(f"Special cases CSV saved - path: {special_cases_csv_path}")
+            logger.info(f"Special cases file saved - path: {special_cases_input_path}")
+            
+            # Convert to CSV if needed
+            special_cases_csv_path = ensure_csv_file(special_cases_input_path, f"/tmp/{job_id}_special_cases.csv")
+            
+            # Clean up original file if it was converted
+            if special_cases_csv_path != special_cases_input_path and os.path.exists(special_cases_input_path):
+                os.unlink(special_cases_input_path)
+            
+            logger.info(f"Special cases CSV ready - path: {special_cases_csv_path}")
         
         # Start background processing
         background_tasks.add_task(predict_insurance_codes_background, job_id, data_csv_path, special_cases_csv_path, enable_ai)
         
         logger.info(f"Background insurance prediction task started for job {job_id} with AI: {enable_ai}")
         
-        return {"job_id": job_id, "message": "CSV uploaded and insurance code prediction started"}
+        return {"job_id": job_id, "message": "File uploaded and insurance code prediction started"}
         
     except Exception as e:
         logger.error(f"Insurance prediction upload error: {str(e)}")

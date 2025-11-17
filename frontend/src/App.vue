@@ -711,8 +711,8 @@
           <div class="section-header">
             <h2>CPT Code Prediction</h2>
             <p v-if="!useVisionPrediction">
-              Upload a CSV file with a 'Procedure Description' column to predict
-              anesthesia CPT codes using AI
+              Upload a CSV or XLSX file with a 'Procedure Description' column to
+              predict anesthesia CPT codes using AI
             </p>
             <p v-else>
               Upload a ZIP file containing patient PDFs to predict anesthesia
@@ -752,7 +752,7 @@
             <div v-if="!useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
-                <h3>CSV File with Procedures</h3>
+                <h3>CSV/XLSX File with Procedures</h3>
               </div>
               <div
                 class="dropzone"
@@ -768,7 +768,7 @@
                 <input
                   ref="csvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onCsvFileSelect"
                   style="display: none"
                 />
@@ -782,7 +782,7 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop CSV file here<br />or click to browse
+                    Drag & drop CSV or XLSX file here<br />or click to browse
                   </p>
                 </div>
               </div>
@@ -1284,8 +1284,8 @@
           <div class="section-header">
             <h2>UNI CSV Conversion</h2>
             <p>
-              Upload a UNI CSV file to convert it using the automated conversion
-              script
+              Upload a UNI CSV or XLSX file to convert it using the automated
+              conversion script
             </p>
           </div>
 
@@ -1294,7 +1294,7 @@
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
-                <h3>UNI CSV File</h3>
+                <h3>UNI CSV/XLSX File</h3>
               </div>
               <div
                 class="dropzone"
@@ -1310,7 +1310,7 @@
                 <input
                   ref="uniCsvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onUniCsvFileSelect"
                   style="display: none"
                 />
@@ -1324,7 +1324,8 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop UNI CSV file here<br />or click to browse
+                    Drag & drop UNI CSV or XLSX file here<br />or click to
+                    browse
                   </p>
                 </div>
               </div>
@@ -1632,8 +1633,8 @@
           <div class="section-header">
             <h2>Medical Modifiers Generation</h2>
             <p>
-              Upload a CSV file with billing data to automatically generate
-              medical modifiers based on provider information
+              Upload a CSV or XLSX file with billing data to automatically
+              generate medical modifiers based on provider information
             </p>
           </div>
 
@@ -1642,7 +1643,7 @@
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
-                <h3>Billing CSV File</h3>
+                <h3>Billing CSV/XLSX File</h3>
               </div>
               <div
                 class="dropzone"
@@ -1658,7 +1659,7 @@
                 <input
                   ref="modifiersCsvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onModifiersCsvFileSelect"
                   style="display: none"
                 />
@@ -1895,7 +1896,7 @@
                 <input
                   ref="insuranceDataCsvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onInsuranceDataCsvFileSelect"
                   style="display: none"
                 />
@@ -1909,13 +1910,14 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop insurance data CSV<br />or click to browse
+                    Drag & drop insurance data CSV or XLSX<br />or click to
+                    browse
                   </p>
                 </div>
               </div>
               <div class="field-info">
                 <p class="info-text">
-                  ℹ️ CSV must contain: <strong>Primary Company Name</strong>,
+                  ℹ️ File must contain: <strong>Primary Company Name</strong>,
                   <strong>Primary Company Address 1</strong> (and optionally
                   Secondary/Tertiary equivalents)
                 </p>
@@ -1942,7 +1944,7 @@
                 <input
                   ref="specialCasesCsvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onSpecialCasesCsvFileSelect"
                   style="display: none"
                 />
@@ -1956,13 +1958,14 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Optional: Upload special cases<br />or skip to use defaults
+                    Optional: Upload special cases CSV or XLSX<br />or skip to
+                    use defaults
                   </p>
                 </div>
               </div>
               <div class="field-info">
                 <p class="info-text">
-                  ℹ️ Optional CSV with custom mappings. Must contain:
+                  ℹ️ Optional CSV or XLSX with custom mappings. Must contain:
                   <strong>Company name</strong>, <strong>Mednet code</strong>
                 </p>
               </div>
@@ -2544,6 +2547,15 @@ export default {
     },
   },
   methods: {
+    isValidCsvOrXlsxFile(filename) {
+      if (!filename) return false;
+      const lower = filename.toLowerCase();
+      return (
+        lower.endsWith(".csv") ||
+        lower.endsWith(".xlsx") ||
+        lower.endsWith(".xls")
+      );
+    },
     formatFileSize(bytes) {
       if (bytes === 0) return "0 Bytes";
       const k = 1024;
@@ -3221,11 +3233,11 @@ export default {
       e.preventDefault();
       this.isCsvDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.csvFile = files[0];
-        this.toast.success("CSV file uploaded successfully!");
+        this.toast.success("File uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
@@ -3235,11 +3247,11 @@ export default {
 
     onCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && file.name.endsWith(".csv")) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.csvFile = file;
-        this.toast.success("CSV file uploaded successfully!");
+        this.toast.success("File uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 
@@ -3275,7 +3287,7 @@ export default {
         if (this.useVisionPrediction) {
           this.toast.error("Please upload a ZIP file containing PDFs");
         } else {
-          this.toast.error("Please upload a CSV file");
+          this.toast.error("Please upload a CSV or XLSX file");
         }
         return;
       }
@@ -3666,11 +3678,11 @@ export default {
       e.preventDefault();
       this.isUniCsvDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.uniCsvFile = files[0];
-        this.toast.success("UNI CSV file uploaded successfully!");
+        this.toast.success("UNI file uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
@@ -3680,17 +3692,17 @@ export default {
 
     onUniCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && file.name.endsWith(".csv")) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.uniCsvFile = file;
-        this.toast.success("UNI CSV file uploaded successfully!");
+        this.toast.success("UNI file uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 
     async startUniConversion() {
       if (!this.canConvertUni) {
-        this.toast.error("Please upload a CSV file");
+        this.toast.error("Please upload a CSV or XLSX file");
         return;
       }
 
@@ -4002,11 +4014,11 @@ export default {
       e.preventDefault();
       this.isModifiersCsvDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.modifiersCsvFile = files[0];
-        this.toast.success("Modifiers CSV file uploaded successfully!");
+        this.toast.success("Modifiers file uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
@@ -4016,17 +4028,17 @@ export default {
 
     onModifiersCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && file.name.endsWith(".csv")) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.modifiersCsvFile = file;
-        this.toast.success("Modifiers CSV file uploaded successfully!");
+        this.toast.success("Modifiers file uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 
     async startModifiersGeneration() {
       if (!this.canGenerateModifiers) {
-        this.toast.error("Please upload a CSV file");
+        this.toast.error("Please upload a CSV or XLSX file");
         return;
       }
 
@@ -4189,21 +4201,21 @@ export default {
       e.preventDefault();
       this.isInsuranceDataDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.insuranceDataCsv = files[0];
-        this.toast.success("Insurance data CSV uploaded successfully!");
+        this.toast.success("Insurance data file uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
     onInsuranceDataCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && file.name.endsWith(".csv")) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.insuranceDataCsv = file;
-        this.toast.success("Insurance data CSV uploaded successfully!");
+        this.toast.success("Insurance data file uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 
@@ -4215,21 +4227,21 @@ export default {
       e.preventDefault();
       this.isSpecialCasesDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".csv")) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.specialCasesCsv = files[0];
-        this.toast.success("Special cases CSV uploaded successfully!");
+        this.toast.success("Special cases file uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
     onSpecialCasesCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && file.name.endsWith(".csv")) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.specialCasesCsv = file;
-        this.toast.success("Special cases CSV uploaded successfully!");
+        this.toast.success("Special cases file uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 
