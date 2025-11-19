@@ -44,6 +44,23 @@ Peripheral Blocks Row Generation:
     - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
     - CVP (36556, 93503): Clear all ICD1-ICD4
     - Other codes: Clear all ICD1-ICD4
+
+TEE (Transesophageal Echocardiogram) Row Generation:
+- When "tee_was_done" = TRUE AND "tee_diagnosis" contains diagnosis codes (not empty)
+- Creates a single duplicate row for the TEE procedure
+- Diagnosis codes format: (I35.1, I34.0, I36.1, I37) or empty ()
+- TEE row is created ONLY if diagnosis codes are present (not empty brackets)
+- Each TEE row:
+  * ASA Code and Procedure Code = 93312 (hardcoded)
+  * M1 = "26" (hardcoded)
+  * M2 = "59" (hardcoded)
+  * M3 and M4 = cleared
+  * ICD1-ICD4 = populated from tee_diagnosis codes in order
+  * Concurrent Providers cleared
+  * An Start and An Stop cleared
+  * SRNA cleared
+  * Anesthesia Type cleared
+  * Other fields copied from original row
 """
 
 import pandas as pd
@@ -144,6 +161,36 @@ def parse_peripheral_blocks(peripheral_blocks_str):
             blocks.append(block)
     
     return blocks
+
+
+def parse_tee_diagnosis(tee_diagnosis_str):
+    """
+    Parse the tee_diagnosis field string into a list of diagnosis codes.
+    
+    Format: (I35.1, I34.0, I36.1, I37) or empty ()
+    
+    Returns a list of diagnosis code strings.
+    Empty brackets () return an empty list.
+    """
+    diagnosis_codes = []
+    
+    if not tee_diagnosis_str or pd.isna(tee_diagnosis_str):
+        return diagnosis_codes
+    
+    # Convert to string and strip whitespace
+    tee_diagnosis_str = str(tee_diagnosis_str).strip()
+    
+    # Remove parentheses
+    tee_diagnosis_str = tee_diagnosis_str.strip('()')
+    
+    # If empty after removing parentheses, return empty list
+    if not tee_diagnosis_str or tee_diagnosis_str.strip() == '':
+        return diagnosis_codes
+    
+    # Split by comma and strip whitespace from each code
+    codes = [code.strip() for code in tee_diagnosis_str.split(',') if code.strip()]
+    
+    return codes
 
 
 def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
@@ -303,6 +350,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         
         # Check for peripheral_blocks column
         has_peripheral_blocks = 'peripheral_blocks' in df.columns
+        
+        # Check for TEE columns
+        has_tee_was_done = 'tee_was_done' in df.columns
+        has_tee_diagnosis = 'tee_diagnosis' in df.columns
         
         
         # Process each row
@@ -479,6 +530,69 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 # Add the duplicate row to results
                 result_rows.append(qk_duplicate_row)
+            
+            # Check if we need to create a TEE row
+            # Conditions:
+            # 1. tee_was_done = TRUE
+            # 2. tee_diagnosis has diagnosis codes (not empty)
+            if has_tee_was_done and has_tee_diagnosis:
+                tee_was_done_value = str(row.get('tee_was_done', '')).strip().upper()
+                tee_diagnosis_value = row.get('tee_diagnosis', '')
+                
+                if tee_was_done_value == 'TRUE':
+                    # Parse the TEE diagnosis codes
+                    tee_diagnosis_codes = parse_tee_diagnosis(tee_diagnosis_value)
+                    
+                    # Only create the row if there are diagnosis codes
+                    if tee_diagnosis_codes:
+                        # Create a copy of the original input row (not the modified new_row)
+                        tee_row = row.copy()
+                        
+                        # Set ASA Code and Procedure Code to 93312
+                        tee_row['ASA Code'] = '93312'
+                        tee_row['Procedure Code'] = '93312'
+                        
+                        # Set M1 = "26" and M2 = "59" (hardcoded)
+                        tee_row['M1'] = '26'
+                        tee_row['M2'] = '59'
+                        tee_row['M3'] = ''
+                        tee_row['M4'] = ''
+                        
+                        # Populate ICD1-ICD4 from tee_diagnosis codes in order
+                        for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                            if icd_col in tee_row:
+                                tee_row[icd_col] = ''
+                        
+                        # Populate ICD codes from diagnosis list (up to 4 codes)
+                        if len(tee_diagnosis_codes) >= 1 and 'ICD1' in tee_row:
+                            tee_row['ICD1'] = tee_diagnosis_codes[0]
+                        if len(tee_diagnosis_codes) >= 2 and 'ICD2' in tee_row:
+                            tee_row['ICD2'] = tee_diagnosis_codes[1]
+                        if len(tee_diagnosis_codes) >= 3 and 'ICD3' in tee_row:
+                            tee_row['ICD3'] = tee_diagnosis_codes[2]
+                        if len(tee_diagnosis_codes) >= 4 and 'ICD4' in tee_row:
+                            tee_row['ICD4'] = tee_diagnosis_codes[3]
+                        
+                        # Clear Concurrent Providers
+                        if 'Concurrent Providers' in tee_row:
+                            tee_row['Concurrent Providers'] = ''
+                        
+                        # Clear An Start and An Stop columns (keep only in original row)
+                        if 'An Start' in tee_row:
+                            tee_row['An Start'] = ''
+                        if 'An Stop' in tee_row:
+                            tee_row['An Stop'] = ''
+                        
+                        # Clear SRNA field
+                        if 'SRNA' in tee_row:
+                            tee_row['SRNA'] = ''
+                        
+                        # Clear Anesthesia Type field
+                        if 'Anesthesia Type' in tee_row:
+                            tee_row['Anesthesia Type'] = ''
+                        
+                        # Add the TEE row to results
+                        result_rows.append(tee_row)
             
             # Check if we need to create peripheral block rows
             # Conditions:

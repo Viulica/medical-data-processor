@@ -129,8 +129,14 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 )
             ]
             
+            tools = [
+                types.Tool(googleSearch=types.GoogleSearch(
+                )),
+            ]
+            
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain",
+                tools=tools
             )
 
             # Collect the full response with retry on API failures
