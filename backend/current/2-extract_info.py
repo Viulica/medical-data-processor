@@ -103,7 +103,7 @@ def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
         return None
 
 
-def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-2.5-pro", max_retries=5, field_name_for_log=None):
+def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-3-pro-preview", max_retries=5, field_name_for_log=None):
     """Extract patient information from a multi-page patient PDF file.
     
     Args:
@@ -278,7 +278,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-2.5-pro"):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview"):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -526,7 +526,7 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
-    model = "gemini-2.5-pro"  # Default model
+    model = "gemini-3-pro-preview"  # Default model
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]

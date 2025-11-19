@@ -309,7 +309,7 @@ CRITICAL RULES:
 
             # Get AI response
             response = client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3-pro-preview",
                 contents=contents,
                 config=generate_content_config,
             )
@@ -442,6 +442,41 @@ def extract_phone_by_type(phone_text, phone_type):
     return ""
 
 
+def extract_time_as_number(time_str):
+    """
+    Extract time as a numeric value for comparison.
+    Normalizes to 4-digit format: "31" -> 31, "331" -> 331, "1430" -> 1430, "0200" -> 200.
+    Returns None if time cannot be extracted.
+    """
+    if not time_str or pd.isna(time_str):
+        return None
+    
+    time_str = str(time_str).strip()
+    
+    # If it's all digits, extract the numeric value
+    if time_str.isdigit():
+        # Return as integer - this works because:
+        # - "31" = 31 (00:31)
+        # - "331" = 331 (03:31)
+        # - "1430" = 1430 (14:30)
+        # - "0200" = 200 (02:00) - but this is fine for comparison
+        # Comparison: 2200 > 200 (correct for rollover), 1430 > 31 (correct, same day)
+        return int(time_str)
+    
+    # If it has a colon (already formatted), extract HHMM
+    if ':' in time_str:
+        try:
+            parts = time_str.split(':')
+            if len(parts) == 2:
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                return hours * 100 + minutes  # Convert to HHMM format
+        except:
+            return None
+    
+    return None
+
+
 def format_anesthesia_time(df, row_idx, time_value, time_type):
     """
     Format anesthesia time by converting 2, 3, or 4-digit time to HH:MM format
@@ -491,11 +526,14 @@ def format_anesthesia_time(df, row_idx, time_value, time_type):
         start_time_value = df.iloc[row_idx].get('An Start', '')
         if not pd.isna(start_time_value) and start_time_value:
             start_time_str = str(start_time_value).strip()
-            start_formatted_time = format_time_only(start_time_str)
-            stop_formatted_time = format_time_only(time_str)
             
-            # Check if we have a rollover scenario (stop time is earlier than start time)
-            if is_time_rollover(start_formatted_time, stop_formatted_time):
+            # Simple comparison: if An Start > An Stop (as 4-digit numbers), it's a rollover
+            # Extract numeric values for comparison
+            start_numeric = extract_time_as_number(start_time_str)
+            stop_numeric = extract_time_as_number(time_str)
+            
+            # If start > stop, it means stop is on the next day
+            if start_numeric is not None and stop_numeric is not None and start_numeric > stop_numeric:
                 # Add one day to the base date
                 base_date = add_one_day(base_date)
     

@@ -57,7 +57,7 @@ BTW: if the page has a header with the words either "Final Report" or "Patient I
 
 def detect_pages_with_gemini(pdf_base64, client):
     """Use Gemini API to detect relevant pages in a PDF"""
-    model = "gemini-2.5-pro"
+    model = "gemini-3-pro-preview"
     contents = [
         types.Content(
             role="user",

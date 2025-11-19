@@ -2974,7 +2974,7 @@ export default {
       formData.append("zip_file", this.zipFile);
       formData.append("excel_file", this.excelFile);
       formData.append("n_pages", this.pageCount);
-      formData.append("model", "gemini-2.5-pro"); // Use Gemini 2.5 Pro with thinking enabled
+      formData.append("model", "gemini-3-pro-preview"); // Use Gemini 2.5 Pro with thinking enabled
 
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");

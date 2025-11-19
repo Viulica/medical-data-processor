@@ -57,7 +57,7 @@ def ensure_csv_file(input_file_path: str, output_file_path: str = None) -> str:
     # Unknown format
     raise Exception(f"Unsupported file format: {input_path.suffix}")
 
-adef kill_process_tree(process):
+def kill_process_tree(process):
     """Kill a process and all its children"""
     try:
         import psutil
@@ -507,7 +507,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         }
         
         custom_model = client_models.get(client, client_models["uni"])
-        fallback_model = "gemini-2.5-pro"
+        fallback_model = "gemini-3-pro-preview"
         
         logger.info(f"Using client model for {client}: {custom_model}")
         

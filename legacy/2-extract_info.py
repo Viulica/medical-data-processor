@@ -45,7 +45,7 @@ def extract_single_page_as_pdf(input_pdf_path, page_number):
         return None
 
 
-def extract_info_from_single_page(client, page_pdf_path, page_number, extraction_prompt, model="gemini-2.5-pro"):
+def extract_info_from_single_page(client, page_pdf_path, page_number, extraction_prompt, model="gemini-3-pro-preview"):
     """Extract patient information from a single page PDF file."""
     try:
         with open(page_pdf_path, "rb") as pdf_file:
@@ -84,7 +84,7 @@ def extract_info_from_single_page(client, page_pdf_path, page_number, extraction
         return None
 
 
-def extract_info_from_single_page_with_order(client, page_pdf_path, page_number, extraction_prompt, model="gemini-2.5-pro", max_retries=5):
+def extract_info_from_single_page_with_order(client, page_pdf_path, page_number, extraction_prompt, model="gemini-3-pro-preview", max_retries=5):
     """Extract patient information from a single page PDF file and return with page number for ordering."""
     
     for attempt in range(max_retries):
