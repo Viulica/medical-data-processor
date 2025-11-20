@@ -3142,6 +3142,88 @@ async def delete_insurance_mapping(mapping_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to delete mapping: {str(e)}")
 
 
+@app.post("/api/insurance-mappings/bulk-import")
+async def bulk_import_insurance_mappings(
+    csv_file: UploadFile = File(...),
+    clear_existing: bool = Form(default=False)
+):
+    """
+    Bulk import insurance mappings from CSV file.
+    CSV format: InputValue,OutputValue
+    
+    Args:
+        csv_file: CSV file with InputValue,OutputValue columns
+        clear_existing: If true, delete all existing mappings before importing
+    """
+    try:
+        from db_utils import bulk_import_insurance_mappings as bulk_import
+        import pandas as pd
+        import io
+        
+        # Read CSV file
+        contents = await csv_file.read()
+        
+        # Try different encodings
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(io.BytesIO(contents), dtype=str, encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            raise HTTPException(status_code=400, detail="Could not read CSV file with any standard encoding")
+        
+        # Validate columns
+        if 'InputValue' not in df.columns or 'OutputValue' not in df.columns:
+            raise HTTPException(
+                status_code=400, 
+                detail="CSV must have 'InputValue' and 'OutputValue' columns"
+            )
+        
+        # Prepare mappings data
+        mappings_data = []
+        for _, row in df.iterrows():
+            input_val = str(row['InputValue']).strip() if pd.notna(row['InputValue']) else ''
+            output_val = str(row['OutputValue']).strip() if pd.notna(row['OutputValue']) else ''
+            
+            if input_val and output_val:
+                mappings_data.append({
+                    'input_code': input_val,
+                    'output_code': output_val,
+                    'description': f'Imported from CSV'
+                })
+        
+        if not mappings_data:
+            raise HTTPException(status_code=400, detail="No valid mappings found in CSV")
+        
+        # Bulk import
+        result = bulk_import(mappings_data, clear_existing=clear_existing)
+        
+        if result['success']:
+            return {
+                "message": "Bulk import completed",
+                "imported": result['imported'],
+                "updated": result['updated'],
+                "skipped": result['skipped'],
+                "total": result['total'],
+                "errors": result['errors']
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Import failed: {'; '.join(result['errors'])}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to bulk import insurance mappings: {e}")
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json

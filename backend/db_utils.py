@@ -766,6 +766,87 @@ def get_insurance_mappings_dict():
         return {}
 
 
+def bulk_import_insurance_mappings(mappings_data, clear_existing=False):
+    """
+    Bulk import insurance mappings from a list of dictionaries.
+    Each dictionary should have 'input_code' and 'output_code' keys.
+    
+    Args:
+        mappings_data: List of dicts with 'input_code', 'output_code', 'description' (optional)
+        clear_existing: If True, delete all existing mappings before importing
+    
+    Returns:
+        Dictionary with 'success', 'imported', 'updated', 'skipped', 'errors'
+    """
+    imported = 0
+    updated = 0
+    skipped = 0
+    errors = []
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Clear existing mappings if requested
+                if clear_existing:
+                    cur.execute("DELETE FROM insurance_mappings")
+                    logger.info("Cleared all existing insurance mappings")
+                
+                # Import each mapping
+                for idx, mapping in enumerate(mappings_data):
+                    try:
+                        input_code = mapping.get('input_code', '').strip()
+                        output_code = mapping.get('output_code', '').strip()
+                        description = mapping.get('description', '').strip()
+                        
+                        if not input_code or not output_code:
+                            skipped += 1
+                            continue
+                        
+                        # Use upsert logic (INSERT ... ON CONFLICT UPDATE)
+                        cur.execute("""
+                            INSERT INTO insurance_mappings (input_code, output_code, description, created_at, updated_at)
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ON CONFLICT (input_code) 
+                            DO UPDATE SET 
+                                output_code = EXCLUDED.output_code,
+                                description = EXCLUDED.description,
+                                updated_at = CURRENT_TIMESTAMP
+                            RETURNING (xmax = 0) AS inserted
+                        """, (input_code, output_code, description))
+                        
+                        result = cur.fetchone()
+                        if result and result[0]:  # xmax = 0 means it was an INSERT
+                            imported += 1
+                        else:
+                            updated += 1
+                            
+                    except Exception as e:
+                        errors.append(f"Row {idx + 1}: {str(e)}")
+                        logger.error(f"Error importing mapping row {idx + 1}: {e}")
+                
+                conn.commit()
+                
+        return {
+            'success': True,
+            'imported': imported,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': errors,
+            'total': len(mappings_data)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to bulk import insurance mappings: {e}")
+        return {
+            'success': False,
+            'imported': imported,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': [str(e)],
+            'total': len(mappings_data)
+        }
+
+
 if __name__ == "__main__":
     # Test database connection
     print("Testing database connection...")

@@ -2562,6 +2562,67 @@
             </p>
           </div>
 
+          <!-- Bulk Import Section -->
+          <div class="bulk-import-section">
+            <div class="bulk-import-card">
+              <h3>📤 Bulk Import from CSV</h3>
+              <p>
+                Upload your mednet-mapping.csv file to populate the database
+              </p>
+              <div class="bulk-import-controls">
+                <input
+                  type="file"
+                  ref="bulkImportFileInput"
+                  @change="handleBulkImportFileSelect"
+                  accept=".csv"
+                  style="display: none"
+                />
+                <button
+                  @click="$refs.bulkImportFileInput.click()"
+                  class="upload-btn"
+                  :disabled="insuranceBulkImporting"
+                >
+                  📁 Select CSV File
+                </button>
+                <span v-if="insuranceBulkImportFile" class="file-name">
+                  {{ insuranceBulkImportFile.name }}
+                </span>
+                <label class="checkbox-label" v-if="insuranceBulkImportFile">
+                  <input type="checkbox" v-model="insuranceClearExisting" />
+                  Clear existing mappings before import
+                </label>
+                <button
+                  v-if="insuranceBulkImportFile"
+                  @click="bulkImportInsuranceMappings"
+                  class="import-btn"
+                  :disabled="insuranceBulkImporting"
+                >
+                  <span v-if="insuranceBulkImporting">⏳ Importing...</span>
+                  <span v-else
+                    >🚀 Import {{ insuranceBulkImportFile.name }}</span
+                  >
+                </button>
+              </div>
+              <div v-if="insuranceBulkImportResult" class="import-result">
+                <div
+                  v-if="insuranceBulkImportResult.success"
+                  class="success-message"
+                >
+                  ✅ Import completed!
+                  <ul>
+                    <li>✨ New: {{ insuranceBulkImportResult.imported }}</li>
+                    <li>🔄 Updated: {{ insuranceBulkImportResult.updated }}</li>
+                    <li>⏭️ Skipped: {{ insuranceBulkImportResult.skipped }}</li>
+                    <li>📊 Total: {{ insuranceBulkImportResult.total }}</li>
+                  </ul>
+                </div>
+                <div v-else class="error-message">
+                  ❌ Import failed: {{ insuranceBulkImportResult.error }}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Search and Add New -->
           <div class="modifiers-controls">
             <div class="search-box">
@@ -3750,6 +3811,10 @@ export default {
         output_code: "",
         description: "",
       },
+      insuranceBulkImportFile: null,
+      insuranceBulkImporting: false,
+      insuranceClearExisting: false,
+      insuranceBulkImportResult: null,
       // Templates Manager functionality
       templates: [],
       templatesLoading: false,
@@ -6219,6 +6284,73 @@ export default {
       };
     },
 
+    handleBulkImportFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.insuranceBulkImportFile = file;
+        this.insuranceBulkImportResult = null;
+      }
+    },
+
+    async bulkImportInsuranceMappings() {
+      if (!this.insuranceBulkImportFile) {
+        this.toast.error("Please select a CSV file first");
+        return;
+      }
+
+      this.insuranceBulkImporting = true;
+      this.insuranceBulkImportResult = null;
+
+      try {
+        const formData = new FormData();
+        formData.append("csv_file", this.insuranceBulkImportFile);
+        formData.append("clear_existing", this.insuranceClearExisting);
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "api/insurance-mappings/bulk-import"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.insuranceBulkImportResult = {
+          success: true,
+          imported: response.data.imported,
+          updated: response.data.updated,
+          skipped: response.data.skipped,
+          total: response.data.total,
+        };
+
+        this.toast.success(
+          `✅ Imported ${response.data.imported} mappings, updated ${response.data.updated}`
+        );
+
+        // Reset file input and reload mappings
+        this.insuranceBulkImportFile = null;
+        this.insuranceClearExisting = false;
+        if (this.$refs.bulkImportFileInput) {
+          this.$refs.bulkImportFileInput.value = "";
+        }
+
+        // Reload the mappings table
+        await this.loadInsuranceMappings(false);
+      } catch (error) {
+        console.error("Failed to bulk import insurance mappings:", error);
+        this.insuranceBulkImportResult = {
+          success: false,
+          error:
+            error.response?.data?.detail ||
+            "Failed to import insurance mappings",
+        };
+        this.toast.error("Failed to import insurance mappings");
+      } finally {
+        this.insuranceBulkImporting = false;
+      }
+    },
+
     // ========================================================================
     // Templates Manager Methods
     // ========================================================================
@@ -7949,6 +8081,124 @@ input:checked + .slider:hover {
 .add-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.bulk-import-section {
+  margin-bottom: 2rem;
+}
+
+.bulk-import-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+}
+
+.bulk-import-card h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.bulk-import-card p {
+  margin: 0 0 1.5rem 0;
+  opacity: 0.9;
+}
+
+.bulk-import-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.upload-btn {
+  background: white;
+  color: #667eea;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.upload-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+}
+
+.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-btn {
+  background: #10b981;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border: 2px solid white;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.import-btn:hover {
+  background: #059669;
+  transform: translateY(-2px);
+}
+
+.import-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-name {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.import-result {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.import-result .success-message {
+  color: white;
+}
+
+.import-result .success-message ul {
+  margin: 0.5rem 0 0 0;
+  padding-left: 1.5rem;
+}
+
+.import-result .success-message li {
+  margin: 0.25rem 0;
+}
+
+.import-result .error-message {
+  color: #fecaca;
+  font-weight: 600;
 }
 
 .modifiers-table-container {
