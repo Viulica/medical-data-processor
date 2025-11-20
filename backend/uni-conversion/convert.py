@@ -917,28 +917,42 @@ def get_header_mapping():
 
 def load_mednet_mapping(mapping_file="mednet-maping.csv"):
     """
-    Load the mednet code mapping from CSV file.
+    Load the mednet code mapping from database first, with CSV fallback.
     Returns a dictionary mapping UNI codes to internal codes.
     """
+    try:
+        # TRY 1: Load from database (preferred method)
+        from db_utils import get_insurance_mappings_dict
+        mapping_dict = get_insurance_mappings_dict()
+        
+        if mapping_dict:
+            print(f"✅ Loaded {len(mapping_dict)} mednet code mappings from DATABASE")
+            return mapping_dict
+        else:
+            print("⚠️  No mappings found in database, trying CSV fallback...")
+    except Exception as e:
+        print(f"⚠️  Could not load from database ({e}), trying CSV fallback...")
+    
+    # TRY 2: Fallback to CSV file (legacy method)
     try:
         # Get the directory where this script is located
         script_dir = Path(__file__).parent
         mapping_path = script_dir / mapping_file
         
-        print(f"Loading mednet mapping from: {mapping_path}")
+        print(f"Loading mednet mapping from CSV: {mapping_path}")
         print(f"File exists: {mapping_path.exists()}")
         
         # Read CSV with dtype=str to preserve leading zeros
         mapping_df = pd.read_csv(mapping_path, dtype=str)
         # Ensure both keys and values are strings for consistent lookup and preserve leading zeros
         mapping_dict = {str(k): str(v) for k, v in zip(mapping_df['InputValue'], mapping_df['OutputValue'])}
-        print(f"Loaded {len(mapping_dict)} mednet code mappings")
+        print(f"✅ Loaded {len(mapping_dict)} mednet code mappings from CSV")
         return mapping_dict
     except FileNotFoundError:
-        print(f"Warning: {mapping_file} not found at {mapping_path}. Mednet codes will not be mapped.")
+        print(f"❌ Warning: {mapping_file} not found at {mapping_path}. Mednet codes will not be mapped.")
         return {}
     except Exception as e:
-        print(f"Warning: Error loading {mapping_file}: {e}. Mednet codes will not be mapped.")
+        print(f"❌ Warning: Error loading {mapping_file}: {e}. Mednet codes will not be mapped.")
         import traceback
         traceback.print_exc()
         return {}

@@ -3039,6 +3039,109 @@ async def delete_prediction_instruction(instruction_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to delete instruction: {str(e)}")
 
 
+# ============================================================================
+# Insurance Mappings API Endpoints
+# ============================================================================
+
+@app.get("/api/insurance-mappings")
+async def get_insurance_mappings(page: int = 1, page_size: int = 50, search: str = None):
+    """Get insurance mappings from database with pagination"""
+    try:
+        from db_utils import get_all_insurance_mappings
+        result = get_all_insurance_mappings(page=page, page_size=page_size, search=search)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get insurance mappings: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve mappings: {str(e)}")
+
+
+@app.get("/api/insurance-mappings/{mapping_id}")
+async def get_insurance_mapping(mapping_id: int):
+    """Get a specific insurance mapping by ID"""
+    try:
+        from db_utils import get_insurance_mapping as get_mapping_by_id
+        mapping = get_mapping_by_id(mapping_id=mapping_id)
+        if mapping:
+            return mapping
+        else:
+            raise HTTPException(status_code=404, detail=f"Mapping {mapping_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get insurance mapping {mapping_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve mapping: {str(e)}")
+
+
+@app.post("/api/insurance-mappings")
+async def create_or_update_insurance_mapping(
+    input_code: str = Form(...),
+    output_code: str = Form(...),
+    description: str = Form(default="")
+):
+    """Create or update an insurance mapping"""
+    try:
+        from db_utils import upsert_insurance_mapping
+        success = upsert_insurance_mapping(input_code, output_code, description)
+        if success:
+            return {
+                "message": "Insurance mapping saved successfully",
+                "input_code": input_code,
+                "output_code": output_code,
+                "description": description
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save insurance mapping")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save insurance mapping {input_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save mapping: {str(e)}")
+
+
+@app.put("/api/insurance-mappings/{mapping_id}")
+async def update_insurance_mapping(
+    mapping_id: int,
+    input_code: str = Form(...),
+    output_code: str = Form(...),
+    description: str = Form(default="")
+):
+    """Update an existing insurance mapping"""
+    try:
+        from db_utils import upsert_insurance_mapping
+        success = upsert_insurance_mapping(input_code, output_code, description)
+        if success:
+            return {
+                "message": "Insurance mapping updated successfully",
+                "input_code": input_code,
+                "output_code": output_code,
+                "description": description
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update insurance mapping")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update insurance mapping {mapping_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update mapping: {str(e)}")
+
+
+@app.delete("/api/insurance-mappings/{mapping_id}")
+async def delete_insurance_mapping(mapping_id: int):
+    """Delete an insurance mapping"""
+    try:
+        from db_utils import delete_insurance_mapping as delete_mapping_by_id
+        success = delete_mapping_by_id(mapping_id)
+        if success:
+            return {"message": f"Insurance mapping {mapping_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete insurance mapping")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete insurance mapping {mapping_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete mapping: {str(e)}")
+
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json

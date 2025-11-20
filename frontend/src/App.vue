@@ -21,14 +21,14 @@
             :class="{ active: activeTab === 'process' }"
             class="tab-btn"
           >
-            📊 Process Documents (Standard)
+            📊 Standard
           </button>
           <button
             @click="activeTab = 'process-fast'"
             :class="{ active: activeTab === 'process-fast' }"
             class="tab-btn"
           >
-            ⚡ Process Documents (Fast)
+            ⚡ Fast Process
           </button>
           <button
             @click="activeTab = 'split'"
@@ -42,64 +42,100 @@
             :class="{ active: activeTab === 'cpt' }"
             class="tab-btn"
           >
-            🏥 Predict CPT Codes
+            🏥 CPT Codes
           </button>
           <button
             @click="activeTab = 'icd'"
             :class="{ active: activeTab === 'icd' }"
             class="tab-btn"
           >
-            📋 Predict ICD Codes
+            📋 ICD Codes
           </button>
-          <button
-            @click="activeTab = 'uni'"
-            :class="{ active: activeTab === 'uni' }"
-            class="tab-btn"
-          >
-            🔄 Convert UNI CSV
-          </button>
-          <button
-            @click="activeTab = 'instructions'"
-            :class="{ active: activeTab === 'instructions' }"
-            class="tab-btn"
-          >
-            📋 Convert Instructions
-          </button>
-          <button
-            @click="activeTab = 'modifiers'"
-            :class="{ active: activeTab === 'modifiers' }"
-            class="tab-btn"
-          >
-            💊 Generate Modifiers
-          </button>
-          <button
-            @click="activeTab = 'insurance'"
-            :class="{ active: activeTab === 'insurance' }"
-            class="tab-btn"
-          >
-            🏥 Insurance Sorting
-          </button>
-          <button
-            @click="loadModifiers"
-            :class="{ active: activeTab === 'config' }"
-            class="tab-btn"
-          >
-            ⚙️ Modifiers Config
-          </button>
-          <button
-            @click="loadTemplates"
-            :class="{ active: activeTab === 'templates' }"
-            class="tab-btn"
-          >
-            📝 Field Templates
-          </button>
-          <button
-            @click="loadPredictionInstructions"
-            :class="{ active: activeTab === 'prediction-instructions' }"
-            class="tab-btn"
-          >
-            💬 Instruction Templates
-          </button>
+          <div class="dropdown-container">
+            <button
+              @click="toggleConvertersDropdown"
+              :class="{
+                active: [
+                  'uni',
+                  'instructions',
+                  'modifiers',
+                  'insurance',
+                ].includes(activeTab),
+              }"
+              class="tab-btn dropdown-btn"
+            >
+              🔄 Converters
+              <span class="dropdown-arrow">{{
+                showConvertersDropdown ? "▲" : "▼"
+              }}</span>
+            </button>
+            <div v-if="showConvertersDropdown" class="dropdown-menu">
+              <button @click="selectTab('uni')" class="dropdown-item">
+                🔄 Convert UNI CSV
+              </button>
+              <button @click="selectTab('instructions')" class="dropdown-item">
+                📋 Convert Instructions
+              </button>
+              <button @click="selectTab('modifiers')" class="dropdown-item">
+                💊 Generate Modifiers
+              </button>
+              <button @click="selectTab('insurance')" class="dropdown-item">
+                🏥 Insurance Sorting
+              </button>
+            </div>
+          </div>
+          <div class="dropdown-container">
+            <button
+              @click="toggleSettingsDropdown"
+              :class="{
+                active: [
+                  'config',
+                  'insurance-config',
+                  'templates',
+                  'prediction-instructions',
+                ].includes(activeTab),
+              }"
+              class="tab-btn dropdown-btn"
+            >
+              ⚙️ Settings
+              <span class="dropdown-arrow">{{
+                showSettingsDropdown ? "▲" : "▼"
+              }}</span>
+            </button>
+            <div v-if="showSettingsDropdown" class="dropdown-menu">
+              <button
+                @click="selectTabAndLoad('config', 'loadModifiers')"
+                class="dropdown-item"
+              >
+                ⚙️ Modifiers Config
+              </button>
+              <button
+                @click="
+                  selectTabAndLoad('insurance-config', 'loadInsuranceMappings')
+                "
+                class="dropdown-item"
+              >
+                🏥 Insurance Config
+              </button>
+              <button
+                @click="selectTabAndLoad('templates', 'loadTemplates')"
+                class="dropdown-item"
+              >
+                📝 Field Templates
+              </button>
+              <button
+                @click="
+                  selectTabAndLoad(
+                    'prediction-instructions',
+                    'loadPredictionInstructions'
+                  )
+                "
+                class="dropdown-item"
+              >
+                💬 Instruction Templates
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Process Documents Tab -->
@@ -2513,6 +2549,226 @@
           </div>
         </div>
 
+        <!-- Insurance Config Tab -->
+        <div v-if="activeTab === 'insurance-config'" class="upload-section">
+          <div class="section-header">
+            <h2>🏥 Insurance Mappings Configuration</h2>
+            <p>
+              Manage insurance code mappings for UNI CSV conversion. Define how
+              input insurance codes map to output codes.
+            </p>
+          </div>
+
+          <!-- Search and Add New -->
+          <div class="modifiers-controls">
+            <div class="search-box">
+              <input
+                v-model="insuranceSearch"
+                @input="onInsuranceSearchChange"
+                type="text"
+                placeholder="Search by Input or Output Code (exact match)..."
+                class="search-input"
+              />
+            </div>
+            <button @click="showAddInsuranceModal = true" class="add-btn">
+              ➕ Add New Mapping
+            </button>
+          </div>
+
+          <!-- Insurance Mappings Table -->
+          <div
+            v-if="insuranceMappings.length > 0"
+            class="modifiers-table-container"
+          >
+            <table class="modifiers-table">
+              <thead>
+                <tr>
+                  <th>Input Code</th>
+                  <th>Output Code</th>
+                  <th>Description</th>
+                  <th>Last Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="mapping in insuranceMappings" :key="mapping.id">
+                  <td>
+                    <strong>{{ mapping.input_code }}</strong>
+                  </td>
+                  <td>
+                    <strong>{{ mapping.output_code }}</strong>
+                  </td>
+                  <td>{{ mapping.description || "-" }}</td>
+                  <td>{{ formatDate(mapping.updated_at) }}</td>
+                  <td>
+                    <button
+                      @click="editInsuranceMapping(mapping)"
+                      class="action-btn edit-btn"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      @click="
+                        deleteInsuranceMappingConfirm(
+                          mapping.id,
+                          mapping.input_code
+                        )
+                      "
+                      class="action-btn delete-btn"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Pagination Controls -->
+            <div class="pagination-container">
+              <div class="pagination-info">
+                Showing
+                {{ (insuranceCurrentPage - 1) * insurancePageSize + 1 }} -
+                {{
+                  Math.min(
+                    insuranceCurrentPage * insurancePageSize,
+                    totalInsuranceMappings
+                  )
+                }}
+                of {{ totalInsuranceMappings }} mappings
+              </div>
+
+              <div class="pagination-controls">
+                <button
+                  @click="goToInsurancePage(1)"
+                  :disabled="insuranceCurrentPage === 1"
+                  class="pagination-btn"
+                >
+                  ⏮️ First
+                </button>
+                <button
+                  @click="goToInsurancePage(insuranceCurrentPage - 1)"
+                  :disabled="insuranceCurrentPage === 1"
+                  class="pagination-btn"
+                >
+                  ◀️ Prev
+                </button>
+
+                <span class="page-info">
+                  Page {{ insuranceCurrentPage }} of {{ insuranceTotalPages }}
+                </span>
+
+                <button
+                  @click="goToInsurancePage(insuranceCurrentPage + 1)"
+                  :disabled="insuranceCurrentPage === insuranceTotalPages"
+                  class="pagination-btn"
+                >
+                  Next ▶️
+                </button>
+                <button
+                  @click="goToInsurancePage(insuranceTotalPages)"
+                  :disabled="insuranceCurrentPage === insuranceTotalPages"
+                  class="pagination-btn"
+                >
+                  Last ⏭️
+                </button>
+              </div>
+
+              <div class="page-size-selector">
+                <label>Per page:</label>
+                <select
+                  v-model.number="insurancePageSize"
+                  @change="changeInsurancePageSize(insurancePageSize)"
+                  class="page-size-select"
+                >
+                  <option :value="25">25</option>
+                  <option :value="50">50</option>
+                  <option :value="100">100</option>
+                  <option :value="200">200</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="insuranceMappingsLoading" class="loading-section">
+            <div class="spinner"></div>
+            <p>Loading insurance mappings...</p>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>
+              No insurance mappings configured yet. Click "Add New Mapping" to
+              get started.
+            </p>
+          </div>
+        </div>
+
+        <!-- Add/Edit Insurance Mapping Modal -->
+        <div
+          v-if="showAddInsuranceModal || showEditInsuranceModal"
+          class="modal-overlay"
+          @click="closeInsuranceModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>
+                {{
+                  showEditInsuranceModal
+                    ? "Edit Insurance Mapping"
+                    : "Add New Insurance Mapping"
+                }}
+              </h3>
+              <button @click="closeInsuranceModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Input Code *</label>
+                <input
+                  v-model="currentInsuranceMapping.input_code"
+                  type="text"
+                  :disabled="showEditInsuranceModal"
+                  class="form-input"
+                  placeholder="e.g., BCBS, Aetna"
+                />
+                <p class="form-hint">The insurance code from the input file</p>
+              </div>
+              <div class="form-group">
+                <label>Output Code *</label>
+                <input
+                  v-model="currentInsuranceMapping.output_code"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Blue Cross Blue Shield"
+                />
+                <p class="form-hint">The insurance code to use in the output</p>
+              </div>
+              <div class="form-group">
+                <label>Description (Optional)</label>
+                <textarea
+                  v-model="currentInsuranceMapping.description"
+                  class="form-textarea"
+                  rows="3"
+                  placeholder="Optional notes about this mapping..."
+                ></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeInsuranceModals" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="saveInsuranceMapping"
+                class="btn-primary"
+                :disabled="
+                  !currentInsuranceMapping.input_code ||
+                  !currentInsuranceMapping.output_code
+                "
+              >
+                {{ showEditInsuranceModal ? "Update" : "Create" }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Templates Manager Tab -->
         <div v-if="activeTab === 'templates'" class="upload-section">
           <div class="section-header">
@@ -3474,6 +3730,23 @@ export default {
         medicare_modifiers: false,
         bill_medical_direction: false,
       },
+      // Insurance Mappings Config functionality
+      insuranceMappings: [],
+      insuranceMappingsLoading: false,
+      insuranceSearch: "",
+      insuranceSearchTimeout: null,
+      insuranceCurrentPage: 1,
+      insurancePageSize: 50,
+      totalInsuranceMappings: 0,
+      insuranceTotalPages: 0,
+      showAddInsuranceModal: false,
+      showEditInsuranceModal: false,
+      currentInsuranceMapping: {
+        id: null,
+        input_code: "",
+        output_code: "",
+        description: "",
+      },
       // Templates Manager functionality
       templates: [],
       templatesLoading: false,
@@ -3526,6 +3799,9 @@ export default {
       selectedIcdInstructionId: null,
       useCptTemplateInsteadOfText: false,
       useIcdTemplateInsteadOfText: false,
+      // Dropdown states for navigation
+      showConvertersDropdown: false,
+      showSettingsDropdown: false,
     };
   },
   computed: {
@@ -3595,6 +3871,19 @@ export default {
       );
     },
   },
+  mounted() {
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      const isDropdownBtn = target.closest(".dropdown-btn");
+      const isDropdownMenu = target.closest(".dropdown-menu");
+
+      if (!isDropdownBtn && !isDropdownMenu) {
+        this.showConvertersDropdown = false;
+        this.showSettingsDropdown = false;
+      }
+    });
+  },
   methods: {
     isValidCsvOrXlsxFile(filename) {
       if (!filename) return false;
@@ -3611,6 +3900,38 @@ export default {
       const sizes = ["Bytes", "KB", "MB", "GB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    },
+
+    // Dropdown navigation methods
+    toggleConvertersDropdown() {
+      this.showConvertersDropdown = !this.showConvertersDropdown;
+      this.showSettingsDropdown = false;
+    },
+
+    toggleSettingsDropdown() {
+      this.showSettingsDropdown = !this.showSettingsDropdown;
+      this.showConvertersDropdown = false;
+    },
+
+    selectTab(tabName) {
+      this.activeTab = tabName;
+      this.showConvertersDropdown = false;
+      this.showSettingsDropdown = false;
+    },
+
+    selectTabAndLoad(tabName, methodName) {
+      this.activeTab = tabName;
+      this.showConvertersDropdown = false;
+      this.showSettingsDropdown = false;
+      if (methodName === "loadModifiers") {
+        this.loadModifiers(true);
+      } else if (methodName === "loadInsuranceMappings") {
+        this.loadInsuranceMappings(true);
+      } else if (methodName === "loadTemplates") {
+        this.loadTemplates(true);
+      } else if (methodName === "loadPredictionInstructions") {
+        this.loadPredictionInstructions(true);
+      }
     },
 
     async ensureTemplatesLoaded() {
@@ -5758,6 +6079,144 @@ export default {
     },
 
     // ========================================================================
+    // Insurance Mappings Config Methods
+    // ========================================================================
+
+    async loadInsuranceMappings(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "insurance-config";
+        this.insuranceCurrentPage = 1;
+      }
+
+      this.insuranceMappingsLoading = true;
+      try {
+        const params = {
+          page: this.insuranceCurrentPage,
+          page_size: this.insurancePageSize,
+        };
+
+        if (this.insuranceSearch) {
+          params.search = this.insuranceSearch;
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/insurance-mappings"),
+          { params }
+        );
+
+        this.insuranceMappings = response.data.mappings;
+        this.totalInsuranceMappings = response.data.total;
+        this.insuranceTotalPages = response.data.total_pages;
+      } catch (error) {
+        console.error("Failed to load insurance mappings:", error);
+        this.toast.error("Failed to load insurance mappings");
+      } finally {
+        this.insuranceMappingsLoading = false;
+      }
+    },
+
+    onInsuranceSearchChange() {
+      if (this.insuranceSearchTimeout) {
+        clearTimeout(this.insuranceSearchTimeout);
+      }
+
+      this.insuranceSearchTimeout = setTimeout(() => {
+        this.insuranceCurrentPage = 1;
+        this.loadInsuranceMappings(false);
+      }, 500);
+    },
+
+    goToInsurancePage(page) {
+      if (page < 1 || page > this.insuranceTotalPages) return;
+      this.insuranceCurrentPage = page;
+      this.loadInsuranceMappings(false);
+    },
+
+    changeInsurancePageSize(newSize) {
+      this.insurancePageSize = newSize;
+      this.insuranceCurrentPage = 1;
+      this.loadInsuranceMappings(false);
+    },
+
+    editInsuranceMapping(mapping) {
+      this.currentInsuranceMapping = {
+        id: mapping.id,
+        input_code: mapping.input_code,
+        output_code: mapping.output_code,
+        description: mapping.description || "",
+      };
+      this.showEditInsuranceModal = true;
+    },
+
+    async saveInsuranceMapping() {
+      try {
+        const formData = new FormData();
+        formData.append("input_code", this.currentInsuranceMapping.input_code);
+        formData.append(
+          "output_code",
+          this.currentInsuranceMapping.output_code
+        );
+        formData.append(
+          "description",
+          this.currentInsuranceMapping.description || ""
+        );
+
+        if (this.showEditInsuranceModal) {
+          await axios.put(
+            joinUrl(
+              API_BASE_URL,
+              `api/insurance-mappings/${this.currentInsuranceMapping.id}`
+            ),
+            formData
+          );
+          this.toast.success("Insurance mapping updated successfully!");
+        } else {
+          await axios.post(
+            joinUrl(API_BASE_URL, "api/insurance-mappings"),
+            formData
+          );
+          this.toast.success("Insurance mapping created successfully!");
+        }
+
+        this.closeInsuranceModals();
+        await this.loadInsuranceMappings(false);
+      } catch (error) {
+        console.error("Failed to save insurance mapping:", error);
+        this.toast.error("Failed to save insurance mapping");
+      }
+    },
+
+    async deleteInsuranceMappingConfirm(mappingId, inputCode) {
+      if (
+        !confirm(`Are you sure you want to delete mapping for "${inputCode}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(API_BASE_URL, `api/insurance-mappings/${mappingId}`)
+        );
+        this.toast.success("Insurance mapping deleted successfully!");
+        await this.loadInsuranceMappings(false);
+      } catch (error) {
+        console.error("Failed to delete insurance mapping:", error);
+        this.toast.error("Failed to delete insurance mapping");
+      }
+    },
+
+    closeInsuranceModals() {
+      this.showAddInsuranceModal = false;
+      this.showEditInsuranceModal = false;
+      this.currentInsuranceMapping = {
+        id: null,
+        input_code: "",
+        output_code: "",
+        description: "",
+      };
+    },
+
+    // ========================================================================
     // Templates Manager Methods
     // ========================================================================
 
@@ -6342,16 +6801,19 @@ body {
 .tab-navigation {
   display: flex;
   justify-content: center;
-  gap: 1rem;
+  align-items: center;
+  gap: 0.75rem;
   margin-bottom: 3rem;
+  flex-wrap: wrap;
+  padding: 0 1rem;
 }
 
 .tab-btn {
   background: white;
   border: 2px solid #e2e8f0;
   border-radius: 12px;
-  padding: 1rem 2rem;
-  font-size: 1rem;
+  padding: 0.85rem 1.5rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
@@ -6359,6 +6821,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  white-space: nowrap;
 }
 
 .tab-btn:hover {
@@ -6386,6 +6849,75 @@ body {
   transform: none;
   border-color: #e2e8f0;
   color: #94a3b8;
+}
+
+/* Dropdown Navigation Styles */
+.dropdown-container {
+  position: relative;
+}
+
+.dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dropdown-arrow {
+  font-size: 0.7rem;
+  transition: transform 0.3s ease;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  min-width: 220px;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  overflow: hidden;
+  animation: dropdownSlideDown 0.2s ease;
+}
+
+@keyframes dropdownSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 0.9rem 1.2rem;
+  border: none;
+  background: white;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item:hover {
+  background: #f8fafc;
+  color: #3b82f6;
+  padding-left: 1.5rem;
+}
+
+.dropdown-item:active {
+  background: #eff6ff;
 }
 
 /* Section Headers */

@@ -79,6 +79,18 @@ def init_database():
     
     CREATE INDEX IF NOT EXISTS idx_prediction_instructions_name ON prediction_instructions(name);
     CREATE INDEX IF NOT EXISTS idx_prediction_instructions_type ON prediction_instructions(instruction_type);
+    
+    CREATE TABLE IF NOT EXISTS insurance_mappings (
+        id SERIAL PRIMARY KEY,
+        input_code VARCHAR(255) NOT NULL UNIQUE,
+        output_code VARCHAR(255) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_insurance_input_code ON insurance_mappings(input_code);
+    CREATE INDEX IF NOT EXISTS idx_insurance_output_code ON insurance_mappings(output_code);
     """
     
     try:
@@ -107,12 +119,12 @@ def get_all_modifiers(page=1, page_size=50, search=None):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Build WHERE clause for search
+                # Build WHERE clause for search (exact match)
                 where_clause = ""
                 params = []
                 if search:
-                    where_clause = "WHERE mednet_code ILIKE %s"
-                    params.append(f"%{search}%")
+                    where_clause = "WHERE mednet_code = %s"
+                    params.append(search)
                 
                 # Get total count
                 count_query = f"SELECT COUNT(*) FROM modifiers_config {where_clause}"
@@ -604,6 +616,154 @@ def delete_prediction_instruction(instruction_id):
     except Exception as e:
         logger.error(f"Failed to delete prediction instruction {instruction_id}: {e}")
         return False
+
+
+# ============================================================
+# Insurance Mappings Management
+# ============================================================
+
+def get_all_insurance_mappings(page=1, page_size=50, search=None):
+    """
+    Get insurance mappings from the database with pagination.
+    
+    Args:
+        page: Page number (1-indexed)
+        page_size: Number of records per page
+        search: Optional search term for input_code or output_code (exact match)
+    
+    Returns:
+        Dictionary with 'mappings', 'total', 'page', 'page_size', 'total_pages'
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Build WHERE clause for search (exact match on either field)
+                where_clause = ""
+                params = []
+                if search:
+                    where_clause = "WHERE input_code = %s OR output_code = %s"
+                    params.extend([search, search])
+                
+                # Get total count
+                count_query = f"SELECT COUNT(*) FROM insurance_mappings {where_clause}"
+                cur.execute(count_query, params)
+                total = cur.fetchone()['count']
+                
+                # Calculate pagination
+                offset = (page - 1) * page_size
+                total_pages = (total + page_size - 1) // page_size
+                
+                # Get paginated results
+                data_query = f"""
+                    SELECT id, input_code, output_code, description, updated_at
+                    FROM insurance_mappings
+                    {where_clause}
+                    ORDER BY input_code
+                    LIMIT %s OFFSET %s
+                """
+                cur.execute(data_query, params + [page_size, offset])
+                results = cur.fetchall()
+                
+                return {
+                    'mappings': [dict(row) for row in results],
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': total_pages
+                }
+    except Exception as e:
+        logger.error(f"Failed to get insurance mappings: {e}")
+        return {
+            'mappings': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': 0
+        }
+
+
+def get_insurance_mapping(mapping_id=None, input_code=None):
+    """
+    Get a single insurance mapping by ID or input_code.
+    Returns a dictionary or None if not found.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if mapping_id:
+                    cur.execute("""
+                        SELECT id, input_code, output_code, description, updated_at
+                        FROM insurance_mappings
+                        WHERE id = %s
+                    """, (mapping_id,))
+                elif input_code:
+                    cur.execute("""
+                        SELECT id, input_code, output_code, description, updated_at
+                        FROM insurance_mappings
+                        WHERE input_code = %s
+                    """, (input_code,))
+                else:
+                    return None
+                
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get insurance mapping: {e}")
+        return None
+
+
+def upsert_insurance_mapping(input_code, output_code, description=""):
+    """
+    Insert or update an insurance mapping.
+    Returns True on success, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO insurance_mappings (input_code, output_code, description, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (input_code) 
+                    DO UPDATE SET 
+                        output_code = EXCLUDED.output_code,
+                        description = EXCLUDED.description,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (input_code, output_code, description))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to upsert insurance mapping {input_code}: {e}")
+        return False
+
+
+def delete_insurance_mapping(mapping_id):
+    """
+    Delete an insurance mapping.
+    Returns True on success, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM insurance_mappings WHERE id = %s", (mapping_id,))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to delete insurance mapping {mapping_id}: {e}")
+        return False
+
+
+def get_insurance_mappings_dict():
+    """
+    Get insurance mappings as a dictionary for use in conversion scripts.
+    Returns: dict mapping input_code -> output_code
+    """
+    try:
+        result = get_all_insurance_mappings(page=1, page_size=10000)  # Get all
+        mappings_dict = {}
+        for mapping in result['mappings']:
+            mappings_dict[mapping['input_code']] = mapping['output_code']
+        return mappings_dict
+    except Exception as e:
+        logger.error(f"Failed to get insurance mappings dict: {e}")
+        return {}
 
 
 if __name__ == "__main__":
