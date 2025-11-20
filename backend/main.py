@@ -931,7 +931,7 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt5", max_workers: int = 5):
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt5", max_workers: int = 5, custom_instructions: str = None):
     """Background task to predict CPT codes using OpenAI general model"""
     job = job_status[job_id]
     
@@ -1538,12 +1538,24 @@ async def predict_cpt_general(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
     model: str = Form(default="gpt5"),
-    max_workers: int = Form(default=5)
+    max_workers: int = Form(default=5),
+    custom_instructions: Optional[str] = Form(default=None),
+    instruction_template_id: Optional[int] = Form(default=None)
 ):
     """Upload a CSV or XLSX file to predict CPT codes using OpenAI general model"""
     
     try:
         logger.info(f"Received general model CPT prediction request - file: {csv_file.filename}, model: {model}, workers: {max_workers}")
+        
+        # Fetch instruction template if provided
+        if instruction_template_id:
+            from db_utils import get_prediction_instruction
+            template = get_prediction_instruction(instruction_id=instruction_template_id)
+            if template:
+                custom_instructions = template['instructions_text']
+                logger.info(f"Using instruction template '{template['name']}' for general CPT prediction")
+            else:
+                logger.warning(f"Instruction template {instruction_template_id} not found, proceeding without custom instructions")
         
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -1574,7 +1586,7 @@ async def predict_cpt_general(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing with general model
-        background_tasks.add_task(predict_cpt_general_background, job_id, csv_path, model, max_workers)
+        background_tasks.add_task(predict_cpt_general_background, job_id, csv_path, model, max_workers, custom_instructions)
         
         logger.info(f"Background general model CPT prediction task started for job {job_id}")
         
@@ -1591,7 +1603,8 @@ async def predict_cpt_from_pdfs(
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5"),
     max_workers: int = Form(default=5),
-    custom_instructions: Optional[str] = Form(default=None)
+    custom_instructions: Optional[str] = Form(default=None),
+    instruction_template_id: Optional[int] = Form(default=None)
 ):
     """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""
     
@@ -1601,6 +1614,16 @@ async def predict_cpt_from_pdfs(
         # Validate file type
         if not zip_file.filename.endswith('.zip'):
             raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        
+        # Fetch instruction template if provided
+        if instruction_template_id:
+            from db_utils import get_prediction_instruction
+            template = get_prediction_instruction(instruction_id=instruction_template_id)
+            if template:
+                custom_instructions = template['instructions_text']
+                logger.info(f"Using instruction template '{template['name']}' for CPT prediction")
+            else:
+                logger.warning(f"Instruction template {instruction_template_id} not found, proceeding without custom instructions")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1635,7 +1658,8 @@ async def predict_icd_from_pdfs(
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5"),
     max_workers: int = Form(default=5),
-    custom_instructions: Optional[str] = Form(default=None)
+    custom_instructions: Optional[str] = Form(default=None),
+    instruction_template_id: Optional[int] = Form(default=None)
 ):
     """Upload a ZIP file containing PDFs to predict ICD codes using OpenAI vision model"""
     
@@ -1645,6 +1669,16 @@ async def predict_icd_from_pdfs(
         # Validate file type
         if not zip_file.filename.endswith('.zip'):
             raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        
+        # Fetch instruction template if provided
+        if instruction_template_id:
+            from db_utils import get_prediction_instruction
+            template = get_prediction_instruction(instruction_id=instruction_template_id)
+            if template:
+                custom_instructions = template['instructions_text']
+                logger.info(f"Using instruction template '{template['name']}' for ICD prediction")
+            else:
+                logger.warning(f"Instruction template {instruction_template_id} not found, proceeding without custom instructions")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -2859,6 +2893,150 @@ async def export_template_as_excel(template_id: int):
     except Exception as e:
         logger.error(f"Failed to export template {template_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to export template: {str(e)}")
+
+
+# ============================================================================
+# Prediction Instructions API Endpoints (CPT/ICD)
+# ============================================================================
+
+@app.get("/api/prediction-instructions")
+async def get_prediction_instructions(
+    instruction_type: str = None,
+    page: int = 1,
+    page_size: int = 50,
+    search: str = None
+):
+    """Get prediction instruction templates (CPT/ICD) with pagination"""
+    try:
+        from db_utils import get_all_prediction_instructions
+        result = get_all_prediction_instructions(
+            instruction_type=instruction_type,
+            page=page,
+            page_size=page_size,
+            search=search
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get prediction instructions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve instructions: {str(e)}")
+
+
+@app.get("/api/prediction-instructions/{instruction_id}")
+async def get_prediction_instruction(instruction_id: int):
+    """Get a specific prediction instruction by ID"""
+    try:
+        from db_utils import get_prediction_instruction as get_instruction_by_id
+        instruction = get_instruction_by_id(instruction_id=instruction_id)
+        if instruction:
+            return instruction
+        else:
+            raise HTTPException(status_code=404, detail=f"Instruction {instruction_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get prediction instruction {instruction_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve instruction: {str(e)}")
+
+
+@app.post("/api/prediction-instructions")
+async def create_prediction_instruction(request: dict):
+    """Create a new prediction instruction template"""
+    try:
+        name = request.get("name")
+        instruction_type = request.get("instruction_type")
+        instructions_text = request.get("instructions_text")
+        description = request.get("description", "")
+        
+        if not name or not instruction_type or not instructions_text:
+            raise HTTPException(
+                status_code=400,
+                detail="name, instruction_type, and instructions_text are required"
+            )
+        
+        if instruction_type not in ['cpt', 'icd']:
+            raise HTTPException(
+                status_code=400,
+                detail="instruction_type must be 'cpt' or 'icd'"
+            )
+        
+        from db_utils import create_prediction_instruction
+        instruction_id = create_prediction_instruction(
+            name=name,
+            instruction_type=instruction_type,
+            instructions_text=instructions_text,
+            description=description
+        )
+        
+        if instruction_id:
+            return {
+                "message": "Instruction template created successfully",
+                "instruction_id": instruction_id,
+                "name": name,
+                "instruction_type": instruction_type
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create instruction template")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create prediction instruction: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create instruction: {str(e)}")
+
+
+@app.put("/api/prediction-instructions/{instruction_id}")
+async def update_prediction_instruction(instruction_id: int, request: dict):
+    """Update an existing prediction instruction template"""
+    try:
+        from db_utils import get_prediction_instruction, update_prediction_instruction as update_instruction_in_db
+        
+        # Check if instruction exists
+        existing = get_prediction_instruction(instruction_id=instruction_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Instruction {instruction_id} not found")
+        
+        name = request.get("name")
+        description = request.get("description")
+        instructions_text = request.get("instructions_text")
+        
+        success = update_instruction_in_db(
+            instruction_id=instruction_id,
+            name=name,
+            description=description,
+            instructions_text=instructions_text
+        )
+        
+        if success:
+            updated = get_prediction_instruction(instruction_id=instruction_id)
+            return {
+                "message": "Instruction template updated successfully",
+                "instruction": updated
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update instruction template")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update prediction instruction {instruction_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update instruction: {str(e)}")
+
+
+@app.delete("/api/prediction-instructions/{instruction_id}")
+async def delete_prediction_instruction(instruction_id: int):
+    """Delete a prediction instruction template"""
+    try:
+        from db_utils import delete_prediction_instruction as delete_instruction_by_id
+        success = delete_instruction_by_id(instruction_id)
+        if success:
+            return {"message": f"Instruction {instruction_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete instruction template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete prediction instruction {instruction_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete instruction: {str(e)}")
 
 
 if __name__ == "__main__":

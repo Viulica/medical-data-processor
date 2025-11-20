@@ -91,7 +91,14 @@
             :class="{ active: activeTab === 'templates' }"
             class="tab-btn"
           >
-            📝 Templates Manager
+            📝 Field Templates
+          </button>
+          <button
+            @click="loadPredictionInstructions"
+            :class="{ active: activeTab === 'prediction-instructions' }"
+            class="tab-btn"
+          >
+            💬 Instruction Templates
           </button>
         </div>
 
@@ -967,7 +974,43 @@
                 <h3>Custom Coding Instructions</h3>
               </div>
               <div class="settings-content">
-                <div class="form-group">
+                <!-- Template Selection Toggle -->
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="useCptTemplateInsteadOfText"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Use saved template</span>
+                  </label>
+                </div>
+
+                <!-- Template Dropdown (when using template) -->
+                <div v-if="useCptTemplateInsteadOfText" class="template-dropdown-section">
+                  <select
+                    v-model="selectedCptInstructionId"
+                    class="template-select"
+                    @focus="ensureCptInstructionsLoaded"
+                  >
+                    <option :value="null" disabled>Select CPT template...</option>
+                    <option
+                      v-for="instruction in predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                      :key="instruction.id"
+                      :value="instruction.id"
+                    >
+                      {{ instruction.name }}
+                    </option>
+                  </select>
+                  <p class="template-hint">
+                    <a href="#" @click.prevent="loadPredictionInstructions" class="manage-link">
+                      Manage instruction templates
+                    </a>
+                  </p>
+                </div>
+
+                <!-- Manual Text Input (when not using template) -->
+                <div v-else class="form-group">
                   <label for="custom-instructions" class="form-label">
                     Additional instructions for medical coder (optional):
                   </label>
@@ -1237,7 +1280,43 @@
                 <h3>Custom Coding Instructions</h3>
               </div>
               <div class="settings-content">
-                <div class="form-group">
+                <!-- Template Selection Toggle -->
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="useIcdTemplateInsteadOfText"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Use saved template</span>
+                  </label>
+                </div>
+
+                <!-- Template Dropdown (when using template) -->
+                <div v-if="useIcdTemplateInsteadOfText" class="template-dropdown-section">
+                  <select
+                    v-model="selectedIcdInstructionId"
+                    class="template-select"
+                    @focus="ensureIcdInstructionsLoaded"
+                  >
+                    <option :value="null" disabled>Select ICD template...</option>
+                    <option
+                      v-for="instruction in predictionInstructions.filter(i => i.instruction_type === 'icd')"
+                      :key="instruction.id"
+                      :value="instruction.id"
+                    >
+                      {{ instruction.name }}
+                    </option>
+                  </select>
+                  <p class="template-hint">
+                    <a href="#" @click.prevent="loadPredictionInstructions" class="manage-link">
+                      Manage instruction templates
+                    </a>
+                  </p>
+                </div>
+
+                <!-- Manual Text Input (when not using template) -->
+                <div v-else class="form-group">
                   <label for="icd-custom-instructions" class="form-label">
                     Additional instructions for ICD code prediction (optional):
                   </label>
@@ -2818,6 +2897,279 @@
           </div>
         </div>
 
+        <!-- Prediction Instructions Manager Tab -->
+        <div v-if="activeTab === 'prediction-instructions'" class="upload-section">
+          <div class="section-header">
+            <h2>💬 Prediction Instruction Templates</h2>
+            <p>
+              Manage instruction templates for CPT and ICD code prediction.
+              Create reusable instruction sets for consistent predictions.
+            </p>
+          </div>
+
+          <!-- Type Filter and Actions -->
+          <div class="modifiers-controls">
+            <div class="filter-group">
+              <label>Filter by type:</label>
+              <select v-model="predictionInstructionTypeFilter" @change="loadPredictionInstructions(false)" class="type-filter-select">
+                <option value="">All Types</option>
+                <option value="cpt">CPT</option>
+                <option value="icd">ICD</option>
+              </select>
+            </div>
+            <div class="search-box">
+              <input
+                v-model="predictionInstructionSearch"
+                @input="onPredictionInstructionSearchChange"
+                type="text"
+                placeholder="Search instructions..."
+                class="search-input"
+              />
+            </div>
+            <button @click="showAddPredictionInstructionModal = true" class="add-btn">
+              ➕ Add New Template
+            </button>
+          </div>
+
+          <!-- Instructions Grid -->
+          <div v-if="predictionInstructions.length > 0" class="templates-grid">
+            <div
+              v-for="instruction in predictionInstructions"
+              :key="instruction.id"
+              class="template-card"
+            >
+              <div class="template-card-header">
+                <div class="template-title-section">
+                  <h3>{{ instruction.name }}</h3>
+                  <span class="instruction-type-badge" :class="'badge-' + instruction.instruction_type">
+                    {{ instruction.instruction_type.toUpperCase() }}
+                  </span>
+                </div>
+                <div class="template-card-actions">
+                  <button
+                    @click="viewPredictionInstructionDetails(instruction)"
+                    class="action-btn view-btn"
+                    title="View/Edit"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    @click="deletePredictionInstructionConfirm(instruction.id, instruction.name)"
+                    class="action-btn delete-btn"
+                    title="Delete"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <div class="template-card-body">
+                <p class="template-description">
+                  {{ instruction.description || "No description provided" }}
+                </p>
+                <div class="template-meta">
+                  <span class="template-date">
+                    📅 {{ formatDate(instruction.created_at) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pagination -->
+          <div v-if="predictionInstructions.length > 0" class="pagination-container">
+            <div class="pagination-info">
+              Showing {{ (predictionInstructionCurrentPage - 1) * predictionInstructionPageSize + 1 }} -
+              {{ Math.min(predictionInstructionCurrentPage * predictionInstructionPageSize, totalPredictionInstructions) }} of
+              {{ totalPredictionInstructions }} templates
+            </div>
+            <div class="pagination-controls">
+              <button
+                @click="goToPredictionInstructionPage(1)"
+                :disabled="predictionInstructionCurrentPage === 1"
+                class="pagination-btn"
+              >
+                ⏮️ First
+              </button>
+              <button
+                @click="goToPredictionInstructionPage(predictionInstructionCurrentPage - 1)"
+                :disabled="predictionInstructionCurrentPage === 1"
+                class="pagination-btn"
+              >
+                ◀️ Prev
+              </button>
+              <span class="page-info">
+                Page {{ predictionInstructionCurrentPage }} of {{ predictionInstructionTotalPages }}
+              </span>
+              <button
+                @click="goToPredictionInstructionPage(predictionInstructionCurrentPage + 1)"
+                :disabled="predictionInstructionCurrentPage === predictionInstructionTotalPages"
+                class="pagination-btn"
+              >
+                Next ▶️
+              </button>
+              <button
+                @click="goToPredictionInstructionPage(predictionInstructionTotalPages)"
+                :disabled="predictionInstructionCurrentPage === predictionInstructionTotalPages"
+                class="pagination-btn"
+              >
+                Last ⏭️
+              </button>
+            </div>
+            <div class="page-size-selector">
+              <label>Per page:</label>
+              <select
+                v-model.number="predictionInstructionPageSize"
+                @change="changePredictionInstructionPageSize(predictionInstructionPageSize)"
+                class="page-size-select"
+              >
+                <option :value="12">12</option>
+                <option :value="24">24</option>
+                <option :value="48">48</option>
+              </select>
+            </div>
+          </div>
+
+          <div v-else-if="predictionInstructionsLoading" class="loading-section">
+            <div class="spinner"></div>
+            <p>Loading instruction templates...</p>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>
+              No instruction templates found. Click "Add New Template" to create one.
+            </p>
+          </div>
+        </div>
+
+        <!-- Add Prediction Instruction Modal -->
+        <div
+          v-if="showAddPredictionInstructionModal"
+          class="modal-overlay"
+          @click="closePredictionInstructionModals"
+        >
+          <div class="modal-content modal-large" @click.stop>
+            <div class="modal-header">
+              <h3>➕ Create Instruction Template</h3>
+              <button @click="closePredictionInstructionModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="currentPredictionInstruction.name"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Standard CPT Instructions"
+                />
+              </div>
+              <div class="form-group">
+                <label>Type *</label>
+                <select v-model="currentPredictionInstruction.instruction_type" class="form-input">
+                  <option value="">Select type...</option>
+                  <option value="cpt">CPT</option>
+                  <option value="icd">ICD</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="currentPredictionInstruction.description"
+                  class="form-textarea"
+                  rows="2"
+                  placeholder="Optional description..."
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Instructions *</label>
+                <textarea
+                  v-model="currentPredictionInstruction.instructions_text"
+                  class="form-textarea instruction-textarea"
+                  rows="12"
+                  placeholder="Enter prediction instructions here..."
+                ></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closePredictionInstructionModals" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="savePredictionInstruction"
+                class="btn-primary"
+                :disabled="!canSavePredictionInstruction || isSavingPredictionInstruction"
+              >
+                <span v-if="isSavingPredictionInstruction">Creating...</span>
+                <span v-else>💾 Create Template</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View/Edit Prediction Instruction Modal -->
+        <div
+          v-if="showViewPredictionInstructionModal"
+          class="modal-overlay"
+          @click="closePredictionInstructionModals"
+        >
+          <div class="modal-content modal-large" @click.stop>
+            <div class="modal-header">
+              <h3>✏️ Edit Instruction Template</h3>
+              <button @click="closePredictionInstructionModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="currentPredictionInstruction.name"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Standard CPT Instructions"
+                />
+              </div>
+              <div class="form-group">
+                <label>Type</label>
+                <input
+                  v-model="currentPredictionInstruction.instruction_type"
+                  type="text"
+                  class="form-input"
+                  disabled
+                />
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="currentPredictionInstruction.description"
+                  class="form-textarea"
+                  rows="2"
+                  placeholder="Optional description..."
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Instructions *</label>
+                <textarea
+                  v-model="currentPredictionInstruction.instructions_text"
+                  class="form-textarea instruction-textarea"
+                  rows="15"
+                  placeholder="Enter prediction instructions here..."
+                ></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closePredictionInstructionModals" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="updatePredictionInstruction"
+                class="btn-primary"
+                :disabled="!canSavePredictionInstruction || isSavingPredictionInstruction"
+              >
+                <span v-if="isSavingPredictionInstruction">Saving...</span>
+                <span v-else">💾 Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Add/Edit Modifier Modal -->
         <div
           v-if="showAddModal || showEditModal"
@@ -3037,6 +3389,31 @@ export default {
       selectedTemplateIdStandard: null,
       useTemplateInsteadOfExcelFast: false,
       useTemplateInsteadOfExcelStandard: false,
+      // Prediction Instructions Manager functionality
+      predictionInstructions: [],
+      predictionInstructionsLoading: false,
+      predictionInstructionSearch: "",
+      predictionInstructionSearchTimeout: null,
+      predictionInstructionTypeFilter: "",
+      predictionInstructionCurrentPage: 1,
+      predictionInstructionPageSize: 12,
+      totalPredictionInstructions: 0,
+      predictionInstructionTotalPages: 0,
+      showAddPredictionInstructionModal: false,
+      showViewPredictionInstructionModal: false,
+      isSavingPredictionInstruction: false,
+      currentPredictionInstruction: {
+        id: null,
+        name: "",
+        description: "",
+        instruction_type: "",
+        instructions_text: "",
+      },
+      // Template selection for prediction tabs
+      selectedCptInstructionId: null,
+      selectedIcdInstructionId: null,
+      useCptTemplateInsteadOfText: false,
+      useIcdTemplateInsteadOfText: false,
     };
   },
   computed: {
@@ -3095,6 +3472,14 @@ export default {
       // All fields must have a name
       return this.editingFields.every(field => field.name && field.name.trim());
     },
+    canSavePredictionInstruction() {
+      return (
+        this.currentPredictionInstruction.name &&
+        this.currentPredictionInstruction.instruction_type &&
+        this.currentPredictionInstruction.instructions_text &&
+        this.currentPredictionInstruction.instructions_text.trim()
+      );
+    },
   },
   methods: {
     isValidCsvOrXlsxFile(filename) {
@@ -3130,6 +3515,51 @@ export default {
           this.templates = response.data.templates;
         } catch (error) {
           console.error("Failed to load templates:", error);
+        }
+      }
+    },
+
+    async ensureCptInstructionsLoaded() {
+      // Load CPT instruction templates if not already loaded
+      if (this.predictionInstructions.filter(i => i.instruction_type === 'cpt').length === 0 && !this.predictionInstructionsLoading) {
+        try {
+          const response = await axios.get(
+            joinUrl(API_BASE_URL, "api/prediction-instructions"),
+            {
+              params: {
+                instruction_type: 'cpt',
+                page: 1,
+                page_size: 100,
+              },
+            }
+          );
+          this.predictionInstructions = response.data.instructions;
+        } catch (error) {
+          console.error("Failed to load CPT instructions:", error);
+        }
+      }
+    },
+
+    async ensureIcdInstructionsLoaded() {
+      // Load ICD instruction templates if not already loaded
+      if (this.predictionInstructions.filter(i => i.instruction_type === 'icd').length === 0 && !this.predictionInstructionsLoading) {
+        try {
+          const response = await axios.get(
+            joinUrl(API_BASE_URL, "api/prediction-instructions"),
+            {
+              params: {
+                instruction_type: 'icd',
+                page: 1,
+                page_size: 100,
+              },
+            }
+          );
+          // Merge with existing (in case CPT was already loaded)
+          const existingIds = new Set(this.predictionInstructions.map(i => i.id));
+          const newInstructions = response.data.instructions.filter(i => !existingIds.has(i.id));
+          this.predictionInstructions = [...this.predictionInstructions, ...newInstructions];
+        } catch (error) {
+          console.error("Failed to load ICD instructions:", error);
         }
       }
     },
@@ -3888,7 +4318,11 @@ export default {
         formData.append("n_pages", this.visionPageCount);
         formData.append("model", "openai/gpt-5");
         formData.append("max_workers", "5");
-        if (
+        
+        // Use template or manual instructions (vision and non-vision share same templates)
+        if (this.useCptTemplateInsteadOfText && this.selectedCptInstructionId) {
+          formData.append("instruction_template_id", this.selectedCptInstructionId);
+        } else if (
           this.cptVisionCustomInstructions &&
           this.cptVisionCustomInstructions.trim()
         ) {
@@ -3906,6 +4340,13 @@ export default {
       } else {
         // Traditional CSV-based prediction
         formData.append("csv_file", this.csvFile);
+
+        // Add custom instructions or template
+        if (this.useCptTemplateInsteadOfText && this.selectedCptInstructionId) {
+          formData.append("instruction_template_id", this.selectedCptInstructionId);
+        } else if (this.customInstructions && this.customInstructions.trim()) {
+          formData.append("custom_instructions", this.customInstructions.trim());
+        }
 
         if (this.selectedClient === "tan-esc") {
           uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
@@ -4138,7 +4579,11 @@ export default {
       formData.append("n_pages", this.icdPageCount);
       formData.append("model", "openai/gpt-5");
       formData.append("max_workers", "5");
-      if (this.icdCustomInstructions && this.icdCustomInstructions.trim()) {
+      
+      // Use template or manual instructions
+      if (this.useIcdTemplateInsteadOfText && this.selectedIcdInstructionId) {
+        formData.append("instruction_template_id", this.selectedIcdInstructionId);
+      } else if (this.icdCustomInstructions && this.icdCustomInstructions.trim()) {
         formData.append(
           "custom_instructions",
           this.icdCustomInstructions.trim()
@@ -5448,6 +5893,182 @@ export default {
       this.viewingTemplate = null;
       this.editingFields = [];
       this.isSavingFields = false;
+    },
+
+    // ========================================================================
+    // Prediction Instructions Manager Methods
+    // ========================================================================
+
+    async loadPredictionInstructions(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "prediction-instructions";
+        this.predictionInstructionCurrentPage = 1;
+      }
+
+      this.predictionInstructionsLoading = true;
+      try {
+        const params = {
+          page: this.predictionInstructionCurrentPage,
+          page_size: this.predictionInstructionPageSize,
+        };
+
+        if (this.predictionInstructionTypeFilter) {
+          params.instruction_type = this.predictionInstructionTypeFilter;
+        }
+
+        if (this.predictionInstructionSearch) {
+          params.search = this.predictionInstructionSearch;
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/prediction-instructions"),
+          { params }
+        );
+
+        this.predictionInstructions = response.data.instructions;
+        this.totalPredictionInstructions = response.data.total;
+        this.predictionInstructionTotalPages = response.data.total_pages;
+      } catch (error) {
+        console.error("Failed to load prediction instructions:", error);
+        this.toast.error("Failed to load instruction templates");
+      } finally {
+        this.predictionInstructionsLoading = false;
+      }
+    },
+
+    onPredictionInstructionSearchChange() {
+      if (this.predictionInstructionSearchTimeout) {
+        clearTimeout(this.predictionInstructionSearchTimeout);
+      }
+
+      this.predictionInstructionSearchTimeout = setTimeout(() => {
+        this.predictionInstructionCurrentPage = 1;
+        this.loadPredictionInstructions(false);
+      }, 500);
+    },
+
+    goToPredictionInstructionPage(page) {
+      if (page < 1 || page > this.predictionInstructionTotalPages) return;
+      this.predictionInstructionCurrentPage = page;
+      this.loadPredictionInstructions(false);
+    },
+
+    changePredictionInstructionPageSize(newSize) {
+      this.predictionInstructionPageSize = newSize;
+      this.predictionInstructionCurrentPage = 1;
+      this.loadPredictionInstructions(false);
+    },
+
+    async savePredictionInstruction() {
+      if (!this.canSavePredictionInstruction) {
+        this.toast.error("Please fill in all required fields");
+        return;
+      }
+
+      this.isSavingPredictionInstruction = true;
+      try {
+        await axios.post(
+          joinUrl(API_BASE_URL, "api/prediction-instructions"),
+          {
+            name: this.currentPredictionInstruction.name,
+            instruction_type: this.currentPredictionInstruction.instruction_type,
+            instructions_text: this.currentPredictionInstruction.instructions_text,
+            description: this.currentPredictionInstruction.description || "",
+          }
+        );
+
+        this.toast.success("Instruction template created successfully!");
+        this.closePredictionInstructionModals();
+        await this.loadPredictionInstructions(false);
+      } catch (error) {
+        console.error("Failed to create instruction template:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to create instruction template"
+        );
+      } finally {
+        this.isSavingPredictionInstruction = false;
+      }
+    },
+
+    async viewPredictionInstructionDetails(instruction) {
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `api/prediction-instructions/${instruction.id}`)
+        );
+        this.currentPredictionInstruction = {
+          id: response.data.id,
+          name: response.data.name,
+          description: response.data.description || "",
+          instruction_type: response.data.instruction_type,
+          instructions_text: response.data.instructions_text,
+        };
+        this.showViewPredictionInstructionModal = true;
+      } catch (error) {
+        console.error("Failed to load instruction details:", error);
+        this.toast.error("Failed to load instruction details");
+      }
+    },
+
+    async updatePredictionInstruction() {
+      if (!this.canSavePredictionInstruction) {
+        this.toast.error("Please fill in all required fields");
+        return;
+      }
+
+      this.isSavingPredictionInstruction = true;
+      try {
+        await axios.put(
+          joinUrl(API_BASE_URL, `api/prediction-instructions/${this.currentPredictionInstruction.id}`),
+          {
+            name: this.currentPredictionInstruction.name,
+            description: this.currentPredictionInstruction.description || "",
+            instructions_text: this.currentPredictionInstruction.instructions_text,
+          }
+        );
+
+        this.toast.success("Instruction template updated successfully!");
+        this.closePredictionInstructionModals();
+        await this.loadPredictionInstructions(false);
+      } catch (error) {
+        console.error("Failed to update instruction template:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to update instruction template"
+        );
+      } finally {
+        this.isSavingPredictionInstruction = false;
+      }
+    },
+
+    async deletePredictionInstructionConfirm(instructionId, instructionName) {
+      if (
+        !confirm(`Are you sure you want to delete instruction template "${instructionName}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(API_BASE_URL, `api/prediction-instructions/${instructionId}`)
+        );
+        this.toast.success("Instruction template deleted successfully!");
+        await this.loadPredictionInstructions(false);
+      } catch (error) {
+        console.error("Failed to delete instruction template:", error);
+        this.toast.error("Failed to delete instruction template");
+      }
+    },
+
+    closePredictionInstructionModals() {
+      this.showAddPredictionInstructionModal = false;
+      this.showViewPredictionInstructionModal = false;
+      this.currentPredictionInstruction = {
+        id: null,
+        name: "",
+        description: "",
+        instruction_type: "",
+        instructions_text: "",
+      };
+      this.isSavingPredictionInstruction = false;
     },
 
     formatDate(dateString) {
@@ -7423,5 +8044,74 @@ input:checked + .slider:hover {
   font-size: 0.95rem;
   color: #475569;
   font-weight: 500;
+}
+
+/* Prediction Instructions Styles */
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border-radius: 8px;
+  border: 2px solid #e2e8f0;
+}
+
+.filter-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.type-filter-select {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.type-filter-select:hover {
+  border-color: #3b82f6;
+}
+
+.type-filter-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.template-title-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.instruction-type-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-cpt {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-icd {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.instruction-textarea {
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 </style>

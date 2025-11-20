@@ -65,6 +65,20 @@ def init_database():
     );
     
     CREATE INDEX IF NOT EXISTS idx_template_name ON instruction_templates(name);
+    
+    CREATE TABLE IF NOT EXISTS prediction_instructions (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        instruction_type VARCHAR(50) NOT NULL,
+        instructions_text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(name, instruction_type)
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_prediction_instructions_name ON prediction_instructions(name);
+    CREATE INDEX IF NOT EXISTS idx_prediction_instructions_type ON prediction_instructions(instruction_type);
     """
     
     try:
@@ -402,6 +416,193 @@ def delete_template(template_id):
                 return True
     except Exception as e:
         logger.error(f"Failed to delete template {template_id}: {e}")
+        return False
+
+
+# ============================================================
+# Prediction Instructions Management (CPT/ICD)
+# ============================================================
+
+def get_all_prediction_instructions(instruction_type=None, page=1, page_size=50, search=None):
+    """
+    Get prediction instructions from the database with pagination.
+    
+    Args:
+        instruction_type: Filter by type ('cpt' or 'icd'), None for all
+        page: Page number (1-indexed)
+        page_size: Number of records per page
+        search: Optional search term for name
+    
+    Returns:
+        Dictionary with 'instructions', 'total', 'page', 'page_size', 'total_pages'
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Build WHERE clause
+                where_conditions = []
+                params = []
+                
+                if instruction_type:
+                    where_conditions.append("instruction_type = %s")
+                    params.append(instruction_type)
+                
+                if search:
+                    where_conditions.append("(name ILIKE %s OR description ILIKE %s)")
+                    params.extend([f"%{search}%", f"%{search}%"])
+                
+                where_clause = ""
+                if where_conditions:
+                    where_clause = "WHERE " + " AND ".join(where_conditions)
+                
+                # Get total count
+                count_query = f"SELECT COUNT(*) FROM prediction_instructions {where_clause}"
+                cur.execute(count_query, params)
+                total = cur.fetchone()['count']
+                
+                # Calculate pagination
+                offset = (page - 1) * page_size
+                total_pages = (total + page_size - 1) // page_size
+                
+                # Get paginated results
+                data_query = f"""
+                    SELECT id, name, description, instruction_type, created_at, updated_at
+                    FROM prediction_instructions
+                    {where_clause}
+                    ORDER BY instruction_type, name
+                    LIMIT %s OFFSET %s
+                """
+                cur.execute(data_query, params + [page_size, offset])
+                results = cur.fetchall()
+                
+                return {
+                    'instructions': [dict(row) for row in results],
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': total_pages
+                }
+    except Exception as e:
+        logger.error(f"Failed to get prediction instructions: {e}")
+        return {
+            'instructions': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': 0
+        }
+
+
+def get_prediction_instruction(instruction_id=None, name=None, instruction_type=None):
+    """
+    Get a single prediction instruction by ID or by name+type.
+    Returns a dictionary or None if not found.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if instruction_id:
+                    cur.execute("""
+                        SELECT id, name, description, instruction_type, instructions_text, created_at, updated_at
+                        FROM prediction_instructions
+                        WHERE id = %s
+                    """, (instruction_id,))
+                elif name and instruction_type:
+                    cur.execute("""
+                        SELECT id, name, description, instruction_type, instructions_text, created_at, updated_at
+                        FROM prediction_instructions
+                        WHERE name = %s AND instruction_type = %s
+                    """, (name, instruction_type))
+                else:
+                    return None
+                
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get prediction instruction: {e}")
+        return None
+
+
+def create_prediction_instruction(name, instruction_type, instructions_text, description=""):
+    """
+    Create a new prediction instruction template.
+    Returns the created instruction ID on success, None on failure.
+    
+    Args:
+        name: Template name
+        instruction_type: Type - 'cpt' or 'icd'
+        instructions_text: The instruction text
+        description: Optional description
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO prediction_instructions (name, description, instruction_type, instructions_text, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    RETURNING id
+                """, (name, description, instruction_type, instructions_text))
+                result = cur.fetchone()
+                return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to create prediction instruction '{name}': {e}")
+        return None
+
+
+def update_prediction_instruction(instruction_id, name=None, description=None, instructions_text=None):
+    """
+    Update an existing prediction instruction.
+    Returns True on success, False on failure.
+    """
+    # Build dynamic UPDATE statement
+    updates = []
+    params = []
+    
+    if name is not None:
+        updates.append("name = %s")
+        params.append(name)
+    
+    if description is not None:
+        updates.append("description = %s")
+        params.append(description)
+    
+    if instructions_text is not None:
+        updates.append("instructions_text = %s")
+        params.append(instructions_text)
+    
+    if not updates:
+        return True  # Nothing to update
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(instruction_id)
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                query = f"""
+                    UPDATE prediction_instructions
+                    SET {', '.join(updates)}
+                    WHERE id = %s
+                """
+                cur.execute(query, params)
+                return True
+    except Exception as e:
+        logger.error(f"Failed to update prediction instruction {instruction_id}: {e}")
+        return False
+
+
+def delete_prediction_instruction(instruction_id):
+    """
+    Delete a prediction instruction.
+    Returns True on success, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM prediction_instructions WHERE id = %s", (instruction_id,))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to delete prediction instruction {instruction_id}: {e}")
         return False
 
 
