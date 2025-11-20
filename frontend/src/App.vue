@@ -52,26 +52,24 @@
             📋 ICD Codes
           </button>
           <button
-            @click="selectTabAndLoad('config', 'loadModifiers')"
-            :class="{ active: activeTab === 'config' }"
+            @click="activeTab = 'modifiers'"
+            :class="{ active: activeTab === 'modifiers' }"
             class="tab-btn"
           >
-            ⚙️ Modifiers
+            💊 Modifiers
           </button>
           <button
-            @click="selectTab('insurance')"
+            @click="activeTab = 'insurance'"
             :class="{ active: activeTab === 'insurance' }"
             class="tab-btn"
           >
-            🏥 Insurance Sort
+            🏥 Sorting
           </button>
           <div class="dropdown-container">
             <button
               @click="toggleConvertersDropdown"
               :class="{
-                active: ['uni', 'instructions', 'modifiers'].includes(
-                  activeTab
-                ),
+                active: ['uni', 'instructions'].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
             >
@@ -87,9 +85,6 @@
               <button @click="selectTab('instructions')" class="dropdown-item">
                 📋 Convert Instructions
               </button>
-              <button @click="selectTab('modifiers')" class="dropdown-item">
-                💊 Generate Modifiers
-              </button>
             </div>
           </div>
           <div class="dropdown-container">
@@ -97,6 +92,7 @@
               @click="toggleSettingsDropdown"
               :class="{
                 active: [
+                  'config',
                   'insurance-config',
                   'templates',
                   'prediction-instructions',
@@ -110,6 +106,12 @@
               }}</span>
             </button>
             <div v-if="showSettingsDropdown" class="dropdown-menu">
+              <button
+                @click="selectTabAndLoad('config', 'loadModifiers')"
+                class="dropdown-item"
+              >
+                ⚙️ Modifiers Config
+              </button>
               <button
                 @click="
                   selectTabAndLoad('insurance-config', 'loadInsuranceMappings')
