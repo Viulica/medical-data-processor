@@ -86,6 +86,13 @@
           >
             ⚙️ Modifiers Config
           </button>
+          <button
+            @click="loadTemplates"
+            :class="{ active: activeTab === 'templates' }"
+            class="tab-btn"
+          >
+            📝 Templates Manager
+          </button>
         </div>
 
         <!-- Process Documents Tab -->
@@ -392,13 +399,58 @@
               </div>
             </div>
 
-            <!-- Step 2: Excel File Upload -->
+            <!-- Step 2: Excel File Upload or Template Selection -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
                 <h3>Processing Template</h3>
               </div>
+
+              <!-- Template Selection Option -->
+              <div class="template-selection-toggle">
+                <label class="toggle-label">
+                  <input
+                    v-model="useTemplateInsteadOfExcelFast"
+                    type="checkbox"
+                    class="toggle-checkbox"
+                  />
+                  <span class="toggle-text">Use saved template instead</span>
+                </label>
+              </div>
+
+              <!-- Template Dropdown (when using template) -->
               <div
+                v-if="useTemplateInsteadOfExcelFast"
+                class="template-dropdown-section"
+              >
+                <select
+                  v-model="selectedTemplateIdFast"
+                  class="template-select"
+                  @focus="ensureTemplatesLoaded"
+                >
+                  <option :value="null" disabled>Select a template...</option>
+                  <option
+                    v-for="template in templates"
+                    :key="template.id"
+                    :value="template.id"
+                  >
+                    {{ template.name }}
+                  </option>
+                </select>
+                <p class="template-hint">
+                  <a
+                    href="#"
+                    @click.prevent="loadTemplates"
+                    class="manage-link"
+                  >
+                    Manage templates
+                  </a>
+                </p>
+              </div>
+
+              <!-- Excel File Upload (when not using template) -->
+              <div
+                v-else
                 class="dropzone"
                 :class="{
                   active: isExcelDragActiveFast,
@@ -2360,6 +2412,370 @@
           </div>
         </div>
 
+        <!-- Templates Manager Tab -->
+        <div v-if="activeTab === 'templates'" class="upload-section">
+          <div class="section-header">
+            <h2>📝 Instruction Templates Manager</h2>
+            <p>
+              Manage instruction templates for PDF extraction. Upload Excel
+              files as reusable templates or use existing templates for
+              processing.
+            </p>
+          </div>
+
+          <!-- Search and Add New -->
+          <div class="modifiers-controls">
+            <div class="search-box">
+              <input
+                v-model="templateSearch"
+                @input="onTemplateSearchChange"
+                type="text"
+                placeholder="Search templates..."
+                class="search-input"
+              />
+            </div>
+            <button @click="showAddTemplateModal = true" class="add-btn">
+              ➕ Upload New Template
+            </button>
+          </div>
+
+          <!-- Templates Grid -->
+          <div v-if="templates.length > 0" class="templates-grid">
+            <div
+              v-for="template in templates"
+              :key="template.id"
+              class="template-card"
+            >
+              <div class="template-card-header">
+                <h3>{{ template.name }}</h3>
+                <div class="template-card-actions">
+                  <button
+                    @click="viewTemplateDetails(template)"
+                    class="action-btn view-btn"
+                    title="View Details"
+                  >
+                    👁️
+                  </button>
+                  <button
+                    @click="editTemplate(template)"
+                    class="action-btn edit-btn"
+                    title="Edit"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    @click="exportTemplate(template.id, template.name)"
+                    class="action-btn download-btn"
+                    title="Export to Excel"
+                  >
+                    📥
+                  </button>
+                  <button
+                    @click="deleteTemplateConfirm(template.id, template.name)"
+                    class="action-btn delete-btn"
+                    title="Delete"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <div class="template-card-body">
+                <p class="template-description">
+                  {{ template.description || "No description provided" }}
+                </p>
+                <div class="template-meta">
+                  <span class="template-date">
+                    📅 Created: {{ formatDate(template.created_at) }}
+                  </span>
+                  <span
+                    v-if="template.updated_at !== template.created_at"
+                    class="template-date"
+                  >
+                    🔄 Updated: {{ formatDate(template.updated_at) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pagination Controls -->
+          <div v-if="templates.length > 0" class="pagination-container">
+            <div class="pagination-info">
+              Showing {{ (templateCurrentPage - 1) * templatePageSize + 1 }} -
+              {{
+                Math.min(templateCurrentPage * templatePageSize, totalTemplates)
+              }}
+              of {{ totalTemplates }} templates
+            </div>
+
+            <div class="pagination-controls">
+              <button
+                @click="goToTemplatePage(1)"
+                :disabled="templateCurrentPage === 1"
+                class="pagination-btn"
+              >
+                ⏮️ First
+              </button>
+              <button
+                @click="goToTemplatePage(templateCurrentPage - 1)"
+                :disabled="templateCurrentPage === 1"
+                class="pagination-btn"
+              >
+                ◀️ Prev
+              </button>
+
+              <span class="page-info">
+                Page {{ templateCurrentPage }} of {{ templateTotalPages }}
+              </span>
+
+              <button
+                @click="goToTemplatePage(templateCurrentPage + 1)"
+                :disabled="templateCurrentPage === templateTotalPages"
+                class="pagination-btn"
+              >
+                Next ▶️
+              </button>
+              <button
+                @click="goToTemplatePage(templateTotalPages)"
+                :disabled="templateCurrentPage === templateTotalPages"
+                class="pagination-btn"
+              >
+                Last ⏭️
+              </button>
+            </div>
+
+            <div class="page-size-selector">
+              <label>Per page:</label>
+              <select
+                v-model.number="templatePageSize"
+                @change="changeTemplatePageSize(templatePageSize)"
+                class="page-size-select"
+              >
+                <option :value="12">12</option>
+                <option :value="24">24</option>
+                <option :value="48">48</option>
+              </select>
+            </div>
+          </div>
+
+          <div v-else-if="templatesLoading" class="loading-section">
+            <div class="spinner"></div>
+            <p>Loading templates...</p>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>
+              No templates found. Click "Upload New Template" to get started.
+            </p>
+          </div>
+        </div>
+
+        <!-- Add Template Modal -->
+        <div
+          v-if="showAddTemplateModal"
+          class="modal-overlay"
+          @click="closeTemplateModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>📤 Upload New Template</h3>
+              <button @click="closeTemplateModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="currentTemplate.name"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Hospital A - General Surgery"
+                />
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="currentTemplate.description"
+                  class="form-textarea"
+                  rows="3"
+                  placeholder="Optional description of this template..."
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Excel File *</label>
+                <input
+                  ref="templateExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onTemplateExcelSelect"
+                  class="form-file-input"
+                />
+                <p v-if="currentTemplate.file" class="file-selected">
+                  📄 {{ currentTemplate.file.name }}
+                </p>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeTemplateModals" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="saveTemplate"
+                class="btn-primary"
+                :disabled="
+                  !currentTemplate.name ||
+                  !currentTemplate.file ||
+                  isUploadingTemplate
+                "
+              >
+                <span v-if="isUploadingTemplate">Uploading...</span>
+                <span v-else>Upload Template</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit Template Modal -->
+        <div
+          v-if="showEditTemplateModal"
+          class="modal-overlay"
+          @click="closeTemplateModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>✏️ Edit Template</h3>
+              <button @click="closeTemplateModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="currentTemplate.name"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Hospital A - General Surgery"
+                />
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="currentTemplate.description"
+                  class="form-textarea"
+                  rows="3"
+                  placeholder="Optional description of this template..."
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Replace Excel File (Optional)</label>
+                <input
+                  ref="templateExcelEditInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onTemplateExcelSelect"
+                  class="form-file-input"
+                />
+                <p v-if="currentTemplate.file" class="file-selected">
+                  📄 {{ currentTemplate.file.name }}
+                </p>
+                <p v-else class="file-hint">
+                  Leave empty to keep existing field definitions
+                </p>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeTemplateModals" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="updateTemplate"
+                class="btn-primary"
+                :disabled="!currentTemplate.name || isUploadingTemplate"
+              >
+                <span v-if="isUploadingTemplate">Updating...</span>
+                <span v-else>Update Template</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View Template Details Modal -->
+        <div
+          v-if="showViewTemplateModal"
+          class="modal-overlay"
+          @click="closeTemplateModals"
+        >
+          <div class="modal-content modal-large" @click.stop>
+            <div class="modal-header">
+              <h3>👁️ Template Details</h3>
+              <button @click="closeTemplateModals" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <div v-if="viewingTemplate">
+                <div class="template-detail-section">
+                  <h4>{{ viewingTemplate.name }}</h4>
+                  <p class="template-description">
+                    {{ viewingTemplate.description || "No description" }}
+                  </p>
+                  <div class="template-meta">
+                    <span
+                      >📅 Created:
+                      {{ formatDate(viewingTemplate.created_at) }}</span
+                    >
+                    <span
+                      >🔄 Updated:
+                      {{ formatDate(viewingTemplate.updated_at) }}</span
+                    >
+                  </div>
+                </div>
+
+                <div class="template-fields-section">
+                  <h4>
+                    Fields ({{ viewingTemplate.template_data.fields.length }})
+                  </h4>
+                  <div class="fields-table-container">
+                    <table class="fields-table">
+                      <thead>
+                        <tr>
+                          <th>Field Name</th>
+                          <th>Description</th>
+                          <th>Location</th>
+                          <th>Format</th>
+                          <th>Priority</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="(field, idx) in viewingTemplate.template_data
+                            .fields"
+                          :key="idx"
+                        >
+                          <td>
+                            <strong>{{ field.name }}</strong>
+                          </td>
+                          <td>{{ field.description || "-" }}</td>
+                          <td>{{ field.location || "-" }}</td>
+                          <td>{{ field.output_format || "-" }}</td>
+                          <td>
+                            <span
+                              :class="field.priority ? 'badge-yes' : 'badge-no'"
+                            >
+                              {{ field.priority ? "YES" : "NO" }}
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeTemplateModals" class="btn-secondary">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Add/Edit Modifier Modal -->
         <div
           v-if="showAddModal || showEditModal"
@@ -2552,6 +2968,31 @@ export default {
         medicare_modifiers: false,
         bill_medical_direction: false,
       },
+      // Templates Manager functionality
+      templates: [],
+      templatesLoading: false,
+      templateSearch: "",
+      templateSearchTimeout: null,
+      templateCurrentPage: 1,
+      templatePageSize: 12,
+      totalTemplates: 0,
+      templateTotalPages: 0,
+      showAddTemplateModal: false,
+      showEditTemplateModal: false,
+      showViewTemplateModal: false,
+      isUploadingTemplate: false,
+      currentTemplate: {
+        id: null,
+        name: "",
+        description: "",
+        file: null,
+      },
+      viewingTemplate: null,
+      // Template selection for processing tabs
+      selectedTemplateIdFast: null,
+      selectedTemplateIdStandard: null,
+      useTemplateInsteadOfExcelFast: false,
+      useTemplateInsteadOfExcelStandard: false,
     };
   },
   computed: {
@@ -2564,9 +3005,13 @@ export default {
       );
     },
     canProcessFast() {
+      const hasTemplate = this.useTemplateInsteadOfExcelFast
+        ? this.selectedTemplateIdFast !== null
+        : this.excelFileFast;
+
       return (
         this.zipFileFast &&
-        this.excelFileFast &&
+        hasTemplate &&
         this.pageCountFast >= 1 &&
         this.pageCountFast <= 50
       );
@@ -2619,6 +3064,26 @@ export default {
       const sizes = ["Bytes", "KB", "MB", "GB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    },
+
+    async ensureTemplatesLoaded() {
+      // Load templates if not already loaded
+      if (this.templates.length === 0 && !this.templatesLoading) {
+        try {
+          const response = await axios.get(
+            joinUrl(API_BASE_URL, "api/templates"),
+            {
+              params: {
+                page: 1,
+                page_size: 100, // Get more for dropdown
+              },
+            }
+          );
+          this.templates = response.data.templates;
+        } catch (error) {
+          console.error("Failed to load templates:", error);
+        }
+      }
     },
 
     getStatusTitle() {
@@ -3144,7 +3609,9 @@ export default {
 
     async startProcessingFast() {
       if (!this.canProcessFast) {
-        this.toast.error("Please upload both files and set a valid page count");
+        this.toast.error(
+          "Please upload files/select template and set a valid page count"
+        );
         return;
       }
 
@@ -3153,7 +3620,14 @@ export default {
 
       const formData = new FormData();
       formData.append("zip_file", this.zipFileFast);
-      formData.append("excel_file", this.excelFileFast);
+
+      // Add either excel file or template ID
+      if (this.useTemplateInsteadOfExcelFast && this.selectedTemplateIdFast) {
+        formData.append("template_id", this.selectedTemplateIdFast);
+      } else {
+        formData.append("excel_file", this.excelFileFast);
+      }
+
       formData.append("n_pages", this.pageCountFast);
       formData.append("model", "gemini-flash-latest"); // Use the fast model
 
@@ -3253,6 +3727,8 @@ export default {
       this.jobIdFast = null;
       this.jobStatusFast = null;
       this.isProcessingFast = false;
+      this.useTemplateInsteadOfExcelFast = false;
+      this.selectedTemplateIdFast = null;
     },
 
     getStatusTitleFast() {
@@ -4642,6 +5118,229 @@ export default {
         medicare_modifiers: false,
         bill_medical_direction: false,
       };
+    },
+
+    // ========================================================================
+    // Templates Manager Methods
+    // ========================================================================
+
+    async loadTemplates(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "templates";
+        this.templateCurrentPage = 1;
+      }
+
+      this.templatesLoading = true;
+      try {
+        const params = {
+          page: this.templateCurrentPage,
+          page_size: this.templatePageSize,
+        };
+
+        if (this.templateSearch) {
+          params.search = this.templateSearch;
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/templates"),
+          { params }
+        );
+
+        this.templates = response.data.templates;
+        this.totalTemplates = response.data.total;
+        this.templateTotalPages = response.data.total_pages;
+      } catch (error) {
+        console.error("Failed to load templates:", error);
+        this.toast.error("Failed to load templates");
+      } finally {
+        this.templatesLoading = false;
+      }
+    },
+
+    onTemplateSearchChange() {
+      if (this.templateSearchTimeout) {
+        clearTimeout(this.templateSearchTimeout);
+      }
+
+      this.templateSearchTimeout = setTimeout(() => {
+        this.templateCurrentPage = 1;
+        this.loadTemplates(false);
+      }, 500);
+    },
+
+    goToTemplatePage(page) {
+      if (page < 1 || page > this.templateTotalPages) return;
+      this.templateCurrentPage = page;
+      this.loadTemplates(false);
+    },
+
+    changeTemplatePageSize(newSize) {
+      this.templatePageSize = newSize;
+      this.templateCurrentPage = 1;
+      this.loadTemplates(false);
+    },
+
+    onTemplateExcelSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.currentTemplate.file = file;
+      }
+    },
+
+    async saveTemplate() {
+      if (!this.currentTemplate.name || !this.currentTemplate.file) {
+        this.toast.error("Please provide template name and Excel file");
+        return;
+      }
+
+      this.isUploadingTemplate = true;
+      try {
+        const formData = new FormData();
+        formData.append("name", this.currentTemplate.name);
+        formData.append("description", this.currentTemplate.description || "");
+        formData.append("excel_file", this.currentTemplate.file);
+
+        await axios.post(
+          joinUrl(API_BASE_URL, "api/templates/upload"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.toast.success("Template uploaded successfully!");
+        this.closeTemplateModals();
+        await this.loadTemplates(false);
+      } catch (error) {
+        console.error("Failed to upload template:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to upload template"
+        );
+      } finally {
+        this.isUploadingTemplate = false;
+      }
+    },
+
+    editTemplate(template) {
+      this.currentTemplate = {
+        id: template.id,
+        name: template.name,
+        description: template.description || "",
+        file: null,
+      };
+      this.showEditTemplateModal = true;
+    },
+
+    async updateTemplate() {
+      if (!this.currentTemplate.name) {
+        this.toast.error("Please provide template name");
+        return;
+      }
+
+      this.isUploadingTemplate = true;
+      try {
+        const formData = new FormData();
+        formData.append("name", this.currentTemplate.name);
+        formData.append("description", this.currentTemplate.description || "");
+        if (this.currentTemplate.file) {
+          formData.append("excel_file", this.currentTemplate.file);
+        }
+
+        await axios.put(
+          joinUrl(API_BASE_URL, `api/templates/${this.currentTemplate.id}`),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.toast.success("Template updated successfully!");
+        this.closeTemplateModals();
+        await this.loadTemplates(false);
+      } catch (error) {
+        console.error("Failed to update template:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to update template"
+        );
+      } finally {
+        this.isUploadingTemplate = false;
+      }
+    },
+
+    async viewTemplateDetails(template) {
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `api/templates/${template.id}`)
+        );
+        this.viewingTemplate = response.data;
+        this.showViewTemplateModal = true;
+      } catch (error) {
+        console.error("Failed to load template details:", error);
+        this.toast.error("Failed to load template details");
+      }
+    },
+
+    async exportTemplate(templateId, templateName) {
+      try {
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, `api/templates/${templateId}/export`),
+          {},
+          {
+            responseType: "blob",
+          }
+        );
+
+        // Create download link
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `${templateName}.xlsx`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Template exported successfully!");
+      } catch (error) {
+        console.error("Failed to export template:", error);
+        this.toast.error("Failed to export template");
+      }
+    },
+
+    async deleteTemplateConfirm(templateId, templateName) {
+      if (
+        !confirm(`Are you sure you want to delete template "${templateName}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(API_BASE_URL, `api/templates/${templateId}`)
+        );
+        this.toast.success("Template deleted successfully!");
+        await this.loadTemplates(false);
+      } catch (error) {
+        console.error("Failed to delete template:", error);
+        this.toast.error("Failed to delete template");
+      }
+    },
+
+    closeTemplateModals() {
+      this.showAddTemplateModal = false;
+      this.showEditTemplateModal = false;
+      this.showViewTemplateModal = false;
+      this.currentTemplate = {
+        id: null,
+        name: "",
+        description: "",
+        file: null,
+      };
+      this.viewingTemplate = null;
     },
 
     formatDate(dateString) {
@@ -6201,5 +6900,293 @@ input:checked + .slider:hover {
 .btn-secondary:hover {
   border-color: #cbd5e1;
   background-color: #f8fafc;
+}
+
+/* ========================================================================
+   Templates Manager Styles
+   ======================================================================== */
+
+/* Templates Grid Layout */
+.templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+/* Template Card */
+.template-card {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.template-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+.template-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.template-card-header h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.template-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.template-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.template-description {
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.template-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.template-date {
+  display: block;
+}
+
+/* Template Actions */
+.action-btn {
+  padding: 0.4rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #f1f5f9;
+}
+
+.action-btn:hover {
+  transform: scale(1.05);
+}
+
+.view-btn:hover {
+  background-color: #dbeafe;
+}
+
+.edit-btn:hover {
+  background-color: #fef3c7;
+}
+
+.download-btn:hover {
+  background-color: #d1fae5;
+}
+
+.delete-btn:hover {
+  background-color: #fee2e2;
+}
+
+/* Template Selection in Processing Tabs */
+.template-selection-toggle {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.toggle-checkbox {
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-weight: 500;
+}
+
+.template-dropdown-section {
+  padding: 1rem;
+  background: #f1f5f9;
+  border-radius: 8px;
+}
+
+.template-select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  border: 2px solid #cbd5e1;
+  border-radius: 8px;
+  background: white;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.template-select:hover {
+  border-color: #3b82f6;
+}
+
+.template-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.template-hint {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.manage-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.manage-link:hover {
+  text-decoration: underline;
+}
+
+/* Template Details Modal */
+.modal-large {
+  max-width: 900px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.template-detail-section {
+  margin-bottom: 2rem;
+}
+
+.template-detail-section h4 {
+  font-size: 1.3rem;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+}
+
+.template-fields-section {
+  margin-top: 2rem;
+}
+
+.template-fields-section h4 {
+  font-size: 1.1rem;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.fields-table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.fields-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.fields-table thead {
+  background-color: #f8fafc;
+}
+
+.fields-table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.fields-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #64748b;
+}
+
+.fields-table tr:hover {
+  background-color: #f8fafc;
+}
+
+/* Form Elements for Template Modal */
+.form-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 1rem;
+  resize: vertical;
+  transition: border-color 0.3s ease;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.form-file-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.form-file-input:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.file-selected {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #dbeafe;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #1e40af;
+}
+
+.file-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-style: italic;
 }
 </style>

@@ -129,6 +129,14 @@ async def startup_event():
     logger.info(f"🚂 Railway Service: {os.environ.get('RAILWAY_SERVICE_NAME', 'unknown')}")
     logger.info(f"🔧 PORT env var: {os.environ.get('PORT', 'not set')}")
     logger.info(f"🔧 GLOBAL PORT: {PORT}")
+    
+    # Initialize database schema
+    try:
+        from db_utils import init_database
+        init_database()
+        logger.info("✅ Database schema initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database: {e}")
 
 # Add CORS middleware
 app.add_middleware(
@@ -1206,21 +1214,34 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
 async def upload_files(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
-    excel_file: UploadFile = File(...),
+    excel_file: UploadFile = File(None),
+    template_id: int = Form(None),
     n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
     model: str = Form(default="gemini-2.5-flash")  # Model parameter with default
 ):
-    """Upload ZIP file, Excel instructions file, and page count"""
+    """Upload ZIP file and either Excel instructions file or template ID"""
     
     try:
-        logger.info(f"Received upload request - zip: {zip_file.filename}, excel: {excel_file.filename}, pages: {n_pages}, model: {model}")
+        # Validate that either excel_file or template_id is provided
+        if not excel_file and not template_id:
+            raise HTTPException(status_code=400, detail="Either excel_file or template_id must be provided")
+        
+        if excel_file and template_id:
+            raise HTTPException(status_code=400, detail="Provide either excel_file or template_id, not both")
+        
+        excel_filename = None
+        if excel_file:
+            excel_filename = excel_file.filename
+            logger.info(f"Received upload request - zip: {zip_file.filename}, excel: {excel_file.filename}, pages: {n_pages}, model: {model}")
+        else:
+            logger.info(f"Received upload request - zip: {zip_file.filename}, template_id: {template_id}, pages: {n_pages}, model: {model}")
         
         # Validate file types
         if not zip_file.filename.endswith('.zip'):
             raise HTTPException(status_code=400, detail="First file must be a ZIP archive")
         
-        if not excel_file.filename.endswith(('.xlsx', '.xls')):
-            raise HTTPException(status_code=400, detail="Second file must be an Excel file")
+        if excel_file and not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Excel file must be .xlsx or .xls")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1229,25 +1250,59 @@ async def upload_files(
         
         logger.info(f"Created job {job_id}")
         
-        # Save uploaded files
+        # Save ZIP file
         zip_path = f"/tmp/{job_id}_archive.zip"
-        excel_path = f"/tmp/{job_id}_instructions.xlsx"
-        
         with open(zip_path, "wb") as f:
             shutil.copyfileobj(zip_file.file, f)
         
-        with open(excel_path, "wb") as f:
-            shutil.copyfileobj(excel_file.file, f)
+        # Handle Excel file or template
+        excel_path = f"/tmp/{job_id}_instructions.xlsx"
         
-        logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
+        if excel_file:
+            # Save uploaded Excel file
+            with open(excel_path, "wb") as f:
+                shutil.copyfileobj(excel_file.file, f)
+            logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
+        else:
+            # Fetch template from database and create Excel file
+            from db_utils import get_template
+            template = get_template(template_id=template_id)
+            
+            if not template:
+                raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+            
+            # Extract field definitions from template
+            fields = template['template_data'].get('fields', [])
+            
+            if not fields:
+                raise HTTPException(status_code=400, detail="Template has no field definitions")
+            
+            # Create DataFrame in the expected format
+            data = {}
+            for field in fields:
+                data[field['name']] = [
+                    field.get('description', ''),
+                    field.get('location', ''),
+                    field.get('output_format', ''),
+                    'YES' if field.get('priority', False) else 'NO'
+                ]
+            
+            import pandas as pd
+            df = pd.DataFrame(data)
+            df.to_excel(excel_path, index=False, engine='openpyxl')
+            
+            excel_filename = f"{template['name']}.xlsx"
+            logger.info(f"Created Excel from template - zip: {zip_path}, template: {template['name']}, excel: {excel_path}")
         
         # Start background processing
-        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_file.filename, model)
+        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_filename, model)
         
         logger.info(f"Background task started for job {job_id}")
         
         return {"job_id": job_id, "message": "Files uploaded and processing started"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
@@ -2502,6 +2557,260 @@ async def delete_modifier(mednet_code: str):
     except Exception as e:
         logger.error(f"Failed to delete modifier {mednet_code}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete modifier: {str(e)}")
+
+
+# ============================================================================
+# Instruction Templates API Endpoints
+# ============================================================================
+
+@app.get("/api/templates")
+async def get_templates(page: int = 1, page_size: int = 50, search: str = None):
+    """Get instruction templates from database with pagination"""
+    try:
+        from db_utils import get_all_templates
+        result = get_all_templates(page=page, page_size=page_size, search=search)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get templates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve templates: {str(e)}")
+
+
+@app.get("/api/templates/{template_id}")
+async def get_template(template_id: int):
+    """Get a specific instruction template by ID"""
+    try:
+        from db_utils import get_template as get_template_by_id
+        template = get_template_by_id(template_id=template_id)
+        if template:
+            return template
+        else:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve template: {str(e)}")
+
+
+@app.get("/api/templates/by-name/{template_name}")
+async def get_template_by_name(template_name: str):
+    """Get a specific instruction template by name"""
+    try:
+        from db_utils import get_template
+        template = get_template(template_name=template_name)
+        if template:
+            return template
+        else:
+            raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get template '{template_name}': {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve template: {str(e)}")
+
+
+@app.post("/api/templates/upload")
+async def upload_template(
+    name: str = Form(...),
+    description: str = Form(""),
+    excel_file: UploadFile = File(...)
+):
+    """Upload an Excel file and save it as an instruction template"""
+    import pandas as pd
+    
+    try:
+        # Validate file type
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
+        
+        # Save uploaded file temporarily
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        try:
+            content = await excel_file.read()
+            temp_file.write(content)
+            temp_file.close()
+            
+            # Parse the Excel file to extract field definitions
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'current'))
+            from field_definitions import load_field_definitions_from_excel
+            
+            field_definitions = load_field_definitions_from_excel(temp_file.name)
+            
+            if not field_definitions:
+                raise HTTPException(status_code=400, detail="Failed to parse Excel file or no fields found")
+            
+            # Store template in database
+            from db_utils import create_template
+            template_id = create_template(
+                name=name,
+                description=description,
+                template_data={'fields': field_definitions}
+            )
+            
+            if template_id:
+                return {
+                    "message": "Template uploaded successfully",
+                    "template_id": template_id,
+                    "name": name,
+                    "fields_count": len(field_definitions)
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to save template to database")
+        
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload template: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload template: {str(e)}")
+
+
+@app.put("/api/templates/{template_id}")
+async def update_template(
+    template_id: int,
+    name: str = Form(None),
+    description: str = Form(None),
+    excel_file: UploadFile = File(None)
+):
+    """Update an existing instruction template"""
+    import pandas as pd
+    
+    try:
+        # Check if template exists
+        from db_utils import get_template, update_template as update_template_in_db
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Prepare update parameters
+        template_data = None
+        
+        # If new Excel file is provided, parse it
+        if excel_file and excel_file.filename:
+            if not excel_file.filename.endswith(('.xlsx', '.xls')):
+                raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
+            
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+            try:
+                content = await excel_file.read()
+                temp_file.write(content)
+                temp_file.close()
+                
+                # Parse the Excel file
+                sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'current'))
+                from field_definitions import load_field_definitions_from_excel
+                
+                field_definitions = load_field_definitions_from_excel(temp_file.name)
+                
+                if not field_definitions:
+                    raise HTTPException(status_code=400, detail="Failed to parse Excel file or no fields found")
+                
+                template_data = {'fields': field_definitions}
+            
+            finally:
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
+        
+        # Update template in database
+        success = update_template_in_db(
+            template_id=template_id,
+            name=name,
+            description=description,
+            template_data=template_data
+        )
+        
+        if success:
+            # Get updated template
+            updated_template = get_template(template_id=template_id)
+            return {
+                "message": "Template updated successfully",
+                "template": updated_template
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: int):
+    """Delete an instruction template"""
+    try:
+        from db_utils import delete_template as delete_template_by_id
+        success = delete_template_by_id(template_id)
+        if success:
+            return {"message": f"Template {template_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
+
+
+@app.post("/api/templates/{template_id}/export")
+async def export_template_as_excel(template_id: int):
+    """Export a template back to Excel format for download"""
+    import pandas as pd
+    
+    try:
+        from db_utils import get_template
+        template = get_template(template_id=template_id)
+        
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Extract field definitions from template
+        fields = template['template_data'].get('fields', [])
+        
+        if not fields:
+            raise HTTPException(status_code=400, detail="Template has no field definitions")
+        
+        # Create DataFrame in the expected format
+        # Columns are field names, rows are description, location, output_format, priority
+        data = {}
+        for field in fields:
+            data[field['name']] = [
+                field.get('description', ''),
+                field.get('location', ''),
+                field.get('output_format', ''),
+                'YES' if field.get('priority', False) else 'NO'
+            ]
+        
+        df = pd.DataFrame(data)
+        
+        # Create temporary Excel file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        df.to_excel(temp_file.name, index=False, engine='openpyxl')
+        temp_file.close()
+        
+        # Return file
+        filename = f"{template['name'].replace(' ', '_')}.xlsx"
+        return FileResponse(
+            path=temp_file.name,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to export template: {str(e)}")
+
 
 if __name__ == "__main__":
     # This is for local development only
