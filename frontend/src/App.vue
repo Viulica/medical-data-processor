@@ -987,15 +987,22 @@
                 </div>
 
                 <!-- Template Dropdown (when using template) -->
-                <div v-if="useCptTemplateInsteadOfText" class="template-dropdown-section">
+                <div
+                  v-if="useCptTemplateInsteadOfText"
+                  class="template-dropdown-section"
+                >
                   <select
                     v-model="selectedCptInstructionId"
                     class="template-select"
                     @focus="ensureCptInstructionsLoaded"
                   >
-                    <option :value="null" disabled>Select CPT template...</option>
+                    <option :value="null" disabled>
+                      Select CPT template...
+                    </option>
                     <option
-                      v-for="instruction in predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                      v-for="instruction in predictionInstructions.filter(
+                        (i) => i.instruction_type === 'cpt'
+                      )"
                       :key="instruction.id"
                       :value="instruction.id"
                     >
@@ -1003,7 +1010,11 @@
                     </option>
                   </select>
                   <p class="template-hint">
-                    <a href="#" @click.prevent="loadPredictionInstructions" class="manage-link">
+                    <a
+                      href="#"
+                      @click.prevent="loadPredictionInstructions"
+                      class="manage-link"
+                    >
                       Manage instruction templates
                     </a>
                   </p>
@@ -1293,15 +1304,22 @@
                 </div>
 
                 <!-- Template Dropdown (when using template) -->
-                <div v-if="useIcdTemplateInsteadOfText" class="template-dropdown-section">
+                <div
+                  v-if="useIcdTemplateInsteadOfText"
+                  class="template-dropdown-section"
+                >
                   <select
                     v-model="selectedIcdInstructionId"
                     class="template-select"
                     @focus="ensureIcdInstructionsLoaded"
                   >
-                    <option :value="null" disabled>Select ICD template...</option>
+                    <option :value="null" disabled>
+                      Select ICD template...
+                    </option>
                     <option
-                      v-for="instruction in predictionInstructions.filter(i => i.instruction_type === 'icd')"
+                      v-for="instruction in predictionInstructions.filter(
+                        (i) => i.instruction_type === 'icd'
+                      )"
                       :key="instruction.id"
                       :value="instruction.id"
                     >
@@ -1309,7 +1327,11 @@
                     </option>
                   </select>
                   <p class="template-hint">
-                    <a href="#" @click.prevent="loadPredictionInstructions" class="manage-link">
+                    <a
+                      href="#"
+                      @click.prevent="loadPredictionInstructions"
+                      class="manage-link"
+                    >
                       Manage instruction templates
                     </a>
                   </p>
@@ -2794,8 +2816,14 @@
                     {{ viewingTemplate.description || "No description" }}
                   </p>
                   <div class="template-meta">
-                    <span>📅 Created: {{ formatDate(viewingTemplate.created_at) }}</span>
-                    <span>🔄 Updated: {{ formatDate(viewingTemplate.updated_at) }}</span>
+                    <span
+                      >📅 Created:
+                      {{ formatDate(viewingTemplate.created_at) }}</span
+                    >
+                    <span
+                      >🔄 Updated:
+                      {{ formatDate(viewingTemplate.updated_at) }}</span
+                    >
                   </div>
                 </div>
 
@@ -2872,7 +2900,10 @@
                               type="checkbox"
                               class="form-checkbox"
                             />
-                            <span>Priority Field (separate API call for higher accuracy)</span>
+                            <span
+                              >Priority Field (separate API call for higher
+                              accuracy)</span
+                            >
                           </label>
                         </div>
                       </div>
@@ -2898,7 +2929,10 @@
         </div>
 
         <!-- Prediction Instructions Manager Tab -->
-        <div v-if="activeTab === 'prediction-instructions'" class="upload-section">
+        <div
+          v-if="activeTab === 'prediction-instructions'"
+          class="upload-section"
+        >
           <div class="section-header">
             <h2>💬 Prediction Instruction Templates</h2>
             <p>
@@ -2911,7 +2945,11 @@
           <div class="modifiers-controls">
             <div class="filter-group">
               <label>Filter by type:</label>
-              <select v-model="predictionInstructionTypeFilter" @change="loadPredictionInstructions(false)" class="type-filter-select">
+              <select
+                v-model="predictionInstructionTypeFilter"
+                @change="loadPredictionInstructions(false)"
+                class="type-filter-select"
+              >
                 <option value="">All Types</option>
                 <option value="cpt">CPT</option>
                 <option value="icd">ICD</option>
@@ -2926,7 +2964,10 @@
                 class="search-input"
               />
             </div>
-            <button @click="showAddPredictionInstructionModal = true" class="add-btn">
+            <button
+              @click="showAddPredictionInstructionModal = true"
+              class="add-btn"
+            >
               ➕ Add New Template
             </button>
           </div>
@@ -2941,7 +2982,10 @@
               <div class="template-card-header">
                 <div class="template-title-section">
                   <h3>{{ instruction.name }}</h3>
-                  <span class="instruction-type-badge" :class="'badge-' + instruction.instruction_type">
+                  <span
+                    class="instruction-type-badge"
+                    :class="'badge-' + instruction.instruction_type"
+                  >
                     {{ instruction.instruction_type.toUpperCase() }}
                   </span>
                 </div>
@@ -2954,7 +2998,12 @@
                     ✏️
                   </button>
                   <button
-                    @click="deletePredictionInstructionConfirm(instruction.id, instruction.name)"
+                    @click="
+                      deletePredictionInstructionConfirm(
+                        instruction.id,
+                        instruction.name
+                      )
+                    "
                     class="action-btn delete-btn"
                     title="Delete"
                   >
@@ -2976,11 +3025,26 @@
           </div>
 
           <!-- Pagination -->
-          <div v-if="predictionInstructions.length > 0" class="pagination-container">
+          <div
+            v-if="predictionInstructions.length > 0"
+            class="pagination-container"
+          >
             <div class="pagination-info">
-              Showing {{ (predictionInstructionCurrentPage - 1) * predictionInstructionPageSize + 1 }} -
-              {{ Math.min(predictionInstructionCurrentPage * predictionInstructionPageSize, totalPredictionInstructions) }} of
-              {{ totalPredictionInstructions }} templates
+              Showing
+              {{
+                (predictionInstructionCurrentPage - 1) *
+                  predictionInstructionPageSize +
+                1
+              }}
+              -
+              {{
+                Math.min(
+                  predictionInstructionCurrentPage *
+                    predictionInstructionPageSize,
+                  totalPredictionInstructions
+                )
+              }}
+              of {{ totalPredictionInstructions }} templates
             </div>
             <div class="pagination-controls">
               <button
@@ -2991,25 +3055,42 @@
                 ⏮️ First
               </button>
               <button
-                @click="goToPredictionInstructionPage(predictionInstructionCurrentPage - 1)"
+                @click="
+                  goToPredictionInstructionPage(
+                    predictionInstructionCurrentPage - 1
+                  )
+                "
                 :disabled="predictionInstructionCurrentPage === 1"
                 class="pagination-btn"
               >
                 ◀️ Prev
               </button>
               <span class="page-info">
-                Page {{ predictionInstructionCurrentPage }} of {{ predictionInstructionTotalPages }}
+                Page {{ predictionInstructionCurrentPage }} of
+                {{ predictionInstructionTotalPages }}
               </span>
               <button
-                @click="goToPredictionInstructionPage(predictionInstructionCurrentPage + 1)"
-                :disabled="predictionInstructionCurrentPage === predictionInstructionTotalPages"
+                @click="
+                  goToPredictionInstructionPage(
+                    predictionInstructionCurrentPage + 1
+                  )
+                "
+                :disabled="
+                  predictionInstructionCurrentPage ===
+                  predictionInstructionTotalPages
+                "
                 class="pagination-btn"
               >
                 Next ▶️
               </button>
               <button
-                @click="goToPredictionInstructionPage(predictionInstructionTotalPages)"
-                :disabled="predictionInstructionCurrentPage === predictionInstructionTotalPages"
+                @click="
+                  goToPredictionInstructionPage(predictionInstructionTotalPages)
+                "
+                :disabled="
+                  predictionInstructionCurrentPage ===
+                  predictionInstructionTotalPages
+                "
                 class="pagination-btn"
               >
                 Last ⏭️
@@ -3019,7 +3100,11 @@
               <label>Per page:</label>
               <select
                 v-model.number="predictionInstructionPageSize"
-                @change="changePredictionInstructionPageSize(predictionInstructionPageSize)"
+                @change="
+                  changePredictionInstructionPageSize(
+                    predictionInstructionPageSize
+                  )
+                "
                 class="page-size-select"
               >
                 <option :value="12">12</option>
@@ -3029,14 +3114,18 @@
             </div>
           </div>
 
-          <div v-else-if="predictionInstructionsLoading" class="loading-section">
+          <div
+            v-else-if="predictionInstructionsLoading"
+            class="loading-section"
+          >
             <div class="spinner"></div>
             <p>Loading instruction templates...</p>
           </div>
 
           <div v-else class="empty-state">
             <p>
-              No instruction templates found. Click "Add New Template" to create one.
+              No instruction templates found. Click "Add New Template" to create
+              one.
             </p>
           </div>
         </div>
@@ -3050,7 +3139,12 @@
           <div class="modal-content modal-large" @click.stop>
             <div class="modal-header">
               <h3>➕ Create Instruction Template</h3>
-              <button @click="closePredictionInstructionModals" class="close-btn">✕</button>
+              <button
+                @click="closePredictionInstructionModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
             </div>
             <div class="modal-body">
               <div class="form-group">
@@ -3064,7 +3158,10 @@
               </div>
               <div class="form-group">
                 <label>Type *</label>
-                <select v-model="currentPredictionInstruction.instruction_type" class="form-input">
+                <select
+                  v-model="currentPredictionInstruction.instruction_type"
+                  class="form-input"
+                >
                   <option value="">Select type...</option>
                   <option value="cpt">CPT</option>
                   <option value="icd">ICD</option>
@@ -3090,13 +3187,18 @@
               </div>
             </div>
             <div class="modal-footer">
-              <button @click="closePredictionInstructionModals" class="btn-secondary">
+              <button
+                @click="closePredictionInstructionModals"
+                class="btn-secondary"
+              >
                 Cancel
               </button>
               <button
                 @click="savePredictionInstruction"
                 class="btn-primary"
-                :disabled="!canSavePredictionInstruction || isSavingPredictionInstruction"
+                :disabled="
+                  !canSavePredictionInstruction || isSavingPredictionInstruction
+                "
               >
                 <span v-if="isSavingPredictionInstruction">Creating...</span>
                 <span v-else>💾 Create Template</span>
@@ -3114,7 +3216,12 @@
           <div class="modal-content modal-large" @click.stop>
             <div class="modal-header">
               <h3>✏️ Edit Instruction Template</h3>
-              <button @click="closePredictionInstructionModals" class="close-btn">✕</button>
+              <button
+                @click="closePredictionInstructionModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
             </div>
             <div class="modal-body">
               <div class="form-group">
@@ -3155,16 +3262,21 @@
               </div>
             </div>
             <div class="modal-footer">
-              <button @click="closePredictionInstructionModals" class="btn-secondary">
+              <button
+                @click="closePredictionInstructionModals"
+                class="btn-secondary"
+              >
                 Cancel
               </button>
               <button
                 @click="updatePredictionInstruction"
                 class="btn-primary"
-                :disabled="!canSavePredictionInstruction || isSavingPredictionInstruction"
+                :disabled="
+                  !canSavePredictionInstruction || isSavingPredictionInstruction
+                "
               >
                 <span v-if="isSavingPredictionInstruction">Saving...</span>
-                <span v-else">💾 Save Changes</span>
+                <span v-else>💾 Save Changes</span>
               </button>
             </div>
           </div>
@@ -3470,7 +3582,9 @@ export default {
     },
     canSaveFields() {
       // All fields must have a name
-      return this.editingFields.every(field => field.name && field.name.trim());
+      return this.editingFields.every(
+        (field) => field.name && field.name.trim()
+      );
     },
     canSavePredictionInstruction() {
       return (
@@ -3521,13 +3635,17 @@ export default {
 
     async ensureCptInstructionsLoaded() {
       // Load CPT instruction templates if not already loaded
-      if (this.predictionInstructions.filter(i => i.instruction_type === 'cpt').length === 0 && !this.predictionInstructionsLoading) {
+      if (
+        this.predictionInstructions.filter((i) => i.instruction_type === "cpt")
+          .length === 0 &&
+        !this.predictionInstructionsLoading
+      ) {
         try {
           const response = await axios.get(
             joinUrl(API_BASE_URL, "api/prediction-instructions"),
             {
               params: {
-                instruction_type: 'cpt',
+                instruction_type: "cpt",
                 page: 1,
                 page_size: 100,
               },
@@ -3542,22 +3660,33 @@ export default {
 
     async ensureIcdInstructionsLoaded() {
       // Load ICD instruction templates if not already loaded
-      if (this.predictionInstructions.filter(i => i.instruction_type === 'icd').length === 0 && !this.predictionInstructionsLoading) {
+      if (
+        this.predictionInstructions.filter((i) => i.instruction_type === "icd")
+          .length === 0 &&
+        !this.predictionInstructionsLoading
+      ) {
         try {
           const response = await axios.get(
             joinUrl(API_BASE_URL, "api/prediction-instructions"),
             {
               params: {
-                instruction_type: 'icd',
+                instruction_type: "icd",
                 page: 1,
                 page_size: 100,
               },
             }
           );
           // Merge with existing (in case CPT was already loaded)
-          const existingIds = new Set(this.predictionInstructions.map(i => i.id));
-          const newInstructions = response.data.instructions.filter(i => !existingIds.has(i.id));
-          this.predictionInstructions = [...this.predictionInstructions, ...newInstructions];
+          const existingIds = new Set(
+            this.predictionInstructions.map((i) => i.id)
+          );
+          const newInstructions = response.data.instructions.filter(
+            (i) => !existingIds.has(i.id)
+          );
+          this.predictionInstructions = [
+            ...this.predictionInstructions,
+            ...newInstructions,
+          ];
         } catch (error) {
           console.error("Failed to load ICD instructions:", error);
         }
@@ -4318,10 +4447,13 @@ export default {
         formData.append("n_pages", this.visionPageCount);
         formData.append("model", "openai/gpt-5");
         formData.append("max_workers", "5");
-        
+
         // Use template or manual instructions (vision and non-vision share same templates)
         if (this.useCptTemplateInsteadOfText && this.selectedCptInstructionId) {
-          formData.append("instruction_template_id", this.selectedCptInstructionId);
+          formData.append(
+            "instruction_template_id",
+            this.selectedCptInstructionId
+          );
         } else if (
           this.cptVisionCustomInstructions &&
           this.cptVisionCustomInstructions.trim()
@@ -4343,9 +4475,15 @@ export default {
 
         // Add custom instructions or template
         if (this.useCptTemplateInsteadOfText && this.selectedCptInstructionId) {
-          formData.append("instruction_template_id", this.selectedCptInstructionId);
+          formData.append(
+            "instruction_template_id",
+            this.selectedCptInstructionId
+          );
         } else if (this.customInstructions && this.customInstructions.trim()) {
-          formData.append("custom_instructions", this.customInstructions.trim());
+          formData.append(
+            "custom_instructions",
+            this.customInstructions.trim()
+          );
         }
 
         if (this.selectedClient === "tan-esc") {
@@ -4579,11 +4717,17 @@ export default {
       formData.append("n_pages", this.icdPageCount);
       formData.append("model", "openai/gpt-5");
       formData.append("max_workers", "5");
-      
+
       // Use template or manual instructions
       if (this.useIcdTemplateInsteadOfText && this.selectedIcdInstructionId) {
-        formData.append("instruction_template_id", this.selectedIcdInstructionId);
-      } else if (this.icdCustomInstructions && this.icdCustomInstructions.trim()) {
+        formData.append(
+          "instruction_template_id",
+          this.selectedIcdInstructionId
+        );
+      } else if (
+        this.icdCustomInstructions &&
+        this.icdCustomInstructions.trim()
+      ) {
         formData.append(
           "custom_instructions",
           this.icdCustomInstructions.trim()
@@ -5806,13 +5950,16 @@ export default {
       this.isSavingFields = true;
       try {
         const templateData = {
-          fields: this.editingFields
+          fields: this.editingFields,
         };
-        
+
         await axios.put(
-          joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}/fields`),
+          joinUrl(
+            API_BASE_URL,
+            `api/templates/${this.viewingTemplate.id}/fields`
+          ),
           {
-            template_data: templateData
+            template_data: templateData,
           },
           {
             headers: {
@@ -5967,15 +6114,13 @@ export default {
 
       this.isSavingPredictionInstruction = true;
       try {
-        await axios.post(
-          joinUrl(API_BASE_URL, "api/prediction-instructions"),
-          {
-            name: this.currentPredictionInstruction.name,
-            instruction_type: this.currentPredictionInstruction.instruction_type,
-            instructions_text: this.currentPredictionInstruction.instructions_text,
-            description: this.currentPredictionInstruction.description || "",
-          }
-        );
+        await axios.post(joinUrl(API_BASE_URL, "api/prediction-instructions"), {
+          name: this.currentPredictionInstruction.name,
+          instruction_type: this.currentPredictionInstruction.instruction_type,
+          instructions_text:
+            this.currentPredictionInstruction.instructions_text,
+          description: this.currentPredictionInstruction.description || "",
+        });
 
         this.toast.success("Instruction template created successfully!");
         this.closePredictionInstructionModals();
@@ -5983,7 +6128,8 @@ export default {
       } catch (error) {
         console.error("Failed to create instruction template:", error);
         this.toast.error(
-          error.response?.data?.detail || "Failed to create instruction template"
+          error.response?.data?.detail ||
+            "Failed to create instruction template"
         );
       } finally {
         this.isSavingPredictionInstruction = false;
@@ -6018,11 +6164,15 @@ export default {
       this.isSavingPredictionInstruction = true;
       try {
         await axios.put(
-          joinUrl(API_BASE_URL, `api/prediction-instructions/${this.currentPredictionInstruction.id}`),
+          joinUrl(
+            API_BASE_URL,
+            `api/prediction-instructions/${this.currentPredictionInstruction.id}`
+          ),
           {
             name: this.currentPredictionInstruction.name,
             description: this.currentPredictionInstruction.description || "",
-            instructions_text: this.currentPredictionInstruction.instructions_text,
+            instructions_text:
+              this.currentPredictionInstruction.instructions_text,
           }
         );
 
@@ -6032,7 +6182,8 @@ export default {
       } catch (error) {
         console.error("Failed to update instruction template:", error);
         this.toast.error(
-          error.response?.data?.detail || "Failed to update instruction template"
+          error.response?.data?.detail ||
+            "Failed to update instruction template"
         );
       } finally {
         this.isSavingPredictionInstruction = false;
@@ -6041,7 +6192,9 @@ export default {
 
     async deletePredictionInstructionConfirm(instructionId, instructionName) {
       if (
-        !confirm(`Are you sure you want to delete instruction template "${instructionName}"?`)
+        !confirm(
+          `Are you sure you want to delete instruction template "${instructionName}"?`
+        )
       ) {
         return;
       }
@@ -8110,7 +8263,7 @@ input:checked + .slider:hover {
 }
 
 .instruction-textarea {
-  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-family: "Monaco", "Menlo", "Consolas", monospace;
   font-size: 0.9rem;
   line-height: 1.6;
 }
