@@ -2744,6 +2744,55 @@ async def update_template(
         raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
 
 
+@app.put("/api/templates/{template_id}/fields")
+async def update_template_fields(template_id: int, request: dict):
+    """Update template fields directly via JSON"""
+    try:
+        from db_utils import get_template, update_template as update_template_in_db
+        
+        # Check if template exists
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Get template_data from request body
+        template_data = request.get('template_data')
+        if not template_data:
+            raise HTTPException(status_code=400, detail="template_data is required")
+        
+        # Validate that fields exist
+        fields = template_data.get('fields', [])
+        if not fields:
+            raise HTTPException(status_code=400, detail="At least one field is required")
+        
+        # Validate that all fields have names
+        for field in fields:
+            if not field.get('name'):
+                raise HTTPException(status_code=400, detail="All fields must have a name")
+        
+        # Update template in database
+        success = update_template_in_db(
+            template_id=template_id,
+            template_data=template_data
+        )
+        
+        if success:
+            # Get updated template
+            updated_template = get_template(template_id=template_id)
+            return {
+                "message": "Template fields updated successfully",
+                "template": updated_template
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update template fields {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template fields: {str(e)}")
+
+
 @app.delete("/api/templates/{template_id}")
 async def delete_template(template_id: int):
     """Delete an instruction template"""

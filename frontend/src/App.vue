@@ -2697,7 +2697,7 @@
           </div>
         </div>
 
-        <!-- View Template Details Modal -->
+        <!-- View/Edit Template Fields Modal -->
         <div
           v-if="showViewTemplateModal"
           class="modal-overlay"
@@ -2705,72 +2705,114 @@
         >
           <div class="modal-content modal-large" @click.stop>
             <div class="modal-header">
-              <h3>👁️ Template Details</h3>
+              <h3>✏️ Edit Template Fields: {{ viewingTemplate?.name }}</h3>
               <button @click="closeTemplateModals" class="close-btn">✕</button>
             </div>
             <div class="modal-body">
               <div v-if="viewingTemplate">
                 <div class="template-detail-section">
-                  <h4>{{ viewingTemplate.name }}</h4>
                   <p class="template-description">
                     {{ viewingTemplate.description || "No description" }}
                   </p>
                   <div class="template-meta">
-                    <span
-                      >📅 Created:
-                      {{ formatDate(viewingTemplate.created_at) }}</span
-                    >
-                    <span
-                      >🔄 Updated:
-                      {{ formatDate(viewingTemplate.updated_at) }}</span
-                    >
+                    <span>📅 Created: {{ formatDate(viewingTemplate.created_at) }}</span>
+                    <span>🔄 Updated: {{ formatDate(viewingTemplate.updated_at) }}</span>
                   </div>
                 </div>
 
                 <div class="template-fields-section">
-                  <h4>
-                    Fields ({{ viewingTemplate.template_data.fields.length }})
-                  </h4>
-                  <div class="fields-table-container">
-                    <table class="fields-table">
-                      <thead>
-                        <tr>
-                          <th>Field Name</th>
-                          <th>Description</th>
-                          <th>Location</th>
-                          <th>Format</th>
-                          <th>Priority</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="(field, idx) in viewingTemplate.template_data
-                            .fields"
-                          :key="idx"
+                  <div class="fields-header">
+                    <h4>Fields ({{ editingFields.length }})</h4>
+                    <button @click="addNewField" class="add-field-btn">
+                      ➕ Add Field
+                    </button>
+                  </div>
+
+                  <div class="fields-editor-container">
+                    <div
+                      v-for="(field, idx) in editingFields"
+                      :key="idx"
+                      class="field-editor-card"
+                    >
+                      <div class="field-editor-header">
+                        <span class="field-number">#{{ idx + 1 }}</span>
+                        <button
+                          @click="deleteField(idx)"
+                          class="delete-field-btn"
+                          title="Delete field"
                         >
-                          <td>
-                            <strong>{{ field.name }}</strong>
-                          </td>
-                          <td>{{ field.description || "-" }}</td>
-                          <td>{{ field.location || "-" }}</td>
-                          <td>{{ field.output_format || "-" }}</td>
-                          <td>
-                            <span
-                              :class="field.priority ? 'badge-yes' : 'badge-no'"
-                            >
-                              {{ field.priority ? "YES" : "NO" }}
-                            </span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                          🗑️
+                        </button>
+                      </div>
+
+                      <div class="field-editor-grid">
+                        <div class="form-group">
+                          <label>Field Name *</label>
+                          <input
+                            v-model="field.name"
+                            type="text"
+                            class="form-input"
+                            placeholder="e.g., Patient Name"
+                          />
+                        </div>
+
+                        <div class="form-group">
+                          <label>Output Format</label>
+                          <input
+                            v-model="field.output_format"
+                            type="text"
+                            class="form-input"
+                            placeholder="e.g., String, MM/DD/YYYY"
+                          />
+                        </div>
+
+                        <div class="form-group full-width">
+                          <label>Description</label>
+                          <input
+                            v-model="field.description"
+                            type="text"
+                            class="form-input"
+                            placeholder="Description of this field"
+                          />
+                        </div>
+
+                        <div class="form-group full-width">
+                          <label>Location Hint</label>
+                          <input
+                            v-model="field.location"
+                            type="text"
+                            class="form-input"
+                            placeholder="Where to find this field in the document"
+                          />
+                        </div>
+
+                        <div class="form-group priority-group">
+                          <label class="checkbox-label">
+                            <input
+                              v-model="field.priority"
+                              type="checkbox"
+                              class="form-checkbox"
+                            />
+                            <span>Priority Field (separate API call for higher accuracy)</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
             <div class="modal-footer">
               <button @click="closeTemplateModals" class="btn-secondary">
-                Close
+                Cancel
+              </button>
+              <button
+                @click="saveFieldEdits"
+                class="btn-primary"
+                :disabled="isSavingFields || !canSaveFields"
+              >
+                <span v-if="isSavingFields">Saving...</span>
+                <span v-else>💾 Save Changes</span>
               </button>
             </div>
           </div>
@@ -2988,6 +3030,8 @@ export default {
         file: null,
       },
       viewingTemplate: null,
+      editingFields: [],
+      isSavingFields: false,
       // Template selection for processing tabs
       selectedTemplateIdFast: null,
       selectedTemplateIdStandard: null,
@@ -3046,6 +3090,10 @@ export default {
       return (
         this.icdZipFile && this.icdPageCount >= 1 && this.icdPageCount <= 50
       );
+    },
+    canSaveFields() {
+      // All fields must have a name
+      return this.editingFields.every(field => field.name && field.name.trim());
     },
   },
   methods: {
@@ -5277,10 +5325,67 @@ export default {
           joinUrl(API_BASE_URL, `api/templates/${template.id}`)
         );
         this.viewingTemplate = response.data;
+        // Create a deep copy of fields for editing
+        this.editingFields = JSON.parse(
+          JSON.stringify(this.viewingTemplate.template_data.fields)
+        );
         this.showViewTemplateModal = true;
       } catch (error) {
         console.error("Failed to load template details:", error);
         this.toast.error("Failed to load template details");
+      }
+    },
+
+    addNewField() {
+      this.editingFields.push({
+        name: "",
+        description: "",
+        location: "",
+        output_format: "",
+        priority: false,
+      });
+    },
+
+    deleteField(index) {
+      if (confirm("Are you sure you want to delete this field?")) {
+        this.editingFields.splice(index, 1);
+      }
+    },
+
+    async saveFieldEdits() {
+      if (!this.canSaveFields) {
+        this.toast.error("All fields must have a name");
+        return;
+      }
+
+      this.isSavingFields = true;
+      try {
+        const templateData = {
+          fields: this.editingFields
+        };
+        
+        await axios.put(
+          joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}/fields`),
+          {
+            template_data: templateData
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        this.toast.success("Template fields updated successfully!");
+        this.closeTemplateModals();
+        await this.loadTemplates(false);
+      } catch (error) {
+        console.error("Failed to save field edits:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to save field edits"
+        );
+      } finally {
+        this.isSavingFields = false;
       }
     },
 
@@ -5341,6 +5446,8 @@ export default {
         file: null,
       };
       this.viewingTemplate = null;
+      this.editingFields = [];
+      this.isSavingFields = false;
     },
 
     formatDate(dateString) {
@@ -7188,5 +7295,133 @@ input:checked + .slider:hover {
   font-size: 0.85rem;
   color: #94a3b8;
   font-style: italic;
+}
+
+/* Field Editor Styles */
+.fields-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.fields-header h4 {
+  margin: 0;
+}
+
+.add-field-btn {
+  padding: 0.6rem 1.2rem;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.add-field-btn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.fields-editor-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.field-editor-card {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.field-editor-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.field-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.field-number {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0.25rem 0.75rem;
+  background: white;
+  border-radius: 6px;
+}
+
+.delete-field-btn {
+  padding: 0.4rem 0.8rem;
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delete-field-btn:hover {
+  background: #fecaca;
+  transform: scale(1.05);
+}
+
+.field-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.field-editor-grid .form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.field-editor-grid .form-group.priority-group {
+  grid-column: 1 / -1;
+  margin-top: 0.5rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 8px;
+  border: 2px solid #e2e8f0;
+  transition: all 0.3s ease;
+}
+
+.checkbox-label:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  font-size: 0.95rem;
+  color: #475569;
+  font-weight: 500;
 }
 </style>
