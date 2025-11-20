@@ -2569,6 +2569,22 @@
               <p>
                 Upload your mednet-mapping.csv file to populate the database
               </p>
+              <div class="csv-format-info">
+                <strong>📋 Required CSV Format:</strong>
+                <div class="format-example">
+                  <code>InputValue,OutputValue</code>
+                  <br />
+                  <code>560013,44306</code>
+                  <br />
+                  <code>541015,002</code>
+                  <br />
+                  <code>510023,TRAN</code>
+                </div>
+                <p class="format-note">
+                  ℹ️ CSV must have headers: <strong>InputValue</strong> and
+                  <strong>OutputValue</strong>
+                </p>
+              </div>
               <div class="bulk-import-controls">
                 <input
                   type="file"
@@ -8104,6 +8120,46 @@ input:checked + .slider:hover {
 .bulk-import-card p {
   margin: 0 0 1.5rem 0;
   opacity: 0.9;
+}
+
+.csv-format-info {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border-left: 4px solid #fbbf24;
+}
+
+.csv-format-info strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.format-example {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin: 0.75rem 0;
+  font-family: "Courier New", monospace;
+}
+
+.format-example code {
+  color: #fbbf24;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.format-note {
+  margin: 0.5rem 0 0 0 !important;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.format-note strong {
+  display: inline;
+  color: #fbbf24;
+  font-weight: 700;
 }
 
 .bulk-import-controls {
