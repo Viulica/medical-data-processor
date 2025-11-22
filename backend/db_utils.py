@@ -91,6 +91,28 @@ def init_database():
     
     CREATE INDEX IF NOT EXISTS idx_insurance_input_code ON insurance_mappings(input_code);
     CREATE INDEX IF NOT EXISTS idx_insurance_output_code ON insurance_mappings(output_code);
+    
+    CREATE TABLE IF NOT EXISTS special_cases_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        description TEXT,
+        mappings JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_special_cases_templates_name ON special_cases_templates(name);
+    
+    CREATE TABLE IF NOT EXISTS instruction_additions_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        description TEXT,
+        field_instructions JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_instruction_additions_templates_name ON instruction_additions_templates(name);
     """
     
     try:
@@ -845,6 +867,337 @@ def bulk_import_insurance_mappings(mappings_data, clear_existing=False):
             'errors': [str(e)],
             'total': len(mappings_data)
         }
+
+
+# ============================================================================
+# Special Cases Templates CRUD Operations
+# ============================================================================
+
+def get_all_special_cases_templates(page=1, page_size=50, search=None):
+    """
+    Get all special cases templates with optional search and pagination.
+    Returns dict with templates list and pagination info.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Build WHERE clause
+                where_clause = ""
+                params = []
+                
+                if search:
+                    where_clause = "WHERE name ILIKE %s OR description ILIKE %s"
+                    search_param = f"%{search}%"
+                    params.extend([search_param, search_param])
+                
+                # Get total count
+                count_query = f"SELECT COUNT(*) FROM special_cases_templates {where_clause}"
+                cur.execute(count_query, params)
+                total = cur.fetchone()['count']
+                
+                # Get paginated results
+                offset = (page - 1) * page_size
+                query = f"""
+                    SELECT id, name, description, mappings, created_at, updated_at
+                    FROM special_cases_templates
+                    {where_clause}
+                    ORDER BY updated_at DESC
+                    LIMIT %s OFFSET %s
+                """
+                cur.execute(query, params + [page_size, offset])
+                templates = [dict(row) for row in cur.fetchall()]
+                
+                return {
+                    'templates': templates,
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': (total + page_size - 1) // page_size
+                }
+    except Exception as e:
+        logger.error(f"Failed to get special cases templates: {e}")
+        return {
+            'templates': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': 0
+        }
+
+
+def get_special_cases_template(template_id=None, name=None):
+    """
+    Get a single special cases template by ID or name.
+    Returns a dictionary or None if not found.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if template_id:
+                    cur.execute("""
+                        SELECT id, name, description, mappings, created_at, updated_at
+                        FROM special_cases_templates
+                        WHERE id = %s
+                    """, (template_id,))
+                elif name:
+                    cur.execute("""
+                        SELECT id, name, description, mappings, created_at, updated_at
+                        FROM special_cases_templates
+                        WHERE name = %s
+                    """, (name,))
+                else:
+                    return None
+                
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get special cases template: {e}")
+        return None
+
+
+def create_special_cases_template(name, mappings, description=""):
+    """
+    Create a new special cases template.
+    
+    Args:
+        name: Template name
+        mappings: List of dicts with 'company_name' and 'mednet_code'
+        description: Optional description
+    
+    Returns:
+        Created template ID on success, None on failure
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO special_cases_templates (name, description, mappings, created_at, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    RETURNING id
+                """, (name, description, json.dumps(mappings)))
+                result = cur.fetchone()
+                return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to create special cases template '{name}': {e}")
+        return None
+
+
+def update_special_cases_template(template_id, name=None, description=None, mappings=None):
+    """
+    Update an existing special cases template.
+    Returns True on success, False on failure.
+    """
+    updates = []
+    params = []
+    
+    if name is not None:
+        updates.append("name = %s")
+        params.append(name)
+    
+    if description is not None:
+        updates.append("description = %s")
+        params.append(description)
+    
+    if mappings is not None:
+        updates.append("mappings = %s")
+        params.append(json.dumps(mappings))
+    
+    if not updates:
+        return True
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(template_id)
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                query = f"""
+                    UPDATE special_cases_templates
+                    SET {', '.join(updates)}
+                    WHERE id = %s
+                """
+                cur.execute(query, params)
+                return True
+    except Exception as e:
+        logger.error(f"Failed to update special cases template {template_id}: {e}")
+        return False
+
+
+def delete_special_cases_template(template_id):
+    """Delete a special cases template. Returns True on success, False on failure."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM special_cases_templates WHERE id = %s", (template_id,))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to delete special cases template {template_id}: {e}")
+        return False
+
+
+# ============================================================================
+# Instruction Additions Templates CRUD Operations
+# ============================================================================
+
+def get_all_instruction_additions_templates(page=1, page_size=50, search=None):
+    """
+    Get all instruction additions templates with optional search and pagination.
+    Returns dict with templates list and pagination info.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                where_clause = ""
+                params = []
+                
+                if search:
+                    where_clause = "WHERE name ILIKE %s OR description ILIKE %s"
+                    search_param = f"%{search}%"
+                    params.extend([search_param, search_param])
+                
+                # Get total count
+                count_query = f"SELECT COUNT(*) FROM instruction_additions_templates {where_clause}"
+                cur.execute(count_query, params)
+                total = cur.fetchone()['count']
+                
+                # Get paginated results
+                offset = (page - 1) * page_size
+                query = f"""
+                    SELECT id, name, description, field_instructions, created_at, updated_at
+                    FROM instruction_additions_templates
+                    {where_clause}
+                    ORDER BY updated_at DESC
+                    LIMIT %s OFFSET %s
+                """
+                cur.execute(query, params + [page_size, offset])
+                templates = [dict(row) for row in cur.fetchall()]
+                
+                return {
+                    'templates': templates,
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': (total + page_size - 1) // page_size
+                }
+    except Exception as e:
+        logger.error(f"Failed to get instruction additions templates: {e}")
+        return {
+            'templates': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': 0
+        }
+
+
+def get_instruction_additions_template(template_id=None, name=None):
+    """
+    Get a single instruction additions template by ID or name.
+    Returns a dictionary or None if not found.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if template_id:
+                    cur.execute("""
+                        SELECT id, name, description, field_instructions, created_at, updated_at
+                        FROM instruction_additions_templates
+                        WHERE id = %s
+                    """, (template_id,))
+                elif name:
+                    cur.execute("""
+                        SELECT id, name, description, field_instructions, created_at, updated_at
+                        FROM instruction_additions_templates
+                        WHERE name = %s
+                    """, (name,))
+                else:
+                    return None
+                
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get instruction additions template: {e}")
+        return None
+
+
+def create_instruction_additions_template(name, field_instructions, description=""):
+    """
+    Create a new instruction additions template.
+    
+    Args:
+        name: Template name
+        field_instructions: Dict mapping field names to instruction objects
+        description: Optional description
+    
+    Returns:
+        Created template ID on success, None on failure
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO instruction_additions_templates (name, description, field_instructions, created_at, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    RETURNING id
+                """, (name, description, json.dumps(field_instructions)))
+                result = cur.fetchone()
+                return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to create instruction additions template '{name}': {e}")
+        return None
+
+
+def update_instruction_additions_template(template_id, name=None, description=None, field_instructions=None):
+    """
+    Update an existing instruction additions template.
+    Returns True on success, False on failure.
+    """
+    updates = []
+    params = []
+    
+    if name is not None:
+        updates.append("name = %s")
+        params.append(name)
+    
+    if description is not None:
+        updates.append("description = %s")
+        params.append(description)
+    
+    if field_instructions is not None:
+        updates.append("field_instructions = %s")
+        params.append(json.dumps(field_instructions))
+    
+    if not updates:
+        return True
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(template_id)
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                query = f"""
+                    UPDATE instruction_additions_templates
+                    SET {', '.join(updates)}
+                    WHERE id = %s
+                """
+                cur.execute(query, params)
+                return True
+    except Exception as e:
+        logger.error(f"Failed to update instruction additions template {template_id}: {e}")
+        return False
+
+
+def delete_instruction_additions_template(template_id):
+    """Delete an instruction additions template. Returns True on success, False on failure."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM instruction_additions_templates WHERE id = %s", (template_id,))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to delete instruction additions template {template_id}: {e}")
+        return False
 
 
 if __name__ == "__main__":

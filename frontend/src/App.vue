@@ -96,6 +96,8 @@
                   'insurance-config',
                   'templates',
                   'prediction-instructions',
+                  'special-cases-templates',
+                  'instruction-additions-templates',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -136,6 +138,28 @@
                 class="dropdown-item"
               >
                 💬 Instruction Templates
+              </button>
+              <button
+                @click="
+                  selectTabAndLoad(
+                    'special-cases-templates',
+                    'loadSpecialCasesTemplates'
+                  )
+                "
+                class="dropdown-item"
+              >
+                🎯 Special Cases
+              </button>
+              <button
+                @click="
+                  selectTabAndLoad(
+                    'instruction-additions-templates',
+                    'loadInstructionAdditionsTemplates'
+                  )
+                "
+                class="dropdown-item"
+              >
+                📝 Instructions Additions
               </button>
             </div>
           </div>
@@ -1745,27 +1769,44 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Instruction Additions Template (Optional) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
-                <h3>Requirements</h3>
+                <h3>Instruction Additions (Optional)</h3>
               </div>
-              <div class="settings-content">
-                <div class="requirement-list">
-                  <div class="requirement-item">
-                    <span class="requirement-icon">📋</span>
-                    <span>Excel file with GAP instruction format</span>
-                  </div>
-                  <div class="requirement-item">
-                    <span class="requirement-icon">🔄</span>
-                    <span>Automatic conversion using mapping rules</span>
-                  </div>
-                  <div class="requirement-item">
-                    <span class="requirement-icon">📥</span>
-                    <span>Download converted Excel file</span>
-                  </div>
-                </div>
+
+              <div class="template-selector">
+                <select
+                  v-model="selectedInstructionAdditionsTemplateId"
+                  class="template-select"
+                >
+                  <option :value="null">Use default additions.csv</option>
+                  <option
+                    v-for="template in availableInstructionAdditionsTemplates"
+                    :key="template.id"
+                    :value="template.id"
+                  >
+                    {{ template.name }} ({{
+                      Object.keys(template.field_instructions).length
+                    }}
+                    fields)
+                  </option>
+                </select>
+                <button
+                  @click="loadAvailableInstructionAdditionsTemplates"
+                  class="refresh-btn"
+                  title="Refresh templates"
+                >
+                  🔄
+                </button>
+              </div>
+
+              <div class="field-info">
+                <p class="info-text">
+                  ℹ️ Optional: Select a custom instruction additions template to
+                  override field-specific extraction instructions
+                </p>
               </div>
             </div>
           </div>
@@ -2171,48 +2212,96 @@
               </div>
             </div>
 
-            <!-- Special Cases CSV Upload (Optional) -->
+            <!-- Special Cases (Upload or Template) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
                 <h3>Special Cases (Optional)</h3>
               </div>
-              <div
-                class="dropzone"
-                :class="{
-                  active: isSpecialCasesDragActive,
-                  'has-file': specialCasesCsv,
-                }"
-                @drop="onSpecialCasesCsvDrop"
-                @dragover.prevent
-                @dragenter.prevent
-                @click="triggerSpecialCasesCsvUpload"
-              >
-                <input
-                  ref="specialCasesCsvInput"
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  @change="onSpecialCasesCsvFileSelect"
-                  style="display: none"
-                />
-                <div class="upload-content">
-                  <div class="upload-icon">📋</div>
-                  <div v-if="specialCasesCsv" class="file-info">
-                    <div class="file-icon">📄</div>
-                    <span class="file-name">{{ specialCasesCsv.name }}</span>
-                    <span class="file-size">{{
-                      formatFileSize(specialCasesCsv.size)
-                    }}</span>
+
+              <!-- Toggle between Upload and Template -->
+              <div class="toggle-selector">
+                <button
+                  @click="insuranceSpecialCasesMode = 'upload'"
+                  :class="{ active: insuranceSpecialCasesMode === 'upload' }"
+                  class="toggle-btn"
+                >
+                  📤 Upload CSV
+                </button>
+                <button
+                  @click="insuranceSpecialCasesMode = 'template'"
+                  :class="{ active: insuranceSpecialCasesMode === 'template' }"
+                  class="toggle-btn"
+                >
+                  📋 Use Template
+                </button>
+              </div>
+
+              <!-- Upload Mode -->
+              <div v-if="insuranceSpecialCasesMode === 'upload'">
+                <div
+                  class="dropzone"
+                  :class="{
+                    active: isSpecialCasesDragActive,
+                    'has-file': specialCasesCsv,
+                  }"
+                  @drop="onSpecialCasesCsvDrop"
+                  @dragover.prevent
+                  @dragenter.prevent
+                  @click="triggerSpecialCasesCsvUpload"
+                >
+                  <input
+                    ref="specialCasesCsvInput"
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    @change="onSpecialCasesCsvFileSelect"
+                    style="display: none"
+                  />
+                  <div class="upload-content">
+                    <div class="upload-icon">📋</div>
+                    <div v-if="specialCasesCsv" class="file-info">
+                      <div class="file-icon">📄</div>
+                      <span class="file-name">{{ specialCasesCsv.name }}</span>
+                      <span class="file-size">{{
+                        formatFileSize(specialCasesCsv.size)
+                      }}</span>
+                    </div>
+                    <p v-else class="upload-text">
+                      Upload special cases CSV or XLSX<br />or use a saved
+                      template
+                    </p>
                   </div>
-                  <p v-else class="upload-text">
-                    Optional: Upload special cases CSV or XLSX<br />or skip to
-                    use defaults
-                  </p>
                 </div>
               </div>
+
+              <!-- Template Mode -->
+              <div v-else class="template-selector">
+                <select
+                  v-model="selectedSpecialCasesTemplateId"
+                  class="template-select"
+                >
+                  <option :value="null">Select a template...</option>
+                  <option
+                    v-for="template in availableSpecialCasesTemplates"
+                    :key="template.id"
+                    :value="template.id"
+                  >
+                    {{ template.name }} ({{ template.mappings.length }}
+                    mappings)
+                  </option>
+                </select>
+                <button
+                  @click="loadAvailableSpecialCasesTemplates"
+                  class="refresh-btn"
+                  title="Refresh templates"
+                >
+                  🔄
+                </button>
+              </div>
+
               <div class="field-info">
                 <p class="info-text">
-                  ℹ️ Optional CSV or XLSX with custom mappings. Must contain:
+                  ℹ️ Optional: Provide special case overrides. Format:
                   <strong>Company name</strong>, <strong>Mednet code</strong>
                 </p>
               </div>
@@ -2844,6 +2933,586 @@
                 "
               >
                 {{ showEditInsuranceModal ? "Update" : "Create" }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Special Cases Templates Tab -->
+        <div
+          v-if="activeTab === 'special-cases-templates'"
+          class="upload-section"
+        >
+          <div class="section-header">
+            <h2>🎯 Special Cases Templates</h2>
+            <p>
+              Manage special case mappings for insurance sorting. Create
+              reusable templates for company name to MedNet code overrides.
+            </p>
+          </div>
+
+          <!-- Search and Upload -->
+          <div class="modifiers-controls">
+            <div class="search-box">
+              <input
+                v-model="specialCasesTemplateSearch"
+                @input="onSpecialCasesTemplateSearchChange"
+                type="text"
+                placeholder="Search templates..."
+                class="search-input"
+              />
+            </div>
+            <button
+              @click="showUploadSpecialCasesTemplateModal = true"
+              class="add-btn"
+            >
+              ➕ Upload New Template
+            </button>
+          </div>
+
+          <!-- Templates Table -->
+          <div
+            v-if="specialCasesTemplates.length > 0"
+            class="modifiers-table-container"
+          >
+            <table class="modifiers-table">
+              <thead>
+                <tr>
+                  <th>Template Name</th>
+                  <th>Description</th>
+                  <th>Mappings</th>
+                  <th>Last Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="template in specialCasesTemplates"
+                  :key="template.id"
+                >
+                  <td>
+                    <strong>{{ template.name }}</strong>
+                  </td>
+                  <td>{{ template.description || "-" }}</td>
+                  <td>{{ template.mappings.length }} mappings</td>
+                  <td>{{ formatDate(template.updated_at) }}</td>
+                  <td>
+                    <button
+                      @click="viewSpecialCasesTemplate(template)"
+                      class="action-btn view-btn"
+                    >
+                      👁️ View
+                    </button>
+                    <button
+                      @click="editSpecialCasesTemplateMappings(template)"
+                      class="action-btn edit-btn"
+                    >
+                      ✏️ Edit Mappings
+                    </button>
+                    <button
+                      @click="
+                        deleteSpecialCasesTemplateConfirm(
+                          template.id,
+                          template.name
+                        )
+                      "
+                      class="action-btn delete-btn"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Pagination -->
+            <div class="pagination-container">
+              <div class="pagination-info">
+                Showing
+                {{
+                  (specialCasesTemplateCurrentPage - 1) *
+                    specialCasesTemplatePageSize +
+                  1
+                }}
+                -
+                {{
+                  Math.min(
+                    specialCasesTemplateCurrentPage *
+                      specialCasesTemplatePageSize,
+                    totalSpecialCasesTemplates
+                  )
+                }}
+                of {{ totalSpecialCasesTemplates }} templates
+              </div>
+
+              <div class="pagination-controls">
+                <button
+                  @click="
+                    specialCasesTemplateCurrentPage > 1 &&
+                      loadSpecialCasesTemplates(false)
+                  "
+                  :disabled="specialCasesTemplateCurrentPage === 1"
+                  class="pagination-btn"
+                >
+                  ← Previous
+                </button>
+                <span class="page-number">
+                  Page {{ specialCasesTemplateCurrentPage }} of
+                  {{ specialCasesTemplateTotalPages }}
+                </span>
+                <button
+                  @click="
+                    specialCasesTemplateCurrentPage <
+                      specialCasesTemplateTotalPages &&
+                      ((specialCasesTemplateCurrentPage += 1),
+                      loadSpecialCasesTemplates(false))
+                  "
+                  :disabled="
+                    specialCasesTemplateCurrentPage ===
+                    specialCasesTemplateTotalPages
+                  "
+                  class="pagination-btn"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div v-else class="empty-state">
+            <p>
+              No special cases templates found. Upload a CSV to create your
+              first template.
+            </p>
+          </div>
+        </div>
+
+        <!-- Upload Special Cases Template Modal -->
+        <div
+          v-if="showUploadSpecialCasesTemplateModal"
+          class="modal-overlay"
+          @click="closeSpecialCasesTemplateModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>Upload Special Cases Template</h3>
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="specialCasesTemplateUploadName"
+                  type="text"
+                  placeholder="e.g., Medicare Overrides 2024"
+                  class="form-input"
+                />
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="specialCasesTemplateUploadDescription"
+                  placeholder="Optional description..."
+                  class="form-textarea"
+                  rows="3"
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>CSV File *</label>
+                <div class="csv-format-info">
+                  <strong>📋 Required CSV Format:</strong>
+                  <div class="format-example">
+                    <code>Company name,Mednet code</code>
+                    <br />
+                    <code>Medicare of LA 2024,301</code>
+                    <br />
+                    <code>Medicare of LA,301</code>
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  ref="specialCasesTemplateFileInput"
+                  @change="handleSpecialCasesTemplateFileSelect"
+                  accept=".csv"
+                  class="file-input"
+                />
+                <span v-if="specialCasesTemplateFile" class="file-name">
+                  {{ specialCasesTemplateFile.name }}
+                </span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="uploadSpecialCasesTemplate"
+                class="btn-primary"
+                :disabled="
+                  !specialCasesTemplateUploadName || !specialCasesTemplateFile
+                "
+              >
+                📤 Upload Template
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View Special Cases Template Modal -->
+        <div
+          v-if="showViewSpecialCasesTemplateModal"
+          class="modal-overlay"
+          @click="closeSpecialCasesTemplateModals"
+        >
+          <div class="modal-content large-modal" @click.stop>
+            <div class="modal-header">
+              <h3>{{ currentSpecialCasesTemplate.name }}</h3>
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="template-info">
+                <p>
+                  <strong>Description:</strong>
+                  {{
+                    currentSpecialCasesTemplate.description || "No description"
+                  }}
+                </p>
+                <p>
+                  <strong>Total Mappings:</strong>
+                  {{ currentSpecialCasesTemplate.mappings.length }}
+                </p>
+              </div>
+              <div class="mappings-list">
+                <table class="modifiers-table">
+                  <thead>
+                    <tr>
+                      <th>Company Name</th>
+                      <th>MedNet Code</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(
+                        mapping, index
+                      ) in currentSpecialCasesTemplate.mappings"
+                      :key="index"
+                    >
+                      <td>{{ mapping.company_name }}</td>
+                      <td>
+                        <strong>{{ mapping.mednet_code }}</strong>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="btn-primary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit Special Cases Mappings Modal -->
+        <div
+          v-if="showEditSpecialCasesMappingsModal"
+          class="modal-overlay"
+          @click="closeSpecialCasesTemplateModals"
+        >
+          <div class="modal-content large-modal" @click.stop>
+            <div class="modal-header">
+              <h3>Edit Mappings: {{ currentSpecialCasesTemplate.name }}</h3>
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="mappings-editor">
+                <button
+                  @click="addNewSpecialCasesMapping"
+                  class="add-btn small"
+                >
+                  ➕ Add New Mapping
+                </button>
+                <div
+                  v-for="(mapping, index) in editingSpecialCasesMappings"
+                  :key="index"
+                  class="mapping-row"
+                >
+                  <input
+                    v-model="mapping.company_name"
+                    type="text"
+                    placeholder="Company Name"
+                    class="form-input"
+                  />
+                  <input
+                    v-model="mapping.mednet_code"
+                    type="text"
+                    placeholder="MedNet Code"
+                    class="form-input"
+                  />
+                  <button
+                    @click="removeSpecialCasesMapping(index)"
+                    class="delete-btn small"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                @click="closeSpecialCasesTemplateModals"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button @click="saveSpecialCasesMappings" class="btn-primary">
+                💾 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Instruction Additions Templates Tab -->
+        <div
+          v-if="activeTab === 'instruction-additions-templates'"
+          class="upload-section"
+        >
+          <div class="section-header">
+            <h2>📝 Instruction Additions Templates</h2>
+            <p>
+              Manage field instruction override templates. Upload additions.csv
+              files to create reusable instruction sets for the conversion
+              script.
+            </p>
+          </div>
+
+          <div class="modifiers-controls">
+            <div class="search-box">
+              <input
+                v-model="instructionAdditionsTemplateSearch"
+                @input="onInstructionAdditionsTemplateSearchChange"
+                type="text"
+                placeholder="Search templates..."
+                class="search-input"
+              />
+            </div>
+            <button
+              @click="showUploadInstructionAdditionsTemplateModal = true"
+              class="add-btn"
+            >
+              ➕ Upload New Template
+            </button>
+          </div>
+
+          <div
+            v-if="instructionAdditionsTemplates.length > 0"
+            class="modifiers-table-container"
+          >
+            <table class="modifiers-table">
+              <thead>
+                <tr>
+                  <th>Template Name</th>
+                  <th>Description</th>
+                  <th>Fields</th>
+                  <th>Last Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="template in instructionAdditionsTemplates"
+                  :key="template.id"
+                >
+                  <td>
+                    <strong>{{ template.name }}</strong>
+                  </td>
+                  <td>{{ template.description || "-" }}</td>
+                  <td>
+                    {{ Object.keys(template.field_instructions).length }} fields
+                  </td>
+                  <td>{{ formatDate(template.updated_at) }}</td>
+                  <td>
+                    <button
+                      @click="viewInstructionAdditionsTemplate(template)"
+                      class="action-btn view-btn"
+                    >
+                      👁️ View
+                    </button>
+                    <button
+                      @click="
+                        deleteInstructionAdditionsTemplateConfirm(
+                          template.id,
+                          template.name
+                        )
+                      "
+                      class="action-btn delete-btn"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-else class="empty-state">
+            <p>No instruction additions templates found.</p>
+          </div>
+        </div>
+
+        <!-- Upload Instruction Additions Template Modal -->
+        <div
+          v-if="showUploadInstructionAdditionsTemplateModal"
+          class="modal-overlay"
+          @click="closeInstructionAdditionsTemplateModals"
+        >
+          <div class="modal-content" @click.stop>
+            <div class="modal-header">
+              <h3>Upload Instruction Additions Template</h3>
+              <button
+                @click="closeInstructionAdditionsTemplateModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Template Name *</label>
+                <input
+                  v-model="instructionAdditionsTemplateUploadName"
+                  type="text"
+                  placeholder="e.g., Standard Instructions 2024"
+                  class="form-input"
+                />
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea
+                  v-model="instructionAdditionsTemplateUploadDescription"
+                  placeholder="Optional description..."
+                  class="form-textarea"
+                  rows="3"
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>additions.csv File *</label>
+                <input
+                  type="file"
+                  ref="instructionAdditionsTemplateFileInput"
+                  @change="handleInstructionAdditionsTemplateFileSelect"
+                  accept=".csv"
+                  class="file-input"
+                />
+                <span v-if="instructionAdditionsTemplateFile" class="file-name">
+                  {{ instructionAdditionsTemplateFile.name }}
+                </span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                @click="closeInstructionAdditionsTemplateModals"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="uploadInstructionAdditionsTemplate"
+                class="btn-primary"
+                :disabled="
+                  !instructionAdditionsTemplateUploadName ||
+                  !instructionAdditionsTemplateFile
+                "
+              >
+                📤 Upload Template
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View Instruction Additions Template Modal -->
+        <div
+          v-if="showViewInstructionAdditionsTemplateModal"
+          class="modal-overlay"
+          @click="closeInstructionAdditionsTemplateModals"
+        >
+          <div class="modal-content large-modal" @click.stop>
+            <div class="modal-header">
+              <h3>{{ currentInstructionAdditionsTemplate.name }}</h3>
+              <button
+                @click="closeInstructionAdditionsTemplateModals"
+                class="close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="template-info">
+                <p>
+                  <strong>Description:</strong>
+                  {{
+                    currentInstructionAdditionsTemplate.description ||
+                    "No description"
+                  }}
+                </p>
+                <p>
+                  <strong>Total Fields:</strong>
+                  {{
+                    Object.keys(
+                      currentInstructionAdditionsTemplate.field_instructions
+                    ).length
+                  }}
+                </p>
+              </div>
+              <div class="mappings-list">
+                <div
+                  v-for="(
+                    instructions, fieldName
+                  ) in currentInstructionAdditionsTemplate.field_instructions"
+                  :key="fieldName"
+                  class="field-instructions-item"
+                >
+                  <h4>{{ fieldName }}</h4>
+                  <ul>
+                    <li
+                      v-for="(instruction, idx) in instructions.instructions"
+                      :key="idx"
+                    >
+                      {{ instruction }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                @click="closeInstructionAdditionsTemplateModals"
+                class="btn-primary"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -3773,6 +4442,8 @@ export default {
       isUniCsvDragActive: false,
       // Instructions conversion functionality
       instructionsExcelFile: null,
+      selectedInstructionAdditionsTemplateId: null,
+      availableInstructionAdditionsTemplates: [],
       instructionsJobId: null,
       instructionsJobStatus: null,
       isConvertingInstructions: false,
@@ -3788,6 +4459,9 @@ export default {
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
+      insuranceSpecialCasesMode: "upload", // 'upload' or 'template'
+      selectedSpecialCasesTemplateId: null,
+      availableSpecialCasesTemplates: [],
       insuranceJobId: null,
       insuranceJobStatus: null,
       isPredictingInsurance: false,
@@ -3831,6 +4505,49 @@ export default {
       insuranceBulkImporting: false,
       insuranceClearExisting: false,
       insuranceBulkImportResult: null,
+      // Special Cases Templates functionality
+      specialCasesTemplates: [],
+      specialCasesTemplatesLoading: false,
+      specialCasesTemplateSearch: "",
+      specialCasesTemplateSearchTimeout: null,
+      specialCasesTemplateCurrentPage: 1,
+      specialCasesTemplatePageSize: 50,
+      totalSpecialCasesTemplates: 0,
+      specialCasesTemplateTotalPages: 0,
+      showUploadSpecialCasesTemplateModal: false,
+      showEditSpecialCasesTemplateModal: false,
+      showViewSpecialCasesTemplateModal: false,
+      currentSpecialCasesTemplate: {
+        id: null,
+        name: "",
+        description: "",
+        mappings: [],
+      },
+      specialCasesTemplateFile: null,
+      specialCasesTemplateUploadName: "",
+      specialCasesTemplateUploadDescription: "",
+      showEditSpecialCasesMappingsModal: false,
+      editingSpecialCasesMappings: [],
+      // Instruction Additions Templates functionality
+      instructionAdditionsTemplates: [],
+      instructionAdditionsTemplatesLoading: false,
+      instructionAdditionsTemplateSearch: "",
+      instructionAdditionsTemplateSearchTimeout: null,
+      instructionAdditionsTemplateCurrentPage: 1,
+      instructionAdditionsTemplatePageSize: 50,
+      totalInstructionAdditionsTemplates: 0,
+      instructionAdditionsTemplateTotalPages: 0,
+      showUploadInstructionAdditionsTemplateModal: false,
+      showViewInstructionAdditionsTemplateModal: false,
+      currentInstructionAdditionsTemplate: {
+        id: null,
+        name: "",
+        description: "",
+        field_instructions: {},
+      },
+      instructionAdditionsTemplateFile: null,
+      instructionAdditionsTemplateUploadName: "",
+      instructionAdditionsTemplateUploadDescription: "",
       // Templates Manager functionality
       templates: [],
       templatesLoading: false,
@@ -5467,6 +6184,13 @@ export default {
       const formData = new FormData();
       formData.append("excel_file", this.instructionsExcelFile);
 
+      if (this.selectedInstructionAdditionsTemplateId) {
+        formData.append(
+          "additions_template_id",
+          this.selectedInstructionAdditionsTemplateId
+        );
+      }
+
       const uploadUrl = joinUrl(API_BASE_URL, "convert-instructions");
       console.log("🔧 Instructions Upload URL:", uploadUrl);
 
@@ -5852,9 +6576,23 @@ export default {
 
       const formData = new FormData();
       formData.append("data_csv", this.insuranceDataCsv);
-      if (this.specialCasesCsv) {
+
+      // Handle special cases - either file upload or template
+      if (
+        this.insuranceSpecialCasesMode === "template" &&
+        this.selectedSpecialCasesTemplateId
+      ) {
+        formData.append(
+          "special_cases_template_id",
+          this.selectedSpecialCasesTemplateId
+        );
+      } else if (
+        this.insuranceSpecialCasesMode === "upload" &&
+        this.specialCasesCsv
+      ) {
         formData.append("special_cases_csv", this.specialCasesCsv);
       }
+
       formData.append("enable_ai", this.enableAi);
 
       const predictUrl = joinUrl(API_BASE_URL, "predict-insurance-codes");
@@ -5894,6 +6632,21 @@ export default {
         }
         this.toast.error(errorMessage);
         this.isPredictingInsurance = false;
+      }
+    },
+
+    async loadAvailableSpecialCasesTemplates() {
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/special-cases-templates"),
+          {
+            params: { page: 1, page_size: 100 },
+          }
+        );
+        this.availableSpecialCasesTemplates = response.data.templates;
+      } catch (error) {
+        console.error("Failed to load special cases templates:", error);
+        this.toast.error("Failed to load templates");
       }
     },
 
@@ -6364,6 +7117,340 @@ export default {
         this.toast.error("Failed to import insurance mappings");
       } finally {
         this.insuranceBulkImporting = false;
+      }
+    },
+
+    // ========================================================================
+    // Special Cases Templates Methods
+    // ========================================================================
+
+    async loadSpecialCasesTemplates(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "special-cases-templates";
+        this.specialCasesTemplateCurrentPage = 1;
+      }
+
+      this.specialCasesTemplatesLoading = true;
+      try {
+        const params = {
+          page: this.specialCasesTemplateCurrentPage,
+          page_size: this.specialCasesTemplatePageSize,
+        };
+
+        if (this.specialCasesTemplateSearch) {
+          params.search = this.specialCasesTemplateSearch;
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/special-cases-templates"),
+          { params }
+        );
+
+        this.specialCasesTemplates = response.data.templates;
+        this.totalSpecialCasesTemplates = response.data.total;
+        this.specialCasesTemplateTotalPages = response.data.total_pages;
+      } catch (error) {
+        console.error("Failed to load special cases templates:", error);
+        this.toast.error("Failed to load templates");
+      } finally {
+        this.specialCasesTemplatesLoading = false;
+      }
+    },
+
+    onSpecialCasesTemplateSearchChange() {
+      clearTimeout(this.specialCasesTemplateSearchTimeout);
+      this.specialCasesTemplateSearchTimeout = setTimeout(() => {
+        this.specialCasesTemplateCurrentPage = 1;
+        this.loadSpecialCasesTemplates(false);
+      }, 500);
+    },
+
+    handleSpecialCasesTemplateFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.specialCasesTemplateFile = file;
+      }
+    },
+
+    async uploadSpecialCasesTemplate() {
+      if (
+        !this.specialCasesTemplateUploadName ||
+        !this.specialCasesTemplateFile
+      ) {
+        this.toast.error("Please provide template name and CSV file");
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("csv_file", this.specialCasesTemplateFile);
+        formData.append("name", this.specialCasesTemplateUploadName);
+        formData.append(
+          "description",
+          this.specialCasesTemplateUploadDescription
+        );
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "api/special-cases-templates/upload"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.toast.success(
+          `Template "${response.data.name}" created with ${response.data.mappings_count} mappings`
+        );
+        this.closeSpecialCasesTemplateModals();
+        await this.loadSpecialCasesTemplates(false);
+      } catch (error) {
+        console.error("Failed to upload special cases template:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to upload template"
+        );
+      }
+    },
+
+    viewSpecialCasesTemplate(template) {
+      this.currentSpecialCasesTemplate = { ...template };
+      this.showViewSpecialCasesTemplateModal = true;
+    },
+
+    editSpecialCasesTemplateMappings(template) {
+      this.currentSpecialCasesTemplate = { ...template };
+      this.editingSpecialCasesMappings = JSON.parse(
+        JSON.stringify(template.mappings)
+      );
+      this.showEditSpecialCasesMappingsModal = true;
+    },
+
+    addNewSpecialCasesMapping() {
+      this.editingSpecialCasesMappings.push({
+        company_name: "",
+        mednet_code: "",
+      });
+    },
+
+    removeSpecialCasesMapping(index) {
+      this.editingSpecialCasesMappings.splice(index, 1);
+    },
+
+    async saveSpecialCasesMappings() {
+      try {
+        // Filter out empty mappings
+        const validMappings = this.editingSpecialCasesMappings.filter(
+          (m) => m.company_name.trim() && m.mednet_code.trim()
+        );
+
+        await axios.put(
+          joinUrl(
+            API_BASE_URL,
+            `api/special-cases-templates/${this.currentSpecialCasesTemplate.id}/mappings`
+          ),
+          validMappings
+        );
+
+        this.toast.success("Mappings updated successfully!");
+        this.closeSpecialCasesTemplateModals();
+        await this.loadSpecialCasesTemplates(false);
+      } catch (error) {
+        console.error("Failed to update mappings:", error);
+        this.toast.error("Failed to update mappings");
+      }
+    },
+
+    async deleteSpecialCasesTemplateConfirm(templateId, templateName) {
+      if (
+        !confirm(`Are you sure you want to delete template "${templateName}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(API_BASE_URL, `api/special-cases-templates/${templateId}`)
+        );
+        this.toast.success("Template deleted successfully!");
+        await this.loadSpecialCasesTemplates(false);
+      } catch (error) {
+        console.error("Failed to delete template:", error);
+        this.toast.error("Failed to delete template");
+      }
+    },
+
+    closeSpecialCasesTemplateModals() {
+      this.showUploadSpecialCasesTemplateModal = false;
+      this.showViewSpecialCasesTemplateModal = false;
+      this.showEditSpecialCasesMappingsModal = false;
+      this.specialCasesTemplateFile = null;
+      this.specialCasesTemplateUploadName = "";
+      this.specialCasesTemplateUploadDescription = "";
+      this.currentSpecialCasesTemplate = {
+        id: null,
+        name: "",
+        description: "",
+        mappings: [],
+      };
+      this.editingSpecialCasesMappings = [];
+      if (this.$refs.specialCasesTemplateFileInput) {
+        this.$refs.specialCasesTemplateFileInput.value = "";
+      }
+    },
+
+    // ========================================================================
+    // Instruction Additions Templates Methods
+    // ========================================================================
+
+    async loadInstructionAdditionsTemplates(resetPage = true) {
+      if (resetPage) {
+        this.activeTab = "instruction-additions-templates";
+        this.instructionAdditionsTemplateCurrentPage = 1;
+      }
+
+      this.instructionAdditionsTemplatesLoading = true;
+      try {
+        const params = {
+          page: this.instructionAdditionsTemplateCurrentPage,
+          page_size: this.instructionAdditionsTemplatePageSize,
+        };
+
+        if (this.instructionAdditionsTemplateSearch) {
+          params.search = this.instructionAdditionsTemplateSearch;
+        }
+
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/instruction-additions-templates"),
+          { params }
+        );
+
+        this.instructionAdditionsTemplates = response.data.templates;
+        this.totalInstructionAdditionsTemplates = response.data.total;
+        this.instructionAdditionsTemplateTotalPages = response.data.total_pages;
+      } catch (error) {
+        console.error("Failed to load instruction additions templates:", error);
+        this.toast.error("Failed to load templates");
+      } finally {
+        this.instructionAdditionsTemplatesLoading = false;
+      }
+    },
+
+    onInstructionAdditionsTemplateSearchChange() {
+      clearTimeout(this.instructionAdditionsTemplateSearchTimeout);
+      this.instructionAdditionsTemplateSearchTimeout = setTimeout(() => {
+        this.instructionAdditionsTemplateCurrentPage = 1;
+        this.loadInstructionAdditionsTemplates(false);
+      }, 500);
+    },
+
+    handleInstructionAdditionsTemplateFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.instructionAdditionsTemplateFile = file;
+      }
+    },
+
+    async uploadInstructionAdditionsTemplate() {
+      if (
+        !this.instructionAdditionsTemplateUploadName ||
+        !this.instructionAdditionsTemplateFile
+      ) {
+        this.toast.error("Please provide template name and CSV file");
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("csv_file", this.instructionAdditionsTemplateFile);
+        formData.append("name", this.instructionAdditionsTemplateUploadName);
+        formData.append(
+          "description",
+          this.instructionAdditionsTemplateUploadDescription
+        );
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "api/instruction-additions-templates/upload"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.toast.success(
+          `Template "${response.data.name}" created with ${response.data.fields_count} fields`
+        );
+        this.closeInstructionAdditionsTemplateModals();
+        await this.loadInstructionAdditionsTemplates(false);
+      } catch (error) {
+        console.error(
+          "Failed to upload instruction additions template:",
+          error
+        );
+        this.toast.error(
+          error.response?.data?.detail || "Failed to upload template"
+        );
+      }
+    },
+
+    viewInstructionAdditionsTemplate(template) {
+      this.currentInstructionAdditionsTemplate = { ...template };
+      this.showViewInstructionAdditionsTemplateModal = true;
+    },
+
+    async deleteInstructionAdditionsTemplateConfirm(templateId, templateName) {
+      if (
+        !confirm(`Are you sure you want to delete template "${templateName}"?`)
+      ) {
+        return;
+      }
+
+      try {
+        await axios.delete(
+          joinUrl(
+            API_BASE_URL,
+            `api/instruction-additions-templates/${templateId}`
+          )
+        );
+        this.toast.success("Template deleted successfully!");
+        await this.loadInstructionAdditionsTemplates(false);
+      } catch (error) {
+        console.error("Failed to delete template:", error);
+        this.toast.error("Failed to delete template");
+      }
+    },
+
+    closeInstructionAdditionsTemplateModals() {
+      this.showUploadInstructionAdditionsTemplateModal = false;
+      this.showViewInstructionAdditionsTemplateModal = false;
+      this.instructionAdditionsTemplateFile = null;
+      this.instructionAdditionsTemplateUploadName = "";
+      this.instructionAdditionsTemplateUploadDescription = "";
+      this.currentInstructionAdditionsTemplate = {
+        id: null,
+        name: "",
+        description: "",
+        field_instructions: {},
+      };
+      if (this.$refs.instructionAdditionsTemplateFileInput) {
+        this.$refs.instructionAdditionsTemplateFileInput.value = "";
+      }
+    },
+
+    async loadAvailableInstructionAdditionsTemplates() {
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/instruction-additions-templates"),
+          {
+            params: { page: 1, page_size: 100 },
+          }
+        );
+        this.availableInstructionAdditionsTemplates = response.data.templates;
+      } catch (error) {
+        console.error("Failed to load instruction additions templates:", error);
+        this.toast.error("Failed to load templates");
       }
     },
 
@@ -8255,6 +9342,147 @@ input:checked + .slider:hover {
 .import-result .error-message {
   color: #fecaca;
   font-weight: 600;
+}
+
+.mappings-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.mapping-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.mapping-row .form-input {
+  flex: 1;
+}
+
+.mapping-row .delete-btn {
+  flex-shrink: 0;
+}
+
+.add-btn.small,
+.delete-btn.small {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.large-modal {
+  max-width: 900px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.mappings-list {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 1rem;
+}
+
+.template-info {
+  background: #f3f4f6;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.template-info p {
+  margin: 0.5rem 0;
+}
+
+.toggle-selector {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  background: #f3f4f6;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 0.75rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.toggle-btn.active {
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  color: #3b82f6;
+}
+
+.toggle-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.template-selector {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.template-select {
+  flex: 1;
+  padding: 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: white;
+  cursor: pointer;
+}
+
+.template-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.refresh-btn {
+  padding: 0.75rem 1rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.refresh-btn:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+}
+
+.field-instructions-item {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border-left: 4px solid #3b82f6;
+}
+
+.field-instructions-item h4 {
+  margin: 0 0 0.75rem 0;
+  color: #1f2937;
+  font-size: 1.1rem;
+}
+
+.field-instructions-item ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.field-instructions-item li {
+  margin: 0.5rem 0;
+  color: #4b5563;
+  line-height: 1.5;
 }
 
 .modifiers-table-container {

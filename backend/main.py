@@ -1959,7 +1959,7 @@ def convert_uni_background(job_id: str, csv_path: str):
         # Clean up memory even on failure
         gc.collect()
 
-def convert_instructions_background(job_id: str, excel_path: str):
+def convert_instructions_background(job_id: str, excel_path: str, additions_template_id: int = None):
     """Background task to convert Excel file using the instructions conversion script"""
     job = job_status[job_id]
     
@@ -1987,20 +1987,51 @@ def convert_instructions_background(job_id: str, excel_path: str):
         except Exception as e:
             raise Exception(f"Failed to read Excel file: {str(e)}")
         
-        job.message = "Copying additions.csv file..."
+        job.message = "Preparing additions file..."
         job.progress = 45
         
-        # Copy the additions.csv file to the same directory as the temp CSV
-        # The convert_data function expects additions.csv to be in the same directory as the input file
+        # Handle additions file - either from template or default file
         import shutil
-        additions_source = Path(__file__).parent / "instructions-conversion" / "additions.csv"
         additions_dest = Path(temp_csv_path).parent / "additions.csv"
         
-        if additions_source.exists():
-            shutil.copy2(additions_source, additions_dest)
-            logger.info(f"Copied additions.csv from {additions_source} to {additions_dest}")
+        if additions_template_id:
+            # Load from database template
+            from db_utils import get_instruction_additions_template
+            template = get_instruction_additions_template(template_id=additions_template_id)
+            
+            if not template:
+                logger.warning(f"Template {additions_template_id} not found, using default additions.csv")
+                # Fall back to default
+                additions_source = Path(__file__).parent / "instructions-conversion" / "additions.csv"
+                if additions_source.exists():
+                    shutil.copy2(additions_source, additions_dest)
+            else:
+                # Create CSV from template field instructions
+                # The structure is: field_instructions is a dict mapping field names to instruction objects
+                field_instructions = template['field_instructions']
+                
+                # Create a DataFrame with field names as columns
+                # Each instruction object has an 'instructions' list
+                max_rows = max(len(field['instructions']) for field in field_instructions.values()) if field_instructions else 0
+                
+                data = {}
+                for field_name, field_data in field_instructions.items():
+                    instructions_list = field_data['instructions']
+                    # Pad with empty strings to match max_rows
+                    data[field_name] = instructions_list + [''] * (max_rows - len(instructions_list))
+                
+                additions_df = pd.DataFrame(data)
+                additions_df.to_csv(additions_dest, index=False)
+                logger.info(f"Created additions.csv from template {additions_template_id} with {len(field_instructions)} fields")
         else:
-            logger.warning(f"additions.csv not found at {additions_source}")
+            # Copy the default additions.csv file
+            additions_source = Path(__file__).parent / "instructions-conversion" / "additions.csv"
+            
+            if additions_source.exists():
+                shutil.copy2(additions_source, additions_dest)
+                logger.info(f"Copied additions.csv from {additions_source} to {additions_dest}")
+            else:
+                logger.warning(f"additions.csv not found at {additions_source}")
         
         job.message = "Converting data using instructions script..."
         job.progress = 60
@@ -2273,9 +2304,13 @@ async def convert_uni(
 @app.post("/convert-instructions")
 async def convert_instructions(
     background_tasks: BackgroundTasks,
-    excel_file: UploadFile = File(...)
+    excel_file: UploadFile = File(...),
+    additions_template_id: int = Form(None)
 ):
-    """Upload an Excel file to convert using the instructions conversion script"""
+    """
+    Upload an Excel file to convert using the instructions conversion script.
+    Optionally provide an additions template ID to override field instructions.
+    """
     
     try:
         logger.info(f"Received instructions conversion request - excel: {excel_file.filename}")
@@ -2300,9 +2335,9 @@ async def convert_instructions(
         logger.info(f"Instructions Excel saved - path: {excel_path}")
         
         # Start background processing
-        background_tasks.add_task(convert_instructions_background, job_id, excel_path)
+        background_tasks.add_task(convert_instructions_background, job_id, excel_path, additions_template_id)
         
-        logger.info(f"Background instructions conversion task started for job {job_id}")
+        logger.info(f"Background instructions conversion task started for job {job_id} with template: {additions_template_id}")
         
         return {"job_id": job_id, "message": "Excel file uploaded and instructions conversion started"}
         
@@ -2373,9 +2408,14 @@ async def predict_insurance_codes(
     background_tasks: BackgroundTasks,
     data_csv: UploadFile = File(...),
     special_cases_csv: UploadFile = File(None),
+    special_cases_template_id: int = Form(None),
     enable_ai: bool = Form(True)
 ):
-    """Upload data CSV/XLSX and optional special cases CSV/XLSX to predict MedNet codes"""
+    """
+    Upload data CSV/XLSX and provide special cases either via:
+    - Upload CSV file (special_cases_csv)
+    - Select saved template (special_cases_template_id)
+    """
     
     try:
         logger.info(f"Received insurance code prediction request - data: {data_csv.filename}, AI enabled: {enable_ai}")
@@ -2411,9 +2451,27 @@ async def predict_insurance_codes(
         
         logger.info(f"Data CSV ready - path: {data_csv_path}")
         
-        # Save special cases file if provided
+        # Handle special cases - either from upload or from template
         special_cases_csv_path = None
-        if special_cases_csv:
+        if special_cases_template_id:
+            # Load from database template
+            from db_utils import get_special_cases_template
+            template = get_special_cases_template(template_id=special_cases_template_id)
+            
+            if not template:
+                raise HTTPException(status_code=404, detail=f"Special cases template {special_cases_template_id} not found")
+            
+            # Create CSV file from template mappings
+            import pandas as pd
+            mappings_df = pd.DataFrame(template['mappings'])
+            mappings_df.columns = ['Company name', 'Mednet code']
+            
+            special_cases_csv_path = f"/tmp/{job_id}_special_cases.csv"
+            mappings_df.to_csv(special_cases_csv_path, index=False)
+            logger.info(f"Special cases loaded from template {special_cases_template_id} - {len(template['mappings'])} mappings")
+            
+        elif special_cases_csv:
+            # Load from uploaded file
             special_cases_input_path = f"/tmp/{job_id}_special_cases{Path(special_cases_csv.filename).suffix}"
             with open(special_cases_input_path, "wb") as f:
                 shutil.copyfileobj(special_cases_csv.file, f)
@@ -3140,6 +3198,319 @@ async def delete_insurance_mapping(mapping_id: int):
     except Exception as e:
         logger.error(f"Failed to delete insurance mapping {mapping_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete mapping: {str(e)}")
+
+
+@app.get("/api/special-cases-templates")
+async def get_special_cases_templates(page: int = 1, page_size: int = 50, search: str = None):
+    """Get all special cases templates with pagination and search"""
+    try:
+        from db_utils import get_all_special_cases_templates
+        result = get_all_special_cases_templates(page=page, page_size=page_size, search=search)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get special cases templates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+
+
+@app.get("/api/special-cases-templates/{template_id}")
+async def get_special_cases_template(template_id: int):
+    """Get a specific special cases template by ID"""
+    try:
+        from db_utils import get_special_cases_template as get_template
+        template = get_template(template_id=template_id)
+        if template:
+            return template
+        else:
+            raise HTTPException(status_code=404, detail="Template not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get special cases template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get template: {str(e)}")
+
+
+@app.post("/api/special-cases-templates/upload")
+async def upload_special_cases_template(
+    csv_file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form(default="")
+):
+    """
+    Upload a CSV file and save as a special cases template.
+    CSV format: Company name,Mednet code
+    """
+    try:
+        from db_utils import create_special_cases_template
+        import pandas as pd
+        import io
+        
+        # Read CSV file
+        contents = await csv_file.read()
+        
+        # Try different encodings
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(io.BytesIO(contents), dtype=str, encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            raise HTTPException(status_code=400, detail="Could not read CSV file with any standard encoding")
+        
+        # Validate columns
+        if 'Company name' not in df.columns or 'Mednet code' not in df.columns:
+            raise HTTPException(
+                status_code=400,
+                detail="CSV must have 'Company name' and 'Mednet code' columns"
+            )
+        
+        # Parse mappings
+        mappings = []
+        for _, row in df.iterrows():
+            company_name = str(row['Company name']).strip() if pd.notna(row['Company name']) else ''
+            mednet_code = str(row['Mednet code']).strip() if pd.notna(row['Mednet code']) else ''
+            
+            if company_name and mednet_code:
+                mappings.append({
+                    'company_name': company_name,
+                    'mednet_code': mednet_code
+                })
+        
+        if not mappings:
+            raise HTTPException(status_code=400, detail="No valid mappings found in CSV")
+        
+        # Create template
+        template_id = create_special_cases_template(name, mappings, description)
+        
+        if template_id:
+            return {
+                "message": "Special cases template created successfully",
+                "template_id": template_id,
+                "name": name,
+                "mappings_count": len(mappings)
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create template")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload special cases template: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.put("/api/special-cases-templates/{template_id}")
+async def update_special_cases_template_endpoint(
+    template_id: int,
+    name: str = Form(None),
+    description: str = Form(None)
+):
+    """Update a special cases template's metadata"""
+    try:
+        from db_utils import update_special_cases_template
+        success = update_special_cases_template(template_id, name=name, description=description)
+        if success:
+            return {"message": f"Template {template_id} updated successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update special cases template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
+
+
+@app.put("/api/special-cases-templates/{template_id}/mappings")
+async def update_special_cases_mappings(template_id: int, mappings: list = Body(...)):
+    """Update the mappings in a special cases template"""
+    try:
+        from db_utils import update_special_cases_template
+        success = update_special_cases_template(template_id, mappings=mappings)
+        if success:
+            return {"message": f"Mappings updated successfully", "count": len(mappings)}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update mappings")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update mappings for template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update mappings: {str(e)}")
+
+
+@app.delete("/api/special-cases-templates/{template_id}")
+async def delete_special_cases_template_endpoint(template_id: int):
+    """Delete a special cases template"""
+    try:
+        from db_utils import delete_special_cases_template
+        success = delete_special_cases_template(template_id)
+        if success:
+            return {"message": f"Template {template_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete special cases template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
+
+
+@app.get("/api/instruction-additions-templates")
+async def get_instruction_additions_templates(page: int = 1, page_size: int = 50, search: str = None):
+    """Get all instruction additions templates with pagination and search"""
+    try:
+        from db_utils import get_all_instruction_additions_templates
+        result = get_all_instruction_additions_templates(page=page, page_size=page_size, search=search)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get instruction additions templates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+
+
+@app.get("/api/instruction-additions-templates/{template_id}")
+async def get_instruction_additions_template(template_id: int):
+    """Get a specific instruction additions template by ID"""
+    try:
+        from db_utils import get_instruction_additions_template as get_template
+        template = get_template(template_id=template_id)
+        if template:
+            return template
+        else:
+            raise HTTPException(status_code=404, detail="Template not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get instruction additions template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get template: {str(e)}")
+
+
+@app.post("/api/instruction-additions-templates/upload")
+async def upload_instruction_additions_template(
+    csv_file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form(default="")
+):
+    """
+    Upload additions.csv file and save as an instruction additions template.
+    CSV format: First row is header with field names, subsequent rows contain instructions
+    """
+    try:
+        from db_utils import create_instruction_additions_template
+        import pandas as pd
+        import io
+        
+        # Read CSV file
+        contents = await csv_file.read()
+        
+        # Try different encodings
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(io.BytesIO(contents), dtype=str, encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            raise HTTPException(status_code=400, detail="Could not read CSV file with any standard encoding")
+        
+        # Parse field instructions
+        # The CSV has field names as columns, with rows containing different instruction types
+        field_instructions = {}
+        
+        for col in df.columns:
+            if col and str(col).strip():
+                # Get all non-null values for this field
+                instructions = []
+                for _, row in df.iterrows():
+                    value = row[col]
+                    if pd.notna(value) and str(value).strip():
+                        instructions.append(str(value).strip())
+                
+                if instructions:
+                    field_instructions[col] = {
+                        'instructions': instructions
+                    }
+        
+        if not field_instructions:
+            raise HTTPException(status_code=400, detail="No valid field instructions found in CSV")
+        
+        # Create template
+        template_id = create_instruction_additions_template(name, field_instructions, description)
+        
+        if template_id:
+            return {
+                "message": "Instruction additions template created successfully",
+                "template_id": template_id,
+                "name": name,
+                "fields_count": len(field_instructions)
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create template")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload instruction additions template: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.put("/api/instruction-additions-templates/{template_id}")
+async def update_instruction_additions_template_endpoint(
+    template_id: int,
+    name: str = Form(None),
+    description: str = Form(None)
+):
+    """Update an instruction additions template's metadata"""
+    try:
+        from db_utils import update_instruction_additions_template
+        success = update_instruction_additions_template(template_id, name=name, description=description)
+        if success:
+            return {"message": f"Template {template_id} updated successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update instruction additions template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
+
+
+@app.put("/api/instruction-additions-templates/{template_id}/instructions")
+async def update_instruction_additions(template_id: int, field_instructions: dict = Body(...)):
+    """Update the field instructions in an instruction additions template"""
+    try:
+        from db_utils import update_instruction_additions_template
+        success = update_instruction_additions_template(template_id, field_instructions=field_instructions)
+        if success:
+            return {"message": f"Instructions updated successfully", "fields_count": len(field_instructions)}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update instructions")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update instructions for template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update instructions: {str(e)}")
+
+
+@app.delete("/api/instruction-additions-templates/{template_id}")
+async def delete_instruction_additions_template_endpoint(template_id: int):
+    """Delete an instruction additions template"""
+    try:
+        from db_utils import delete_instruction_additions_template
+        success = delete_instruction_additions_template(template_id)
+        if success:
+            return {"message": f"Template {template_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete template")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete instruction additions template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
 
 
 @app.post("/api/insurance-mappings/bulk-import")

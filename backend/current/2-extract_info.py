@@ -318,8 +318,12 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         prompt_file.write(extraction_prompt)
     print(f"✅ Saved extraction prompt to 'extraction_prompt.txt'")
     
-    # Remove system fields from CSV output
-    fieldnames = [field for field in fieldnames if field not in ['source_file', 'page_number']]
+    # Remove page_number but keep source_file for tracking
+    fieldnames = [field for field in fieldnames if field not in ['page_number']]
+    
+    # Add source_file as the last column in the output
+    if 'source_file' not in fieldnames:
+        fieldnames.append('source_file')
     
     # Initialize Google AI client
     api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
