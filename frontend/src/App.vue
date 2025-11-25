@@ -7406,7 +7406,7 @@ export default {
           this.combinedStageProgress.icd = 0;
           this.combinedJobStatus.message = "Stage 3/? - ICD Code Prediction...";
 
-          currentJobId = await this.executeCombinedIcd(currentData);
+          currentJobId = await this.executeCombinedIcd();
           const icdData = await this.waitForJobCompletion(currentJobId, "icd");
 
           if (!icdData) {
@@ -7548,7 +7548,7 @@ export default {
       return response.data.job_id;
     },
 
-    async executeCombinedIcd(previousData) {
+    async executeCombinedIcd() {
       const formData = new FormData();
 
       // ICD always uses vision mode with ZIP file
