@@ -31,6 +31,13 @@
             ⚡ Fast Process
           </button>
           <button
+            @click="activeTab = 'combined'"
+            :class="{ active: activeTab === 'combined' }"
+            class="tab-btn"
+          >
+            🔄 All-in-One
+          </button>
+          <button
             @click="activeTab = 'split'"
             :class="{ active: activeTab === 'split' }"
             class="tab-btn"
@@ -56,7 +63,7 @@
             :class="{ active: activeTab === 'modifiers' }"
             class="tab-btn"
           >
-            💊 Modifiers
+            💊 Modifiers + Blocks
           </button>
           <button
             @click="activeTab = 'insurance'"
@@ -1916,13 +1923,15 @@
           </div>
         </div>
 
-        <!-- Modifiers Generation Tab -->
+        <!-- Modifiers + Blocks Generation Tab -->
         <div v-if="activeTab === 'modifiers'" class="upload-section">
           <div class="section-header">
-            <h2>Medical Modifiers Generation</h2>
+            <h2>Medical Modifiers + Blocks Generation</h2>
             <p>
               Upload a CSV or XLSX file with billing data to automatically
-              generate medical modifiers based on provider information
+              generate medical modifiers based on provider information. Also
+              generates blocks if they are properly formatted in the
+              peripheral_blocks column.
             </p>
           </div>
 
@@ -2041,8 +2050,15 @@
                     >
                   </div>
                   <div class="requirement-item">
+                    <span class="requirement-icon">🎯</span>
+                    <span
+                      >Blocks will be generated if properly formatted in
+                      peripheral_blocks column</span
+                    >
+                  </div>
+                  <div class="requirement-item">
                     <span class="requirement-icon">📥</span>
-                    <span>Download CSV with modifiers applied</span>
+                    <span>Download CSV with modifiers and blocks applied</span>
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">🔀</span>
@@ -2067,8 +2083,8 @@
               <span v-else class="btn-icon">💊</span>
               {{
                 isGeneratingModifiers
-                  ? "Generating Modifiers..."
-                  : "Generate Modifiers"
+                  ? "Generating Modifiers + Blocks..."
+                  : "Generate Modifiers + Blocks"
               }}
             </button>
 
@@ -2148,6 +2164,724 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ modifiersJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Combined Processing Tab -->
+        <div v-if="activeTab === 'combined'" class="upload-section">
+          <div class="section-header">
+            <h2>🔄 All-in-One Processing Pipeline</h2>
+            <p>
+              Execute a complete processing pipeline: Data Extraction → CPT
+              Codes → ICD Codes → Modifiers. Configure and enable/disable each
+              stage as needed.
+            </p>
+          </div>
+
+          <!-- Stage Selection -->
+          <div class="upload-card" style="margin-bottom: 20px">
+            <div class="card-header">
+              <h3>Select Processing Stages</h3>
+            </div>
+            <div class="settings-content">
+              <div class="stage-toggles">
+                <label class="stage-toggle-label">
+                  <input
+                    type="checkbox"
+                    v-model="combinedEnableExtraction"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    <strong>1. Data Extraction (Fast)</strong> - Extract
+                    structured data from patient PDFs
+                  </span>
+                </label>
+                <label class="stage-toggle-label">
+                  <input
+                    type="checkbox"
+                    v-model="combinedEnableCpt"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    <strong>2. CPT Code Prediction</strong> - Predict anesthesia
+                    CPT codes
+                  </span>
+                </label>
+                <label class="stage-toggle-label">
+                  <input
+                    type="checkbox"
+                    v-model="combinedEnableIcd"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    <strong>3. ICD Code Prediction</strong> - Predict diagnosis
+                    ICD codes
+                  </span>
+                </label>
+                <label class="stage-toggle-label">
+                  <input
+                    type="checkbox"
+                    v-model="combinedEnableModifiers"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    <strong>4. Modifiers + Blocks Generation</strong> - Apply
+                    medical modifiers and generate blocks
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stage 1: Data Extraction Configuration -->
+          <div v-if="combinedEnableExtraction" class="stage-config-section">
+            <div class="stage-config-header">
+              <h3>📊 Stage 1: Data Extraction Configuration</h3>
+            </div>
+
+            <div class="upload-grid">
+              <!-- ZIP File Upload -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">1</div>
+                  <h3>Patient Documents (ZIP)</h3>
+                </div>
+                <div
+                  class="dropzone"
+                  :class="{
+                    active: isCombinedZipDragActive,
+                    'has-file': combinedZipFile,
+                  }"
+                  @drop="onCombinedZipDrop"
+                  @dragover.prevent
+                  @dragenter.prevent
+                  @click="triggerCombinedZipUpload"
+                >
+                  <input
+                    ref="combinedZipInput"
+                    type="file"
+                    accept=".zip"
+                    @change="onCombinedZipFileSelect"
+                    style="display: none"
+                  />
+                  <div class="upload-content">
+                    <div class="upload-icon">📁</div>
+                    <div v-if="combinedZipFile" class="file-info">
+                      <div class="file-icon">📄</div>
+                      <span class="file-name">{{ combinedZipFile.name }}</span>
+                      <span class="file-size">{{
+                        formatFileSize(combinedZipFile.size)
+                      }}</span>
+                    </div>
+                    <p v-else class="upload-text">
+                      Drag & drop ZIP archive here<br />or click to browse
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Excel File or Template -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">2</div>
+                  <h3>Processing Template</h3>
+                </div>
+
+                <!-- Template Selection Toggle -->
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="combinedUseTemplate"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Use saved template instead</span>
+                  </label>
+                </div>
+
+                <!-- Template Dropdown -->
+                <div
+                  v-if="combinedUseTemplate"
+                  class="template-dropdown-section"
+                >
+                  <select
+                    v-model="combinedSelectedTemplateId"
+                    class="template-select"
+                    @focus="ensureTemplatesLoaded"
+                  >
+                    <option :value="null" disabled>Select a template...</option>
+                    <option
+                      v-for="template in templates"
+                      :key="template.id"
+                      :value="template.id"
+                    >
+                      {{ template.name }}
+                    </option>
+                  </select>
+                  <p class="template-hint">
+                    <a
+                      href="#"
+                      @click.prevent="loadTemplates"
+                      class="manage-link"
+                    >
+                      Manage templates
+                    </a>
+                  </p>
+                </div>
+
+                <!-- Excel File Upload -->
+                <div
+                  v-else
+                  class="dropzone"
+                  :class="{
+                    active: isCombinedExcelDragActive,
+                    'has-file': combinedExcelFile,
+                  }"
+                  @drop="onCombinedExcelDrop"
+                  @dragover.prevent
+                  @dragenter.prevent
+                  @click="triggerCombinedExcelUpload"
+                >
+                  <input
+                    ref="combinedExcelInput"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    @change="onCombinedExcelFileSelect"
+                    style="display: none"
+                  />
+                  <div class="upload-content">
+                    <div class="upload-icon">📊</div>
+                    <div v-if="combinedExcelFile" class="file-info">
+                      <div class="file-icon">📄</div>
+                      <span class="file-name">{{
+                        combinedExcelFile.name
+                      }}</span>
+                      <span class="file-size">{{
+                        formatFileSize(combinedExcelFile.size)
+                      }}</span>
+                    </div>
+                    <p v-else class="upload-text">
+                      Drag & drop Excel template here<br />or click to browse
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Page Count -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">3</div>
+                  <h3>Processing Settings</h3>
+                </div>
+                <div class="settings-content">
+                  <div class="setting-group">
+                    <label for="combinedPageCount">Pages per document</label>
+                    <div class="input-wrapper">
+                      <input
+                        id="combinedPageCount"
+                        v-model.number="combinedPageCount"
+                        type="number"
+                        min="1"
+                        max="50"
+                        class="page-input"
+                        placeholder="2"
+                      />
+                    </div>
+                    <small class="help-text">
+                      Number of pages to extract from each patient document
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stage 2: CPT Configuration -->
+          <div v-if="combinedEnableCpt" class="stage-config-section">
+            <div class="stage-config-header">
+              <h3>🏥 Stage 2: CPT Code Prediction Configuration</h3>
+            </div>
+
+            <div class="upload-grid">
+              <!-- Vision Mode Toggle (if starting from ZIP) -->
+              <div
+                v-if="combinedEnableExtraction"
+                class="upload-card"
+                style="grid-column: span 3"
+              >
+                <div class="settings-content">
+                  <div class="form-group">
+                    <label class="checkbox-label">
+                      <input
+                        type="checkbox"
+                        v-model="combinedCptUseVision"
+                        class="checkbox-input"
+                      />
+                      <span class="checkbox-text">
+                        📸 Use Vision Mode for CPT (analyze PDF pages instead of
+                        extracted text)
+                      </span>
+                    </label>
+                    <p
+                      class="form-hint"
+                      v-if="combinedCptUseVision"
+                      style="margin-top: 10px; color: #6b7280"
+                    >
+                      Vision mode analyzes actual PDF pages instead of extracted
+                      text. Great for handwritten notes or complex layouts.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Client Selection (non-vision mode) -->
+              <div v-if="!combinedCptUseVision" class="upload-card">
+                <div class="card-header">
+                  <h3>Select Client</h3>
+                </div>
+                <div class="settings-content">
+                  <div class="form-group">
+                    <label for="combined-cpt-client" class="form-label"
+                      >Choose Client for CPT Coding:</label
+                    >
+                    <select
+                      id="combined-cpt-client"
+                      v-model="combinedCptClient"
+                      class="form-select"
+                    >
+                      <option value="uni">UNI</option>
+                      <option value="sio-stl">SIO-STL</option>
+                      <option value="gap-fin">GAP-FIN</option>
+                      <option value="apo-utp">APO-UTP</option>
+                      <option value="tan-esc">TAN-ESC (Custom Model)</option>
+                      <option value="general">GENERAL (OpenAI Model)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Custom Instructions -->
+              <div
+                class="upload-card"
+                :style="combinedCptUseVision ? '' : 'grid-column: span 2'"
+              >
+                <div class="card-header">
+                  <h3>Custom Coding Instructions</h3>
+                </div>
+                <div class="settings-content">
+                  <!-- Template Toggle -->
+                  <div class="template-selection-toggle">
+                    <label class="toggle-label">
+                      <input
+                        v-model="combinedCptUseTemplate"
+                        type="checkbox"
+                        class="toggle-checkbox"
+                      />
+                      <span class="toggle-text">Use saved template</span>
+                    </label>
+                  </div>
+
+                  <!-- Template Dropdown -->
+                  <div
+                    v-if="combinedCptUseTemplate"
+                    class="template-dropdown-section"
+                  >
+                    <select
+                      v-model="combinedCptInstructionId"
+                      class="template-select"
+                      @focus="ensureCptInstructionsLoaded"
+                    >
+                      <option :value="null" disabled>
+                        Select CPT template...
+                      </option>
+                      <option
+                        v-for="instruction in predictionInstructions.filter(
+                          (i) => i.instruction_type === 'cpt'
+                        )"
+                        :key="instruction.id"
+                        :value="instruction.id"
+                      >
+                        {{ instruction.name }}
+                      </option>
+                    </select>
+                    <p class="template-hint">
+                      <a
+                        href="#"
+                        @click.prevent="loadPredictionInstructions"
+                        class="manage-link"
+                      >
+                        Manage instruction templates
+                      </a>
+                    </p>
+                  </div>
+
+                  <!-- Manual Input -->
+                  <div v-else class="form-group">
+                    <label for="combined-cpt-instructions" class="form-label">
+                      Additional instructions (optional):
+                    </label>
+                    <textarea
+                      id="combined-cpt-instructions"
+                      v-model="combinedCptCustomInstructions"
+                      class="form-textarea"
+                      rows="3"
+                      placeholder="Enter specific coding guidelines..."
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stage 3: ICD Configuration -->
+          <div v-if="combinedEnableIcd" class="stage-config-section">
+            <div class="stage-config-header">
+              <h3>📋 Stage 3: ICD Code Prediction Configuration</h3>
+            </div>
+
+            <div class="upload-grid">
+              <!-- Custom Instructions -->
+              <div class="upload-card" style="grid-column: span 3">
+                <div class="card-header">
+                  <h3>Custom Coding Instructions</h3>
+                </div>
+                <div class="settings-content">
+                  <!-- Template Toggle -->
+                  <div class="template-selection-toggle">
+                    <label class="toggle-label">
+                      <input
+                        v-model="combinedIcdUseTemplate"
+                        type="checkbox"
+                        class="toggle-checkbox"
+                      />
+                      <span class="toggle-text">Use saved template</span>
+                    </label>
+                  </div>
+
+                  <!-- Template Dropdown -->
+                  <div
+                    v-if="combinedIcdUseTemplate"
+                    class="template-dropdown-section"
+                  >
+                    <select
+                      v-model="combinedIcdInstructionId"
+                      class="template-select"
+                      @focus="ensureIcdInstructionsLoaded"
+                    >
+                      <option :value="null" disabled>
+                        Select ICD template...
+                      </option>
+                      <option
+                        v-for="instruction in predictionInstructions.filter(
+                          (i) => i.instruction_type === 'icd'
+                        )"
+                        :key="instruction.id"
+                        :value="instruction.id"
+                      >
+                        {{ instruction.name }}
+                      </option>
+                    </select>
+                    <p class="template-hint">
+                      <a
+                        href="#"
+                        @click.prevent="loadPredictionInstructions"
+                        class="manage-link"
+                      >
+                        Manage instruction templates
+                      </a>
+                    </p>
+                  </div>
+
+                  <!-- Manual Input -->
+                  <div v-else class="form-group">
+                    <label for="combined-icd-instructions" class="form-label">
+                      Additional instructions (optional):
+                    </label>
+                    <textarea
+                      id="combined-icd-instructions"
+                      v-model="combinedIcdCustomInstructions"
+                      class="form-textarea"
+                      rows="3"
+                      placeholder="Enter specific coding guidelines..."
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stage 4: Modifiers + Blocks Configuration -->
+          <div v-if="combinedEnableModifiers" class="stage-config-section">
+            <div class="stage-config-header">
+              <h3>💊 Stage 4: Modifiers + Blocks Generation Configuration</h3>
+            </div>
+
+            <div class="upload-grid">
+              <!-- Medical Direction Toggle -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <h3>Medical Direction</h3>
+                </div>
+                <div class="settings-content">
+                  <div class="ai-toggle-container">
+                    <div class="toggle-header">
+                      <label class="toggle-label">
+                        <span class="toggle-icon">⚕️</span>
+                        <span class="toggle-text"
+                          >Enable Medical Direction</span
+                        >
+                      </label>
+                      <label class="switch">
+                        <input
+                          type="checkbox"
+                          v-model="combinedEnableMedicalDirection"
+                        />
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+                    <p class="toggle-description">
+                      {{
+                        combinedEnableMedicalDirection
+                          ? "Medical Direction is ENABLED"
+                          : "Medical Direction is DISABLED"
+                      }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- QK Duplicate Toggle -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <h3>QK Duplicate Lines</h3>
+                </div>
+                <div class="settings-content">
+                  <div class="ai-toggle-container">
+                    <div class="toggle-header">
+                      <label class="toggle-label">
+                        <span class="toggle-icon">🔄</span>
+                        <span class="toggle-text"
+                          >Generate QK Duplicate Lines</span
+                        >
+                      </label>
+                      <label class="switch">
+                        <input
+                          type="checkbox"
+                          v-model="combinedEnableQkDuplicate"
+                        />
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+                    <p class="toggle-description">
+                      {{
+                        combinedEnableQkDuplicate
+                          ? "QK Duplicate Lines are ENABLED"
+                          : "QK Duplicate Lines are DISABLED"
+                      }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startCombinedProcessing"
+              :disabled="!canProcessCombined || isProcessingCombined"
+              class="process-btn"
+            >
+              <span v-if="isProcessingCombined" class="spinner"></span>
+              <span v-else class="btn-icon">🔄</span>
+              {{
+                isProcessingCombined
+                  ? "Processing Pipeline..."
+                  : "Start Combined Processing"
+              }}
+            </button>
+
+            <button
+              v-if="combinedZipFile || combinedExcelFile || combinedJobId"
+              @click="resetCombinedForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Combined Processing Status -->
+        <div v-if="combinedJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="combinedJobStatus.status">
+                <span class="status-icon">{{ getCombinedStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getCombinedStatusTitle() }}</h3>
+                <p class="status-message">{{ combinedJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <!-- Stage Progress -->
+            <div
+              v-if="combinedJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="combined-stages-progress">
+                <div
+                  v-if="combinedEnableExtraction"
+                  class="stage-progress-item"
+                  :class="{
+                    active: combinedCurrentStage === 'extraction',
+                    completed: combinedStageProgress.extraction === 100,
+                  }"
+                >
+                  <div class="stage-progress-header">
+                    <span class="stage-icon">📊</span>
+                    <span class="stage-name">Data Extraction</span>
+                    <span class="stage-status">{{
+                      combinedStageProgress.extraction === 100
+                        ? "✓"
+                        : combinedCurrentStage === "extraction"
+                        ? "..."
+                        : ""
+                    }}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div
+                      class="progress-fill"
+                      :style="{
+                        width: `${combinedStageProgress.extraction || 0}%`,
+                      }"
+                    ></div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="combinedEnableCpt"
+                  class="stage-progress-item"
+                  :class="{
+                    active: combinedCurrentStage === 'cpt',
+                    completed: combinedStageProgress.cpt === 100,
+                  }"
+                >
+                  <div class="stage-progress-header">
+                    <span class="stage-icon">🏥</span>
+                    <span class="stage-name">CPT Prediction</span>
+                    <span class="stage-status">{{
+                      combinedStageProgress.cpt === 100
+                        ? "✓"
+                        : combinedCurrentStage === "cpt"
+                        ? "..."
+                        : ""
+                    }}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div
+                      class="progress-fill"
+                      :style="{ width: `${combinedStageProgress.cpt || 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="combinedEnableIcd"
+                  class="stage-progress-item"
+                  :class="{
+                    active: combinedCurrentStage === 'icd',
+                    completed: combinedStageProgress.icd === 100,
+                  }"
+                >
+                  <div class="stage-progress-header">
+                    <span class="stage-icon">📋</span>
+                    <span class="stage-name">ICD Prediction</span>
+                    <span class="stage-status">{{
+                      combinedStageProgress.icd === 100
+                        ? "✓"
+                        : combinedCurrentStage === "icd"
+                        ? "..."
+                        : ""
+                    }}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div
+                      class="progress-fill"
+                      :style="{ width: `${combinedStageProgress.icd || 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="combinedEnableModifiers"
+                  class="stage-progress-item"
+                  :class="{
+                    active: combinedCurrentStage === 'modifiers',
+                    completed: combinedStageProgress.modifiers === 100,
+                  }"
+                >
+                  <div class="stage-progress-header">
+                    <span class="stage-icon">💊</span>
+                    <span class="stage-name">Modifiers + Blocks</span>
+                    <span class="stage-status">{{
+                      combinedStageProgress.modifiers === 100
+                        ? "✓"
+                        : combinedCurrentStage === "modifiers"
+                        ? "..."
+                        : ""
+                    }}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div
+                      class="progress-fill"
+                      :style="{
+                        width: `${combinedStageProgress.modifiers || 0}%`,
+                      }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              <button @click="checkCombinedStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="combinedJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadCombinedResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadCombinedResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                combinedJobStatus.status === 'failed' && combinedJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ combinedJobStatus.error }}</span>
               </div>
             </div>
           </div>
@@ -4603,6 +5337,37 @@ export default {
       // Dropdown states for navigation
       showConvertersDropdown: false,
       showSettingsDropdown: false,
+      // Combined processing functionality
+      combinedZipFile: null,
+      combinedExcelFile: null,
+      combinedPageCount: 2,
+      combinedSelectedTemplateId: null,
+      combinedUseTemplate: false,
+      combinedEnableExtraction: true,
+      combinedEnableCpt: true,
+      combinedEnableIcd: true,
+      combinedEnableModifiers: true,
+      // Combined CPT settings
+      combinedCptUseVision: false,
+      combinedCptClient: "uni",
+      combinedCptCustomInstructions: "",
+      combinedCptInstructionId: null,
+      combinedCptUseTemplate: false,
+      // Combined ICD settings
+      combinedIcdCustomInstructions: "",
+      combinedIcdInstructionId: null,
+      combinedIcdUseTemplate: false,
+      // Combined Modifiers settings
+      combinedEnableMedicalDirection: true,
+      combinedEnableQkDuplicate: false,
+      // Combined processing state
+      combinedJobId: null,
+      combinedJobStatus: null,
+      combinedCurrentStage: null,
+      combinedStageProgress: {},
+      isProcessingCombined: false,
+      isCombinedZipDragActive: false,
+      isCombinedExcelDragActive: false,
     };
   },
   computed: {
@@ -4670,6 +5435,36 @@ export default {
         this.currentPredictionInstruction.instructions_text &&
         this.currentPredictionInstruction.instructions_text.trim()
       );
+    },
+    canProcessCombined() {
+      // At least one stage must be enabled
+      if (
+        !this.combinedEnableExtraction &&
+        !this.combinedEnableCpt &&
+        !this.combinedEnableIcd &&
+        !this.combinedEnableModifiers
+      ) {
+        return false;
+      }
+
+      // If extraction is enabled, we need ZIP and template/excel
+      if (this.combinedEnableExtraction) {
+        const hasTemplate = this.combinedUseTemplate
+          ? this.combinedSelectedTemplateId !== null
+          : this.combinedExcelFile;
+
+        return (
+          this.combinedZipFile &&
+          hasTemplate &&
+          this.combinedPageCount >= 1 &&
+          this.combinedPageCount <= 50
+        );
+      }
+
+      // If extraction is disabled, we can't process CPT/ICD from scratch
+      // (they need either extraction output or existing files)
+      // For now, we require extraction to be enabled
+      return false;
     },
   },
   mounted() {
@@ -6480,6 +7275,569 @@ export default {
       this.isModifiersCsvDragActive = false;
       this.enableMedicalDirection = true;
       this.enableQkDuplicate = false;
+    },
+
+    // Combined Processing Methods
+    triggerCombinedZipUpload() {
+      this.$refs.combinedZipInput.click();
+    },
+
+    triggerCombinedExcelUpload() {
+      this.$refs.combinedExcelInput.click();
+    },
+
+    onCombinedZipFileSelect(event) {
+      const file = event.target.files[0];
+      if (file && file.name.toLowerCase().endsWith(".zip")) {
+        this.combinedZipFile = file;
+      } else {
+        this.toast.error("Please select a valid ZIP file");
+      }
+    },
+
+    onCombinedExcelFileSelect(event) {
+      const file = event.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.combinedExcelFile = file;
+      } else {
+        this.toast.error("Please select a valid Excel file (.xlsx or .xls)");
+      }
+    },
+
+    onCombinedZipDrop(event) {
+      event.preventDefault();
+      this.isCombinedZipDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && file.name.toLowerCase().endsWith(".zip")) {
+        this.combinedZipFile = file;
+      } else {
+        this.toast.error("Please drop a valid ZIP file");
+      }
+    },
+
+    onCombinedExcelDrop(event) {
+      event.preventDefault();
+      this.isCombinedExcelDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.combinedExcelFile = file;
+      } else {
+        this.toast.error("Please drop a valid Excel file");
+      }
+    },
+
+    async startCombinedProcessing() {
+      if (!this.canProcessCombined) {
+        this.toast.error(
+          "Please configure at least one stage and provide required files"
+        );
+        return;
+      }
+
+      this.isProcessingCombined = true;
+      this.combinedJobStatus = {
+        status: "processing",
+        progress: 0,
+        message: "Starting combined processing pipeline...",
+      };
+      this.combinedStageProgress = {};
+
+      try {
+        let currentData = null;
+        let currentJobId = null;
+
+        // Stage 1: Data Extraction
+        if (this.combinedEnableExtraction) {
+          this.combinedCurrentStage = "extraction";
+          this.combinedStageProgress.extraction = 0;
+          this.combinedJobStatus.message = "Stage 1/? - Data Extraction...";
+
+          currentJobId = await this.executeCombinedExtraction();
+          currentData = await this.waitForJobCompletion(
+            currentJobId,
+            "extraction"
+          );
+
+          if (!currentData) {
+            throw new Error("Data extraction failed");
+          }
+
+          this.combinedStageProgress.extraction = 100;
+        }
+
+        // Stage 2: CPT Prediction
+        if (this.combinedEnableCpt && currentData) {
+          this.combinedCurrentStage = "cpt";
+          this.combinedStageProgress.cpt = 0;
+          this.combinedJobStatus.message = "Stage 2/? - CPT Code Prediction...";
+
+          currentJobId = await this.executeCombinedCpt(currentData);
+          const cptData = await this.waitForJobCompletion(currentJobId, "cpt");
+
+          if (!cptData) {
+            throw new Error("CPT prediction failed");
+          }
+
+          // If using vision mode, merge CPT results with existing data
+          // Otherwise, CPT already processed the CSV and added columns
+          if (this.combinedCptUseVision) {
+            this.combinedJobStatus.message =
+              "Stage 2/? - Merging CPT results...";
+            try {
+              currentData = this.mergeCSVData(currentData, cptData);
+            } catch (mergeError) {
+              console.warn(
+                "CPT CSV merge failed, using CPT data only:",
+                mergeError
+              );
+              currentData = cptData;
+            }
+          } else {
+            // Non-vision mode: CPT already processed the CSV, use result as-is
+            currentData = cptData;
+          }
+
+          this.combinedStageProgress.cpt = 100;
+        }
+
+        // Stage 3: ICD Prediction
+        if (this.combinedEnableIcd && currentData) {
+          this.combinedCurrentStage = "icd";
+          this.combinedStageProgress.icd = 0;
+          this.combinedJobStatus.message = "Stage 3/? - ICD Code Prediction...";
+
+          currentJobId = await this.executeCombinedIcd(currentData);
+          const icdData = await this.waitForJobCompletion(currentJobId, "icd");
+
+          if (!icdData) {
+            throw new Error("ICD prediction failed");
+          }
+
+          // Merge ICD results with existing data
+          this.combinedJobStatus.message = "Stage 3/? - Merging ICD results...";
+          try {
+            currentData = this.mergeCSVData(currentData, icdData);
+          } catch (mergeError) {
+            console.warn("CSV merge failed, using ICD data only:", mergeError);
+            // If merge fails, we'll continue with just the ICD data
+            // This is not ideal but allows the process to continue
+            currentData = icdData;
+          }
+
+          this.combinedStageProgress.icd = 100;
+        }
+
+        // Stage 4: Modifiers Generation
+        if (this.combinedEnableModifiers && currentData) {
+          this.combinedCurrentStage = "modifiers";
+          this.combinedStageProgress.modifiers = 0;
+          this.combinedJobStatus.message =
+            "Stage 4/? - Modifiers + Blocks Generation...";
+
+          currentJobId = await this.executeCombinedModifiers(currentData);
+          currentData = await this.waitForJobCompletion(
+            currentJobId,
+            "modifiers"
+          );
+
+          if (!currentData) {
+            throw new Error("Modifiers generation failed");
+          }
+
+          this.combinedStageProgress.modifiers = 100;
+        }
+
+        // Complete
+        this.combinedJobId = currentJobId;
+        this.combinedJobStatus = {
+          status: "completed",
+          progress: 100,
+          message: "Combined processing completed successfully!",
+        };
+        this.toast.success("Combined processing completed!");
+      } catch (error) {
+        console.error("Combined processing error:", error);
+        this.combinedJobStatus = {
+          status: "failed",
+          progress: 0,
+          error: error.message || "Combined processing failed",
+          message: "Processing failed",
+        };
+        this.toast.error(
+          `Combined processing failed: ${error.message || "Unknown error"}`
+        );
+      } finally {
+        this.isProcessingCombined = false;
+      }
+    },
+
+    async executeCombinedExtraction() {
+      const formData = new FormData();
+      formData.append("zip_file", this.combinedZipFile);
+
+      if (this.combinedUseTemplate && this.combinedSelectedTemplateId) {
+        formData.append("template_id", this.combinedSelectedTemplateId);
+      } else {
+        formData.append("excel_file", this.combinedExcelFile);
+      }
+
+      formData.append("n_pages", this.combinedPageCount);
+      formData.append("model", "gemini-flash-latest");
+
+      const uploadUrl = joinUrl(API_BASE_URL, "upload");
+      const response = await axios.post(uploadUrl, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      return response.data.job_id;
+    },
+
+    async executeCombinedCpt(previousData) {
+      const formData = new FormData();
+
+      if (this.combinedCptUseVision) {
+        // Vision mode - use original ZIP
+        formData.append("zip_file", this.combinedZipFile);
+        formData.append("n_pages", this.combinedPageCount);
+        formData.append("model", "openai/gpt-5");
+        formData.append("max_workers", "5");
+      } else {
+        // Use output from previous stage
+        const blob = new Blob([previousData], { type: "text/csv" });
+        const file = new File([blob], "extraction_output.csv", {
+          type: "text/csv",
+        });
+        formData.append("csv_file", file);
+      }
+
+      // Add instructions
+      if (this.combinedCptUseTemplate && this.combinedCptInstructionId) {
+        formData.append(
+          "instruction_template_id",
+          this.combinedCptInstructionId
+        );
+      } else if (
+        this.combinedCptCustomInstructions &&
+        this.combinedCptCustomInstructions.trim()
+      ) {
+        formData.append(
+          "custom_instructions",
+          this.combinedCptCustomInstructions.trim()
+        );
+      }
+
+      let uploadUrl;
+      if (this.combinedCptUseVision) {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
+      } else if (this.combinedCptClient === "tan-esc") {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-custom");
+        formData.append("confidence_threshold", "0.5");
+      } else if (this.combinedCptClient === "general") {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-general");
+        formData.append("model", "gpt5");
+        formData.append("max_workers", "5");
+      } else {
+        uploadUrl = joinUrl(API_BASE_URL, "predict-cpt");
+        formData.append("client", this.combinedCptClient);
+      }
+
+      const response = await axios.post(uploadUrl, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      return response.data.job_id;
+    },
+
+    async executeCombinedIcd(previousData) {
+      const formData = new FormData();
+
+      // ICD always uses vision mode with ZIP file
+      formData.append("zip_file", this.combinedZipFile);
+      formData.append("n_pages", this.combinedPageCount);
+      formData.append("model", "openai/gpt-5");
+      formData.append("max_workers", "5");
+
+      // Add instructions
+      if (this.combinedIcdUseTemplate && this.combinedIcdInstructionId) {
+        formData.append(
+          "instruction_template_id",
+          this.combinedIcdInstructionId
+        );
+      } else if (
+        this.combinedIcdCustomInstructions &&
+        this.combinedIcdCustomInstructions.trim()
+      ) {
+        formData.append(
+          "custom_instructions",
+          this.combinedIcdCustomInstructions.trim()
+        );
+      }
+
+      const uploadUrl = joinUrl(API_BASE_URL, "predict-icd-from-pdfs");
+      const response = await axios.post(uploadUrl, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // Note: ICD results will need to be merged with previous data
+      // For now, we'll pass through the previous data and merge later
+      this.icdResultJobId = response.data.job_id;
+      return response.data.job_id;
+    },
+
+    async executeCombinedModifiers(previousData) {
+      const formData = new FormData();
+
+      // Convert previous data to file
+      const blob = new Blob([previousData], { type: "text/csv" });
+      const file = new File([blob], "previous_output.csv", {
+        type: "text/csv",
+      });
+      formData.append("csv_file", file);
+      formData.append(
+        "turn_off_medical_direction",
+        !this.combinedEnableMedicalDirection
+      );
+      formData.append("generate_qk_duplicate", this.combinedEnableQkDuplicate);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
+      const response = await axios.post(uploadUrl, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      return response.data.job_id;
+    },
+
+    async waitForJobCompletion(jobId, stageName) {
+      const maxAttempts = 600; // 10 minutes max (1 second intervals)
+      let attempts = 0;
+
+      while (attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        try {
+          const statusUrl = joinUrl(API_BASE_URL, `status/${jobId}`);
+          const response = await axios.get(statusUrl);
+
+          if (this.combinedStageProgress[stageName] !== undefined) {
+            this.combinedStageProgress[stageName] = response.data.progress || 0;
+          }
+
+          if (response.data.status === "completed") {
+            // Download the result data
+            const downloadUrl = joinUrl(
+              API_BASE_URL,
+              `download/${jobId}?format=csv`
+            );
+            const dataResponse = await axios.get(downloadUrl, {
+              responseType: "text",
+            });
+            return dataResponse.data;
+          } else if (response.data.status === "failed") {
+            throw new Error(response.data.error || "Job failed");
+          }
+
+          attempts++;
+        } catch (error) {
+          console.error(`Error checking status for ${stageName}:`, error);
+          throw error;
+        }
+      }
+
+      throw new Error(`${stageName} timed out`);
+    },
+
+    mergeCSVData(baseCSV, newCSV, keyField = "Patient Name") {
+      // CSV merger - merges newCSV columns into baseCSV by matching key field
+      const parseCSV = (csv) => {
+        const lines = csv.trim().split("\n");
+        if (lines.length === 0) return { headers: [], rows: [] };
+
+        // Parse CSV line respecting quotes
+        const parseLine = (line) => {
+          const values = [];
+          let current = "";
+          let inQuotes = false;
+
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === "," && !inQuotes) {
+              values.push(current.trim().replace(/^"|"$/g, ""));
+              current = "";
+            } else {
+              current += char;
+            }
+          }
+
+          values.push(current.trim().replace(/^"|"$/g, ""));
+          return values;
+        };
+
+        const headers = parseLine(lines[0]);
+        const rows = lines.slice(1).map((line) => {
+          const values = parseLine(line);
+          const row = {};
+          headers.forEach((header, i) => {
+            row[header] = values[i] || "";
+          });
+          return row;
+        });
+
+        return { headers, rows };
+      };
+
+      const base = parseCSV(baseCSV);
+      const newData = parseCSV(newCSV);
+
+      // Find new columns (excluding the key field and duplicates)
+      const newColumns = newData.headers.filter(
+        (h) => !base.headers.includes(h)
+      );
+
+      // Create merged headers
+      const mergedHeaders = [...base.headers, ...newColumns];
+
+      // Merge rows
+      const mergedRows = base.rows.map((baseRow) => {
+        const key = baseRow[keyField];
+        const matchingNewRow = newData.rows.find(
+          (newRow) => newRow[keyField] === key
+        );
+
+        if (matchingNewRow) {
+          // Merge the new columns
+          newColumns.forEach((col) => {
+            baseRow[col] = matchingNewRow[col] || "";
+          });
+        } else {
+          // No match, fill with empty values
+          newColumns.forEach((col) => {
+            baseRow[col] = "";
+          });
+        }
+
+        return baseRow;
+      });
+
+      // Convert back to CSV with proper quoting
+      const escapeCSVValue = (value) => {
+        const str = String(value || "");
+        // Quote if contains comma, quote, or newline
+        if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const csvLines = [mergedHeaders.map(escapeCSVValue).join(",")];
+      mergedRows.forEach((row) => {
+        const values = mergedHeaders.map((header) =>
+          escapeCSVValue(row[header])
+        );
+        csvLines.push(values.join(","));
+      });
+
+      return csvLines.join("\n");
+    },
+
+    checkCombinedStatus() {
+      // Manual status refresh - mostly for UI feedback
+      this.toast.info("Status refreshed");
+    },
+
+    async downloadCombinedResults(format = "csv") {
+      if (!this.combinedJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.combinedJobId}?format=${format}`
+          ),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute(
+          "download",
+          `combined_results_${this.combinedJobId}.${ext}`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetCombinedForm() {
+      this.combinedZipFile = null;
+      this.combinedExcelFile = null;
+      this.combinedPageCount = 2;
+      this.combinedSelectedTemplateId = null;
+      this.combinedUseTemplate = false;
+      this.combinedEnableExtraction = true;
+      this.combinedEnableCpt = true;
+      this.combinedEnableIcd = true;
+      this.combinedEnableModifiers = true;
+      this.combinedCptUseVision = false;
+      this.combinedCptClient = "uni";
+      this.combinedCptCustomInstructions = "";
+      this.combinedCptInstructionId = null;
+      this.combinedCptUseTemplate = false;
+      this.combinedIcdCustomInstructions = "";
+      this.combinedIcdInstructionId = null;
+      this.combinedIcdUseTemplate = false;
+      this.combinedEnableMedicalDirection = true;
+      this.combinedEnableQkDuplicate = false;
+      this.combinedJobId = null;
+      this.combinedJobStatus = null;
+      this.combinedCurrentStage = null;
+      this.combinedStageProgress = {};
+      this.isProcessingCombined = false;
+      this.isCombinedZipDragActive = false;
+      this.isCombinedExcelDragActive = false;
+    },
+
+    getCombinedStatusTitle() {
+      if (!this.combinedJobStatus) return "";
+
+      switch (this.combinedJobStatus.status) {
+        case "processing":
+          return "Processing Pipeline...";
+        case "completed":
+          return "✓ Pipeline Completed";
+        case "failed":
+          return "✗ Pipeline Failed";
+        default:
+          return "Pipeline Status";
+      }
+    },
+
+    getCombinedStatusIcon() {
+      if (!this.combinedJobStatus) return "⏳";
+
+      switch (this.combinedJobStatus.status) {
+        case "processing":
+          return "⏳";
+        case "completed":
+          return "✓";
+        case "failed":
+          return "✗";
+        default:
+          return "⏳";
+      }
     },
 
     getModifiersStatusTitle() {
@@ -10335,5 +11693,103 @@ input:checked + .slider:hover {
   font-family: "Monaco", "Menlo", "Consolas", monospace;
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+/* Combined Processing Styles */
+.stage-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stage-toggle-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stage-toggle-label:hover {
+  background: #f1f5f9;
+}
+
+.stage-toggle-label input[type="checkbox"] {
+  margin-top: 0.25rem;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.stage-config-section {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 2px solid #e2e8f0;
+}
+
+.stage-config-header {
+  margin-bottom: 1.5rem;
+}
+
+.stage-config-header h3 {
+  font-size: 1.25rem;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.combined-stages-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stage-progress-item {
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  border: 2px solid #e2e8f0;
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.stage-progress-item.active {
+  opacity: 1;
+  border-color: #3b82f6;
+  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1);
+}
+
+.stage-progress-item.completed {
+  opacity: 1;
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.stage-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.stage-icon {
+  font-size: 1.25rem;
+}
+
+.stage-name {
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+
+.stage-status {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #10b981;
 }
 </style>
