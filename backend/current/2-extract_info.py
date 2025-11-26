@@ -207,7 +207,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, order_index = args
+    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
@@ -246,9 +246,9 @@ def process_single_patient_pdf_task(args):
             field_name = priority_field['name']
             priority_prompt = generate_priority_field_prompt(priority_field)
             
-            # Extract this priority field
+            # Extract this priority field using the better model
             priority_response = extract_info_from_patient_pdf(
-                client, temp_patient_pdf, pdf_filename, priority_prompt, model, 
+                client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model, 
                 field_name_for_log=field_name
             )
             
@@ -284,7 +284,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -303,6 +303,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     if priority_fields:
         priority_field_names = [f['name'] for f in priority_fields]
         print(f"🎯 Priority fields (separate API calls): {', '.join(priority_field_names)}")
+        print(f"🤖 Using model '{priority_model}' for priority fields (better accuracy)")
     else:
         print(f"ℹ️  No priority fields defined")
     
@@ -366,7 +367,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, order_index))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
@@ -380,7 +381,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 pdf_file_path = task[1]  # PDF file path from task
-                order_index = task[5]    # Order index from task
+                order_index = task[8]    # Order index from task
                 pdf_filename = os.path.basename(pdf_file_path)
                 
                 try:
@@ -549,7 +550,8 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
-    model = "gemini-3-pro-preview"  # Default model
+    model = "gemini-3-pro-preview"  # Default model for normal fields
+    priority_model = "gemini-3-pro-preview"  # Default model for priority fields (always use best model)
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
     
@@ -579,11 +581,12 @@ if __name__ == "__main__":
     print(f"   Excel file: {excel_file}")
     print(f"   Pages per patient: {n_pages}")
     print(f"   Max workers: {max_workers}")
-    print(f"   Model: {model}")
+    print(f"   Model (normal fields): {model}")
+    print(f"   Model (priority fields): {priority_model}")
     if worktracker_group:
         print(f"   Worktracker Group: {worktracker_group}")
     if worktracker_batch:
         print(f"   Worktracker Batch #: {worktracker_batch}")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, worktracker_group, worktracker_batch) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch) 

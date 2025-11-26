@@ -533,7 +533,7 @@
                 >
                   <option :value="null" disabled>Select a template...</option>
                   <option
-                    v-for="template in templates"
+                    v-for="template in allTemplatesForDropdown"
                     :key="template.id"
                     :value="template.id"
                   >
@@ -4637,8 +4637,10 @@ export default {
       instructionAdditionsTemplateUploadName: "",
       instructionAdditionsTemplateUploadDescription: "",
       // Templates Manager functionality
-      templates: [],
+      templates: [], // Paginated templates for templates tab display
+      allTemplatesForDropdown: [], // All templates for dropdown selection (not paginated)
       templatesLoading: false,
+      loadingTemplatesForDropdown: false, // Flag to prevent multiple simultaneous loads
       templateSearch: "",
       templateSearchTimeout: null,
       templateCurrentPage: 1,
@@ -4854,22 +4856,42 @@ export default {
     },
 
     async ensureTemplatesLoaded() {
-      // Load templates if not already loaded
-      if (this.templates.length === 0 && !this.templatesLoading) {
-        try {
+      // Load ALL templates for dropdown (not paginated)
+      // Always reload to ensure we have all templates regardless of current page
+      if (this.loadingTemplatesForDropdown) {
+        return; // Already loading, skip
+      }
+
+      this.loadingTemplatesForDropdown = true;
+      try {
+        // Start with a reasonable page size
+        const pageSize = 100;
+        let allTemplates = [];
+        let currentPage = 1;
+        let totalPages = 1;
+
+        // Load all pages
+        do {
           const response = await axios.get(
             joinUrl(API_BASE_URL, "api/templates"),
             {
               params: {
-                page: 1,
-                page_size: 100, // Get more for dropdown
+                page: currentPage,
+                page_size: pageSize,
               },
             }
           );
-          this.templates = response.data.templates;
-        } catch (error) {
-          console.error("Failed to load templates:", error);
-        }
+
+          allTemplates.push(...response.data.templates);
+          totalPages = response.data.total_pages;
+          currentPage++;
+        } while (currentPage <= totalPages);
+
+        this.allTemplatesForDropdown = allTemplates;
+      } catch (error) {
+        console.error("Failed to load templates for dropdown:", error);
+      } finally {
+        this.loadingTemplatesForDropdown = false;
       }
     },
 
