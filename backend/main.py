@@ -87,7 +87,7 @@ def kill_process_tree(process):
 
 # Try to import required modules
 try:
-    from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+    from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
     logger.info("✅ FastAPI imported successfully")
