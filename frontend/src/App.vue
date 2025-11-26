@@ -331,6 +331,39 @@
                   </p>
                 </div>
               </div>
+
+              <!-- Step 4: Worktracker Fields (Optional) -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">4</div>
+                  <h3>Worktracker Info (Optional)</h3>
+                </div>
+                <div class="page-count-selector">
+                  <div style="margin-bottom: 15px">
+                    <label for="worktracker-group">Worktracker Group:</label>
+                    <input
+                      id="worktracker-group"
+                      v-model="worktrackerGroup"
+                      type="text"
+                      class="page-input"
+                      placeholder="Enter group name (optional)"
+                    />
+                  </div>
+                  <div>
+                    <label for="worktracker-batch">Worktracker Batch #:</label>
+                    <input
+                      id="worktracker-batch"
+                      v-model="worktrackerBatch"
+                      type="text"
+                      class="page-input"
+                      placeholder="Enter batch number (optional)"
+                    />
+                  </div>
+                  <p class="page-hint" style="margin-top: 10px">
+                    These values will be added as columns in the output Excel
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div class="action-section">
@@ -576,6 +609,48 @@
                   </div>
                   <small class="help-text">
                     Number of pages to extract from each patient document
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 4: Worktracker Fields (Optional) -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
+                <h3>Worktracker Info (Optional)</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="worktracker-group-fast">Worktracker Group</label>
+                  <div class="input-wrapper">
+                    <input
+                      id="worktracker-group-fast"
+                      v-model="worktrackerGroupFast"
+                      type="text"
+                      class="page-input"
+                      placeholder="Enter group name (optional)"
+                    />
+                  </div>
+                  <small class="help-text">
+                    Optional: Will be added as a column in output
+                  </small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="worktracker-batch-fast"
+                    >Worktracker Batch #</label
+                  >
+                  <div class="input-wrapper">
+                    <input
+                      id="worktracker-batch-fast"
+                      v-model="worktrackerBatchFast"
+                      type="text"
+                      class="page-input"
+                      placeholder="Enter batch number (optional)"
+                    />
+                  </div>
+                  <small class="help-text">
+                    Optional: Will be added as a column in output
                   </small>
                 </div>
               </div>
@@ -4394,6 +4469,8 @@ export default {
       zipFile: null,
       excelFile: null,
       pageCount: 2,
+      worktrackerGroup: "",
+      worktrackerBatch: "",
       jobId: null,
       jobStatus: null,
       isProcessing: false,
@@ -4406,6 +4483,8 @@ export default {
       zipFileFast: null,
       excelFileFast: null,
       pageCountFast: 2,
+      worktrackerGroupFast: "",
+      worktrackerBatchFast: "",
       jobIdFast: null,
       jobStatusFast: null,
       isProcessingFast: false,
@@ -5209,6 +5288,14 @@ export default {
       formData.append("n_pages", this.pageCount);
       formData.append("model", "gemini-3-pro-preview"); // Use Gemini 2.5 Pro with thinking enabled
 
+      // Add worktracker fields if provided
+      if (this.worktrackerGroup) {
+        formData.append("worktracker_group", this.worktrackerGroup);
+      }
+      if (this.worktrackerBatch) {
+        formData.append("worktracker_batch", this.worktrackerBatch);
+      }
+
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");
       console.log("🔧 API_BASE_URL:", API_BASE_URL);
@@ -5299,6 +5386,8 @@ export default {
       this.zipFile = null;
       this.excelFile = null;
       this.pageCount = 2;
+      this.worktrackerGroup = "";
+      this.worktrackerBatch = "";
       this.jobId = null;
       this.jobStatus = null;
       this.isProcessing = false;
@@ -5399,6 +5488,14 @@ export default {
       formData.append("n_pages", this.pageCountFast);
       formData.append("model", "gemini-flash-latest"); // Use the fast model
 
+      // Add worktracker fields if provided
+      if (this.worktrackerGroupFast) {
+        formData.append("worktracker_group", this.worktrackerGroupFast);
+      }
+      if (this.worktrackerBatchFast) {
+        formData.append("worktracker_batch", this.worktrackerBatchFast);
+      }
+
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");
       console.log("🔧 API_BASE_URL:", API_BASE_URL);
@@ -5492,6 +5589,8 @@ export default {
       this.zipFileFast = null;
       this.excelFileFast = null;
       this.pageCountFast = 2;
+      this.worktrackerGroupFast = "";
+      this.worktrackerBatchFast = "";
       this.jobIdFast = null;
       this.jobStatusFast = null;
       this.isProcessingFast = false;

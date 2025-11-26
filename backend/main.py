@@ -160,7 +160,7 @@ class ProcessingJob:
         self.result_file_xlsx = None  # Store XLSX version
         self.error = None
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash"):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash", worktracker_group: str = None, worktracker_batch: str = None):
     """Background task to process PDFs"""
     job = job_status[job_id]
     
@@ -202,14 +202,27 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         # Run the script with subprocess (with timeout)
         process = None
         try:
-            process = subprocess.Popen([
+            cmd = [
                 sys.executable, str(script_path),
                 str(temp_dir / "input"),
                 str(excel_dest),
                 str(n_pages),  # n_pages parameter
                 "7",  # max_workers
                 model  # model parameter
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+            ]
+            
+            # Add worktracker fields if provided
+            if worktracker_group:
+                cmd.append(worktracker_group)
+            else:
+                cmd.append("")  # Empty string if not provided
+                
+            if worktracker_batch:
+                cmd.append(worktracker_batch)
+            else:
+                cmd.append("")  # Empty string if not provided
+            
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
             
             # Wait for process with timeout (30 minutes max)
             stdout, stderr = process.communicate(timeout=1800)
@@ -1217,7 +1230,9 @@ async def upload_files(
     excel_file: UploadFile = File(None),
     template_id: int = Form(None),
     n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
-    model: str = Form(default="gemini-2.5-flash")  # Model parameter with default
+    model: str = Form(default="gemini-2.5-flash"),  # Model parameter with default
+    worktracker_group: str = Form(None),  # Optional worktracker group field
+    worktracker_batch: str = Form(None)  # Optional worktracker batch field
 ):
     """Upload ZIP file and either Excel instructions file or template ID"""
     
@@ -1295,7 +1310,17 @@ async def upload_files(
             logger.info(f"Created Excel from template - zip: {zip_path}, template: {template['name']}, excel: {excel_path}")
         
         # Start background processing
-        background_tasks.add_task(process_pdfs_background, job_id, zip_path, excel_path, n_pages, excel_filename, model)
+        background_tasks.add_task(
+            process_pdfs_background, 
+            job_id, 
+            zip_path, 
+            excel_path, 
+            n_pages, 
+            excel_filename, 
+            model,
+            worktracker_group,
+            worktracker_batch
+        )
         
         logger.info(f"Background task started for job {job_id}")
         

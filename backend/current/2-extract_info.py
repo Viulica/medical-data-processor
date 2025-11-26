@@ -284,7 +284,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview"):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -465,6 +465,19 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                     filtered_record[field] = value
                 filtered_data.append(filtered_record)
             
+            # Add worktracker columns if provided
+            if worktracker_group:
+                for record in filtered_data:
+                    record['Worktracker Group'] = worktracker_group
+                if 'Worktracker Group' not in fieldnames:
+                    fieldnames.append('Worktracker Group')
+            
+            if worktracker_batch:
+                for record in filtered_data:
+                    record['Worktracker Batch #'] = worktracker_batch
+                if 'Worktracker Batch #' not in fieldnames:
+                    fieldnames.append('Worktracker Batch #')
+            
             # Save to both CSV and Excel formats
             extracted_folder = "extracted"
             os.makedirs(extracted_folder, exist_ok=True)
@@ -531,12 +544,14 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
 
 
 if __name__ == "__main__":
-    # Allow specifying input folder, Excel file, number of pages, max workers, and model as command line arguments
+    # Allow specifying input folder, Excel file, number of pages, max workers, model, and worktracker fields as command line arguments
     input_folder = "input"  # Default input folder
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
     model = "gemini-3-pro-preview"  # Default model
+    worktracker_group = None  # Optional worktracker group
+    worktracker_batch = None  # Optional worktracker batch
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -554,6 +569,10 @@ if __name__ == "__main__":
             print("⚠️  Warning: Invalid max_workers value, using default of 5")
     if len(sys.argv) > 5:
         model = sys.argv[5]
+    if len(sys.argv) > 6:
+        worktracker_group = sys.argv[6] if sys.argv[6].strip() else None
+    if len(sys.argv) > 7:
+        worktracker_batch = sys.argv[7] if sys.argv[7].strip() else None
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
@@ -561,6 +580,10 @@ if __name__ == "__main__":
     print(f"   Pages per patient: {n_pages}")
     print(f"   Max workers: {max_workers}")
     print(f"   Model: {model}")
+    if worktracker_group:
+        print(f"   Worktracker Group: {worktracker_group}")
+    if worktracker_batch:
+        print(f"   Worktracker Batch #: {worktracker_batch}")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, worktracker_group, worktracker_batch) 
