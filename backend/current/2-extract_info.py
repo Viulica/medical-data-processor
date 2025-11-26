@@ -550,8 +550,8 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
-    model = "gemini-2.5-pro"  # Default model for normal fields
-    priority_model = "gemini-2.5-pro"  # Default model for priority fields (always use best model)
+    model = "gemini-3-pro-preview"  # Default model for normal fields
+    priority_model = "gemini-3-pro-preview"  # Default model for priority fields (always use best model)
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
     
