@@ -332,10 +332,34 @@
                 </div>
               </div>
 
-              <!-- Step 4: Worktracker Fields (Optional) -->
+              <!-- Step 4: OpenRouter Option -->
               <div class="upload-card">
                 <div class="card-header">
                   <div class="step-number">4</div>
+                  <h3>API Provider</h3>
+                </div>
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="useOpenRouterStandard"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text"
+                      >Use OpenRouter (with web search enabled)</span
+                    >
+                  </label>
+                  <p class="template-hint" style="margin-top: 10px">
+                    When enabled, uses OpenRouter API with model:
+                    <code>google/gemini-3-pro-preview:online</code>
+                  </p>
+                </div>
+              </div>
+
+              <!-- Step 5: Worktracker Fields (Optional) -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">5</div>
                   <h3>Worktracker Info (Optional)</h3>
                 </div>
                 <div class="page-count-selector">
@@ -4479,6 +4503,7 @@ export default {
       // Standard processing password protection
       isStandardProcessingUnlocked: false,
       passwordInput: "",
+      useOpenRouterStandard: false, // Use OpenRouter for standard mode
       // Fast processing functionality
       zipFileFast: null,
       excelFileFast: null,
@@ -5308,7 +5333,12 @@ export default {
       formData.append("zip_file", this.zipFile);
       formData.append("excel_file", this.excelFile);
       formData.append("n_pages", this.pageCount);
-      formData.append("model", "gemini-3-pro-preview"); // Use Gemini 2.5 Pro with thinking enabled
+
+      // Use OpenRouter model format if enabled, otherwise use Google GenAI
+      const model = this.useOpenRouterStandard
+        ? "google/gemini-3-pro-preview:online"
+        : "gemini-3-pro-preview";
+      formData.append("model", model);
 
       // Add worktracker fields if provided
       if (this.worktrackerGroup) {
@@ -5331,15 +5361,18 @@ export default {
         });
 
         this.jobId = response.data.job_id;
+        const providerText = this.useOpenRouterStandard
+          ? "OpenRouter"
+          : "Gemini 3 Pro";
         this.toast.success(
-          "Standard processing started with Gemini 2.5 Pro! Check the status section below."
+          `Standard processing started with ${providerText}! Check the status section below.`
         );
 
         // Set initial status
         this.jobStatus = {
           status: "processing",
           progress: 0,
-          message: "Processing started with Gemini 2.5 Pro...",
+          message: `Processing started with ${providerText}...`,
         };
       } catch (error) {
         console.error("Upload error:", error);

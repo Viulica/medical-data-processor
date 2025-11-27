@@ -14,6 +14,10 @@ from field_definitions import get_fieldnames, generate_extraction_prompt, get_pr
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import re
+import base64
+import requests
+from io import BytesIO
+from PIL import Image
 
 # Thread-local storage for temporary files cleanup
 thread_local = threading.local()
@@ -103,12 +107,135 @@ def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
         return None
 
 
+def is_openrouter_model(model_name):
+    """Check if model name indicates OpenRouter (contains '/' or starts with 'google/')"""
+    return '/' in model_name or model_name.startswith('google/')
+
+def pdf_to_images_base64(pdf_path, max_pages=10):
+    """Convert PDF pages to base64 encoded images for OpenRouter"""
+    try:
+        # Use PyMuPDF (fitz) which is already in requirements
+        import fitz  # PyMuPDF
+        doc = fitz.open(pdf_path)
+        image_data_list = []
+        for page_num in range(min(len(doc), max_pages)):
+            page = doc[page_num]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
+            img_data = pix.tobytes("png")
+            img_base64 = base64.b64encode(img_data).decode('utf-8')
+            image_data_list.append(img_base64)
+        doc.close()
+        return image_data_list
+    except ImportError:
+        print(f"    ⚠️  PyMuPDF (fitz) not available for PDF to image conversion")
+        return []
+    except Exception as e:
+        print(f"    ⚠️  Failed to convert PDF to images: {str(e)}")
+        return []
+
+def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries=5, field_name_for_log=None):
+    """Extract patient information using OpenRouter API"""
+    log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
+    
+    # Get API key
+    api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print(f"    ❌ OpenRouter API key not found for {pdf_filename}{log_suffix}")
+        return None
+    
+    # Convert PDF to images
+    image_data_list = pdf_to_images_base64(patient_pdf_path)
+    if not image_data_list:
+        print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
+        return None
+    
+    # Build content for OpenRouter
+    content = [{"type": "text", "text": extraction_prompt}]
+    for img_data in image_data_list:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{img_data}"
+            }
+        })
+    
+    messages = [{"role": "user", "content": content}]
+    
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            payload = {
+                "model": model,
+                "messages": messages
+            }
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=300)
+            response.raise_for_status()
+            
+            result = response.json()
+            response_text = result['choices'][0]['message']['content'].strip()
+            
+            # Validate response
+            if not response_text or len(response_text) < 10:
+                raise ValueError(f"Response too short or empty: {response_text}")
+            
+            # Try to parse JSON to validate format
+            cleaned_response = response_text
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
+            json.loads(cleaned_response)  # Validate JSON
+            
+            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with OpenRouter on attempt {attempt + 1}")
+            return response_text
+            
+        except json.JSONDecodeError as e:
+            print(f"    ⚠️  JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt == max_retries - 1:
+                print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
+                return None
+        except Exception as e:
+            print(f"    ⚠️  OpenRouter API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt == max_retries - 1:
+                print(f"    ❌ Final OpenRouter API failure for {pdf_filename}{log_suffix}")
+                return None
+        
+        # Exponential backoff
+        if attempt < max_retries - 1:
+            base_delay = 2 ** attempt
+            jitter = random.uniform(0.5, 1.5)
+            delay = base_delay * jitter
+            print(f"    ⏳ Retrying {pdf_filename}{log_suffix} in {delay:.1f} seconds...")
+            time.sleep(delay)
+    
+    return None
+
 def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-3-pro-preview", max_retries=5, field_name_for_log=None):
     """Extract patient information from a multi-page patient PDF file.
     
     Args:
+        client: Google GenAI client (ignored if using OpenRouter)
+        patient_pdf_path: Path to PDF file
+        pdf_filename: Name of PDF file for logging
+        extraction_prompt: Prompt for extraction
+        model: Model name (if contains '/', uses OpenRouter)
+        max_retries: Maximum retry attempts
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
+    
+    # Check if using OpenRouter
+    if is_openrouter_model(model):
+        return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
@@ -126,8 +253,8 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                             data=pdf_data,
                         ),
                         types.Part.from_text(text=extraction_prompt)],
-                )
-            ]
+                    )
+                ]
             
             tools = [
                 types.Tool(googleSearch=types.GoogleSearch(
@@ -217,6 +344,7 @@ def process_single_patient_pdf_task(args):
         return pdf_filename, None, temp_patient_pdf, order_index
     
     # Extract normal (non-priority) fields with one API call
+    # Pass client (may be None for OpenRouter)
     normal_response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
     
     if not normal_response:
@@ -247,6 +375,7 @@ def process_single_patient_pdf_task(args):
             priority_prompt = generate_priority_field_prompt(priority_field)
             
             # Extract this priority field using the better model
+            # Pass client (may be None for OpenRouter)
             priority_response = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model, 
                 field_name_for_log=field_name
@@ -326,13 +455,24 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     if 'source_file' not in fieldnames:
         fieldnames.append('source_file')
     
-    # Initialize Google AI client
-    api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
-    if not api_key:
-        print("❌ GOOGLE_API_KEY environment variable not set!")
-        sys.exit(1)
-        
-    client = genai.Client(api_key=api_key)
+    # Initialize Google AI client (only needed if not using OpenRouter)
+    # Check if we're using OpenRouter by checking if model contains '/'
+    using_openrouter = is_openrouter_model(model) or is_openrouter_model(priority_model)
+    
+    client = None
+    if not using_openrouter:
+        api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
+        if not api_key:
+            print("❌ GOOGLE_API_KEY environment variable not set!")
+            sys.exit(1)
+        client = genai.Client(api_key=api_key)
+    else:
+        # Verify OpenRouter API key is available
+        openrouter_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not openrouter_key:
+            print("❌ OPENROUTER_API_KEY or OPENAI_API_KEY environment variable not set!")
+            sys.exit(1)
+        print("🤖 Using OpenRouter API for extraction")
     
     # Find all PDF files in the input folder (both uppercase and lowercase extensions)
     # Search recursively to handle ZIP files with folder structures
