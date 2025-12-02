@@ -3995,7 +3995,7 @@
                     </button>
                   </div>
 
-                  <div class="fields-editor-container">
+                  <div ref="fieldsContainer" class="fields-editor-container">
                     <div
                       v-for="(field, idx) in editingFields"
                       :key="idx"
@@ -7875,6 +7875,16 @@ export default {
         output_format: "",
         priority: false,
       });
+
+      // Scroll to bottom of fields container after DOM update
+      this.$nextTick(() => {
+        if (this.$refs.fieldsContainer) {
+          this.$refs.fieldsContainer.scrollTo({
+            top: this.$refs.fieldsContainer.scrollHeight,
+            behavior: "smooth",
+          });
+        }
+      });
     },
 
     deleteField(index) {
@@ -10227,8 +10237,12 @@ input:checked + .slider:hover {
   background-color: #fef3c7;
 }
 
+.download-btn {
+  background-color: #f1f5f9;
+}
+
 .download-btn:hover {
-  background-color: #d1fae5;
+  background-color: #e2e8f0;
 }
 
 .delete-btn {
