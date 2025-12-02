@@ -3665,31 +3665,69 @@
                 <div class="template-card-actions">
                   <button
                     @click="viewTemplateDetails(template)"
-                    class="action-btn view-btn"
-                    title="View Details"
-                  >
-                    👁️
-                  </button>
-                  <button
-                    @click="editTemplate(template)"
                     class="action-btn edit-btn"
                     title="Edit"
                   >
-                    ✏️
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                      ></path>
+                      <path
+                        d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                      ></path>
+                    </svg>
                   </button>
                   <button
                     @click="exportTemplate(template.id, template.name)"
                     class="action-btn download-btn"
                     title="Export to Excel"
                   >
-                    📥
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                      ></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
                   </button>
                   <button
                     @click="deleteTemplateConfirm(template.id, template.name)"
                     class="action-btn delete-btn"
                     title="Delete"
                   >
-                    🗑️
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#dc2626"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path
+                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                      ></path>
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -3919,11 +3957,20 @@
         >
           <div class="modal-content modal-large" @click.stop>
             <div class="modal-header">
-              <h3>✏️ Edit Template Fields: {{ viewingTemplate?.name }}</h3>
+              <h3>Edit Template</h3>
               <button @click="closeTemplateModals" class="close-btn">✕</button>
             </div>
             <div class="modal-body">
               <div v-if="viewingTemplate">
+                <div class="form-group">
+                  <label>Template Name *</label>
+                  <input
+                    v-model="viewingTemplate.name"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g., Hospital A - General Surgery"
+                  />
+                </div>
                 <div class="template-detail-section">
                   <p class="template-description">
                     {{ viewingTemplate.description || "No description" }}
@@ -3976,34 +4023,34 @@
                           />
                         </div>
 
-                        <div class="form-group">
+                        <div class="form-group full-width">
                           <label>Output Format</label>
-                          <input
+                          <textarea
                             v-model="field.output_format"
-                            type="text"
-                            class="form-input"
+                            class="form-textarea"
+                            rows="3"
                             placeholder="e.g., String, MM/DD/YYYY"
-                          />
+                          ></textarea>
                         </div>
 
                         <div class="form-group full-width">
                           <label>Description</label>
-                          <input
+                          <textarea
                             v-model="field.description"
-                            type="text"
-                            class="form-input"
+                            class="form-textarea"
+                            rows="3"
                             placeholder="Description of this field"
-                          />
+                          ></textarea>
                         </div>
 
                         <div class="form-group full-width">
                           <label>Location Hint</label>
-                          <input
+                          <textarea
                             v-model="field.location"
-                            type="text"
-                            class="form-input"
+                            class="form-textarea"
+                            rows="3"
                             placeholder="Where to find this field in the document"
-                          />
+                          ></textarea>
                         </div>
 
                         <div class="form-group priority-group">
@@ -4032,10 +4079,15 @@
               <button
                 @click="saveFieldEdits"
                 class="btn-primary"
-                :disabled="isSavingFields || !canSaveFields"
+                :disabled="
+                  isSavingFields ||
+                  !canSaveFields ||
+                  !viewingTemplate?.name ||
+                  !viewingTemplate?.name.trim()
+                "
               >
                 <span v-if="isSavingFields">Saving...</span>
-                <span v-else>💾 Save Changes</span>
+                <span v-else>Save Changes</span>
               </button>
             </div>
           </div>
@@ -7837,8 +7889,31 @@ export default {
         return;
       }
 
+      if (
+        !this.viewingTemplate.name ||
+        this.viewingTemplate.name.trim() === ""
+      ) {
+        this.toast.error("Template name is required");
+        return;
+      }
+
       this.isSavingFields = true;
       try {
+        // First update the template name
+        await axios.put(
+          joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}`),
+          {
+            name: this.viewingTemplate.name,
+            description: this.viewingTemplate.description || "",
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        // Then update the fields
         const templateData = {
           fields: this.editingFields,
         };
@@ -7858,7 +7933,7 @@ export default {
           }
         );
 
-        this.toast.success("Template fields updated successfully!");
+        this.toast.success("Template updated successfully!");
         this.closeTemplateModals();
         await this.loadTemplates(false);
       } catch (error) {
@@ -10130,6 +10205,14 @@ input:checked + .slider:hover {
   cursor: pointer;
   transition: all 0.2s ease;
   background-color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+}
+
+.action-btn svg {
+  display: block;
 }
 
 .action-btn:hover {
@@ -10148,8 +10231,13 @@ input:checked + .slider:hover {
   background-color: #d1fae5;
 }
 
-.delete-btn:hover {
+.delete-btn {
   background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.delete-btn:hover {
+  background-color: #fecaca;
 }
 
 /* Template Selection in Processing Tabs */
