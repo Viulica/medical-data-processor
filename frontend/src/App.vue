@@ -10237,12 +10237,12 @@ input:checked + .slider:hover {
   background-color: #fef3c7;
 }
 
-.download-btn {
-  background-color: #f1f5f9;
+.action-btn.download-btn {
+  background-color: #f1f5f9 !important;
 }
 
-.download-btn:hover {
-  background-color: #e2e8f0;
+.action-btn.download-btn:hover {
+  background-color: #e2e8f0 !important;
 }
 
 .delete-btn {
