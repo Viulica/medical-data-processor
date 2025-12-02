@@ -10238,11 +10238,20 @@ input:checked + .slider:hover {
 }
 
 .action-btn.download-btn {
+  background: #f1f5f9 !important;
   background-color: #f1f5f9 !important;
+  background-image: none !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  padding: 0.4rem 0.7rem !important;
 }
 
 .action-btn.download-btn:hover {
+  background: #e2e8f0 !important;
   background-color: #e2e8f0 !important;
+  background-image: none !important;
+  transform: scale(1.05) !important;
+  box-shadow: none !important;
 }
 
 .delete-btn {
