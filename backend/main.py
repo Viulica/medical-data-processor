@@ -160,7 +160,7 @@ class ProcessingJob:
         self.result_file_xlsx = None  # Store XLSX version
         self.error = None
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash", worktracker_group: str = None, worktracker_batch: str = None):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
     """Background task to process PDFs"""
     job = job_status[job_id]
     
@@ -221,6 +221,12 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
                 cmd.append(worktracker_batch)
             else:
                 cmd.append("")  # Empty string if not provided
+            
+            # Add extract_csn flag
+            if extract_csn:
+                cmd.append("true")
+            else:
+                cmd.append("false")
             
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
             
@@ -1232,7 +1238,8 @@ async def upload_files(
     n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
     model: str = Form(default="gemini-2.5-flash"),  # Model parameter with default
     worktracker_group: str = Form(None),  # Optional worktracker group field
-    worktracker_batch: str = Form(None)  # Optional worktracker batch field
+    worktracker_batch: str = Form(None),  # Optional worktracker batch field
+    extract_csn: str = Form(None)  # Optional extract CSN flag
 ):
     """Upload ZIP file and either Excel instructions file or template ID"""
     
@@ -1309,6 +1316,9 @@ async def upload_files(
             excel_filename = f"{template['name']}.xlsx"
             logger.info(f"Created Excel from template - zip: {zip_path}, template: {template['name']}, excel: {excel_path}")
         
+        # Parse extract_csn flag
+        extract_csn_flag = extract_csn and extract_csn.lower() == "true"
+        
         # Start background processing
         background_tasks.add_task(
             process_pdfs_background, 
@@ -1319,7 +1329,8 @@ async def upload_files(
             excel_filename, 
             model,
             worktracker_group,
-            worktracker_batch
+            worktracker_batch,
+            extract_csn_flag
         )
         
         logger.info(f"Background task started for job {job_id}")
@@ -2091,6 +2102,127 @@ def convert_instructions_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
+def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
+    """Background task to merge two CSV files by CSN column"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading CSV files..."
+        job.progress = 10
+        
+        # Read both CSV files
+        import pandas as pd
+        
+        # Try multiple encodings for CSV files
+        encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df1 = None
+        df2 = None
+        
+        for encoding in encodings_to_try:
+            try:
+                df1 = pd.read_csv(csv_path_1, dtype=str, encoding=encoding)
+                logger.info(f"Successfully read first file with encoding: {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df1 is None:
+            raise Exception("Could not read first CSV file with any standard encoding")
+        
+        for encoding in encodings_to_try:
+            try:
+                df2 = pd.read_csv(csv_path_2, dtype=str, encoding=encoding)
+                logger.info(f"Successfully read second file with encoding: {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df2 is None:
+            raise Exception("Could not read second CSV file with any standard encoding")
+        
+        job.message = "Checking for CSN column..."
+        job.progress = 30
+        
+        # Find CSN column (case-insensitive)
+        csn_col_1 = None
+        csn_col_2 = None
+        
+        for col in df1.columns:
+            if col.upper() == 'CSN':
+                csn_col_1 = col
+                break
+        
+        for col in df2.columns:
+            if col.upper() == 'CSN':
+                csn_col_2 = col
+                break
+        
+        if csn_col_1 is None:
+            raise Exception("First CSV file does not have a CSN column")
+        if csn_col_2 is None:
+            raise Exception("Second CSV file does not have a CSN column")
+        
+        job.message = "Merging files by CSN..."
+        job.progress = 50
+        
+        # Merge the dataframes on CSN column (inner join)
+        merged_df = pd.merge(
+            df1, 
+            df2, 
+            left_on=csn_col_1, 
+            right_on=csn_col_2, 
+            how='inner',
+            suffixes=('', '_y')
+        )
+        
+        # Remove duplicate CSN column if both had the same name
+        if csn_col_1 == csn_col_2:
+            # Keep only one CSN column
+            if f'{csn_col_1}_y' in merged_df.columns:
+                merged_df = merged_df.drop(columns=[f'{csn_col_1}_y'])
+        
+        # Remove any other duplicate columns (ending with _y)
+        cols_to_drop = [col for col in merged_df.columns if col.endswith('_y')]
+        if cols_to_drop:
+            merged_df = merged_df.drop(columns=cols_to_drop)
+        
+        job.message = "Preparing merged file..."
+        job.progress = 80
+        
+        # Create output file path
+        result_base = Path(f"/tmp/results/{job_id}_merged")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_csv = result_base.with_suffix('.csv')
+        
+        # Save merged CSV
+        merged_df.to_csv(output_file_csv, index=False, encoding='utf-8')
+        
+        # Create XLSX version
+        try:
+            output_file_xlsx = convert_csv_to_xlsx(output_file_csv, result_base.with_suffix('.xlsx'))
+            job.result_file_xlsx = output_file_xlsx
+        except Exception as e:
+            logger.warning(f"Could not create XLSX version: {e}")
+        
+        job.result_file = str(output_file_csv)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Merge completed! {len(merged_df)} rows matched by CSN."
+        
+        # Clean up input files
+        os.unlink(csv_path_1)
+        os.unlink(csv_path_2)
+        
+        logger.info(f"Merge by CSN completed for job {job_id}: {len(merged_df)} rows")
+        
+    except Exception as e:
+        logger.error(f"Merge by CSN background error: {str(e)}")
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Merge failed: {str(e)}"
+
 def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False):
     """Background task to generate medical modifiers using the modifiers script
     
@@ -2335,6 +2467,64 @@ async def convert_instructions(
         
     except Exception as e:
         logger.error(f"Instructions conversion upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/merge-by-csn")
+async def merge_by_csn(
+    background_tasks: BackgroundTasks,
+    csv_file_1: UploadFile = File(...),
+    csv_file_2: UploadFile = File(...)
+):
+    """Upload two CSV or XLSX files to merge them by matching rows based on the CSN column"""
+    
+    try:
+        logger.info(f"Received merge by CSN request - file1: {csv_file_1.filename}, file2: {csv_file_2.filename}")
+        
+        # Validate file types
+        if not csv_file_1.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="First file must be a CSV or XLSX")
+        if not csv_file_2.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Second file must be a CSV or XLSX")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created merge by CSN job {job_id}")
+        
+        # Save uploaded files
+        input_path_1 = f"/tmp/{job_id}_merge_input1{Path(csv_file_1.filename).suffix}"
+        input_path_2 = f"/tmp/{job_id}_merge_input2{Path(csv_file_2.filename).suffix}"
+        
+        with open(input_path_1, "wb") as f:
+            shutil.copyfileobj(csv_file_1.file, f)
+        with open(input_path_2, "wb") as f:
+            shutil.copyfileobj(csv_file_2.file, f)
+        
+        logger.info(f"Files saved - path1: {input_path_1}, path2: {input_path_2}")
+        
+        # Convert to CSV if needed
+        csv_path_1 = ensure_csv_file(input_path_1, f"/tmp/{job_id}_merge_input1.csv")
+        csv_path_2 = ensure_csv_file(input_path_2, f"/tmp/{job_id}_merge_input2.csv")
+        
+        # Clean up original files if they were converted
+        if csv_path_1 != input_path_1 and os.path.exists(input_path_1):
+            os.unlink(input_path_1)
+        if csv_path_2 != input_path_2 and os.path.exists(input_path_2):
+            os.unlink(input_path_2)
+        
+        logger.info(f"CSV files ready - path1: {csv_path_1}, path2: {csv_path_2}")
+        
+        # Start background processing
+        background_tasks.add_task(merge_by_csn_background, job_id, csv_path_1, csv_path_2)
+        
+        logger.info(f"Background merge by CSN task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Files uploaded and merge by CSN started"}
+        
+    except Exception as e:
+        logger.error(f"Merge by CSN upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/generate-modifiers")

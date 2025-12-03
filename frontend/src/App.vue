@@ -69,11 +69,11 @@
             <button
               @click="toggleConvertersDropdown"
               :class="{
-                active: ['uni', 'instructions'].includes(activeTab),
+                active: ['uni', 'instructions', 'merge-csn'].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
             >
-              🔄 Converters
+              🔧 Helper Tabs
               <span class="dropdown-arrow">{{
                 showConvertersDropdown ? "▲" : "▼"
               }}</span>
@@ -84,6 +84,9 @@
               </button>
               <button @click="selectTab('instructions')" class="dropdown-item">
                 📋 Convert Instructions
+              </button>
+              <button @click="selectTab('merge-csn')" class="dropdown-item">
+                🔗 Merge by CSN
               </button>
             </div>
           </div>
@@ -373,6 +376,29 @@
                   </div>
                   <p class="page-hint" style="margin-top: 10px">
                     These values will be added as columns in the output Excel
+                  </p>
+                </div>
+              </div>
+
+              <!-- Step 6: Extract CSN Number -->
+              <div class="upload-card">
+                <div class="card-header">
+                  <div class="step-number">6</div>
+                  <h3>Extract CSN Number</h3>
+                </div>
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="extractCSN"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text"
+                      >Extract CSN number from PDF filename</span
+                    >
+                  </label>
+                  <p class="template-hint" style="margin-top: 10px">
+                    When enabled, extracts CSN number from PDF filename (e.g., "24_CSN-100255177928_D.pdf") and adds it as the first column in the output
                   </p>
                 </div>
               </div>
@@ -1881,6 +1907,209 @@
             >
               Reset
             </button>
+          </div>
+        </div>
+
+        <!-- Merge by CSN Tab -->
+        <div v-if="activeTab === 'merge-csn'" class="upload-section">
+          <div class="section-header">
+            <h2>Merge by CSN</h2>
+            <p>
+              Upload two CSV files and merge them by matching rows based on the
+              CSN column
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- CSV File 1 Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>First CSV File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isMergeCsv1DragActive,
+                  'has-file': mergeCsvFile1,
+                }"
+                @drop="onMergeCsv1Drop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerMergeCsv1Upload"
+              >
+                <input
+                  ref="mergeCsv1Input"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onMergeCsv1FileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="mergeCsvFile1" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ mergeCsvFile1.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(mergeCsvFile1.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV or XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- CSV File 2 Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Second CSV File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isMergeCsv2DragActive,
+                  'has-file': mergeCsvFile2,
+                }"
+                @drop="onMergeCsv2Drop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerMergeCsv2Upload"
+              >
+                <input
+                  ref="mergeCsv2Input"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onMergeCsv2FileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="mergeCsvFile2" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ mergeCsvFile2.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(mergeCsvFile2.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV or XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How it works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔗</span>
+                    <span>Rows are matched by the CSN column</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📊</span>
+                    <span>Both files must have a CSN column</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Download merged CSV or XLSX file</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startMergeByCSN"
+              :disabled="!canMergeCSN || isMergingCSN"
+              class="process-btn"
+            >
+              <span v-if="isMergingCSN" class="spinner"></span>
+              <span v-else class="btn-icon">🔗</span>
+              {{
+                isMergingCSN ? "Merging files..." : "Start Merge by CSN"
+              }}
+            </button>
+
+            <button
+              v-if="mergeCsvFile1 || mergeCsvFile2 || mergeJobId"
+              @click="resetMergeForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Merge by CSN Status -->
+        <div v-if="mergeJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="mergeJobStatus.status">
+                <span class="status-icon">{{ getMergeStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getMergeStatusTitle() }}</h3>
+                <p class="status-message">{{ mergeJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="mergeJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${mergeJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ mergeJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkMergeJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="mergeJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button @click="downloadMergeResults('csv')" class="download-btn">
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadMergeResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="mergeJobStatus.status === 'failed' && mergeJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ mergeJobStatus.error }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -4282,6 +4511,7 @@ export default {
       isStandardProcessingUnlocked: false,
       passwordInput: "",
       useOpenRouterStandard: false, // Use OpenRouter for standard mode
+      extractCSN: false, // Extract CSN number from PDF filename
       // Fast processing functionality
       zipFileFast: null,
       excelFileFast: null,
@@ -4332,6 +4562,19 @@ export default {
       isConvertingUni: false,
       isUniCsvDragActive: false,
       // Instructions conversion functionality
+      instructionsExcelFile: null,
+      instructionsJobId: null,
+      instructionsJobStatus: null,
+      isConvertingInstructions: false,
+      isInstructionsExcelDragActive: false,
+      // Merge by CSN functionality
+      mergeCsvFile1: null,
+      mergeCsvFile2: null,
+      mergeJobId: null,
+      mergeJobStatus: null,
+      isMergingCSN: false,
+      isMergeCsv1DragActive: false,
+      isMergeCsv2DragActive: false,
       instructionsExcelFile: null,
       instructionsJobId: null,
       instructionsJobStatus: null,
@@ -4516,6 +4759,9 @@ export default {
     },
     canConvertInstructions() {
       return this.instructionsExcelFile;
+    },
+    canMergeCSN() {
+      return this.mergeCsvFile1 !== null && this.mergeCsvFile2 !== null;
     },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
@@ -5104,6 +5350,11 @@ export default {
         formData.append("worktracker_batch", this.worktrackerBatch);
       }
 
+      // Add extract CSN flag if enabled
+      if (this.extractCSN) {
+        formData.append("extract_csn", "true");
+      }
+
       // Debug: Log the URL being used
       const uploadUrl = joinUrl(API_BASE_URL, "upload");
       console.log("🔧 API_BASE_URL:", API_BASE_URL);
@@ -5199,6 +5450,7 @@ export default {
       this.pageCount = 2;
       this.worktrackerGroup = "";
       this.worktrackerBatch = "";
+      this.extractCSN = false;
       this.jobId = null;
       this.jobStatus = null;
       this.isProcessing = false;
@@ -6262,6 +6514,195 @@ export default {
           return "❌";
         case "processing":
           return "📋";
+        default:
+          return "⏸️";
+      }
+    },
+
+    // Merge by CSN methods
+    onMergeCsv1Drop(e) {
+      e.preventDefault();
+      this.isMergeCsv1DragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
+        this.mergeCsvFile1 = files[0];
+        this.toast.success("First CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV or XLSX file");
+      }
+    },
+
+    triggerMergeCsv1Upload() {
+      this.$refs.mergeCsv1Input.click();
+    },
+
+    onMergeCsv1FileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.mergeCsvFile1 = file;
+        this.toast.success("First CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV or XLSX file");
+      }
+    },
+
+    onMergeCsv2Drop(e) {
+      e.preventDefault();
+      this.isMergeCsv2DragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
+        this.mergeCsvFile2 = files[0];
+        this.toast.success("Second CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV or XLSX file");
+      }
+    },
+
+    triggerMergeCsv2Upload() {
+      this.$refs.mergeCsv2Input.click();
+    },
+
+    onMergeCsv2FileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.mergeCsvFile2 = file;
+        this.toast.success("Second CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV or XLSX file");
+      }
+    },
+
+    async startMergeByCSN() {
+      if (!this.canMergeCSN) {
+        this.toast.error("Please upload both CSV files");
+        return;
+      }
+
+      this.isMergingCSN = true;
+      this.mergeJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("csv_file_1", this.mergeCsvFile1);
+      formData.append("csv_file_2", this.mergeCsvFile2);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "merge-by-csn");
+      console.log("🔧 Merge Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.mergeJobId = response.data.job_id;
+        this.toast.success(
+          "Merge by CSN started! Check the status section below."
+        );
+
+        // Set initial status
+        this.mergeJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Merging files by CSN...",
+        };
+      } catch (error) {
+        console.error("Merge error:", error);
+        this.toast.error("Failed to start merge. Please try again.");
+        this.isMergingCSN = false;
+      }
+    },
+
+    async checkMergeJobStatus() {
+      if (!this.mergeJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.mergeJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.mergeJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Merge completed!");
+          this.isMergingCSN = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Merge failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isMergingCSN = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadMergeResults(format = "csv") {
+      if (!this.mergeJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.mergeJobId}?format=${format}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute("download", `merged_by_csn_${this.mergeJobId}.${ext}`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetMergeForm() {
+      this.mergeCsvFile1 = null;
+      this.mergeCsvFile2 = null;
+      this.mergeJobId = null;
+      this.mergeJobStatus = null;
+      this.isMergingCSN = false;
+      this.isMergeCsv1DragActive = false;
+      this.isMergeCsv2DragActive = false;
+    },
+
+    getMergeStatusTitle() {
+      if (!this.mergeJobStatus) return "";
+
+      switch (this.mergeJobStatus.status) {
+        case "completed":
+          return "Merge Complete";
+        case "failed":
+          return "Merge Failed";
+        case "processing":
+          return "Merging Files";
+        default:
+          return "Merge Status";
+      }
+    },
+
+    getMergeStatusIcon() {
+      if (!this.mergeJobStatus) return "";
+
+      switch (this.mergeJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "🔗";
         default:
           return "⏸️";
       }

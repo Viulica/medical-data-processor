@@ -23,6 +23,26 @@ from PIL import Image
 thread_local = threading.local()
 
 
+def extract_csn_from_filename(filename):
+    """Extract CSN number from PDF filename.
+    
+    Looks for pattern like: CSN-100255177928 or _CSN-100255177928_
+    Example: "24_CSN-100255177928_D.pdf" -> "100255177928"
+    """
+    if not filename:
+        return None
+    
+    # Pattern to match CSN- followed by digits
+    # Matches: CSN-123456789 or _CSN-123456789_ or similar variations
+    pattern = r'CSN-(\d+)'
+    match = re.search(pattern, filename, re.IGNORECASE)
+    
+    if match:
+        return match.group(1)  # Return just the digits
+    
+    return None
+
+
 def format_phone_number(phone_str):
     """Format phone number to add space after area code: (712)301-6622 -> (712) 301-6622"""
     if not phone_str or not isinstance(phone_str, str):
@@ -413,7 +433,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -450,6 +470,15 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Remove page_number but keep source_file for tracking
     fieldnames = [field for field in fieldnames if field not in ['page_number']]
+    
+    # Add CSN as the first column if extract_csn is enabled
+    if extract_csn:
+        # Remove CSN if it exists elsewhere in the list
+        if 'CSN' in fieldnames:
+            fieldnames.remove('CSN')
+        # Insert CSN at the first position
+        fieldnames.insert(0, 'CSN')
+        print(f"🔍 CSN extraction enabled - will extract CSN from PDF filenames")
     
     # Add source_file as the last column in the output
     if 'source_file' not in fieldnames:
@@ -556,6 +585,16 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                                         cleaned_value = format_phone_number(cleaned_value)
                                     
                                     extracted_record[field_name] = cleaned_value
+                            
+                            # Extract CSN from filename if enabled
+                            if extract_csn:
+                                csn = extract_csn_from_filename(pdf_filename)
+                                if csn:
+                                    extracted_record['CSN'] = csn
+                                    print(f"  🔍 Extracted CSN: {csn} from {pdf_filename}")
+                                else:
+                                    extracted_record['CSN'] = None
+                                    print(f"  ⚠️  Could not extract CSN from {pdf_filename}")
                             
                             # Add source file info for reference
                             extracted_record['source_file'] = pdf_filename
@@ -694,6 +733,7 @@ if __name__ == "__main__":
     priority_model = "gemini-3-pro-preview"  # Default model for priority fields (always use best model)
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
+    extract_csn = False  # Extract CSN from PDF filenames
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -715,6 +755,8 @@ if __name__ == "__main__":
         worktracker_group = sys.argv[6] if sys.argv[6].strip() else None
     if len(sys.argv) > 7:
         worktracker_batch = sys.argv[7] if sys.argv[7].strip() else None
+    if len(sys.argv) > 8:
+        extract_csn = sys.argv[8].lower() == "true" if sys.argv[8].strip() else False
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
@@ -727,6 +769,8 @@ if __name__ == "__main__":
         print(f"   Worktracker Group: {worktracker_group}")
     if worktracker_batch:
         print(f"   Worktracker Batch #: {worktracker_batch}")
+    if extract_csn:
+        print(f"   Extract CSN: Enabled")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn) 
