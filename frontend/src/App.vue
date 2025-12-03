@@ -1935,7 +1935,8 @@
                 }"
                 @drop="onMergeCsv1Drop"
                 @dragover.prevent
-                @dragenter.prevent
+                @dragenter.prevent="isMergeCsv1DragActive = true"
+                @dragleave.prevent="isMergeCsv1DragActive = false"
                 @click="triggerMergeCsv1Upload"
               >
                 <input
@@ -1975,7 +1976,8 @@
                 }"
                 @drop="onMergeCsv2Drop"
                 @dragover.prevent
-                @dragenter.prevent
+                @dragenter.prevent="isMergeCsv2DragActive = true"
+                @dragleave.prevent="isMergeCsv2DragActive = false"
                 @click="triggerMergeCsv2Upload"
               >
                 <input
@@ -4575,11 +4577,6 @@ export default {
       isMergingCSN: false,
       isMergeCsv1DragActive: false,
       isMergeCsv2DragActive: false,
-      instructionsExcelFile: null,
-      instructionsJobId: null,
-      instructionsJobStatus: null,
-      isConvertingInstructions: false,
-      isInstructionsExcelDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
