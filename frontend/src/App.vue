@@ -97,7 +97,6 @@
                   'templates',
                   'prediction-instructions',
                   'special-cases-templates',
-                  'instruction-additions-templates',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -149,17 +148,6 @@
                 class="dropdown-item"
               >
                 🎯 Special Cases
-              </button>
-              <button
-                @click="
-                  selectTabAndLoad(
-                    'instruction-additions-templates',
-                    'loadInstructionAdditionsTemplates'
-                  )
-                "
-                class="dropdown-item"
-              >
-                📝 Instructions Additions
               </button>
             </div>
           </div>
@@ -1868,46 +1856,6 @@
               </div>
             </div>
 
-            <!-- Instruction Additions Template (Optional) -->
-            <div class="upload-card">
-              <div class="card-header">
-                <div class="step-number">2</div>
-                <h3>Instruction Additions (Optional)</h3>
-              </div>
-
-              <div class="template-selector">
-                <select
-                  v-model="selectedInstructionAdditionsTemplateId"
-                  class="template-select"
-                >
-                  <option :value="null">Use default additions.csv</option>
-                  <option
-                    v-for="template in availableInstructionAdditionsTemplates"
-                    :key="template.id"
-                    :value="template.id"
-                  >
-                    {{ template.name }} ({{
-                      Object.keys(template.field_instructions).length
-                    }}
-                    fields)
-                  </option>
-                </select>
-                <button
-                  @click="loadAvailableInstructionAdditionsTemplates"
-                  class="refresh-btn"
-                  title="Refresh templates"
-                >
-                  🔄
-                </button>
-              </div>
-
-              <div class="field-info">
-                <p class="info-text">
-                  ℹ️ Optional: Select a custom instruction additions template to
-                  override field-specific extraction instructions
-                </p>
-              </div>
-            </div>
           </div>
 
           <!-- Action Buttons -->
@@ -3403,228 +3351,6 @@
           </div>
         </div>
 
-        <!-- Instruction Additions Templates Tab -->
-        <div
-          v-if="activeTab === 'instruction-additions-templates'"
-          class="upload-section"
-        >
-          <div class="section-header">
-            <h2>📝 Instruction Additions Templates</h2>
-            <p>
-              Manage field instruction override templates. Upload additions.csv
-              files to create reusable instruction sets for the conversion
-              script.
-            </p>
-          </div>
-
-          <div class="modifiers-controls">
-            <div class="search-box">
-              <input
-                v-model="instructionAdditionsTemplateSearch"
-                @input="onInstructionAdditionsTemplateSearchChange"
-                type="text"
-                placeholder="Search templates..."
-                class="search-input"
-              />
-            </div>
-            <button
-              @click="showUploadInstructionAdditionsTemplateModal = true"
-              class="add-btn"
-            >
-              ➕ Upload New Template
-            </button>
-          </div>
-
-          <div
-            v-if="instructionAdditionsTemplates.length > 0"
-            class="modifiers-table-container"
-          >
-            <table class="modifiers-table">
-              <thead>
-                <tr>
-                  <th>Template Name</th>
-                  <th>Description</th>
-                  <th>Fields</th>
-                  <th>Last Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="template in instructionAdditionsTemplates"
-                  :key="template.id"
-                >
-                  <td>
-                    <strong>{{ template.name }}</strong>
-                  </td>
-                  <td>{{ template.description || "-" }}</td>
-                  <td>
-                    {{ Object.keys(template.field_instructions).length }} fields
-                  </td>
-                  <td>{{ formatDate(template.updated_at) }}</td>
-                  <td>
-                    <button
-                      @click="viewInstructionAdditionsTemplate(template)"
-                      class="action-btn view-btn"
-                    >
-                      👁️ View
-                    </button>
-                    <button
-                      @click="
-                        deleteInstructionAdditionsTemplateConfirm(
-                          template.id,
-                          template.name
-                        )
-                      "
-                      class="action-btn delete-btn"
-                    >
-                      🗑️ Delete
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div v-else class="empty-state">
-            <p>No instruction additions templates found.</p>
-          </div>
-        </div>
-
-        <!-- Upload Instruction Additions Template Modal -->
-        <div
-          v-if="showUploadInstructionAdditionsTemplateModal"
-          class="modal-overlay"
-          @click="closeInstructionAdditionsTemplateModals"
-        >
-          <div class="modal-content" @click.stop>
-            <div class="modal-header">
-              <h3>Upload Instruction Additions Template</h3>
-              <button
-                @click="closeInstructionAdditionsTemplateModals"
-                class="close-btn"
-              >
-                ✕
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label>Template Name *</label>
-                <input
-                  v-model="instructionAdditionsTemplateUploadName"
-                  type="text"
-                  placeholder="e.g., Standard Instructions 2024"
-                  class="form-input"
-                />
-              </div>
-              <div class="form-group">
-                <label>Description</label>
-                <textarea
-                  v-model="instructionAdditionsTemplateUploadDescription"
-                  placeholder="Optional description..."
-                  class="form-textarea"
-                  rows="3"
-                ></textarea>
-              </div>
-              <div class="form-group">
-                <label>additions.csv File *</label>
-                <input
-                  type="file"
-                  ref="instructionAdditionsTemplateFileInput"
-                  @change="handleInstructionAdditionsTemplateFileSelect"
-                  accept=".csv"
-                  class="file-input"
-                />
-                <span v-if="instructionAdditionsTemplateFile" class="file-name">
-                  {{ instructionAdditionsTemplateFile.name }}
-                </span>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button
-                @click="closeInstructionAdditionsTemplateModals"
-                class="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                @click="uploadInstructionAdditionsTemplate"
-                class="btn-primary"
-                :disabled="
-                  !instructionAdditionsTemplateUploadName ||
-                  !instructionAdditionsTemplateFile
-                "
-              >
-                📤 Upload Template
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- View Instruction Additions Template Modal -->
-        <div
-          v-if="showViewInstructionAdditionsTemplateModal"
-          class="modal-overlay"
-          @click="closeInstructionAdditionsTemplateModals"
-        >
-          <div class="modal-content large-modal" @click.stop>
-            <div class="modal-header">
-              <h3>{{ currentInstructionAdditionsTemplate.name }}</h3>
-              <button
-                @click="closeInstructionAdditionsTemplateModals"
-                class="close-btn"
-              >
-                ✕
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="template-info">
-                <p>
-                  <strong>Description:</strong>
-                  {{
-                    currentInstructionAdditionsTemplate.description ||
-                    "No description"
-                  }}
-                </p>
-                <p>
-                  <strong>Total Fields:</strong>
-                  {{
-                    Object.keys(
-                      currentInstructionAdditionsTemplate.field_instructions
-                    ).length
-                  }}
-                </p>
-              </div>
-              <div class="mappings-list">
-                <div
-                  v-for="(
-                    instructions, fieldName
-                  ) in currentInstructionAdditionsTemplate.field_instructions"
-                  :key="fieldName"
-                  class="field-instructions-item"
-                >
-                  <h4>{{ fieldName }}</h4>
-                  <ul>
-                    <li
-                      v-for="(instruction, idx) in instructions.instructions"
-                      :key="idx"
-                    >
-                      {{ instruction }}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button
-                @click="closeInstructionAdditionsTemplateModals"
-                class="btn-primary"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
 
         <!-- Templates Manager Tab -->
         <div v-if="activeTab === 'templates'" class="upload-section">
@@ -4607,8 +4333,6 @@ export default {
       isUniCsvDragActive: false,
       // Instructions conversion functionality
       instructionsExcelFile: null,
-      selectedInstructionAdditionsTemplateId: null,
-      availableInstructionAdditionsTemplates: [],
       instructionsJobId: null,
       instructionsJobStatus: null,
       isConvertingInstructions: false,
@@ -4693,26 +4417,6 @@ export default {
       specialCasesTemplateUploadDescription: "",
       showEditSpecialCasesMappingsModal: false,
       editingSpecialCasesMappings: [],
-      // Instruction Additions Templates functionality
-      instructionAdditionsTemplates: [],
-      instructionAdditionsTemplatesLoading: false,
-      instructionAdditionsTemplateSearch: "",
-      instructionAdditionsTemplateSearchTimeout: null,
-      instructionAdditionsTemplateCurrentPage: 1,
-      instructionAdditionsTemplatePageSize: 50,
-      totalInstructionAdditionsTemplates: 0,
-      instructionAdditionsTemplateTotalPages: 0,
-      showUploadInstructionAdditionsTemplateModal: false,
-      showViewInstructionAdditionsTemplateModal: false,
-      currentInstructionAdditionsTemplate: {
-        id: null,
-        name: "",
-        description: "",
-        field_instructions: {},
-      },
-      instructionAdditionsTemplateFile: null,
-      instructionAdditionsTemplateUploadName: "",
-      instructionAdditionsTemplateUploadDescription: "",
       // Templates Manager functionality
       templates: [], // Paginated templates for templates tab display
       allTemplatesForDropdown: [], // All templates for dropdown selection (not paginated)
@@ -6429,13 +6133,6 @@ export default {
       const formData = new FormData();
       formData.append("excel_file", this.instructionsExcelFile);
 
-      if (this.selectedInstructionAdditionsTemplateId) {
-        formData.append(
-          "additions_template_id",
-          this.selectedInstructionAdditionsTemplateId
-        );
-      }
-
       const uploadUrl = joinUrl(API_BASE_URL, "convert-instructions");
       console.log("🔧 Instructions Upload URL:", uploadUrl);
 
@@ -7544,160 +7241,7 @@ export default {
       }
     },
 
-    // ========================================================================
-    // Instruction Additions Templates Methods
-    // ========================================================================
 
-    async loadInstructionAdditionsTemplates(resetPage = true) {
-      if (resetPage) {
-        this.activeTab = "instruction-additions-templates";
-        this.instructionAdditionsTemplateCurrentPage = 1;
-      }
-
-      this.instructionAdditionsTemplatesLoading = true;
-      try {
-        const params = {
-          page: this.instructionAdditionsTemplateCurrentPage,
-          page_size: this.instructionAdditionsTemplatePageSize,
-        };
-
-        if (this.instructionAdditionsTemplateSearch) {
-          params.search = this.instructionAdditionsTemplateSearch;
-        }
-
-        const response = await axios.get(
-          joinUrl(API_BASE_URL, "api/instruction-additions-templates"),
-          { params }
-        );
-
-        this.instructionAdditionsTemplates = response.data.templates;
-        this.totalInstructionAdditionsTemplates = response.data.total;
-        this.instructionAdditionsTemplateTotalPages = response.data.total_pages;
-      } catch (error) {
-        console.error("Failed to load instruction additions templates:", error);
-        this.toast.error("Failed to load templates");
-      } finally {
-        this.instructionAdditionsTemplatesLoading = false;
-      }
-    },
-
-    onInstructionAdditionsTemplateSearchChange() {
-      clearTimeout(this.instructionAdditionsTemplateSearchTimeout);
-      this.instructionAdditionsTemplateSearchTimeout = setTimeout(() => {
-        this.instructionAdditionsTemplateCurrentPage = 1;
-        this.loadInstructionAdditionsTemplates(false);
-      }, 500);
-    },
-
-    handleInstructionAdditionsTemplateFileSelect(event) {
-      const file = event.target.files[0];
-      if (file) {
-        this.instructionAdditionsTemplateFile = file;
-      }
-    },
-
-    async uploadInstructionAdditionsTemplate() {
-      if (
-        !this.instructionAdditionsTemplateUploadName ||
-        !this.instructionAdditionsTemplateFile
-      ) {
-        this.toast.error("Please provide template name and CSV file");
-        return;
-      }
-
-      try {
-        const formData = new FormData();
-        formData.append("csv_file", this.instructionAdditionsTemplateFile);
-        formData.append("name", this.instructionAdditionsTemplateUploadName);
-        formData.append(
-          "description",
-          this.instructionAdditionsTemplateUploadDescription
-        );
-
-        const response = await axios.post(
-          joinUrl(API_BASE_URL, "api/instruction-additions-templates/upload"),
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          }
-        );
-
-        this.toast.success(
-          `Template "${response.data.name}" created with ${response.data.fields_count} fields`
-        );
-        this.closeInstructionAdditionsTemplateModals();
-        await this.loadInstructionAdditionsTemplates(false);
-      } catch (error) {
-        console.error(
-          "Failed to upload instruction additions template:",
-          error
-        );
-        this.toast.error(
-          error.response?.data?.detail || "Failed to upload template"
-        );
-      }
-    },
-
-    viewInstructionAdditionsTemplate(template) {
-      this.currentInstructionAdditionsTemplate = { ...template };
-      this.showViewInstructionAdditionsTemplateModal = true;
-    },
-
-    async deleteInstructionAdditionsTemplateConfirm(templateId, templateName) {
-      if (
-        !confirm(`Are you sure you want to delete template "${templateName}"?`)
-      ) {
-        return;
-      }
-
-      try {
-        await axios.delete(
-          joinUrl(
-            API_BASE_URL,
-            `api/instruction-additions-templates/${templateId}`
-          )
-        );
-        this.toast.success("Template deleted successfully!");
-        await this.loadInstructionAdditionsTemplates(false);
-      } catch (error) {
-        console.error("Failed to delete template:", error);
-        this.toast.error("Failed to delete template");
-      }
-    },
-
-    closeInstructionAdditionsTemplateModals() {
-      this.showUploadInstructionAdditionsTemplateModal = false;
-      this.showViewInstructionAdditionsTemplateModal = false;
-      this.instructionAdditionsTemplateFile = null;
-      this.instructionAdditionsTemplateUploadName = "";
-      this.instructionAdditionsTemplateUploadDescription = "";
-      this.currentInstructionAdditionsTemplate = {
-        id: null,
-        name: "",
-        description: "",
-        field_instructions: {},
-      };
-      if (this.$refs.instructionAdditionsTemplateFileInput) {
-        this.$refs.instructionAdditionsTemplateFileInput.value = "";
-      }
-    },
-
-    async loadAvailableInstructionAdditionsTemplates() {
-      try {
-        const response = await axios.get(
-          joinUrl(API_BASE_URL, "api/instruction-additions-templates"),
-          {
-            params: { page: 1, page_size: 100 },
-          }
-        );
-        this.availableInstructionAdditionsTemplates = response.data.templates;
-      } catch (error) {
-        console.error("Failed to load instruction additions templates:", error);
-        this.toast.error("Failed to load templates");
-      }
-    },
 
     // ========================================================================
     // Templates Manager Methods
