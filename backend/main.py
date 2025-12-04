@@ -489,6 +489,147 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
+def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 30, model: str = "gemini-2.5-flash", max_workers: int = 3):
+    """Background task to split PDF using Gemini 2.5 Flash for page detection with parallel processing"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting Gemini-based PDF splitting (parallel processing)..."
+        job.progress = 10
+        
+        # Use existing output folder
+        current_dir = Path(__file__).parent / "current"
+        output_dir = current_dir / "output"
+        
+        # Create output folder if it doesn't exist
+        output_dir.mkdir(exist_ok=True)
+        
+        # Clear output folder first
+        if output_dir.exists():
+            for file in output_dir.glob("*.pdf"):
+                file.unlink()
+        
+        job.message = f"Analyzing PDF with Gemini (filter: '{filter_string}')..."
+        job.progress = 30
+        
+        # Set up environment for the script
+        env = os.environ.copy()
+        env['PYTHONPATH'] = str(current_dir)
+        # Copy API keys
+        if 'GOOGLE_API_KEY' in os.environ:
+            env['GOOGLE_API_KEY'] = os.environ['GOOGLE_API_KEY']
+        
+        # Limit OpenBLAS threads to prevent resource exhaustion
+        env['OPENBLAS_NUM_THREADS'] = '12'
+        env['OMP_NUM_THREADS'] = '12'
+        env['MKL_NUM_THREADS'] = '12'
+        
+        # Path to Gemini splitting script
+        script_path = current_dir / "1-split_pdf_gemini.py"
+        
+        if not script_path.exists():
+            raise Exception(f"Gemini splitting script not found: {script_path}")
+        
+        job.message = f"Gemini analyzing pages (batch size: {batch_size}, {max_workers} threads)..."
+        job.progress = 40
+        
+        # Run the Gemini script with parallel processing
+        # Args: input_pdf, output_folder, filter_strings, batch_size, model, max_workers
+        logger.info(f"Running Gemini split script with filter: {filter_string}")
+        logger.info(f"Input PDF: {pdf_path}")
+        logger.info(f"Output folder: {output_dir}")
+        logger.info(f"Batch size: {batch_size}")
+        logger.info(f"Model: {model}")
+        logger.info(f"Max workers: {max_workers}")
+        
+        process = None
+        try:
+            process = subprocess.Popen([
+                sys.executable, 
+                str(script_path),
+                str(pdf_path),  # input PDF
+                str(output_dir),  # output folder
+                filter_string,  # filter string
+                str(batch_size),  # batch size
+                model,  # model name
+                str(max_workers)  # parallel workers
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)
+            
+            job.message = "Gemini processing PDF pages..."
+            job.progress = 60
+            
+            # Wait for process with timeout (30 minutes max for Gemini splitting)
+            stdout, stderr = process.communicate(timeout=1800)
+            
+            logger.info(f"Gemini script stdout: {stdout}")
+            logger.info(f"Gemini script stderr: {stderr}")
+            
+            if process.returncode != 0:
+                raise Exception(f"Gemini splitting failed: {stderr}")
+            
+        except subprocess.TimeoutExpired:
+            # Kill the process and all its children if it times out
+            if process:
+                logger.warning(f"Gemini PDF splitting timed out, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise Exception("Gemini PDF splitting timed out after 30 minutes")
+        except Exception as e:
+            # Ensure process is terminated on any error
+            if process and process.poll() is None:
+                logger.warning(f"Gemini PDF splitting failed, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise e
+        
+        job.message = "Creating ZIP archive of split PDFs..."
+        job.progress = 85
+        
+        # Create ZIP file with all split PDFs
+        zip_path = Path(f"/tmp/results/{job_id}_split_pdfs_gemini.zip")
+        zip_path.parent.mkdir(exist_ok=True)
+        
+        # Find all PDF files created by the script
+        pdf_files = list(output_dir.glob("*.pdf"))
+        
+        if not pdf_files:
+            raise Exception("No PDF files were created by the Gemini splitting script. This could mean no matching pages were found.")
+        
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for pdf_file in pdf_files:
+                zipf.write(pdf_file, pdf_file.name)
+        
+        job.result_file = str(zip_path)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Gemini splitting completed successfully! Created {len(pdf_files)} sections."
+        
+        # Clean up uploaded file
+        os.unlink(pdf_path)
+        logger.info(f"Cleaned up input file: {pdf_path}")
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after Gemini PDF splitting")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Gemini PDF splitting failed: {str(e)}"
+        logger.error(f"Gemini split job {job_id} failed: {str(e)}")
+        
+        # Clean up on error
+        try:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+                logger.info(f"Cleaned up input file on error: {pdf_path}")
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup error: {cleanup_error}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
     """Background task to predict CPT codes from CSV procedures"""
     job = job_status[job_id]
@@ -1748,7 +1889,7 @@ async def split_pdf(
     pdf_file: UploadFile = File(...),
     filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
 ):
-    """Upload a single PDF file to split into sections"""
+    """Upload a single PDF file to split into sections (OCR-based method)"""
     
     try:
         logger.info(f"Received PDF split request - pdf: {pdf_file.filename}")
@@ -1781,6 +1922,58 @@ async def split_pdf(
         
     except Exception as e:
         logger.error(f"PDF split upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/split-pdf-gemini")
+async def split_pdf_gemini(
+    background_tasks: BackgroundTasks,
+    pdf_file: UploadFile = File(...),
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
+    batch_size: int = Form(30, description="Number of pages to process per API call"),
+    model: str = Form("gemini-2.5-flash", description="Gemini model to use"),
+    max_workers: int = Form(3, description="Number of parallel threads for processing")
+):
+    """Upload a single PDF file to split into sections using Gemini 2.5 Flash with parallel processing"""
+    
+    try:
+        logger.info(f"Received Gemini PDF split request - pdf: {pdf_file.filename}, batch_size: {batch_size}, model: {model}, max_workers: {max_workers}")
+        
+        # Validate file type
+        if not pdf_file.filename.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="File must be a PDF")
+        
+        # Validate batch size
+        if batch_size < 1 or batch_size > 100:
+            raise HTTPException(status_code=400, detail="Batch size must be between 1 and 100")
+        
+        # Validate max_workers
+        if max_workers < 1 or max_workers > 10:
+            raise HTTPException(status_code=400, detail="Max workers must be between 1 and 10")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created Gemini split job {job_id}")
+        
+        # Save uploaded PDF
+        pdf_path = f"/tmp/{job_id}_input.pdf"
+        
+        with open(pdf_path, "wb") as f:
+            shutil.copyfileobj(pdf_file.file, f)
+        
+        logger.info(f"PDF saved - path: {pdf_path}")
+        
+        # Start background processing with Gemini (parallel processing)
+        background_tasks.add_task(split_pdf_gemini_background, job_id, pdf_path, filter_string, batch_size, model, max_workers)
+        
+        logger.info(f"Background Gemini split task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "PDF uploaded and Gemini splitting started (parallel processing)"}
+        
+    except Exception as e:
+        logger.error(f"Gemini PDF split upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/download/{job_id}")

@@ -797,6 +797,59 @@
             </p>
           </div>
 
+          <!-- Method Selection -->
+          <div class="upload-card" style="margin-bottom: 20px">
+            <div class="settings-content">
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    v-model="useGeminiSplit"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    ⚡ Use Gemini 2.5 Flash (Fast & Efficient - Recommended)
+                  </span>
+                </label>
+                <p
+                  class="form-hint"
+                  v-if="useGeminiSplit"
+                  style="margin-top: 10px; color: #6b7280"
+                >
+                  Gemini Flash analyzes PDF pages directly without OCR. Much faster and won't clog the server!
+                  Processes {{ splitBatchSize }} pages per API call with 3 parallel threads.
+                </p>
+                <p
+                  class="form-hint"
+                  v-else
+                  style="margin-top: 10px; color: #6b7280"
+                >
+                  OCR-based method (legacy). Slower and can be resource-intensive.
+                </p>
+              </div>
+              
+              <!-- Batch Size Control (only for Gemini) -->
+              <div v-if="useGeminiSplit" class="form-group" style="margin-top: 15px">
+                <label for="splitBatchSize" class="filter-label">
+                  Batch Size (pages per API call):
+                </label>
+                <input
+                  id="splitBatchSize"
+                  v-model.number="splitBatchSize"
+                  type="number"
+                  min="10"
+                  max="100"
+                  class="filter-input"
+                  style="max-width: 150px"
+                  :disabled="isSplitting"
+                />
+                <p class="form-hint" style="margin-top: 5px; color: #6b7280">
+                  Default: 30 pages with 3 parallel threads. Adjust if needed (10-100 pages).
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div class="upload-grid">
             <!-- PDF File Upload -->
             <div class="upload-card">
@@ -875,7 +928,7 @@
             >
               <span v-if="isSplitting" class="spinner"></span>
               <span v-else class="btn-icon">✂️</span>
-              {{ isSplitting ? "Splitting PDF..." : "Split PDF" }}
+              {{ isSplitting ? (useGeminiSplit ? "Splitting with Gemini..." : "Splitting PDF...") : "Split PDF" }}
             </button>
 
             <button
@@ -4533,6 +4586,8 @@ export default {
       isSplitting: false,
       isPdfDragActive: false,
       statusPollingInterval: null,
+      useGeminiSplit: true, // Default to Gemini method (recommended)
+      splitBatchSize: 30, // Pages per API call for Gemini (30 pages with 3 parallel threads)
       // CPT prediction functionality
       csvFile: null,
       selectedClient: "uni",
@@ -5078,7 +5133,8 @@ export default {
     },
 
     async startSplitting() {
-      console.log("🚀 Starting PDF splitting process...");
+      const method = this.useGeminiSplit ? "Gemini" : "OCR";
+      console.log(`🚀 Starting PDF splitting process (${method} method)...`);
       console.log(
         "📄 PDF File:",
         this.pdfFile
@@ -5090,6 +5146,9 @@ export default {
           : "No file"
       );
       console.log("🔍 Filter String:", this.filterString);
+      if (this.useGeminiSplit) {
+        console.log("📦 Batch Size:", this.splitBatchSize);
+      }
 
       if (!this.pdfFile) {
         console.error("❌ No PDF file selected");
@@ -5109,7 +5168,16 @@ export default {
       formData.append("pdf_file", this.pdfFile);
       formData.append("filter_string", this.filterString.trim());
 
-      const splitUrl = joinUrl(API_BASE_URL, "split-pdf");
+      // Choose endpoint based on method
+      let splitUrl;
+      if (this.useGeminiSplit) {
+        splitUrl = joinUrl(API_BASE_URL, "split-pdf-gemini");
+        formData.append("batch_size", this.splitBatchSize.toString());
+        formData.append("model", "gemini-2.5-flash");
+      } else {
+        splitUrl = joinUrl(API_BASE_URL, "split-pdf");
+      }
+      
       console.log("🔧 Split URL:", splitUrl);
 
       try {
@@ -5123,7 +5191,7 @@ export default {
 
         console.log("✅ Split request successful:", response.data);
         this.toast.success(
-          "PDF splitting started! Check the download section below."
+          `PDF splitting started with ${method}! Check the download section below.`
         );
 
         // Store the job ID for status checking
