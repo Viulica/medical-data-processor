@@ -813,7 +813,7 @@
                 </label>
                 <p
                   class="form-hint"
-                  v-else
+                  v-if="!useGeminiSplit"
                   style="margin-top: 10px; color: #6b7280"
                 >
                   OCR-based method (legacy). Slower and can be resource-intensive.
