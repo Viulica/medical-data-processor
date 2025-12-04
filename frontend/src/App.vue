@@ -31,6 +31,14 @@
             ⚡ Fast Process
           </button>
           <button
+            @click="activeTab = 'unified'"
+            :class="{ active: activeTab === 'unified' }"
+            class="tab-btn"
+            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;"
+          >
+            🔮 Extract + CPT + ICD
+          </button>
+          <button
             @click="activeTab = 'split'"
             :class="{ active: activeTab === 'split' }"
             class="tab-btn"
@@ -782,6 +790,424 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ jobStatusFast.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unified Processing Tab (Extract + CPT + ICD) -->
+        <div v-if="activeTab === 'unified'" class="upload-section">
+          <div class="section-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px; color: white; margin-bottom: 30px;">
+            <h2 style="color: white; margin-bottom: 10px;">🔮 Unified Processing: Extract + CPT + ICD</h2>
+            <p style="color: #f0f0f0; font-size: 16px;">
+              Combine data extraction, CPT code prediction, and ICD code prediction in one streamlined workflow.
+              Upload your files once and get a comprehensive result with all information merged intelligently.
+            </p>
+          </div>
+
+          <!-- Enable/Disable Steps -->
+          <div class="upload-card" style="margin-bottom: 20px; border: 2px solid #667eea;">
+            <div class="card-header" style="background: #667eea; color: white;">
+              <h3 style="color: white;">⚙️ Configure Processing Steps</h3>
+            </div>
+            <div class="settings-content">
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    v-model="unifiedEnableExtraction"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    📊 Enable Data Extraction (Fast)
+                  </span>
+                </label>
+                <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                  Extract structured data from PDFs using Gemini 2.5 Flash
+                </p>
+              </div>
+              <div class="form-group" style="margin-top: 15px">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    v-model="unifiedEnableCpt"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    🏥 Enable CPT Code Prediction
+                  </span>
+                </label>
+                <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                  Predict anesthesia CPT codes using AI
+                </p>
+              </div>
+              <div class="form-group" style="margin-top: 15px">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    v-model="unifiedEnableIcd"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    📋 Enable ICD Code Prediction
+                  </span>
+                </label>
+                <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                  Predict ICD diagnosis codes by analyzing PDF pages
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Step 1: ZIP File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Patient Documents (ZIP)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isUnifiedZipDragActive,
+                  'has-file': unifiedZipFile,
+                }"
+                @drop="onUnifiedZipDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerUnifiedZipUpload"
+              >
+                <input
+                  ref="unifiedZipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onUnifiedZipFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📁</div>
+                  <div v-if="unifiedZipFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ unifiedZipFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(unifiedZipFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP archive here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2: Excel Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Extraction Template (Excel)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isUnifiedExcelDragActive,
+                  'has-file': unifiedExcelFile,
+                }"
+                @drop="onUnifiedExcelDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerUnifiedExcelUpload"
+              >
+                <input
+                  ref="unifiedExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onUnifiedExcelFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="unifiedExcelFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ unifiedExcelFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(unifiedExcelFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel template here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Extraction Settings (if enabled) -->
+            <div v-if="unifiedEnableExtraction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>📊 Extraction Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="unified-extraction-pages">Pages per document</label>
+                  <div class="input-wrapper">
+                    <input
+                      id="unified-extraction-pages"
+                      v-model.number="unifiedExtractionPages"
+                      type="number"
+                      min="1"
+                      max="50"
+                      class="page-input"
+                      placeholder="2"
+                    />
+                  </div>
+                  <small class="help-text">
+                    Number of pages to extract from each patient document
+                  </small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-extraction-model">AI Model</label>
+                  <select
+                    id="unified-extraction-model"
+                    v-model="unifiedExtractionModel"
+                    class="form-select"
+                  >
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </select>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-worktracker-group">Worktracker Group (Optional)</label>
+                  <input
+                    id="unified-worktracker-group"
+                    v-model="unifiedWorktrackerGroup"
+                    type="text"
+                    class="page-input"
+                    placeholder="Enter group name"
+                  />
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-worktracker-batch">Worktracker Batch # (Optional)</label>
+                  <input
+                    id="unified-worktracker-batch"
+                    v-model="unifiedWorktrackerBatch"
+                    type="text"
+                    class="page-input"
+                    placeholder="Enter batch number"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 4: CPT Settings (if enabled) -->
+            <div v-if="unifiedEnableCpt" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
+                <h3>🏥 CPT Prediction Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input
+                      type="checkbox"
+                      v-model="unifiedCptVisionMode"
+                      class="checkbox-input"
+                    />
+                    <span class="checkbox-text">
+                      📸 Use Vision Mode (analyze PDF images)
+                    </span>
+                  </label>
+                  <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                    If disabled, will use extracted text from step 1
+                  </p>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-cpt-model">CPT AI Model</label>
+                  <select
+                    id="unified-cpt-model"
+                    v-model="unifiedCptModel"
+                    class="form-select"
+                  >
+                    <option value="gpt5">GPT-5 (Recommended)</option>
+                    <option value="openai/gpt-5">OpenRouter GPT-5</option>
+                    <option value="gpt4o">GPT-4o</option>
+                  </select>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-cpt-workers">Max Workers</label>
+                  <input
+                    id="unified-cpt-workers"
+                    v-model.number="unifiedCptMaxWorkers"
+                    type="number"
+                    min="1"
+                    max="20"
+                    class="page-input"
+                    placeholder="5"
+                  />
+                  <small class="help-text">Number of concurrent processing threads</small>
+                </div>
+                <div class="form-group" style="margin-top: 15px">
+                  <label for="unified-cpt-instructions" class="form-label">
+                    Custom CPT Instructions (Optional):
+                  </label>
+                  <textarea
+                    id="unified-cpt-instructions"
+                    v-model="unifiedCptCustomInstructions"
+                    class="form-textarea"
+                    rows="3"
+                    placeholder="Enter specific coding guidelines..."
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 5: ICD Settings (if enabled) -->
+            <div v-if="unifiedEnableIcd" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">5</div>
+                <h3>📋 ICD Prediction Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="unified-icd-pages">Pages to Analyze per PDF</label>
+                  <input
+                    id="unified-icd-pages"
+                    v-model.number="unifiedIcdPages"
+                    type="number"
+                    min="1"
+                    max="50"
+                    class="page-input"
+                    placeholder="1"
+                  />
+                  <small class="help-text">Number of pages to analyze for ICD codes</small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-icd-model">ICD AI Model</label>
+                  <select
+                    id="unified-icd-model"
+                    v-model="unifiedIcdModel"
+                    class="form-select"
+                  >
+                    <option value="openai/gpt-5">OpenRouter GPT-5 (Recommended)</option>
+                    <option value="openai/gpt-4o">OpenRouter GPT-4o</option>
+                  </select>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-icd-workers">Max Workers</label>
+                  <input
+                    id="unified-icd-workers"
+                    v-model.number="unifiedIcdMaxWorkers"
+                    type="number"
+                    min="1"
+                    max="20"
+                    class="page-input"
+                    placeholder="5"
+                  />
+                  <small class="help-text">Number of concurrent processing threads</small>
+                </div>
+                <div class="form-group" style="margin-top: 15px">
+                  <label for="unified-icd-instructions" class="form-label">
+                    Custom ICD Instructions (Optional):
+                  </label>
+                  <textarea
+                    id="unified-icd-instructions"
+                    v-model="unifiedIcdCustomInstructions"
+                    class="form-textarea"
+                    rows="3"
+                    placeholder="Enter specific coding guidelines..."
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startUnifiedProcessing"
+              :disabled="!canProcessUnified || isProcessingUnified"
+              class="process-btn"
+              style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+            >
+              <span v-if="isProcessingUnified" class="spinner"></span>
+              <span v-else class="btn-icon">🔮</span>
+              {{
+                isProcessingUnified
+                  ? "Processing..."
+                  : "Start Unified Processing"
+              }}
+            </button>
+
+            <button
+              v-if="unifiedZipFile || unifiedExcelFile || unifiedJobId"
+              @click="resetUnifiedForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Unified Processing Status -->
+        <div v-if="unifiedJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="unifiedJobStatus.status">
+                <span class="status-icon">{{ getUnifiedStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getUnifiedStatusTitle() }}</h3>
+                <p class="status-message">{{ unifiedJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="unifiedJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${unifiedJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ unifiedJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkUnifiedJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="unifiedJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadUnifiedResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadUnifiedResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="unifiedJobStatus.status === 'failed' && unifiedJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ unifiedJobStatus.error }}</span>
               </div>
             </div>
           </div>
@@ -4623,6 +5049,33 @@ export default {
       isInsuranceDataDragActive: false,
       isSpecialCasesDragActive: false,
       enableAi: true, // Toggle for AI-powered insurance matching
+      // Unified Processing functionality (Extract + CPT + ICD)
+      unifiedZipFile: null,
+      unifiedExcelFile: null,
+      unifiedJobId: null,
+      unifiedJobStatus: null,
+      isProcessingUnified: false,
+      isUnifiedZipDragActive: false,
+      isUnifiedExcelDragActive: false,
+      // Unified - Step toggles
+      unifiedEnableExtraction: true,
+      unifiedEnableCpt: true,
+      unifiedEnableIcd: true,
+      // Unified - Extraction settings
+      unifiedExtractionPages: 2,
+      unifiedExtractionModel: "gemini-2.5-flash",
+      unifiedWorktrackerGroup: "",
+      unifiedWorktrackerBatch: "",
+      // Unified - CPT settings
+      unifiedCptVisionMode: false,
+      unifiedCptModel: "gpt5",
+      unifiedCptMaxWorkers: 5,
+      unifiedCptCustomInstructions: "",
+      // Unified - ICD settings
+      unifiedIcdPages: 1,
+      unifiedIcdModel: "openai/gpt-5",
+      unifiedIcdMaxWorkers: 5,
+      unifiedIcdCustomInstructions: "",
       // Modifiers Config functionality
       modifiers: [],
       modifiersLoading: false,
@@ -4776,6 +5229,29 @@ export default {
       } else {
         return this.csvFile;
       }
+    },
+    canProcessUnified() {
+      // Must have at least one step enabled
+      if (!this.unifiedEnableExtraction && !this.unifiedEnableCpt && !this.unifiedEnableIcd) {
+        return false;
+      }
+      // Must have files uploaded
+      if (!this.unifiedZipFile || !this.unifiedExcelFile) {
+        return false;
+      }
+      // Validate extraction settings if enabled
+      if (this.unifiedEnableExtraction) {
+        if (this.unifiedExtractionPages < 1 || this.unifiedExtractionPages > 50) {
+          return false;
+        }
+      }
+      // Validate ICD settings if enabled
+      if (this.unifiedEnableIcd) {
+        if (this.unifiedIcdPages < 1 || this.unifiedIcdPages > 50) {
+          return false;
+        }
+      }
+      return true;
     },
     canConvertUni() {
       return this.uniCsvFile;
@@ -5691,6 +6167,279 @@ export default {
       this.useTemplateInsteadOfExcelFast = false;
       this.selectedTemplateIdFast = null;
     },
+
+    // ==================== UNIFIED PROCESSING METHODS ====================
+    
+    triggerUnifiedZipUpload() {
+      this.$refs.unifiedZipInput.click();
+    },
+
+    triggerUnifiedExcelUpload() {
+      this.$refs.unifiedExcelInput.click();
+    },
+
+    onUnifiedZipFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.unifiedZipFile = file;
+      }
+    },
+
+    onUnifiedExcelFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.unifiedExcelFile = file;
+      }
+    },
+
+    onUnifiedZipDrop(event) {
+      event.preventDefault();
+      this.isUnifiedZipDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && file.name.endsWith('.zip')) {
+        this.unifiedZipFile = file;
+      }
+    },
+
+    onUnifiedExcelDrop(event) {
+      event.preventDefault();
+      this.isUnifiedExcelDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+        this.unifiedExcelFile = file;
+      }
+    },
+
+    async startUnifiedProcessing() {
+      if (!this.canProcessUnified) {
+        this.toast.error("Please upload files and configure at least one processing step");
+        return;
+      }
+
+      if (!this.unifiedEnableExtraction && !this.unifiedEnableCpt && !this.unifiedEnableIcd) {
+        this.toast.error("Please enable at least one processing step");
+        return;
+      }
+
+      this.isProcessingUnified = true;
+      this.unifiedJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("zip_file", this.unifiedZipFile);
+      formData.append("excel_file", this.unifiedExcelFile);
+      
+      // Extraction parameters
+      formData.append("enable_extraction", this.unifiedEnableExtraction);
+      formData.append("extraction_n_pages", this.unifiedExtractionPages);
+      formData.append("extraction_model", this.unifiedExtractionModel);
+      formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
+      formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
+      formData.append("extract_csn", "false");
+      
+      // CPT parameters
+      formData.append("enable_cpt", this.unifiedEnableCpt);
+      formData.append("cpt_vision_mode", this.unifiedCptVisionMode);
+      formData.append("cpt_model", this.unifiedCptModel);
+      formData.append("cpt_max_workers", this.unifiedCptMaxWorkers);
+      formData.append("cpt_custom_instructions", this.unifiedCptCustomInstructions || "");
+      
+      // ICD parameters
+      formData.append("enable_icd", this.unifiedEnableIcd);
+      formData.append("icd_n_pages", this.unifiedIcdPages);
+      formData.append("icd_model", this.unifiedIcdModel);
+      formData.append("icd_max_workers", this.unifiedIcdMaxWorkers);
+      formData.append("icd_custom_instructions", this.unifiedIcdCustomInstructions || "");
+
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await fetch(`${backendUrl}/process-unified`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Upload failed");
+        }
+
+        const data = await response.json();
+        this.unifiedJobId = data.job_id;
+
+        this.toast.success("Unified processing started!");
+        
+        // Start polling for status
+        this.pollUnifiedJobStatus();
+      } catch (error) {
+        console.error("Error starting unified processing:", error);
+        this.toast.error(`Failed to start processing: ${error.message}`);
+        this.isProcessingUnified = false;
+      }
+    },
+
+    async pollUnifiedJobStatus() {
+      const maxAttempts = 600; // 30 minutes with 3-second intervals
+      let attempts = 0;
+
+      const checkStatus = async () => {
+        try {
+          const backendUrl = this.getBackendUrl();
+          const response = await fetch(
+            `${backendUrl}/status/${this.unifiedJobId}`
+          );
+
+          if (!response.ok) {
+            throw new Error("Failed to fetch status");
+          }
+
+          const data = await response.json();
+          this.unifiedJobStatus = data;
+
+          if (data.status === "completed") {
+            this.isProcessingUnified = false;
+            this.toast.success("Unified processing completed!");
+          } else if (data.status === "failed") {
+            this.isProcessingUnified = false;
+            this.toast.error(`Processing failed: ${data.error}`);
+          } else if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(checkStatus, 3000);
+          } else {
+            this.isProcessingUnified = false;
+            this.toast.error("Processing timeout - please check status manually");
+          }
+        } catch (error) {
+          console.error("Error checking status:", error);
+          if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(checkStatus, 3000);
+          } else {
+            this.isProcessingUnified = false;
+            this.toast.error("Failed to check processing status");
+          }
+        }
+      };
+
+      checkStatus();
+    },
+
+    async checkUnifiedJobStatus() {
+      if (!this.unifiedJobId) return;
+
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await fetch(
+          `${backendUrl}/status/${this.unifiedJobId}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch status");
+        }
+
+        const data = await response.json();
+        this.unifiedJobStatus = data;
+
+        if (data.status === "completed") {
+          this.toast.success("Processing completed!");
+          this.isProcessingUnified = false;
+        } else if (data.status === "failed") {
+          this.toast.error(`Processing failed: ${data.error}`);
+          this.isProcessingUnified = false;
+        }
+      } catch (error) {
+        console.error("Error checking status:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadUnifiedResults(format = 'csv') {
+      if (!this.unifiedJobId) return;
+
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await fetch(
+          `${backendUrl}/download/${this.unifiedJobId}?format=${format}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Download failed");
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `unified_results_${this.unifiedJobId}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        this.toast.success(`Results downloaded as ${format.toUpperCase()}`);
+      } catch (error) {
+        console.error("Error downloading results:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetUnifiedForm() {
+      this.unifiedZipFile = null;
+      this.unifiedExcelFile = null;
+      this.unifiedJobId = null;
+      this.unifiedJobStatus = null;
+      this.isProcessingUnified = false;
+      // Reset settings to defaults
+      this.unifiedEnableExtraction = true;
+      this.unifiedEnableCpt = true;
+      this.unifiedEnableIcd = true;
+      this.unifiedExtractionPages = 2;
+      this.unifiedExtractionModel = "gemini-2.5-flash";
+      this.unifiedWorktrackerGroup = "";
+      this.unifiedWorktrackerBatch = "";
+      this.unifiedCptVisionMode = false;
+      this.unifiedCptModel = "gpt5";
+      this.unifiedCptMaxWorkers = 5;
+      this.unifiedCptCustomInstructions = "";
+      this.unifiedIcdPages = 1;
+      this.unifiedIcdModel = "openai/gpt-5";
+      this.unifiedIcdMaxWorkers = 5;
+      this.unifiedIcdCustomInstructions = "";
+    },
+
+    getUnifiedStatusTitle() {
+      if (!this.unifiedJobStatus) return "";
+
+      switch (this.unifiedJobStatus.status) {
+        case "pending":
+          return "⏳ Processing Starting...";
+        case "processing":
+          return "⚙️ Processing in Progress";
+        case "completed":
+          return "✅ Processing Complete";
+        case "failed":
+          return "❌ Processing Failed";
+        default:
+          return "📊 Processing Status";
+      }
+    },
+
+    getUnifiedStatusIcon() {
+      if (!this.unifiedJobStatus) return "⏳";
+
+      switch (this.unifiedJobStatus.status) {
+        case "pending":
+          return "⏳";
+        case "processing":
+          return "⚙️";
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        default:
+          return "📊";
+      }
+    },
+
+    // ==================== END UNIFIED PROCESSING METHODS ====================
 
     getStatusTitleFast() {
       if (!this.jobStatusFast) return "";

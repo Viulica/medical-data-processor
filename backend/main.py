@@ -3810,6 +3810,486 @@ async def bulk_import_insurance_mappings(
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
+def process_unified_background(
+    job_id: str,
+    zip_path: str,
+    excel_path: str,
+    excel_filename: str,
+    # Extraction params
+    enable_extraction: bool,
+    extraction_n_pages: int,
+    extraction_model: str,
+    worktracker_group: str,
+    worktracker_batch: str,
+    extract_csn: bool,
+    # CPT params
+    enable_cpt: bool,
+    cpt_vision_mode: bool,
+    cpt_model: str,
+    cpt_max_workers: int,
+    cpt_custom_instructions: str,
+    # ICD params
+    enable_icd: bool,
+    icd_n_pages: int,
+    icd_model: str,
+    icd_max_workers: int,
+    icd_custom_instructions: str
+):
+    """Unified background task to run extraction + CPT + ICD prediction"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting unified processing..."
+        job.progress = 5
+        
+        # Create temporary directory for processing
+        temp_dir = Path(f"/tmp/unified_{job_id}")
+        temp_dir.mkdir(exist_ok=True)
+        
+        extraction_csv_path = None
+        cpt_csv_path = None
+        icd_csv_path = None
+        
+        # ==================== STEP 1: Data Extraction ====================
+        if enable_extraction:
+            job.message = "Step 1/3: Extracting data from PDFs..."
+            job.progress = 10
+            logger.info(f"[Unified {job_id}] Starting data extraction")
+            
+            # Unzip files
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir / "input")
+            
+            # Copy Excel file to temp directory
+            excel_dest = temp_dir / "instructions" / excel_filename
+            excel_dest.parent.mkdir(exist_ok=True)
+            shutil.copy2(excel_path, excel_dest)
+            
+            # Set up environment for the processing script
+            env = os.environ.copy()
+            env['PYTHONPATH'] = str(Path(__file__).parent / "current")
+            env['OPENBLAS_NUM_THREADS'] = '12'
+            env['OMP_NUM_THREADS'] = '12'
+            env['MKL_NUM_THREADS'] = '12'
+            
+            # Run the extraction script
+            script_path = Path(__file__).parent / "current" / "2-extract_info.py"
+            
+            job.message = f"Extracting data (first {extraction_n_pages} pages per patient)..."
+            job.progress = 15
+            
+            try:
+                cmd = [
+                    sys.executable,
+                    str(temp_dir / "input"),
+                    str(excel_dest),
+                    str(extraction_n_pages),
+                    "7",  # max_workers
+                    extraction_model
+                ]
+                
+                if worktracker_group:
+                    cmd.append(worktracker_group)
+                else:
+                    cmd.append("")
+                    
+                if worktracker_batch:
+                    cmd.append(worktracker_batch)
+                else:
+                    cmd.append("")
+                
+                if extract_csn:
+                    cmd.append("true")
+                else:
+                    cmd.append("false")
+                
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+                stdout, stderr = process.communicate(timeout=1800)
+                
+                logger.info(f"[Unified {job_id}] Extraction stdout: {stdout}")
+                if stderr:
+                    logger.info(f"[Unified {job_id}] Extraction stderr: {stderr}")
+                
+                if process.returncode != 0:
+                    raise Exception(f"Extraction failed: {stderr}")
+                    
+            except subprocess.TimeoutExpired:
+                if process:
+                    logger.warning(f"[Unified {job_id}] Extraction timed out")
+                    kill_process_tree(process)
+                    gc.collect()
+                raise Exception("Extraction timed out after 30 minutes")
+            
+            # Find the extraction output CSV
+            extracted_files = list(temp_dir.glob("extracted/combined_patient_data_*.csv"))
+            if extracted_files:
+                extraction_csv_path = str(extracted_files[0])
+                logger.info(f"[Unified {job_id}] Found extraction CSV: {extraction_csv_path}")
+            else:
+                raise Exception("Extraction completed but no output CSV found")
+                
+            job.message = "Data extraction completed"
+            job.progress = 30
+            gc.collect()
+        
+        # ==================== STEP 2: CPT Code Prediction ====================
+        if enable_cpt:
+            job.message = "Step 2/3: Predicting CPT codes..."
+            job.progress = 35
+            logger.info(f"[Unified {job_id}] Starting CPT prediction")
+            
+            if cpt_vision_mode:
+                # Use vision model with PDFs
+                job.message = "Predicting CPT codes from PDF images..."
+                
+                # Ensure PDFs are unzipped
+                if not (temp_dir / "input").exists():
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(temp_dir / "input")
+                
+                # Import prediction function
+                general_coding_path = Path(__file__).parent / "general-coding"
+                sys.path.insert(0, str(general_coding_path))
+                from predict_general import predict_codes_from_pdfs_api
+                
+                # Create output path
+                cpt_csv_base = temp_dir / "cpt_predictions"
+                cpt_csv_base.parent.mkdir(exist_ok=True)
+                
+                # Get OpenRouter API key
+                api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                
+                # Progress callback
+                def cpt_progress(completed, total, message):
+                    progress_pct = 35 + int((completed / total) * 20)
+                    job.progress = min(progress_pct, 55)
+                    job.message = f"CPT prediction: {message}"
+                
+                # Run CPT prediction
+                success = predict_codes_from_pdfs_api(
+                    pdf_folder=str(temp_dir / "input"),
+                    output_file=str(cpt_csv_base),
+                    n_pages=extraction_n_pages if enable_extraction else 1,
+                    model=cpt_model,
+                    api_key=api_key,
+                    max_workers=cpt_max_workers,
+                    progress_callback=cpt_progress,
+                    custom_instructions=cpt_custom_instructions
+                )
+                
+                if success:
+                    cpt_csv_path = f"{cpt_csv_base}.csv"
+                    logger.info(f"[Unified {job_id}] CPT prediction completed: {cpt_csv_path}")
+                else:
+                    raise Exception("CPT prediction failed")
+                    
+            else:
+                # Use CSV-based prediction (requires extraction first)
+                if not extraction_csv_path:
+                    raise Exception("CPT prediction requires data extraction to be enabled when not using vision mode")
+                
+                job.message = "Predicting CPT codes from CSV..."
+                
+                # Import prediction function
+                general_coding_path = Path(__file__).parent / "general-coding"
+                sys.path.insert(0, str(general_coding_path))
+                from predict_general import predict_codes_general_api
+                
+                # Create output path
+                cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
+                
+                # Get OpenAI/OpenRouter API key
+                api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+                
+                # Progress callback
+                def cpt_progress(completed, total, message):
+                    progress_pct = 35 + int((completed / total) * 20)
+                    job.progress = min(progress_pct, 55)
+                    job.message = f"CPT prediction: {message}"
+                
+                # Run CPT prediction
+                success = predict_codes_general_api(
+                    input_file=extraction_csv_path,
+                    output_file=cpt_csv_path,
+                    model=cpt_model,
+                    api_key=api_key,
+                    max_workers=cpt_max_workers,
+                    progress_callback=cpt_progress
+                )
+                
+                if not success:
+                    raise Exception("CPT prediction failed")
+                
+                logger.info(f"[Unified {job_id}] CPT prediction completed: {cpt_csv_path}")
+            
+            job.message = "CPT prediction completed"
+            job.progress = 55
+            gc.collect()
+        
+        # ==================== STEP 3: ICD Code Prediction ====================
+        if enable_icd:
+            job.message = "Step 3/3: Predicting ICD codes..."
+            job.progress = 60
+            logger.info(f"[Unified {job_id}] Starting ICD prediction")
+            
+            # Ensure PDFs are unzipped
+            if not (temp_dir / "input").exists():
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir / "input")
+            
+            # Import prediction function
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_icd_codes_from_pdfs_api
+            
+            # Create output path
+            icd_csv_base = temp_dir / "icd_predictions"
+            icd_csv_base.parent.mkdir(exist_ok=True)
+            
+            # Get OpenRouter API key
+            api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+            
+            # Progress callback
+            def icd_progress(completed, total, message):
+                progress_pct = 60 + int((completed / total) * 25)
+                job.progress = min(progress_pct, 85)
+                job.message = f"ICD prediction: {message}"
+            
+            # Run ICD prediction
+            success = predict_icd_codes_from_pdfs_api(
+                pdf_folder=str(temp_dir / "input"),
+                output_file=str(icd_csv_base),
+                n_pages=icd_n_pages,
+                model=icd_model,
+                api_key=api_key,
+                max_workers=icd_max_workers,
+                progress_callback=icd_progress,
+                custom_instructions=icd_custom_instructions
+            )
+            
+            if success:
+                icd_csv_path = f"{icd_csv_base}.csv"
+                logger.info(f"[Unified {job_id}] ICD prediction completed: {icd_csv_path}")
+            else:
+                raise Exception("ICD prediction failed")
+            
+            job.message = "ICD prediction completed"
+            job.progress = 85
+            gc.collect()
+        
+        # ==================== STEP 4: Merge Results ====================
+        job.message = "Merging results..."
+        job.progress = 90
+        logger.info(f"[Unified {job_id}] Merging results")
+        
+        import pandas as pd
+        
+        # Determine the base dataframe
+        if extraction_csv_path:
+            # Start with extraction data
+            base_df = pd.read_csv(extraction_csv_path, dtype=str)
+            logger.info(f"[Unified {job_id}] Base: extraction CSV with {len(base_df)} rows")
+        elif cpt_csv_path and cpt_vision_mode:
+            # If no extraction but CPT vision mode, use CPT as base
+            base_df = pd.read_csv(cpt_csv_path, dtype=str)
+            logger.info(f"[Unified {job_id}] Base: CPT CSV with {len(base_df)} rows")
+        elif icd_csv_path:
+            # If only ICD, use ICD as base
+            base_df = pd.read_csv(icd_csv_path, dtype=str)
+            logger.info(f"[Unified {job_id}] Base: ICD CSV with {len(base_df)} rows")
+        else:
+            raise Exception("No data to merge - at least one processing step must be enabled")
+        
+        # Merge CPT results if needed
+        if enable_cpt and cpt_csv_path:
+            if cpt_vision_mode and not extraction_csv_path:
+                # CPT is already the base
+                pass
+            elif cpt_vision_mode:
+                # Merge CPT vision results with extraction
+                cpt_df = pd.read_csv(cpt_csv_path, dtype=str)
+                # Merge on filename (assuming both have a filename/source_file column)
+                if 'Filename' in cpt_df.columns and 'source_file' in base_df.columns:
+                    # Extract just the CPT-related columns from cpt_df
+                    cpt_cols = ['Filename', 'Predicted Code', 'Tokens Used', 'Cost ($)', 'Error', 'Model Source']
+                    cpt_df_merge = cpt_df[cpt_cols]
+                    base_df = base_df.merge(cpt_df_merge, left_on='source_file', right_on='Filename', how='left')
+                    base_df = base_df.drop(columns=['Filename'], errors='ignore')
+                    logger.info(f"[Unified {job_id}] Merged CPT vision results")
+            else:
+                # CPT was run on extraction CSV, so it should already have all extraction columns
+                base_df = pd.read_csv(cpt_csv_path, dtype=str)
+                logger.info(f"[Unified {job_id}] Using CPT CSV as it contains extraction + CPT data")
+        
+        # Merge ICD results if needed
+        if enable_icd and icd_csv_path:
+            icd_df = pd.read_csv(icd_csv_path, dtype=str)
+            # Merge on filename
+            if 'Filename' in icd_df.columns and 'source_file' in base_df.columns:
+                # Extract ICD columns
+                icd_cols = ['Filename', 'ICD1', 'ICD2', 'ICD3', 'ICD4']
+                icd_cols_available = [col for col in icd_cols if col in icd_df.columns]
+                icd_df_merge = icd_df[icd_cols_available]
+                base_df = base_df.merge(icd_df_merge, left_on='source_file', right_on='Filename', how='left')
+                base_df = base_df.drop(columns=['Filename'], errors='ignore')
+                logger.info(f"[Unified {job_id}] Merged ICD results")
+            elif 'Filename' in icd_df.columns and 'Filename' in base_df.columns:
+                # Both have Filename column
+                icd_cols = ['Filename', 'ICD1', 'ICD2', 'ICD3', 'ICD4']
+                icd_cols_available = [col for col in icd_cols if col in icd_df.columns]
+                icd_cols_available = [col for col in icd_cols_available if col not in base_df.columns or col == 'Filename']
+                icd_df_merge = icd_df[icd_cols_available]
+                base_df = base_df.merge(icd_df_merge, on='Filename', how='left')
+                logger.info(f"[Unified {job_id}] Merged ICD results on Filename")
+        
+        # Save final result
+        result_base = Path(f"/tmp/results/{job_id}_unified_result")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        # Save as both CSV and XLSX
+        result_csv = f"{result_base}.csv"
+        result_xlsx = f"{result_base}.xlsx"
+        
+        base_df.to_csv(result_csv, index=False)
+        
+        # Convert to XLSX
+        try:
+            base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")
+            result_xlsx = None
+        
+        job.result_file = result_csv
+        job.result_file_xlsx = result_xlsx
+        job.status = "completed"
+        job.message = "Unified processing completed successfully"
+        job.progress = 100
+        
+        logger.info(f"[Unified {job_id}] Processing completed: {result_csv}")
+        
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to clean up temp directory: {e}")
+        
+        # Force garbage collection
+        gc.collect()
+        
+    except Exception as e:
+        logger.error(f"[Unified {job_id}] Error: {str(e)}")
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Processing failed: {str(e)}"
+        
+        # Clean up on failure
+        try:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+        except:
+            pass
+        
+        gc.collect()
+
+
+@app.post("/process-unified")
+async def process_unified(
+    background_tasks: BackgroundTasks,
+    zip_file: UploadFile = File(...),
+    excel_file: UploadFile = File(...),
+    # Extraction parameters
+    enable_extraction: bool = Form(default=True),
+    extraction_n_pages: int = Form(default=2),
+    extraction_model: str = Form(default="gemini-2.5-flash"),
+    worktracker_group: str = Form(default=""),
+    worktracker_batch: str = Form(default=""),
+    extract_csn: bool = Form(default=False),
+    # CPT parameters
+    enable_cpt: bool = Form(default=True),
+    cpt_vision_mode: bool = Form(default=False),
+    cpt_model: str = Form(default="gpt5"),
+    cpt_max_workers: int = Form(default=5),
+    cpt_custom_instructions: str = Form(default=""),
+    # ICD parameters
+    enable_icd: bool = Form(default=True),
+    icd_n_pages: int = Form(default=1),
+    icd_model: str = Form(default="openai/gpt-5"),
+    icd_max_workers: int = Form(default=5),
+    icd_custom_instructions: str = Form(default="")
+):
+    """
+    Unified endpoint to run data extraction + CPT prediction + ICD prediction
+    Results are intelligently merged into a single output file
+    """
+    try:
+        logger.info(f"Received unified processing request - zip: {zip_file.filename}, excel: {excel_file.filename}")
+        logger.info(f"Enabled: extraction={enable_extraction}, CPT={enable_cpt}, ICD={enable_icd}")
+        
+        # Validate at least one step is enabled
+        if not (enable_extraction or enable_cpt or enable_icd):
+            raise HTTPException(status_code=400, detail="At least one processing step must be enabled")
+        
+        # Validate file types
+        if not zip_file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Patient documents must be in a ZIP file")
+        
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Instructions file must be an Excel file")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created unified processing job {job_id}")
+        
+        # Save uploaded files
+        zip_path = f"/tmp/{job_id}_input.zip"
+        excel_path = f"/tmp/{job_id}_instructions{Path(excel_file.filename).suffix}"
+        
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        
+        with open(excel_path, "wb") as f:
+            shutil.copyfileobj(excel_file.file, f)
+        
+        logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
+        
+        # Start background processing
+        background_tasks.add_task(
+            process_unified_background,
+            job_id=job_id,
+            zip_path=zip_path,
+            excel_path=excel_path,
+            excel_filename=excel_file.filename,
+            enable_extraction=enable_extraction,
+            extraction_n_pages=extraction_n_pages,
+            extraction_model=extraction_model,
+            worktracker_group=worktracker_group,
+            worktracker_batch=worktracker_batch,
+            extract_csn=extract_csn,
+            enable_cpt=enable_cpt,
+            cpt_vision_mode=cpt_vision_mode,
+            cpt_model=cpt_model,
+            cpt_max_workers=cpt_max_workers,
+            cpt_custom_instructions=cpt_custom_instructions,
+            enable_icd=enable_icd,
+            icd_n_pages=icd_n_pages,
+            icd_model=icd_model,
+            icd_max_workers=icd_max_workers,
+            icd_custom_instructions=icd_custom_instructions
+        )
+        
+        logger.info(f"Background unified processing task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Unified processing started"}
+        
+    except Exception as e:
+        logger.error(f"Unified processing upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json
