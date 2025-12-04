@@ -808,43 +808,15 @@
                     class="checkbox-input"
                   />
                   <span class="checkbox-text">
-                    ⚡ Use Gemini 2.5 Flash (Fast & Efficient - Recommended)
+                    ⚡ Use New Splitting Method (Recommended)
                   </span>
                 </label>
-                <p
-                  class="form-hint"
-                  v-if="useGeminiSplit"
-                  style="margin-top: 10px; color: #6b7280"
-                >
-                  Gemini Flash analyzes PDF pages directly without OCR. Much faster and won't clog the server!
-                  Processes {{ splitBatchSize }} pages per API call with 3 parallel threads.
-                </p>
                 <p
                   class="form-hint"
                   v-else
                   style="margin-top: 10px; color: #6b7280"
                 >
                   OCR-based method (legacy). Slower and can be resource-intensive.
-                </p>
-              </div>
-              
-              <!-- Batch Size Control (only for Gemini) -->
-              <div v-if="useGeminiSplit" class="form-group" style="margin-top: 15px">
-                <label for="splitBatchSize" class="filter-label">
-                  Batch Size (pages per API call):
-                </label>
-                <input
-                  id="splitBatchSize"
-                  v-model.number="splitBatchSize"
-                  type="number"
-                  min="10"
-                  max="100"
-                  class="filter-input"
-                  style="max-width: 150px"
-                  :disabled="isSplitting"
-                />
-                <p class="form-hint" style="margin-top: 5px; color: #6b7280">
-                  Default: 30 pages with 3 parallel threads. Adjust if needed (10-100 pages).
                 </p>
               </div>
             </div>
@@ -928,7 +900,7 @@
             >
               <span v-if="isSplitting" class="spinner"></span>
               <span v-else class="btn-icon">✂️</span>
-              {{ isSplitting ? (useGeminiSplit ? "Splitting with Gemini..." : "Splitting PDF...") : "Split PDF" }}
+              {{ isSplitting ? "Splitting PDF..." : "Split PDF" }}
             </button>
 
             <button
@@ -4586,8 +4558,7 @@ export default {
       isSplitting: false,
       isPdfDragActive: false,
       statusPollingInterval: null,
-      useGeminiSplit: true, // Default to Gemini method (recommended)
-      splitBatchSize: 30, // Pages per API call for Gemini (30 pages with 3 parallel threads)
+      useGeminiSplit: true, // Default to new splitting method (recommended)
       // CPT prediction functionality
       csvFile: null,
       selectedClient: "uni",
@@ -5133,7 +5104,7 @@ export default {
     },
 
     async startSplitting() {
-      const method = this.useGeminiSplit ? "Gemini" : "OCR";
+      const method = this.useGeminiSplit ? "new" : "OCR";
       console.log(`🚀 Starting PDF splitting process (${method} method)...`);
       console.log(
         "📄 PDF File:",
@@ -5146,9 +5117,6 @@ export default {
           : "No file"
       );
       console.log("🔍 Filter String:", this.filterString);
-      if (this.useGeminiSplit) {
-        console.log("📦 Batch Size:", this.splitBatchSize);
-      }
 
       if (!this.pdfFile) {
         console.error("❌ No PDF file selected");
@@ -5172,8 +5140,6 @@ export default {
       let splitUrl;
       if (this.useGeminiSplit) {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf-gemini");
-        formData.append("batch_size", this.splitBatchSize.toString());
-        formData.append("model", "gemini-2.5-flash");
       } else {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf");
       }

@@ -489,13 +489,13 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 30, model: str = "gemini-2.5-flash", max_workers: int = 3):
-    """Background task to split PDF using Gemini 2.5 Flash for page detection with parallel processing"""
+def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 10, model: str = "gemini-2.5-flash", max_workers: int = 3):
+    """Background task to split PDF using new splitting method"""
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = "Starting Gemini-based PDF splitting (parallel processing)..."
+        job.message = "Starting PDF splitting..."
         job.progress = 10
         
         # Use existing output folder
@@ -531,12 +531,12 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         if not script_path.exists():
             raise Exception(f"Gemini splitting script not found: {script_path}")
         
-        job.message = f"Gemini analyzing pages (batch size: {batch_size}, {max_workers} threads)..."
+        job.message = f"Analyzing PDF pages..."
         job.progress = 40
         
-        # Run the Gemini script with parallel processing
+        # Run the new splitting script
         # Args: input_pdf, output_folder, filter_strings, batch_size, model, max_workers
-        logger.info(f"Running Gemini split script with filter: {filter_string}")
+        logger.info(f"Running new split script with filter: {filter_string}")
         logger.info(f"Input PDF: {pdf_path}")
         logger.info(f"Output folder: {output_dir}")
         logger.info(f"Batch size: {batch_size}")
@@ -594,7 +594,7 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         pdf_files = list(output_dir.glob("*.pdf"))
         
         if not pdf_files:
-            raise Exception("No PDF files were created by the Gemini splitting script. This could mean no matching pages were found.")
+            raise Exception("No PDF files were created by the splitting script. This could mean no matching pages were found.")
         
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for pdf_file in pdf_files:
@@ -603,7 +603,7 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         job.result_file = str(zip_path)
         job.status = "completed"
         job.progress = 100
-        job.message = f"Gemini splitting completed successfully! Created {len(pdf_files)} sections."
+        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections."
         
         # Clean up uploaded file
         os.unlink(pdf_path)
@@ -616,8 +616,8 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
-        job.message = f"Gemini PDF splitting failed: {str(e)}"
-        logger.error(f"Gemini split job {job_id} failed: {str(e)}")
+        job.message = f"PDF splitting failed: {str(e)}"
+        logger.error(f"Split job {job_id} failed: {str(e)}")
         
         # Clean up on error
         try:
@@ -1928,27 +1928,21 @@ async def split_pdf(
 async def split_pdf_gemini(
     background_tasks: BackgroundTasks,
     pdf_file: UploadFile = File(...),
-    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
-    batch_size: int = Form(30, description="Number of pages to process per API call"),
-    model: str = Form("gemini-2.5-flash", description="Gemini model to use"),
-    max_workers: int = Form(3, description="Number of parallel threads for processing")
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
 ):
-    """Upload a single PDF file to split into sections using Gemini 2.5 Flash with parallel processing"""
+    """Upload a single PDF file to split into sections using new splitting method"""
     
     try:
-        logger.info(f"Received Gemini PDF split request - pdf: {pdf_file.filename}, batch_size: {batch_size}, model: {model}, max_workers: {max_workers}")
+        logger.info(f"Received new PDF split request - pdf: {pdf_file.filename}")
         
         # Validate file type
         if not pdf_file.filename.endswith('.pdf'):
             raise HTTPException(status_code=400, detail="File must be a PDF")
         
-        # Validate batch size
-        if batch_size < 1 or batch_size > 100:
-            raise HTTPException(status_code=400, detail="Batch size must be between 1 and 100")
-        
-        # Validate max_workers
-        if max_workers < 1 or max_workers > 10:
-            raise HTTPException(status_code=400, detail="Max workers must be between 1 and 10")
+        # Fixed configuration
+        batch_size = 10
+        model = "gemini-2.5-flash"
+        max_workers = 3
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -1965,12 +1959,12 @@ async def split_pdf_gemini(
         
         logger.info(f"PDF saved - path: {pdf_path}")
         
-        # Start background processing with Gemini (parallel processing)
+        # Start background processing with new splitting method
         background_tasks.add_task(split_pdf_gemini_background, job_id, pdf_path, filter_string, batch_size, model, max_workers)
         
-        logger.info(f"Background Gemini split task started for job {job_id}")
+        logger.info(f"Background split task started for job {job_id}")
         
-        return {"job_id": job_id, "message": "PDF uploaded and Gemini splitting started (parallel processing)"}
+        return {"job_id": job_id, "message": "PDF uploaded and splitting started"}
         
     except Exception as e:
         logger.error(f"Gemini PDF split upload error: {str(e)}")
