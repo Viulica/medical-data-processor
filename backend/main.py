@@ -3819,6 +3819,7 @@ def process_unified_background(
     enable_extraction: bool,
     extraction_n_pages: int,
     extraction_model: str,
+    extraction_max_workers: int,
     worktracker_group: str,
     worktracker_batch: str,
     extract_csn: bool,
@@ -3888,7 +3889,7 @@ def process_unified_background(
                     str(temp_dir / "input"),
                     str(excel_dest),
                     str(extraction_n_pages),
-                    "7",  # max_workers
+                    str(extraction_max_workers),  # Configurable max_workers
                     extraction_model
                 ]
                 
@@ -3936,8 +3937,143 @@ def process_unified_background(
             job.progress = 30
             gc.collect()
         
-        # ==================== STEP 2: CPT Code Prediction ====================
-        if enable_cpt:
+        # ==================== STEP 2 & 3: CPT and ICD Code Predictions ====================
+        # Check if we can run CPT and ICD vision predictions in parallel
+        # Both must be enabled, CPT must be in vision mode, and extraction must be completed or disabled
+        run_cpt_icd_parallel = (
+            enable_cpt and cpt_vision_mode and 
+            enable_icd and
+            (not enable_extraction or (enable_extraction and extraction_csv_path is not None))
+        )
+        
+        if run_cpt_icd_parallel:
+            # Run CPT and ICD vision predictions in parallel for maximum speed
+            job.message = "Step 2/2: Predicting CPT and ICD codes in parallel..."
+            job.progress = 35
+            logger.info(f"[Unified {job_id}] Running CPT and ICD vision predictions in parallel")
+            
+            # Ensure PDFs are unzipped
+            if not (temp_dir / "input").exists():
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir / "input")
+            
+            # Import prediction functions
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api
+            
+            # Create output paths
+            cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
+            icd_csv_path = str(temp_dir / "icd_predictions.csv")
+            Path(cpt_csv_path).parent.mkdir(exist_ok=True)
+            Path(icd_csv_path).parent.mkdir(exist_ok=True)
+            
+            # Get OpenRouter API key
+            api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+            
+            # Thread-safe progress tracking
+            import threading
+            cpt_completed = [0]
+            icd_completed = [0]
+            cpt_total = [0]
+            icd_total = [0]
+            lock = threading.Lock()
+            
+            def cpt_progress(completed, total, message):
+                with lock:
+                    cpt_completed[0] = completed
+                    cpt_total[0] = total
+                    total_completed = cpt_completed[0] + icd_completed[0]
+                    total_tasks = cpt_total[0] + icd_total[0]
+                    if total_tasks > 0:
+                        progress_pct = 35 + int((total_completed / total_tasks) * 50)
+                        job.progress = min(progress_pct, 85)
+                        job.message = f"CPT: {cpt_completed[0]}/{cpt_total[0]}, ICD: {icd_completed[0]}/{icd_total[0]}"
+            
+            def icd_progress(completed, total, message):
+                with lock:
+                    icd_completed[0] = completed
+                    icd_total[0] = total
+                    total_completed = cpt_completed[0] + icd_completed[0]
+                    total_tasks = cpt_total[0] + icd_total[0]
+                    if total_tasks > 0:
+                        progress_pct = 35 + int((total_completed / total_tasks) * 50)
+                        job.progress = min(progress_pct, 85)
+                        job.message = f"CPT: {cpt_completed[0]}/{cpt_total[0]}, ICD: {icd_completed[0]}/{icd_total[0]}"
+            
+            # Run both predictions in parallel using threads
+            import threading
+            cpt_result = [None]
+            icd_result = [None]
+            cpt_error = [None]
+            icd_error = [None]
+            
+            def run_cpt():
+                try:
+                    result = predict_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=cpt_csv_path,
+                        n_pages=cpt_vision_pages,
+                        model="openai/gpt-5:online",
+                        api_key=api_key,
+                        max_workers=cpt_max_workers,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions
+                    )
+                    cpt_result[0] = result
+                except Exception as e:
+                    cpt_error[0] = str(e)
+            
+            def run_icd():
+                try:
+                    result = predict_icd_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=icd_csv_path,
+                        n_pages=icd_n_pages,
+                        model="openai/gpt-5:online",
+                        api_key=api_key,
+                        max_workers=icd_max_workers,
+                        progress_callback=icd_progress,
+                        custom_instructions=icd_custom_instructions
+                    )
+                    icd_result[0] = result
+                except Exception as e:
+                    icd_error[0] = str(e)
+            
+            # Start both threads
+            cpt_thread = threading.Thread(target=run_cpt)
+            icd_thread = threading.Thread(target=run_icd)
+            
+            cpt_thread.start()
+            icd_thread.start()
+            
+            # Wait for both to complete
+            cpt_thread.join()
+            icd_thread.join()
+            
+            # Check results
+            if cpt_error[0]:
+                raise Exception(f"CPT prediction failed: {cpt_error[0]}")
+            if icd_error[0]:
+                raise Exception(f"ICD prediction failed: {icd_error[0]}")
+            if not cpt_result[0]:
+                raise Exception("CPT prediction failed")
+            if not icd_result[0]:
+                raise Exception("ICD prediction failed")
+            
+            # Verify files were created
+            if not os.path.exists(cpt_csv_path):
+                raise Exception(f"CPT prediction reported success but file not found: {cpt_csv_path}")
+            if not os.path.exists(icd_csv_path):
+                raise Exception(f"ICD prediction reported success but file not found: {icd_csv_path}")
+            
+            logger.info(f"[Unified {job_id}] CPT and ICD predictions completed in parallel")
+            job.message = "CPT and ICD predictions completed"
+            job.progress = 85
+            gc.collect()
+        
+        elif enable_cpt:
+            # ==================== STEP 2: CPT Code Prediction ====================
             job.message = "Step 2/3: Predicting CPT codes..."
             job.progress = 35
             logger.info(f"[Unified {job_id}] Starting CPT prediction (vision_mode={cpt_vision_mode}, client={cpt_client})")
@@ -4071,7 +4207,7 @@ def process_unified_background(
             gc.collect()
         
         # ==================== STEP 3: ICD Code Prediction ====================
-        if enable_icd:
+        if enable_icd and not run_cpt_icd_parallel:
             job.message = "Step 3/3: Predicting ICD codes..."
             job.progress = 60
             logger.info(f"[Unified {job_id}] Starting ICD prediction")
@@ -4207,6 +4343,14 @@ def process_unified_background(
             logger.info(f"[Unified {job_id}] ICD CSV columns: {list(icd_df.columns)}")
             logger.info(f"[Unified {job_id}] Base DF columns before ICD merge: {list(base_df.columns)[:10]}")
             
+            # IMPORTANT: Remove any existing ICD columns from extraction data BEFORE merging
+            # This prevents pandas from adding _x/_y suffixes
+            icd_columns_to_remove = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
+            existing_icd_cols = [col for col in icd_columns_to_remove if col in base_df.columns]
+            if existing_icd_cols:
+                logger.info(f"[Unified {job_id}] Removing existing ICD columns from extraction data: {existing_icd_cols}")
+                base_df = base_df.drop(columns=existing_icd_cols, errors='ignore')
+            
             # Check for both 'Patient Filename' and 'Filename' column names
             filename_col = None
             if 'Patient Filename' in icd_df.columns:
@@ -4214,7 +4358,7 @@ def process_unified_background(
             elif 'Filename' in icd_df.columns:
                 filename_col = 'Filename'
             
-            # Extract ICD columns
+            # Extract ICD columns to merge
             icd_cols_to_merge = ['ICD1', 'ICD2', 'ICD3', 'ICD4', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
             icd_cols_available = [col for col in icd_cols_to_merge if col in icd_df.columns]
             
@@ -4224,19 +4368,48 @@ def process_unified_background(
                 icd_df_merge = icd_df[merge_cols]
                 # Rename filename column to match for merge
                 icd_df_merge = icd_df_merge.rename(columns={filename_col: 'source_file'})
-                base_df = base_df.merge(icd_df_merge, on='source_file', how='left')
+                base_df = base_df.merge(icd_df_merge, on='source_file', how='left', suffixes=('', '_drop'))
+                # Drop any columns with _drop suffix (shouldn't happen now, but just in case)
+                base_df = base_df.drop(columns=[col for col in base_df.columns if col.endswith('_drop')], errors='ignore')
                 logger.info(f"[Unified {job_id}] Merged ICD results with columns: {icd_cols_available}")
             elif filename_col and filename_col in base_df.columns:
                 # Both have Filename column (or Patient Filename)
                 merge_cols = [filename_col] + icd_cols_available
                 icd_df_merge = icd_df[merge_cols]
-                # Only include columns that don't already exist in base_df (except the merge key)
-                merge_cols_final = [filename_col] + [col for col in icd_cols_available if col not in base_df.columns]
-                icd_df_merge = icd_df[merge_cols_final]
-                base_df = base_df.merge(icd_df_merge, on=filename_col, how='left')
+                base_df = base_df.merge(icd_df_merge, on=filename_col, how='left', suffixes=('', '_drop'))
+                # Drop any columns with _drop suffix (shouldn't happen now, but just in case)
+                base_df = base_df.drop(columns=[col for col in base_df.columns if col.endswith('_drop')], errors='ignore')
                 logger.info(f"[Unified {job_id}] Merged ICD results on {filename_col}")
             else:
                 logger.warning(f"[Unified {job_id}] Cannot merge ICD: filename_col={filename_col}, source_file in base={('source_file' in base_df.columns)}")
+        
+        # Clean up any remaining merge suffixes (_x, _y) that might have been created
+        # This is a safety measure in case any columns slipped through
+        columns_to_clean = []
+        for col in base_df.columns:
+            if col.endswith('_x') or col.endswith('_y'):
+                # Check if there's a base version without suffix
+                base_col = col.rsplit('_', 1)[0]
+                if base_col in base_df.columns:
+                    # Keep the one without suffix, drop the suffixed one
+                    columns_to_clean.append(col)
+                else:
+                    # Rename the suffixed column to remove the suffix
+                    base_df = base_df.rename(columns={col: base_col})
+        
+        if columns_to_clean:
+            logger.info(f"[Unified {job_id}] Cleaning up merge suffix columns: {columns_to_clean}")
+            base_df = base_df.drop(columns=columns_to_clean, errors='ignore')
+        
+        # Reorder columns to put ICD columns at the end (after all other data)
+        icd_cols = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
+        icd_cols_present = [col for col in icd_cols if col in base_df.columns]
+        if icd_cols_present:
+            # Get all non-ICD columns
+            other_cols = [col for col in base_df.columns if col not in icd_cols_present]
+            # Reorder: other columns first, then ICD columns
+            base_df = base_df[other_cols + icd_cols_present]
+            logger.info(f"[Unified {job_id}] Reordered columns to put ICD columns at the end")
         
         # Log final columns before saving
         logger.info(f"[Unified {job_id}] Final merged dataframe has {len(base_df)} rows and columns: {list(base_df.columns)}")
@@ -4301,6 +4474,7 @@ async def process_unified(
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
     extraction_model: str = Form(default="gemini-2.5-flash"),
+    extraction_max_workers: int = Form(default=10),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     extract_csn: bool = Form(default=False),
@@ -4309,13 +4483,13 @@ async def process_unified(
     cpt_vision_mode: bool = Form(default=False),
     cpt_client: str = Form(default="uni"),  # For non-vision mode
     cpt_vision_pages: int = Form(default=1),  # For vision mode
-    cpt_max_workers: int = Form(default=5),
+    cpt_max_workers: int = Form(default=10),  # Increased for better parallelism
     cpt_custom_instructions: str = Form(default=""),
     cpt_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
-    icd_max_workers: int = Form(default=5),
+    icd_max_workers: int = Form(default=10),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
 ):
@@ -4431,6 +4605,7 @@ async def process_unified(
             enable_extraction=enable_extraction,
             extraction_n_pages=extraction_n_pages,
             extraction_model=extraction_model,
+            extraction_max_workers=extraction_max_workers,
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
             extract_csn=extract_csn,
