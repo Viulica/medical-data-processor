@@ -3825,15 +3825,17 @@ def process_unified_background(
     # CPT params
     enable_cpt: bool,
     cpt_vision_mode: bool,
-    cpt_model: str,
+    cpt_client: str,
+    cpt_vision_pages: int,
     cpt_max_workers: int,
     cpt_custom_instructions: str,
+    cpt_instruction_template_id: Optional[int],
     # ICD params
     enable_icd: bool,
     icd_n_pages: int,
-    icd_model: str,
     icd_max_workers: int,
-    icd_custom_instructions: str
+    icd_custom_instructions: str,
+    icd_instruction_template_id: Optional[int]
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     job = job_status[job_id]
@@ -3937,10 +3939,10 @@ def process_unified_background(
         if enable_cpt:
             job.message = "Step 2/3: Predicting CPT codes..."
             job.progress = 35
-            logger.info(f"[Unified {job_id}] Starting CPT prediction")
+            logger.info(f"[Unified {job_id}] Starting CPT prediction (vision_mode={cpt_vision_mode}, client={cpt_client})")
             
             if cpt_vision_mode:
-                # Use vision model with PDFs
+                # Use vision model with PDFs (always uses GPT-5)
                 job.message = "Predicting CPT codes from PDF images..."
                 
                 # Ensure PDFs are unzipped
@@ -3966,12 +3968,12 @@ def process_unified_background(
                     job.progress = min(progress_pct, 55)
                     job.message = f"CPT prediction: {message}"
                 
-                # Run CPT prediction
+                # Run CPT prediction with vision (always uses openai/gpt-5:online)
                 success = predict_codes_from_pdfs_api(
                     pdf_folder=str(temp_dir / "input"),
                     output_file=str(cpt_csv_base),
-                    n_pages=extraction_n_pages if enable_extraction else 1,
-                    model=cpt_model,
+                    n_pages=cpt_vision_pages,
+                    model="openai/gpt-5:online",  # Vision mode always uses GPT-5
                     api_key=api_key,
                     max_workers=cpt_max_workers,
                     progress_callback=cpt_progress,
@@ -3989,34 +3991,68 @@ def process_unified_background(
                 if not extraction_csv_path:
                     raise Exception("CPT prediction requires data extraction to be enabled when not using vision mode")
                 
-                job.message = "Predicting CPT codes from CSV..."
+                job.message = f"Predicting CPT codes from CSV using {cpt_client} model..."
                 
-                # Import prediction function
-                general_coding_path = Path(__file__).parent / "general-coding"
-                sys.path.insert(0, str(general_coding_path))
-                from predict_general import predict_codes_general_api
-                
-                # Create output path
-                cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
-                
-                # Get OpenAI/OpenRouter API key
-                api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
-                
-                # Progress callback
-                def cpt_progress(completed, total, message):
-                    progress_pct = 35 + int((completed / total) * 20)
-                    job.progress = min(progress_pct, 55)
-                    job.message = f"CPT prediction: {message}"
-                
-                # Run CPT prediction
-                success = predict_codes_general_api(
-                    input_file=extraction_csv_path,
-                    output_file=cpt_csv_path,
-                    model=cpt_model,
-                    api_key=api_key,
-                    max_workers=cpt_max_workers,
-                    progress_callback=cpt_progress
-                )
+                # Determine which prediction method to use based on client
+                if cpt_client == "tan-esc":
+                    # Use custom trained model
+                    custom_coding_path = Path(__file__).parent / "custom-coding"
+                    sys.path.insert(0, str(custom_coding_path))
+                    from predict import predict_codes_api
+                    
+                    cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
+                    
+                    success = predict_codes_api(
+                        input_file=extraction_csv_path,
+                        output_file=cpt_csv_path,
+                        model_dir=str(custom_coding_path),
+                        confidence_threshold=0.5
+                    )
+                    
+                elif cpt_client == "general":
+                    # Use OpenAI general model
+                    general_coding_path = Path(__file__).parent / "general-coding"
+                    sys.path.insert(0, str(general_coding_path))
+                    from predict_general import predict_codes_general_api
+                    
+                    cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
+                    api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+                    
+                    def cpt_progress(completed, total, message):
+                        progress_pct = 35 + int((completed / total) * 20)
+                        job.progress = min(progress_pct, 55)
+                        job.message = f"CPT prediction: {message}"
+                    
+                    success = predict_codes_general_api(
+                        input_file=extraction_csv_path,
+                        output_file=cpt_csv_path,
+                        model="gpt5",
+                        api_key=api_key,
+                        max_workers=cpt_max_workers,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions
+                    )
+                    
+                else:
+                    # Use client-specific prediction (UNI, SIO-STL, GAP-FIN, APO-UTP)
+                    custom_coding_path = Path(__file__).parent / "custom-coding"
+                    sys.path.insert(0, str(custom_coding_path))
+                    from predict import predict_codes_api
+                    
+                    cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
+                    
+                    # Progress callback for custom model
+                    def cpt_progress(completed, total, message):
+                        progress_pct = 35 + int((completed / total) * 20)
+                        job.progress = min(progress_pct, 55)
+                        job.message = f"CPT prediction: {message}"
+                    
+                    success = predict_codes_api(
+                        input_file=extraction_csv_path,
+                        output_file=cpt_csv_path,
+                        model_dir=str(custom_coding_path),
+                        confidence_threshold=0.5
+                    )
                 
                 if not success:
                     raise Exception("CPT prediction failed")
@@ -4056,12 +4092,12 @@ def process_unified_background(
                 job.progress = min(progress_pct, 85)
                 job.message = f"ICD prediction: {message}"
             
-            # Run ICD prediction
+            # Run ICD prediction (always uses GPT-5 vision)
             success = predict_icd_codes_from_pdfs_api(
                 pdf_folder=str(temp_dir / "input"),
                 output_file=str(icd_csv_base),
                 n_pages=icd_n_pages,
-                model=icd_model,
+                model="openai/gpt-5:online",  # ICD always uses GPT-5 vision
                 api_key=api_key,
                 max_workers=icd_max_workers,
                 progress_callback=icd_progress,
@@ -4208,15 +4244,17 @@ async def process_unified(
     # CPT parameters
     enable_cpt: bool = Form(default=True),
     cpt_vision_mode: bool = Form(default=False),
-    cpt_model: str = Form(default="gpt5"),
+    cpt_client: str = Form(default="uni"),  # For non-vision mode
+    cpt_vision_pages: int = Form(default=1),  # For vision mode
     cpt_max_workers: int = Form(default=5),
     cpt_custom_instructions: str = Form(default=""),
+    cpt_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
-    icd_model: str = Form(default="openai/gpt-5"),
     icd_max_workers: int = Form(default=5),
-    icd_custom_instructions: str = Form(default="")
+    icd_custom_instructions: str = Form(default=""),
+    icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
 ):
     """
     Unified endpoint to run data extraction + CPT prediction + ICD prediction
@@ -4256,6 +4294,21 @@ async def process_unified(
         
         logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
         
+        # Fetch instruction templates if provided
+        if cpt_instruction_template_id:
+            from db_utils import get_prediction_instruction
+            template = get_prediction_instruction(instruction_id=cpt_instruction_template_id)
+            if template:
+                cpt_custom_instructions = template['instructions_text']
+                logger.info(f"Using CPT instruction template '{template['name']}' for unified processing")
+        
+        if icd_instruction_template_id:
+            from db_utils import get_prediction_instruction
+            template = get_prediction_instruction(instruction_id=icd_instruction_template_id)
+            if template:
+                icd_custom_instructions = template['instructions_text']
+                logger.info(f"Using ICD instruction template '{template['name']}' for unified processing")
+        
         # Start background processing
         background_tasks.add_task(
             process_unified_background,
@@ -4271,14 +4324,16 @@ async def process_unified(
             extract_csn=extract_csn,
             enable_cpt=enable_cpt,
             cpt_vision_mode=cpt_vision_mode,
-            cpt_model=cpt_model,
+            cpt_client=cpt_client,
+            cpt_vision_pages=cpt_vision_pages,
             cpt_max_workers=cpt_max_workers,
             cpt_custom_instructions=cpt_custom_instructions,
+            cpt_instruction_template_id=cpt_instruction_template_id,
             enable_icd=enable_icd,
             icd_n_pages=icd_n_pages,
-            icd_model=icd_model,
             icd_max_workers=icd_max_workers,
-            icd_custom_instructions=icd_custom_instructions
+            icd_custom_instructions=icd_custom_instructions,
+            icd_instruction_template_id=icd_instruction_template_id
         )
         
         logger.info(f"Background unified processing task started for job {job_id}")
