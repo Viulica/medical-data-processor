@@ -5591,6 +5591,9 @@ export default {
     });
   },
   methods: {
+    getBackendUrl() {
+      return API_BASE_URL;
+    },
     isValidCsvOrXlsxFile(filename) {
       if (!filename) return false;
       const lower = filename.toLowerCase();
