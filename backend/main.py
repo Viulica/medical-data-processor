@@ -3884,6 +3884,7 @@ def process_unified_background(
             try:
                 cmd = [
                     sys.executable,
+                    str(script_path),
                     str(temp_dir / "input"),
                     str(excel_dest),
                     str(extraction_n_pages),
