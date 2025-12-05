@@ -4167,14 +4167,32 @@ def process_unified_background(
             elif cpt_vision_mode:
                 # Merge CPT vision results with extraction
                 cpt_df = pd.read_csv(cpt_csv_path, dtype=str)
-                # Merge on filename (assuming both have a filename/source_file column)
-                if 'Filename' in cpt_df.columns and 'source_file' in base_df.columns:
-                    # Extract just the CPT-related columns from cpt_df
-                    cpt_cols = ['Filename', 'Predicted Code', 'Tokens Used', 'Cost ($)', 'Error', 'Model Source']
-                    cpt_df_merge = cpt_df[cpt_cols]
-                    base_df = base_df.merge(cpt_df_merge, left_on='source_file', right_on='Filename', how='left')
-                    base_df = base_df.drop(columns=['Filename'], errors='ignore')
-                    logger.info(f"[Unified {job_id}] Merged CPT vision results")
+                logger.info(f"[Unified {job_id}] CPT vision CSV columns: {list(cpt_df.columns)}")
+                logger.info(f"[Unified {job_id}] Base DF columns: {list(base_df.columns)[:10]}")
+                
+                # Check for both 'Patient Filename' and 'Filename' column names
+                filename_col = None
+                if 'Patient Filename' in cpt_df.columns:
+                    filename_col = 'Patient Filename'
+                elif 'Filename' in cpt_df.columns:
+                    filename_col = 'Filename'
+                
+                if filename_col and 'source_file' in base_df.columns:
+                    # Extract CPT-related columns (actual column names from predict_codes_from_pdfs_api)
+                    cpt_cols_to_merge = ['ASA Code', 'Procedure Code', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+                    cpt_cols_available = [col for col in cpt_cols_to_merge if col in cpt_df.columns]
+                    
+                    # Include filename column for merging
+                    merge_cols = [filename_col] + cpt_cols_available
+                    cpt_df_merge = cpt_df[merge_cols]
+                    
+                    # Rename filename column to match for merge
+                    cpt_df_merge = cpt_df_merge.rename(columns={filename_col: 'source_file'})
+                    
+                    base_df = base_df.merge(cpt_df_merge, on='source_file', how='left')
+                    logger.info(f"[Unified {job_id}] Merged CPT vision results with columns: {cpt_cols_available}")
+                else:
+                    logger.warning(f"[Unified {job_id}] Cannot merge CPT: filename_col={filename_col}, source_file in base={('source_file' in base_df.columns)}")
             else:
                 # CPT was run on extraction CSV, so it should already have all extraction columns
                 base_df = pd.read_csv(cpt_csv_path, dtype=str)
@@ -4186,23 +4204,42 @@ def process_unified_background(
             if not os.path.exists(icd_csv_path):
                 raise Exception(f"ICD predictions file not found: {icd_csv_path}")
             icd_df = pd.read_csv(icd_csv_path, dtype=str)
-            # Merge on filename
-            if 'Filename' in icd_df.columns and 'source_file' in base_df.columns:
-                # Extract ICD columns
-                icd_cols = ['Filename', 'ICD1', 'ICD2', 'ICD3', 'ICD4']
-                icd_cols_available = [col for col in icd_cols if col in icd_df.columns]
-                icd_df_merge = icd_df[icd_cols_available]
-                base_df = base_df.merge(icd_df_merge, left_on='source_file', right_on='Filename', how='left')
-                base_df = base_df.drop(columns=['Filename'], errors='ignore')
-                logger.info(f"[Unified {job_id}] Merged ICD results")
-            elif 'Filename' in icd_df.columns and 'Filename' in base_df.columns:
-                # Both have Filename column
-                icd_cols = ['Filename', 'ICD1', 'ICD2', 'ICD3', 'ICD4']
-                icd_cols_available = [col for col in icd_cols if col in icd_df.columns]
-                icd_cols_available = [col for col in icd_cols_available if col not in base_df.columns or col == 'Filename']
-                icd_df_merge = icd_df[icd_cols_available]
-                base_df = base_df.merge(icd_df_merge, on='Filename', how='left')
-                logger.info(f"[Unified {job_id}] Merged ICD results on Filename")
+            logger.info(f"[Unified {job_id}] ICD CSV columns: {list(icd_df.columns)}")
+            logger.info(f"[Unified {job_id}] Base DF columns before ICD merge: {list(base_df.columns)[:10]}")
+            
+            # Check for both 'Patient Filename' and 'Filename' column names
+            filename_col = None
+            if 'Patient Filename' in icd_df.columns:
+                filename_col = 'Patient Filename'
+            elif 'Filename' in icd_df.columns:
+                filename_col = 'Filename'
+            
+            # Extract ICD columns
+            icd_cols_to_merge = ['ICD1', 'ICD2', 'ICD3', 'ICD4', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+            icd_cols_available = [col for col in icd_cols_to_merge if col in icd_df.columns]
+            
+            if filename_col and 'source_file' in base_df.columns:
+                # Merge on source_file
+                merge_cols = [filename_col] + icd_cols_available
+                icd_df_merge = icd_df[merge_cols]
+                # Rename filename column to match for merge
+                icd_df_merge = icd_df_merge.rename(columns={filename_col: 'source_file'})
+                base_df = base_df.merge(icd_df_merge, on='source_file', how='left')
+                logger.info(f"[Unified {job_id}] Merged ICD results with columns: {icd_cols_available}")
+            elif filename_col and filename_col in base_df.columns:
+                # Both have Filename column (or Patient Filename)
+                merge_cols = [filename_col] + icd_cols_available
+                icd_df_merge = icd_df[merge_cols]
+                # Only include columns that don't already exist in base_df (except the merge key)
+                merge_cols_final = [filename_col] + [col for col in icd_cols_available if col not in base_df.columns]
+                icd_df_merge = icd_df[merge_cols_final]
+                base_df = base_df.merge(icd_df_merge, on=filename_col, how='left')
+                logger.info(f"[Unified {job_id}] Merged ICD results on {filename_col}")
+            else:
+                logger.warning(f"[Unified {job_id}] Cannot merge ICD: filename_col={filename_col}, source_file in base={('source_file' in base_df.columns)}")
+        
+        # Log final columns before saving
+        logger.info(f"[Unified {job_id}] Final merged dataframe has {len(base_df)} rows and columns: {list(base_df.columns)}")
         
         # Save final result
         result_base = Path(f"/tmp/results/{job_id}_unified_result")
