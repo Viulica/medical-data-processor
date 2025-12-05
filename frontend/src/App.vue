@@ -1086,9 +1086,9 @@
                     <small class="help-text">AI will analyze the first N pages from each patient PDF (1-50)</small>
                   </div>
                   <div class="setting-group" style="margin-top: 15px">
-                    <label for="unified-cpt-workers">Max Workers</label>
+                    <label for="unified-cpt-workers-vision">Max Workers</label>
                     <input
-                      id="unified-cpt-workers"
+                      id="unified-cpt-workers-vision"
                       v-model.number="unifiedCptMaxWorkers"
                       type="number"
                       min="1"
@@ -1098,20 +1098,71 @@
                     />
                     <small class="help-text">Number of concurrent processing threads</small>
                   </div>
+                  
+                  <!-- Custom Instructions with Template Toggle for Vision Mode -->
                   <div class="form-group" style="margin-top: 15px">
-                    <label for="unified-cpt-vision-instructions" class="form-label">
-                      Additional instructions for CPT code prediction (optional):
-                    </label>
-                    <textarea
-                      id="unified-cpt-vision-instructions"
-                      v-model="unifiedCptCustomInstructions"
-                      class="form-textarea"
-                      rows="3"
-                      placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
-                    ></textarea>
-                    <p class="form-hint" style="margin-top: 8px; color: #6b7280">
-                      These instructions will be appended to the AI prompt for all predictions in this batch.
-                    </p>
+                    <div class="template-selection-toggle">
+                      <label class="toggle-label">
+                        <input
+                          v-model="unifiedUseCptTemplate"
+                          type="checkbox"
+                          class="toggle-checkbox"
+                        />
+                        <span class="toggle-text">Use saved template</span>
+                      </label>
+                    </div>
+
+                    <!-- Template Dropdown (when using template) -->
+                    <div
+                      v-if="unifiedUseCptTemplate"
+                      class="template-dropdown-section"
+                      style="margin-top: 10px"
+                    >
+                      <select
+                        v-model="unifiedSelectedCptInstructionId"
+                        class="template-select"
+                        @focus="ensureCptInstructionsLoaded"
+                      >
+                        <option :value="null" disabled>
+                          Select CPT template...
+                        </option>
+                        <option
+                          v-for="instruction in predictionInstructions.filter(
+                            (i) => i.instruction_type === 'cpt'
+                          )"
+                          :key="instruction.id"
+                          :value="instruction.id"
+                        >
+                          {{ instruction.name }}
+                        </option>
+                      </select>
+                      <p class="template-hint">
+                        <a
+                          href="#"
+                          @click.prevent="loadPredictionInstructions"
+                          class="manage-link"
+                        >
+                          Manage instruction templates
+                        </a>
+                      </p>
+                    </div>
+
+                    <!-- Manual Text Input (when not using template) -->
+                    <div v-else style="margin-top: 10px">
+                      <label for="unified-cpt-vision-instructions" class="form-label">
+                        Additional instructions for CPT code prediction (optional):
+                      </label>
+                      <textarea
+                        id="unified-cpt-vision-instructions"
+                        v-model="unifiedCptCustomInstructions"
+                        class="form-textarea"
+                        rows="3"
+                        placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
+                      ></textarea>
+                      <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                        These instructions will be appended to the AI prompt for all predictions in this batch.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -6457,13 +6508,13 @@ export default {
         formData.append("cpt_vision_pages", this.unifiedCptVisionPages);
       } else {
         formData.append("cpt_client", this.unifiedCptSelectedClient);
-        // Send template ID if template is selected
-        if (this.unifiedUseCptTemplate && this.unifiedSelectedCptInstructionId) {
-          formData.append("cpt_instruction_template_id", this.unifiedSelectedCptInstructionId);
-        }
       }
       formData.append("cpt_max_workers", this.unifiedCptMaxWorkers);
       formData.append("cpt_custom_instructions", this.unifiedCptCustomInstructions || "");
+      // Send CPT template ID if template is selected (works for both vision and non-vision modes)
+      if (this.unifiedUseCptTemplate && this.unifiedSelectedCptInstructionId) {
+        formData.append("cpt_instruction_template_id", this.unifiedSelectedCptInstructionId);
+      }
       
       // ICD parameters
       formData.append("enable_icd", this.unifiedEnableIcd);
