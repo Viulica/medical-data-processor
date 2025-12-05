@@ -4233,7 +4233,8 @@ def process_unified_background(
 async def process_unified(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
-    excel_file: UploadFile = File(...),
+    excel_file: UploadFile = File(None),  # Optional - can use template instead
+    template_id: Optional[int] = Form(default=None),  # Use saved template instead of excel file
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
@@ -4272,7 +4273,11 @@ async def process_unified(
         if not zip_file.filename.endswith('.zip'):
             raise HTTPException(status_code=400, detail="Patient documents must be in a ZIP file")
         
-        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+        # Validate that either excel_file or template_id is provided
+        if not excel_file and not template_id:
+            raise HTTPException(status_code=400, detail="Either an Excel file or a template ID must be provided")
+        
+        if excel_file and excel_file.filename and not excel_file.filename.endswith(('.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Instructions file must be an Excel file")
         
         # Generate job ID
@@ -4282,15 +4287,40 @@ async def process_unified(
         
         logger.info(f"Created unified processing job {job_id}")
         
-        # Save uploaded files
+        # Save uploaded ZIP file
         zip_path = f"/tmp/{job_id}_input.zip"
-        excel_path = f"/tmp/{job_id}_instructions{Path(excel_file.filename).suffix}"
-        
         with open(zip_path, "wb") as f:
             shutil.copyfileobj(zip_file.file, f)
         
-        with open(excel_path, "wb") as f:
-            shutil.copyfileobj(excel_file.file, f)
+        # Handle excel file or template
+        excel_path = None
+        excel_filename = None
+        
+        if template_id:
+            # Export template to temporary Excel file
+            from db_utils import get_template
+            template = get_template(template_id)
+            if not template:
+                raise HTTPException(status_code=404, detail=f"Template with ID {template_id} not found")
+            
+            logger.info(f"Using template '{template['name']}' (ID: {template_id}) for extraction")
+            
+            # Create temporary Excel file from template
+            import pandas as pd
+            excel_path = f"/tmp/{job_id}_instructions.xlsx"
+            excel_filename = f"{template['name']}.xlsx"
+            
+            # Convert template fields to Excel format
+            fields_data = template['template_data'].get('fields', [])
+            df = pd.DataFrame(fields_data)
+            df.to_excel(excel_path, index=False, engine='openpyxl')
+            logger.info(f"Exported template to Excel: {excel_path}")
+        else:
+            # Use uploaded Excel file
+            excel_path = f"/tmp/{job_id}_instructions{Path(excel_file.filename).suffix}"
+            excel_filename = excel_file.filename
+            with open(excel_path, "wb") as f:
+                shutil.copyfileobj(excel_file.file, f)
         
         logger.info(f"Files saved - zip: {zip_path}, excel: {excel_path}")
         
@@ -4315,7 +4345,7 @@ async def process_unified(
             job_id=job_id,
             zip_path=zip_path,
             excel_path=excel_path,
-            excel_filename=excel_file.filename,
+            excel_filename=excel_filename,
             enable_extraction=enable_extraction,
             extraction_n_pages=extraction_n_pages,
             extraction_model=extraction_model,

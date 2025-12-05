@@ -900,13 +900,58 @@
               </div>
             </div>
 
-            <!-- Step 2: Excel Instructions -->
+            <!-- Step 2: Excel Instructions or Template Selection -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
-                <h3>Extraction Template (Excel)</h3>
+                <h3>Processing Template</h3>
               </div>
+
+              <!-- Template Selection Option -->
+              <div class="template-selection-toggle">
+                <label class="toggle-label">
+                  <input
+                    v-model="unifiedUseExtractionTemplate"
+                    type="checkbox"
+                    class="toggle-checkbox"
+                  />
+                  <span class="toggle-text">Use saved template instead</span>
+                </label>
+              </div>
+
+              <!-- Template Dropdown (when using template) -->
               <div
+                v-if="unifiedUseExtractionTemplate"
+                class="template-dropdown-section"
+              >
+                <select
+                  v-model="unifiedSelectedExtractionTemplateId"
+                  class="template-select"
+                  @focus="ensureTemplatesLoaded"
+                >
+                  <option :value="null" disabled>Select a template...</option>
+                  <option
+                    v-for="template in allTemplatesForDropdown"
+                    :key="template.id"
+                    :value="template.id"
+                  >
+                    {{ template.name }}
+                  </option>
+                </select>
+                <p class="template-hint">
+                  <a
+                    href="#"
+                    @click.prevent="loadTemplates"
+                    class="manage-link"
+                  >
+                    Manage templates
+                  </a>
+                </p>
+              </div>
+
+              <!-- Excel File Upload (when not using template) -->
+              <div
+                v-else
                 class="dropzone"
                 :class="{
                   active: isUnifiedExcelDragActive,
@@ -5216,6 +5261,8 @@ export default {
       unifiedExtractionModel: "gemini-2.5-flash",
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
+      unifiedUseExtractionTemplate: false,
+      unifiedSelectedExtractionTemplateId: null,
       // Unified - CPT settings
       unifiedCptVisionMode: false,
       unifiedCptSelectedClient: "uni", // For non-vision mode
@@ -5389,8 +5436,15 @@ export default {
       if (!this.unifiedEnableExtraction && !this.unifiedEnableCpt && !this.unifiedEnableIcd) {
         return false;
       }
-      // Must have files uploaded
-      if (!this.unifiedZipFile || !this.unifiedExcelFile) {
+      // Must have ZIP file uploaded
+      if (!this.unifiedZipFile) {
+        return false;
+      }
+      // Must have either excel file OR template selected
+      const hasTemplate = this.unifiedUseExtractionTemplate
+        ? this.unifiedSelectedExtractionTemplateId !== null
+        : this.unifiedExcelFile;
+      if (!hasTemplate) {
         return false;
       }
       // Validate extraction settings if enabled
@@ -6380,7 +6434,13 @@ export default {
 
       const formData = new FormData();
       formData.append("zip_file", this.unifiedZipFile);
-      formData.append("excel_file", this.unifiedExcelFile);
+      
+      // Add either excel file or template ID for extraction
+      if (this.unifiedUseExtractionTemplate && this.unifiedSelectedExtractionTemplateId) {
+        formData.append("template_id", this.unifiedSelectedExtractionTemplateId);
+      } else {
+        formData.append("excel_file", this.unifiedExcelFile);
+      }
       
       // Extraction parameters
       formData.append("enable_extraction", this.unifiedEnableExtraction);
@@ -6556,10 +6616,13 @@ export default {
       this.unifiedEnableExtraction = true;
       this.unifiedEnableCpt = true;
       this.unifiedEnableIcd = true;
+      // Extraction settings
       this.unifiedExtractionPages = 2;
       this.unifiedExtractionModel = "gemini-2.5-flash";
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
+      this.unifiedUseExtractionTemplate = false;
+      this.unifiedSelectedExtractionTemplateId = null;
       // CPT settings
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
