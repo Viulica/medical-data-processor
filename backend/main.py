@@ -3956,9 +3956,9 @@ def process_unified_background(
                 sys.path.insert(0, str(general_coding_path))
                 from predict_general import predict_codes_from_pdfs_api
                 
-                # Create output path
-                cpt_csv_base = temp_dir / "cpt_predictions"
-                cpt_csv_base.parent.mkdir(exist_ok=True)
+                # Create output path with .csv extension
+                cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
+                Path(cpt_csv_path).parent.mkdir(exist_ok=True)
                 
                 # Get OpenRouter API key
                 api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
@@ -3972,7 +3972,7 @@ def process_unified_background(
                 # Run CPT prediction with vision (always uses openai/gpt-5:online)
                 success = predict_codes_from_pdfs_api(
                     pdf_folder=str(temp_dir / "input"),
-                    output_file=str(cpt_csv_base),
+                    output_file=cpt_csv_path,
                     n_pages=cpt_vision_pages,
                     model="openai/gpt-5:online",  # Vision mode always uses GPT-5
                     api_key=api_key,
@@ -3982,7 +3982,9 @@ def process_unified_background(
                 )
                 
                 if success:
-                    cpt_csv_path = f"{cpt_csv_base}.csv"
+                    # Verify file was actually created
+                    if not os.path.exists(cpt_csv_path):
+                        raise Exception(f"CPT prediction reported success but file not found: {cpt_csv_path}")
                     logger.info(f"[Unified {job_id}] CPT prediction completed: {cpt_csv_path}")
                 else:
                     raise Exception("CPT prediction failed")
@@ -4058,6 +4060,10 @@ def process_unified_background(
                 if not success:
                     raise Exception("CPT prediction failed")
                 
+                # Verify file was actually created
+                if not os.path.exists(cpt_csv_path):
+                    raise Exception(f"CPT prediction reported success but file not found: {cpt_csv_path}")
+                
                 logger.info(f"[Unified {job_id}] CPT prediction completed: {cpt_csv_path}")
             
             job.message = "CPT prediction completed"
@@ -4080,9 +4086,9 @@ def process_unified_background(
             sys.path.insert(0, str(general_coding_path))
             from predict_general import predict_icd_codes_from_pdfs_api
             
-            # Create output path
-            icd_csv_base = temp_dir / "icd_predictions"
-            icd_csv_base.parent.mkdir(exist_ok=True)
+            # Create output path with .csv extension
+            icd_csv_path = str(temp_dir / "icd_predictions.csv")
+            Path(icd_csv_path).parent.mkdir(exist_ok=True)
             
             # Get OpenRouter API key
             api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
@@ -4096,7 +4102,7 @@ def process_unified_background(
             # Run ICD prediction (always uses GPT-5 vision)
             success = predict_icd_codes_from_pdfs_api(
                 pdf_folder=str(temp_dir / "input"),
-                output_file=str(icd_csv_base),
+                output_file=icd_csv_path,
                 n_pages=icd_n_pages,
                 model="openai/gpt-5:online",  # ICD always uses GPT-5 vision
                 api_key=api_key,
@@ -4106,7 +4112,9 @@ def process_unified_background(
             )
             
             if success:
-                icd_csv_path = f"{icd_csv_base}.csv"
+                # Verify file was actually created
+                if not os.path.exists(icd_csv_path):
+                    raise Exception(f"ICD prediction reported success but file not found: {icd_csv_path}")
                 logger.info(f"[Unified {job_id}] ICD prediction completed: {icd_csv_path}")
             else:
                 raise Exception("ICD prediction failed")
@@ -4124,14 +4132,23 @@ def process_unified_background(
         
         # Determine the base dataframe
         if extraction_csv_path:
+            # Verify file exists before reading
+            if not os.path.exists(extraction_csv_path):
+                raise Exception(f"Extraction CSV file not found: {extraction_csv_path}")
             # Start with extraction data
             base_df = pd.read_csv(extraction_csv_path, dtype=str)
             logger.info(f"[Unified {job_id}] Base: extraction CSV with {len(base_df)} rows")
         elif cpt_csv_path and cpt_vision_mode:
+            # Verify file exists before reading
+            if not os.path.exists(cpt_csv_path):
+                raise Exception(f"CPT CSV file not found: {cpt_csv_path}")
             # If no extraction but CPT vision mode, use CPT as base
             base_df = pd.read_csv(cpt_csv_path, dtype=str)
             logger.info(f"[Unified {job_id}] Base: CPT CSV with {len(base_df)} rows")
         elif icd_csv_path:
+            # Verify file exists before reading
+            if not os.path.exists(icd_csv_path):
+                raise Exception(f"ICD CSV file not found: {icd_csv_path}")
             # If only ICD, use ICD as base
             base_df = pd.read_csv(icd_csv_path, dtype=str)
             logger.info(f"[Unified {job_id}] Base: ICD CSV with {len(base_df)} rows")
@@ -4140,6 +4157,10 @@ def process_unified_background(
         
         # Merge CPT results if needed
         if enable_cpt and cpt_csv_path:
+            # Verify file exists before reading
+            if not os.path.exists(cpt_csv_path):
+                raise Exception(f"CPT predictions file not found: {cpt_csv_path}")
+            
             if cpt_vision_mode and not extraction_csv_path:
                 # CPT is already the base
                 pass
@@ -4161,6 +4182,9 @@ def process_unified_background(
         
         # Merge ICD results if needed
         if enable_icd and icd_csv_path:
+            # Verify file exists before reading
+            if not os.path.exists(icd_csv_path):
+                raise Exception(f"ICD predictions file not found: {icd_csv_path}")
             icd_df = pd.read_csv(icd_csv_path, dtype=str)
             # Merge on filename
             if 'Filename' in icd_df.columns and 'source_file' in base_df.columns:
