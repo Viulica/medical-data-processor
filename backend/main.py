@@ -4137,7 +4137,7 @@ def process_unified_background(
                 raise Exception(f"Extraction CSV file not found: {extraction_csv_path}")
             # Start with extraction data
             base_df = pd.read_csv(extraction_csv_path, dtype=str)
-            logger.info(f"[Unified {job_id}] Base: extraction CSV with {len(base_df)} rows")
+            logger.info(f"[Unified {job_id}] Base: extraction CSV with {len(base_df)} rows and columns: {list(base_df.columns)[:10]}")
         elif cpt_csv_path and cpt_vision_mode:
             # Verify file exists before reading
             if not os.path.exists(cpt_csv_path):
@@ -4339,9 +4339,23 @@ async def process_unified(
             excel_path = f"/tmp/{job_id}_instructions.xlsx"
             excel_filename = f"{template['name']}.xlsx"
             
-            # Convert template fields to Excel format
-            fields_data = template['template_data'].get('fields', [])
-            df = pd.DataFrame(fields_data)
+            # Convert template fields to Excel format (same format as /upload endpoint)
+            fields = template['template_data'].get('fields', [])
+            
+            if not fields:
+                raise HTTPException(status_code=400, detail="Template has no field definitions")
+            
+            # Create DataFrame in the expected format (field names as columns, metadata as rows)
+            data = {}
+            for field in fields:
+                data[field['name']] = [
+                    field.get('description', ''),
+                    field.get('location', ''),
+                    field.get('output_format', ''),
+                    'YES' if field.get('priority', False) else 'NO'
+                ]
+            
+            df = pd.DataFrame(data)
             df.to_excel(excel_path, index=False, engine='openpyxl')
             logger.info(f"Exported template to Excel: {excel_path}")
         else:
