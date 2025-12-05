@@ -4262,7 +4262,11 @@ async def process_unified(
     Results are intelligently merged into a single output file
     """
     try:
-        logger.info(f"Received unified processing request - zip: {zip_file.filename}, excel: {excel_file.filename}")
+        if excel_file and excel_file.filename:
+            excel_filename_log = excel_file.filename
+        else:
+            excel_filename_log = f"template_id={template_id}" if template_id else "None"
+        logger.info(f"Received unified processing request - zip: {zip_file.filename}, excel: {excel_filename_log}")
         logger.info(f"Enabled: extraction={enable_extraction}, CPT={enable_cpt}, ICD={enable_icd}")
         
         # Validate at least one step is enabled
@@ -4317,6 +4321,8 @@ async def process_unified(
             logger.info(f"Exported template to Excel: {excel_path}")
         else:
             # Use uploaded Excel file
+            if not excel_file or not excel_file.filename:
+                raise HTTPException(status_code=400, detail="Excel file is required when template_id is not provided")
             excel_path = f"/tmp/{job_id}_instructions{Path(excel_file.filename).suffix}"
             excel_filename = excel_file.filename
             with open(excel_path, "wb") as f:
