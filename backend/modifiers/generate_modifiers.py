@@ -719,9 +719,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if peripheral_blocks_value and str(peripheral_blocks_value).strip():
                         if not blocks:
                             print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
-                elif peripheral_blocks_value and str(peripheral_blocks_value).strip():
-                    # Debug: Log why blocks weren't generated
-                    print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is '{row.get('Anesthesia Type', '')}' (expected 'General', case-insensitive)")
                     
                     # Create a duplicate row for each block
                     for block_idx, block in enumerate(blocks):
@@ -825,6 +822,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         
                         # Add the block row to results
                         result_rows.append(block_row)
+                else:
+                    # Anesthesia Type is not 'GENERAL', so skip peripheral blocks
+                    if peripheral_blocks_value and str(peripheral_blocks_value).strip():
+                        print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is '{row.get('Anesthesia Type', '')}' (expected 'General', case-insensitive)")
         
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)
