@@ -410,11 +410,12 @@ Your task is to analyze the provided medical document page(s) and identify ICD d
 IMPORTANT INSTRUCTIONS:
 1. Analyze the entire PDF document carefully to understand the procedure and patient condition
 2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
-3. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
-4. Only include ICD codes that are directly relevant to the procedure or patient condition
-5. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
-6. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
-7. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+3. CRITICAL: If there is both pre-operative and post-operative diagnosis listed, always put in ICD1 the code for the post-operative diagnosis!
+4. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+5. Only include ICD codes that are directly relevant to the procedure or patient condition
+6. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
+7. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+8. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:

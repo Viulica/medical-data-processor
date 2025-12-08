@@ -193,6 +193,87 @@ def parse_tee_diagnosis(tee_diagnosis_str):
     return codes
 
 
+def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=480):
+    """
+    Calculate anesthesia time from An Start and An Stop columns and limit to max_minutes.
+    
+    Format: Both times are in HHMM format (4 digits), e.g., "1415" = 14:15 (2:15 PM)
+    
+    Args:
+        an_start_str: Start time as string (e.g., "1415")
+        an_stop_str: Stop time as string (e.g., "1813")
+        max_minutes: Maximum allowed minutes (default 480)
+    
+    Returns:
+        Tuple of (adjusted_an_stop_str, was_limited)
+        - adjusted_an_stop_str: The adjusted stop time in HHMM format, or original if no adjustment needed
+        - was_limited: Boolean indicating if the time was limited
+    """
+    # Check if both values exist and are valid
+    if not an_start_str or pd.isna(an_start_str) or str(an_start_str).strip() == '':
+        return an_stop_str, False
+    if not an_stop_str or pd.isna(an_stop_str) or str(an_stop_str).strip() == '':
+        return an_stop_str, False
+    
+    try:
+        # Convert to string and strip whitespace
+        an_start_str = str(an_start_str).strip()
+        an_stop_str = str(an_stop_str).strip()
+        
+        # Parse times (format: HHMM, e.g., "1415" = 14:15)
+        if len(an_start_str) < 3 or len(an_stop_str) < 3:
+            return an_stop_str, False
+        
+        # Handle 3-digit times (e.g., "013" = 00:13) or 4-digit times (e.g., "1415" = 14:15)
+        if len(an_start_str) == 3:
+            an_start_str = '0' + an_start_str
+        if len(an_stop_str) == 3:
+            an_stop_str = '0' + an_stop_str
+        
+        # Extract hours and minutes
+        start_hour = int(an_start_str[:2])
+        start_minute = int(an_start_str[2:4])
+        stop_hour = int(an_stop_str[:2])
+        stop_minute = int(an_stop_str[2:4])
+        
+        # Convert to total minutes from midnight
+        start_total_minutes = start_hour * 60 + start_minute
+        stop_total_minutes = stop_hour * 60 + stop_minute
+        
+        # Handle day rollover (if stop time is earlier than start time, assume next day)
+        if stop_total_minutes < start_total_minutes:
+            # Next day: add 24 hours (1440 minutes)
+            stop_total_minutes += 1440
+        
+        # Calculate duration in minutes
+        duration_minutes = stop_total_minutes - start_total_minutes
+        
+        # If duration exceeds max_minutes, adjust stop time
+        if duration_minutes > max_minutes:
+            # Calculate new stop time (start + max_minutes)
+            new_stop_total_minutes = start_total_minutes + max_minutes
+            
+            # Handle day rollover for new stop time
+            if new_stop_total_minutes >= 1440:
+                new_stop_total_minutes = new_stop_total_minutes % 1440
+            
+            # Convert back to HHMM format
+            new_stop_hour = new_stop_total_minutes // 60
+            new_stop_minute = new_stop_total_minutes % 60
+            
+            # Format as 4-digit string (e.g., "1813")
+            adjusted_an_stop = f"{new_stop_hour:02d}{new_stop_minute:02d}"
+            
+            return adjusted_an_stop, True
+        else:
+            return an_stop_str, False
+            
+    except (ValueError, IndexError) as e:
+        # If parsing fails, return original stop time
+        print(f"Warning: Could not parse anesthesia times (Start: {an_start_str}, Stop: {an_stop_str}): {e}")
+        return an_stop_str, False
+
+
 def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     """
     Determine the modifier to apply based on provider presence and rules.
@@ -262,7 +343,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -272,6 +353,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         output_file: Path to output CSV file (optional)
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
+        limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
     """
     try:
         # Load modifiers definition
@@ -289,6 +371,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("=" * 80)
             print("🔄 QK DUPLICATE LINE GENERATION ENABLED 🔄")
             print("Duplicate lines will be created for QK modifiers with CRNA as Responsible Provider")
+            print("=" * 80)
+        
+        # Log anesthesia time limiting mode
+        if limit_anesthesia_time:
+            print("=" * 80)
+            print("⏱️  ANESTHESIA TIME LIMITING ENABLED ⏱️")
+            print("Anesthesia time will be limited to maximum 480 minutes (8 hours)")
+            print("Time limiting will ONLY apply to rows where ASA Code = 01967")
             print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
@@ -355,6 +445,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         has_tee_was_done = 'tee_was_done' in df.columns
         has_tee_diagnosis = 'tee_diagnosis' in df.columns
         
+        # Debug: Log column availability
+        if not has_peripheral_blocks:
+            print("⚠️  Warning: 'peripheral_blocks' column not found. Peripheral block rows will not be generated.")
+        if not has_anesthesia_type:
+            print("⚠️  Warning: 'Anesthesia Type' column not found. Peripheral block rows will not be generated.")
+        elif has_peripheral_blocks:
+            print(f"✅ Found 'peripheral_blocks' and 'Anesthesia Type' columns. Peripheral block rows will be generated when Anesthesia Type = 'General'")
         
         # Process each row
         result_rows = []
@@ -369,6 +466,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             new_row['M2'] = ''
             new_row['M3'] = ''
             new_row['M4'] = ''
+            
+            # Apply anesthesia time limiting if enabled AND ASA Code is 01967
+            if limit_anesthesia_time and 'An Start' in new_row and 'An Stop' in new_row:
+                # Check if ASA Code is 01967
+                asa_code = str(new_row.get('ASA Code', '')).strip()
+                if asa_code == '01967':
+                    an_start = new_row.get('An Start', '')
+                    an_stop = new_row.get('An Stop', '')
+                    adjusted_stop, was_limited = calculate_and_limit_anesthesia_time(an_start, an_stop, max_minutes=480)
+                    if was_limited:
+                        new_row['An Stop'] = adjusted_stop
+                        print(f"Row {idx + 1}: Limited anesthesia time (ASA Code 01967) - An Start: {an_start}, Original An Stop: {an_stop}, Adjusted An Stop: {adjusted_stop}")
             
             primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
             
@@ -605,6 +714,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 if anesthesia_type_val == 'GENERAL':
                     # Parse the peripheral blocks
                     blocks = parse_peripheral_blocks(peripheral_blocks_value)
+                    
+                    # Debug logging for peripheral blocks
+                    if peripheral_blocks_value and str(peripheral_blocks_value).strip():
+                        if not blocks:
+                            print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
+                elif peripheral_blocks_value and str(peripheral_blocks_value).strip():
+                    # Debug: Log why blocks weren't generated
+                    print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is '{row.get('Anesthesia Type', '')}' (expected 'General', case-insensitive)")
                     
                     # Create a duplicate row for each block
                     for block_idx, block in enumerate(blocks):

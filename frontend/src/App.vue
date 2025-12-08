@@ -2998,6 +2998,28 @@
                     }}
                   </p>
                 </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">⏱️</span>
+                      <span class="toggle-text"
+                        >Limit Anesthesia Time to 480 Minutes</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="limitAnesthesiaTime" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      limitAnesthesiaTime
+                        ? "Anesthesia time limiting is ENABLED. Anesthesia time calculated from 'An Start' and 'An Stop' columns will be capped at a maximum of 480 minutes (8 hours)."
+                        : "Anesthesia time limiting is DISABLED. Original anesthesia times will be preserved."
+                    }}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -5289,6 +5311,7 @@ export default {
       isModifiersCsvDragActive: false,
       enableMedicalDirection: true, // Toggle for medical direction (true = enabled, false = disabled)
       enableQkDuplicate: false, // Toggle for QK duplicate line generation (false = disabled by default)
+      limitAnesthesiaTime: false, // Toggle for limiting anesthesia time to 480 minutes (false = disabled by default)
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -7827,11 +7850,14 @@ export default {
       );
       // Add QK duplicate generation parameter
       formData.append("generate_qk_duplicate", this.enableQkDuplicate);
+      // Add anesthesia time limiting parameter
+      formData.append("limit_anesthesia_time", this.limitAnesthesiaTime);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
       console.log("⚕️ Enable Medical Direction:", this.enableMedicalDirection);
       console.log("🔄 Enable QK Duplicate:", this.enableQkDuplicate);
+      console.log("⏱️ Limit Anesthesia Time:", this.limitAnesthesiaTime);
 
       try {
         const response = await axios.post(uploadUrl, formData, {

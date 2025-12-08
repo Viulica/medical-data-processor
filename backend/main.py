@@ -2410,7 +2410,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -2418,13 +2418,15 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         csv_path: Path to input CSV file
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
+        limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
     """
     job = job_status[job_id]
     
     try:
         job.status = "processing"
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
-        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}..."
+        time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -2441,8 +2443,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         
         output_file_csv = result_base.with_suffix('.csv')
         
-        # Run the modifiers generation with medical direction override parameter and QK duplicate parameter
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate)
+        # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, and time limiting parameter
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -2719,7 +2721,8 @@ async def generate_modifiers_route(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
     turn_off_medical_direction: bool = Form(False),
-    generate_qk_duplicate: bool = Form(False)
+    generate_qk_duplicate: bool = Form(False),
+    limit_anesthesia_time: bool = Form(False)
 ):
     """Upload a CSV or XLSX file to generate medical modifiers
     
@@ -2727,10 +2730,11 @@ async def generate_modifiers_route(
         csv_file: CSV or XLSX file with billing data
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
+        limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
     """
     
     try:
-        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}")
+        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}")
         
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -2761,12 +2765,13 @@ async def generate_modifiers_route(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
-        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}"}
+        time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
+        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
