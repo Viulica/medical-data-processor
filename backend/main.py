@@ -2869,15 +2869,18 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.message = "Matching accounts and comparing codes..."
         job.progress = 40
         
-        # Create a dictionary for ground truth lookup
+        # Create a dictionary for ground truth lookup (store full row data)
         gt_dict = {}
+        gt_row_dict = {}  # Store full row data for detailed reporting
         for idx, row in ground_truth_df.iterrows():
             account_id = str(row[account_id_col_gt]).strip()
             asa_code = str(row[asa_code_col_gt]).strip() if pd.notna(row[asa_code_col_gt]) else ''
             gt_dict[account_id] = asa_code
+            gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
         
         # Compare predictions with ground truth
         comparison_data = []
+        detailed_report_data = []
         matches = 0
         mismatches = 0
         not_found = 0
@@ -2886,15 +2889,48 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             account_id = str(row[account_id_col_pred]).strip()
             predicted_code = str(row[asa_code_col_pred]).strip() if pd.notna(row[asa_code_col_pred]) else ''
             
+            # Start building detailed report entry
+            detailed_entry = {
+                'Row Number': idx + 1,  # 1-indexed for readability
+                'AccountId': account_id,
+                'Match Status': '',
+                'Predicted ASA Code': predicted_code,
+                'Ground Truth ASA Code': '',
+                'Match': '',
+                'Difference': '',
+            }
+            
+            # Add all columns from predictions file (with prefix)
+            for col in predictions_df.columns:
+                if col != account_id_col_pred and col != asa_code_col_pred:
+                    value = row[col]
+                    detailed_entry[f'Predictions: {col}'] = str(value) if pd.notna(value) else ''
+            
             if account_id in gt_dict:
                 ground_truth_code = gt_dict[account_id]
                 is_match = predicted_code == ground_truth_code
                 
                 if is_match:
                     matches += 1
+                    detailed_entry['Match Status'] = 'Match'
+                    detailed_entry['Match'] = 'Yes'
+                    detailed_entry['Difference'] = 'None'
                 else:
                     mismatches += 1
+                    detailed_entry['Match Status'] = 'Mismatch'
+                    detailed_entry['Match'] = 'No'
+                    detailed_entry['Difference'] = f"Predicted: {predicted_code} vs Ground Truth: {ground_truth_code}"
                 
+                detailed_entry['Ground Truth ASA Code'] = ground_truth_code
+                
+                # Add all columns from ground truth file (with prefix)
+                gt_row = gt_row_dict[account_id]
+                for col in ground_truth_df.columns:
+                    if col != account_id_col_gt and col != asa_code_col_gt:
+                        value = gt_row[col]
+                        detailed_entry[f'Ground Truth: {col}'] = str(value) if pd.notna(value) else ''
+                
+                # Simple comparison entry (for backward compatibility)
                 comparison_data.append({
                     'AccountId': account_id,
                     'Predicted ASA Code': predicted_code,
@@ -2904,6 +2940,17 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 })
             else:
                 not_found += 1
+                detailed_entry['Match Status'] = 'Account Not Found'
+                detailed_entry['Match'] = 'No'
+                detailed_entry['Ground Truth ASA Code'] = 'NOT FOUND'
+                detailed_entry['Difference'] = 'Account ID not found in ground truth file'
+                
+                # Add empty columns for ground truth (to maintain structure)
+                for col in ground_truth_df.columns:
+                    if col != account_id_col_gt and col != asa_code_col_gt:
+                        detailed_entry[f'Ground Truth: {col}'] = ''
+                
+                # Simple comparison entry (for backward compatibility)
                 comparison_data.append({
                     'AccountId': account_id,
                     'Predicted ASA Code': predicted_code,
@@ -2911,6 +2958,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'Match': 'No',
                     'Status': 'Account Not Found'
                 })
+            
+            detailed_report_data.append(detailed_entry)
         
         job.message = "Creating comparison report..."
         job.progress = 70
@@ -2918,11 +2967,14 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         # Create comparison DataFrame
         comparison_df = pd.DataFrame(comparison_data)
         
+        # Create detailed report DataFrame
+        detailed_report_df = pd.DataFrame(detailed_report_data)
+        
         # Calculate accuracy metrics
         total_comparable = matches + mismatches
         accuracy = (matches / total_comparable * 100) if total_comparable > 0 else 0
         
-        # Create summary sheet
+        # Create summary sheet with more detailed metrics
         summary_data = {
             'Metric': [
                 'Total Predictions',
@@ -2930,7 +2982,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Accounts Not Found',
                 'Matches',
                 'Mismatches',
-                'Accuracy (%)'
+                'Accuracy (%)',
+                'Match Rate (%)',
+                'Mismatch Rate (%)',
+                'Not Found Rate (%)'
             ],
             'Value': [
                 len(predictions_df),
@@ -2938,7 +2993,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 not_found,
                 matches,
                 mismatches,
-                f'{accuracy:.2f}%'
+                f'{accuracy:.2f}%',
+                f'{(matches / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%',
+                f'{(mismatches / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%',
+                f'{(not_found / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%'
             ]
         }
         summary_df = pd.DataFrame(summary_data)
@@ -2954,12 +3012,26 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         
         # Write to Excel with multiple sheets
         with pd.ExcelWriter(output_file_xlsx, engine='openpyxl') as writer:
+            # Summary sheet
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Detailed report sheet (all cases with full details)
+            detailed_report_df.to_excel(writer, sheet_name='Detailed Report', index=False)
+            
+            # Simple comparison sheet (for backward compatibility)
             comparison_df.to_excel(writer, sheet_name='Comparison', index=False)
             
-            # Create a sheet with only mismatches
-            mismatches_df = comparison_df[comparison_df['Status'] == 'Mismatch']
-            mismatches_df.to_excel(writer, sheet_name='Mismatches', index=False)
+            # Create a sheet with only mismatches (from detailed report)
+            mismatches_detailed_df = detailed_report_df[detailed_report_df['Match Status'] == 'Mismatch']
+            mismatches_detailed_df.to_excel(writer, sheet_name='Mismatches (Detailed)', index=False)
+            
+            # Create a sheet with only matches (from detailed report)
+            matches_detailed_df = detailed_report_df[detailed_report_df['Match Status'] == 'Match']
+            matches_detailed_df.to_excel(writer, sheet_name='Matches (Detailed)', index=False)
+            
+            # Create a sheet with accounts not found
+            not_found_df = detailed_report_df[detailed_report_df['Match Status'] == 'Account Not Found']
+            not_found_df.to_excel(writer, sheet_name='Not Found (Detailed)', index=False)
         
         job.result_file_xlsx = str(output_file_xlsx)
         job.result_file = str(output_file_xlsx)  # Use XLSX as primary result
