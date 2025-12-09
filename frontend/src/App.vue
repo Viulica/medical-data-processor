@@ -77,7 +77,7 @@
             <button
               @click="toggleConvertersDropdown"
               :class="{
-                active: ['uni', 'instructions', 'merge-csn'].includes(activeTab),
+                active: ['uni', 'instructions', 'merge-csn', 'check-cpt'].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
             >
@@ -95,6 +95,9 @@
               </button>
               <button @click="selectTab('merge-csn')" class="dropdown-item">
                 🔗 Merge by CSN
+              </button>
+              <button @click="selectTab('check-cpt')" class="dropdown-item">
+                ✅ Check CPT Codes
               </button>
             </div>
           </div>
@@ -2819,6 +2822,219 @@
           </div>
         </div>
 
+        <!-- Check CPT Codes Tab -->
+        <div v-if="activeTab === 'check-cpt'" class="upload-section">
+          <div class="section-header">
+            <h2>Check CPT Codes</h2>
+            <p>
+              Upload predictions and ground truth XLSX files to compare ASA codes
+              and calculate accuracy metrics
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Predictions File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Predictions File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isCptPredictionsDragActive,
+                  'has-file': cptPredictionsFile,
+                }"
+                @drop="onCptPredictionsDrop"
+                @dragover.prevent
+                @dragenter.prevent="isCptPredictionsDragActive = true"
+                @dragleave.prevent="isCptPredictionsDragActive = false"
+                @click="triggerCptPredictionsUpload"
+              >
+                <input
+                  ref="cptPredictionsInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onCptPredictionsFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="cptPredictionsFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ cptPredictionsFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(cptPredictionsFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required columns:</strong> AccountId, ASA Code</p>
+              </div>
+            </div>
+
+            <!-- Ground Truth File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Ground Truth File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isCptGroundTruthDragActive,
+                  'has-file': cptGroundTruthFile,
+                }"
+                @drop="onCptGroundTruthDrop"
+                @dragover.prevent
+                @dragenter.prevent="isCptGroundTruthDragActive = true"
+                @dragleave.prevent="isCptGroundTruthDragActive = false"
+                @click="triggerCptGroundTruthUpload"
+              >
+                <input
+                  ref="cptGroundTruthInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onCptGroundTruthFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">✅</div>
+                  <div v-if="cptGroundTruthFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ cptGroundTruthFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(cptGroundTruthFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required columns:</strong> Acc. #, ASA Code</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How it works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔍</span>
+                    <span>Matches accounts between files</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📊</span>
+                    <span>Compares predicted vs ground truth ASA codes</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📈</span>
+                    <span>Calculates accuracy metrics</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Downloads Excel report with comparison</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startCptCodesCheck"
+              :disabled="!canCheckCptCodes || isCheckingCptCodes"
+              class="process-btn"
+            >
+              <span v-if="isCheckingCptCodes" class="spinner"></span>
+              <span v-else class="btn-icon">✅</span>
+              {{
+                isCheckingCptCodes
+                  ? "Checking CPT Codes..."
+                  : "Start CPT Codes Check"
+              }}
+            </button>
+
+            <button
+              v-if="cptPredictionsFile || cptGroundTruthFile || cptCheckJobId"
+              @click="resetCptCheckForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Check CPT Codes Status -->
+        <div v-if="cptCheckJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="cptCheckJobStatus.status">
+                <span class="status-icon">{{ getCptCheckStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getCptCheckStatusTitle() }}</h3>
+                <p class="status-message">{{ cptCheckJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="cptCheckJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${cptCheckJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ cptCheckJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkCptCheckJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="cptCheckJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadCptCheckResults('xlsx')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download Excel Report
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="cptCheckJobStatus.status === 'failed' && cptCheckJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ cptCheckJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Instructions Conversion Status -->
         <div v-if="instructionsJobStatus" class="status-section">
           <div class="status-card">
@@ -5342,6 +5558,14 @@ export default {
       isMergingCSN: false,
       isMergeCsv1DragActive: false,
       isMergeCsv2DragActive: false,
+      // CPT Codes Check functionality
+      cptPredictionsFile: null,
+      cptGroundTruthFile: null,
+      cptCheckJobId: null,
+      cptCheckJobStatus: null,
+      isCheckingCptCodes: false,
+      isCptPredictionsDragActive: false,
+      isCptGroundTruthDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
@@ -5589,6 +5813,9 @@ export default {
     },
     canMergeCSN() {
       return this.mergeCsvFile1 !== null && this.mergeCsvFile2 !== null;
+    },
+    canCheckCptCodes() {
+      return this.cptPredictionsFile !== null && this.cptGroundTruthFile !== null;
     },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
@@ -7842,6 +8069,194 @@ export default {
           return "🔗";
         default:
           return "⏸️";
+      }
+    },
+    // CPT Codes Check methods
+    onCptPredictionsDrop(e) {
+      e.preventDefault();
+      this.isCptPredictionsDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
+        this.cptPredictionsFile = files[0];
+        this.toast.success("Predictions file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV or XLSX file");
+      }
+    },
+
+    triggerCptPredictionsUpload() {
+      this.$refs.cptPredictionsInput.click();
+    },
+
+    onCptPredictionsFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.cptPredictionsFile = file;
+        this.toast.success("Predictions file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV or XLSX file");
+      }
+    },
+
+    onCptGroundTruthDrop(e) {
+      e.preventDefault();
+      this.isCptGroundTruthDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
+        this.cptGroundTruthFile = files[0];
+        this.toast.success("Ground truth file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV or XLSX file");
+      }
+    },
+
+    triggerCptGroundTruthUpload() {
+      this.$refs.cptGroundTruthInput.click();
+    },
+
+    onCptGroundTruthFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.cptGroundTruthFile = file;
+        this.toast.success("Ground truth file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV or XLSX file");
+      }
+    },
+
+    async startCptCodesCheck() {
+      if (!this.canCheckCptCodes) {
+        this.toast.error("Please upload both files");
+        return;
+      }
+
+      this.isCheckingCptCodes = true;
+      this.cptCheckJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("predictions_file", this.cptPredictionsFile);
+      formData.append("ground_truth_file", this.cptGroundTruthFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "check-cpt-codes");
+      console.log("🔧 CPT Check Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.cptCheckJobId = response.data.job_id;
+        this.toast.success(
+          "CPT codes check started! Check the status section below."
+        );
+
+        // Set initial status
+        this.cptCheckJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Comparing predictions with ground truth...",
+        };
+      } catch (error) {
+        console.error("CPT check error:", error);
+        this.toast.error("Failed to start CPT codes check. Please try again.");
+        this.isCheckingCptCodes = false;
+      }
+    },
+
+    async checkCptCheckJobStatus() {
+      if (!this.cptCheckJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.cptCheckJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.cptCheckJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("CPT codes check completed!");
+          this.isCheckingCptCodes = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `CPT codes check failed: ${response.data.error || "Unknown error"}`
+          );
+          this.isCheckingCptCodes = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadCptCheckResults(format = "xlsx") {
+      if (!this.cptCheckJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, `download/${this.cptCheckJobId}?format=${format}`),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const ext = format === "xlsx" ? "xlsx" : "csv";
+        link.setAttribute("download", `cpt_codes_comparison_${this.cptCheckJobId}.${ext}`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results");
+      }
+    },
+
+    resetCptCheckForm() {
+      this.cptPredictionsFile = null;
+      this.cptGroundTruthFile = null;
+      this.cptCheckJobId = null;
+      this.cptCheckJobStatus = null;
+      this.isCheckingCptCodes = false;
+      this.isCptPredictionsDragActive = false;
+      this.isCptGroundTruthDragActive = false;
+    },
+
+    getCptCheckStatusTitle() {
+      if (!this.cptCheckJobStatus) return "";
+
+      switch (this.cptCheckJobStatus.status) {
+        case "completed":
+          return "Check Complete";
+        case "failed":
+          return "Check Failed";
+        case "processing":
+          return "Checking CPT Codes";
+        default:
+          return "CPT Codes Check Status";
+      }
+    },
+
+    getCptCheckStatusIcon() {
+      if (!this.cptCheckJobStatus) return "";
+
+      switch (this.cptCheckJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
+        default:
+          return "📊";
       }
     },
 

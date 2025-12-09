@@ -2739,6 +2739,257 @@ async def merge_by_csn(
         logger.error(f"Merge by CSN upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_path: str):
+    """Background task to compare predictions vs ground truth and calculate accuracy"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading Excel files..."
+        job.progress = 10
+        
+        import pandas as pd
+        
+        # Read predictions file (handle both Excel and CSV)
+        predictions_path_obj = Path(predictions_path)
+        if predictions_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            try:
+                predictions_df = pd.read_excel(predictions_path, dtype=str, engine='openpyxl')
+            except Exception as e:
+                logger.warning(f"Failed to read predictions as Excel, trying CSV: {e}")
+                predictions_df = pd.read_csv(predictions_path, dtype=str, encoding='utf-8')
+        else:
+            # Try multiple encodings for CSV files
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            predictions_df = None
+            for encoding in encodings_to_try:
+                try:
+                    predictions_df = pd.read_csv(predictions_path, dtype=str, encoding=encoding)
+                    logger.info(f"Successfully read predictions file with encoding: {encoding}")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if predictions_df is None:
+                raise Exception("Could not read predictions file with any standard encoding")
+        
+        # Read ground truth file (handle both Excel and CSV)
+        ground_truth_path_obj = Path(ground_truth_path)
+        if ground_truth_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            try:
+                ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='openpyxl')
+            except Exception as e:
+                logger.warning(f"Failed to read ground truth as Excel, trying CSV: {e}")
+                ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding='utf-8')
+        else:
+            # Try multiple encodings for CSV files
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            ground_truth_df = None
+            for encoding in encodings_to_try:
+                try:
+                    ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding=encoding)
+                    logger.info(f"Successfully read ground truth file with encoding: {encoding}")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if ground_truth_df is None:
+                raise Exception("Could not read ground truth file with any standard encoding")
+        
+        job.message = "Finding required columns..."
+        job.progress = 20
+        
+        # Find AccountId column in predictions (case-insensitive)
+        account_id_col_pred = None
+        asa_code_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'ACCOUNTID' or col_upper == 'ACCOUNT ID':
+                account_id_col_pred = col
+            elif col_upper == 'ASA CODE' or col_upper == 'ASA':
+                asa_code_col_pred = col
+        
+        # Find Acc. # column in ground truth (case-insensitive)
+        account_id_col_gt = None
+        asa_code_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'ACC. #' or col_upper == 'ACC #' or col_upper == 'ACCOUNTID' or col_upper == 'ACCOUNT ID':
+                account_id_col_gt = col
+            elif col_upper == 'ASA CODE' or col_upper == 'ASA':
+                asa_code_col_gt = col
+        
+        if account_id_col_pred is None:
+            raise Exception("Predictions file must have 'AccountId' column")
+        if asa_code_col_pred is None:
+            raise Exception("Predictions file must have 'ASA Code' column")
+        if account_id_col_gt is None:
+            raise Exception("Ground truth file must have 'Acc. #' column")
+        if asa_code_col_gt is None:
+            raise Exception("Ground truth file must have 'ASA Code' column")
+        
+        job.message = "Matching accounts and comparing codes..."
+        job.progress = 40
+        
+        # Create a dictionary for ground truth lookup
+        gt_dict = {}
+        for idx, row in ground_truth_df.iterrows():
+            account_id = str(row[account_id_col_gt]).strip()
+            asa_code = str(row[asa_code_col_gt]).strip() if pd.notna(row[asa_code_col_gt]) else ''
+            gt_dict[account_id] = asa_code
+        
+        # Compare predictions with ground truth
+        comparison_data = []
+        matches = 0
+        mismatches = 0
+        not_found = 0
+        
+        for idx, row in predictions_df.iterrows():
+            account_id = str(row[account_id_col_pred]).strip()
+            predicted_code = str(row[asa_code_col_pred]).strip() if pd.notna(row[asa_code_col_pred]) else ''
+            
+            if account_id in gt_dict:
+                ground_truth_code = gt_dict[account_id]
+                is_match = predicted_code == ground_truth_code
+                
+                if is_match:
+                    matches += 1
+                else:
+                    mismatches += 1
+                
+                comparison_data.append({
+                    'AccountId': account_id,
+                    'Predicted ASA Code': predicted_code,
+                    'Ground Truth ASA Code': ground_truth_code,
+                    'Match': 'Yes' if is_match else 'No',
+                    'Status': 'Match' if is_match else 'Mismatch'
+                })
+            else:
+                not_found += 1
+                comparison_data.append({
+                    'AccountId': account_id,
+                    'Predicted ASA Code': predicted_code,
+                    'Ground Truth ASA Code': 'NOT FOUND',
+                    'Match': 'No',
+                    'Status': 'Account Not Found'
+                })
+        
+        job.message = "Creating comparison report..."
+        job.progress = 70
+        
+        # Create comparison DataFrame
+        comparison_df = pd.DataFrame(comparison_data)
+        
+        # Calculate accuracy metrics
+        total_comparable = matches + mismatches
+        accuracy = (matches / total_comparable * 100) if total_comparable > 0 else 0
+        
+        # Create summary sheet
+        summary_data = {
+            'Metric': [
+                'Total Predictions',
+                'Accounts Found in Ground Truth',
+                'Accounts Not Found',
+                'Matches',
+                'Mismatches',
+                'Accuracy (%)'
+            ],
+            'Value': [
+                len(predictions_df),
+                total_comparable,
+                not_found,
+                matches,
+                mismatches,
+                f'{accuracy:.2f}%'
+            ]
+        }
+        summary_df = pd.DataFrame(summary_data)
+        
+        job.message = "Generating Excel report..."
+        job.progress = 85
+        
+        # Create output file path
+        result_base = Path(f"/tmp/results/{job_id}_cpt_comparison")
+        result_base.parent.mkdir(exist_ok=True)
+        
+        output_file_xlsx = result_base.with_suffix('.xlsx')
+        
+        # Write to Excel with multiple sheets
+        with pd.ExcelWriter(output_file_xlsx, engine='openpyxl') as writer:
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            comparison_df.to_excel(writer, sheet_name='Comparison', index=False)
+            
+            # Create a sheet with only mismatches
+            mismatches_df = comparison_df[comparison_df['Status'] == 'Mismatch']
+            mismatches_df.to_excel(writer, sheet_name='Mismatches', index=False)
+        
+        job.result_file_xlsx = str(output_file_xlsx)
+        job.result_file = str(output_file_xlsx)  # Use XLSX as primary result
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Comparison completed! Accuracy: {accuracy:.2f}% ({matches}/{total_comparable} matches)"
+        
+        # Clean up input files
+        if os.path.exists(predictions_path):
+            os.unlink(predictions_path)
+        if os.path.exists(ground_truth_path):
+            os.unlink(ground_truth_path)
+        
+        logger.info(f"CPT codes check completed for job {job_id}: {accuracy:.2f}% accuracy")
+        
+    except Exception as e:
+        logger.error(f"CPT codes check background error: {str(e)}")
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Comparison failed: {str(e)}"
+        
+        # Clean up memory even on failure
+        gc.collect()
+
+@app.post("/check-cpt-codes")
+async def check_cpt_codes(
+    background_tasks: BackgroundTasks,
+    predictions_file: UploadFile = File(...),
+    ground_truth_file: UploadFile = File(...)
+):
+    """Upload two XLSX files (predictions and ground truth) to compare CPT codes and calculate accuracy"""
+    
+    try:
+        logger.info(f"Received CPT codes check request - predictions: {predictions_file.filename}, ground_truth: {ground_truth_file.filename}")
+        
+        # Validate file types
+        if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Predictions file must be a CSV or XLSX")
+        if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Ground truth file must be a CSV or XLSX")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created CPT codes check job {job_id}")
+        
+        # Save uploaded files
+        predictions_path = f"/tmp/{job_id}_predictions{Path(predictions_file.filename).suffix}"
+        ground_truth_path = f"/tmp/{job_id}_ground_truth{Path(ground_truth_file.filename).suffix}"
+        
+        with open(predictions_path, "wb") as f:
+            shutil.copyfileobj(predictions_file.file, f)
+        with open(ground_truth_path, "wb") as f:
+            shutil.copyfileobj(ground_truth_file.file, f)
+        
+        logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}")
+        
+        # Start background processing
+        background_tasks.add_task(check_cpt_codes_background, job_id, predictions_path, ground_truth_path)
+        
+        logger.info(f"Background CPT codes check task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Files uploaded and CPT codes comparison started"}
+        
+    except Exception as e:
+        logger.error(f"CPT codes check upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 @app.post("/generate-modifiers")
 async def generate_modifiers_route(
     background_tasks: BackgroundTasks,
