@@ -2881,6 +2881,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         # Compare predictions with ground truth
         comparison_data = []
         detailed_report_data = []
+        case_overview_data = []  # Overview of each case
         matches = 0
         mismatches = 0
         not_found = 0
@@ -2900,11 +2901,23 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Difference': '',
             }
             
-            # Add all columns from predictions file (with prefix)
+            # Start building case overview entry - includes ALL columns from both files
+            case_overview = {
+                'Case #': idx + 1,
+                'Account ID': account_id,
+                'Status': '',
+                'Predicted ASA Code': predicted_code,
+                'Ground Truth ASA Code': '',
+                'Result': '',
+                'Notes': '',
+            }
+            
+            # Add ALL columns from predictions file to overview
             for col in predictions_df.columns:
                 if col != account_id_col_pred and col != asa_code_col_pred:
                     value = row[col]
                     detailed_entry[f'Predictions: {col}'] = str(value) if pd.notna(value) else ''
+                    case_overview[f'Predictions: {col}'] = str(value) if pd.notna(value) else ''
             
             if account_id in gt_dict:
                 ground_truth_code = gt_dict[account_id]
@@ -2915,20 +2928,28 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     detailed_entry['Match Status'] = 'Match'
                     detailed_entry['Match'] = 'Yes'
                     detailed_entry['Difference'] = 'None'
+                    case_overview['Status'] = '✅ MATCH'
+                    case_overview['Result'] = 'CORRECT'
+                    case_overview['Notes'] = f'Predicted code {predicted_code} matches ground truth'
                 else:
                     mismatches += 1
                     detailed_entry['Match Status'] = 'Mismatch'
                     detailed_entry['Match'] = 'No'
                     detailed_entry['Difference'] = f"Predicted: {predicted_code} vs Ground Truth: {ground_truth_code}"
+                    case_overview['Status'] = '❌ MISMATCH'
+                    case_overview['Result'] = 'INCORRECT'
+                    case_overview['Notes'] = f'Predicted {predicted_code} but should be {ground_truth_code}'
                 
                 detailed_entry['Ground Truth ASA Code'] = ground_truth_code
+                case_overview['Ground Truth ASA Code'] = ground_truth_code
                 
-                # Add all columns from ground truth file (with prefix)
+                # Add ALL columns from ground truth file (with prefix)
                 gt_row = gt_row_dict[account_id]
                 for col in ground_truth_df.columns:
                     if col != account_id_col_gt and col != asa_code_col_gt:
                         value = gt_row[col]
                         detailed_entry[f'Ground Truth: {col}'] = str(value) if pd.notna(value) else ''
+                        case_overview[f'Ground Truth: {col}'] = str(value) if pd.notna(value) else ''
                 
                 # Simple comparison entry (for backward compatibility)
                 comparison_data.append({
@@ -2944,6 +2965,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 detailed_entry['Match'] = 'No'
                 detailed_entry['Ground Truth ASA Code'] = 'NOT FOUND'
                 detailed_entry['Difference'] = 'Account ID not found in ground truth file'
+                case_overview['Status'] = '⚠️ NOT FOUND'
+                case_overview['Result'] = 'NO COMPARISON'
+                case_overview['Ground Truth ASA Code'] = 'NOT FOUND'
+                case_overview['Notes'] = f'Account {account_id} not found in ground truth file'
                 
                 # Add empty columns for ground truth (to maintain structure)
                 for col in ground_truth_df.columns:
@@ -2960,6 +2985,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 })
             
             detailed_report_data.append(detailed_entry)
+            case_overview_data.append(case_overview)
         
         job.message = "Creating comparison report..."
         job.progress = 70
@@ -2969,6 +2995,9 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         
         # Create detailed report DataFrame
         detailed_report_df = pd.DataFrame(detailed_report_data)
+        
+        # Create case overview DataFrame
+        case_overview_df = pd.DataFrame(case_overview_data)
         
         # Calculate accuracy metrics
         total_comparable = matches + mismatches
@@ -3015,11 +3044,26 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             # Summary sheet
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
+            # Case Overview sheet - shows each case with key information (PRIMARY VIEW)
+            case_overview_df.to_excel(writer, sheet_name='Case Overview', index=False)
+            
             # Detailed report sheet (all cases with full details)
             detailed_report_df.to_excel(writer, sheet_name='Detailed Report', index=False)
             
             # Simple comparison sheet (for backward compatibility)
             comparison_df.to_excel(writer, sheet_name='Comparison', index=False)
+            
+            # Create a sheet with only mismatches (from case overview)
+            mismatches_overview_df = case_overview_df[case_overview_df['Status'].str.contains('MISMATCH', na=False)]
+            mismatches_overview_df.to_excel(writer, sheet_name='Mismatches Overview', index=False)
+            
+            # Create a sheet with only matches (from case overview)
+            matches_overview_df = case_overview_df[case_overview_df['Status'].str.contains('MATCH', na=False)]
+            matches_overview_df.to_excel(writer, sheet_name='Matches Overview', index=False)
+            
+            # Create a sheet with accounts not found (from case overview)
+            not_found_overview_df = case_overview_df[case_overview_df['Status'].str.contains('NOT FOUND', na=False)]
+            not_found_overview_df.to_excel(writer, sheet_name='Not Found Overview', index=False)
             
             # Create a sheet with only mismatches (from detailed report)
             mismatches_detailed_df = detailed_report_df[detailed_report_df['Match Status'] == 'Mismatch']
