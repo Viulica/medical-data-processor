@@ -790,38 +790,59 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         def get_prediction_and_review(procedure, retries=5):
             """Two-stage prediction: 1) Custom model predicts, 2) Gemini Flash reviews"""
             
-            # Stage 1: Get initial prediction from custom model
-            prompt = f'For this procedure: "{procedure}" give me the most appropriate anesthesia CPT code'
+            # Check if input is invalid (None, empty, or less than 3 characters)
+            procedure_str = str(procedure) if procedure is not None else ""
+            procedure_str = procedure_str.strip()
+            
+            if not procedure_str or len(procedure_str) < 3:
+                # Skip custom model and go directly to fallback for invalid input
+                initial_prediction = None
+                model_source = None
+                failure_reason = f"Input too short or empty (length: {len(procedure_str)})"
+            else:
+                # Stage 1: Get initial prediction from custom model
+                initial_prediction = None
+                model_source = None
+                failure_reason = None
+            
+            prompt = f'For this procedure: "{procedure_str}" give me the most appropriate anesthesia CPT code'
             last_error = "Unknown error"
-            initial_prediction = None
-            model_source = None
-            failure_reason = None
 
-            # Try custom model first
-            for attempt in range(retries):
-                try:
-                    response = genai_client.models.generate_content(
-                        model=custom_model,
-                        contents=[types.Content(role="user", parts=[{"text": prompt}])],
-                        config=generate_content_config
-                    )
-                    result = response.text
-                    if result and result.strip().startswith("0"):
-                        initial_prediction = format_asa_code(result.strip())
-                        model_source = "base_model"
-                        break
-                    else:
-                        failure_reason = f"Base model returned invalid format: '{result.strip()}'"
-                except Exception as e:
-                    last_error = str(e)
-                    failure_reason = f"Base model error (attempt {attempt + 1}/{retries}): {str(e)}"
+            # Try custom model first (only if input is valid)
+            if initial_prediction is None and procedure_str and len(procedure_str) >= 3:
+                for attempt in range(retries):
+                    try:
+                        response = genai_client.models.generate_content(
+                            model=custom_model,
+                            contents=[types.Content(role="user", parts=[{"text": prompt}])],
+                            config=generate_content_config
+                        )
+                        result = response.text
+                        if result and result.strip().startswith("0"):
+                            initial_prediction = format_asa_code(result.strip())
+                            model_source = "base_model"
+                            break
+                        else:
+                            failure_reason = f"Base model returned invalid format: '{result.strip()}'"
+                    except Exception as e:
+                        last_error = str(e)
+                        failure_reason = f"Base model error (attempt {attempt + 1}/{retries}): {str(e)}"
 
             # Fallback to production model if custom model failed
             if not initial_prediction:
                 try:
+                    # Add web search to fallback model
+                    fallback_tools = [
+                        types.Tool(googleSearch=types.GoogleSearch()),
+                    ]
+                    fallback_config = types.GenerateContentConfig(
+                        tools=fallback_tools
+                    )
+                    
                     response = fallback_client.models.generate_content(
                         model=fallback_model,
                         contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
+                        config=fallback_config
                     )
                     fallback_result = response.text
                     if fallback_result:
