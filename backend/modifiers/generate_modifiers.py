@@ -26,7 +26,8 @@ Special Cases:
   but limits to only P modifier when they are not.
 
 Peripheral Blocks Row Generation:
-- When "peripheral_blocks" field is non-empty AND "Anesthesia Type" = "General" (case insensitive)
+- When "peripheral_blocks" field is non-empty AND "Anesthesia Type" is NOT "MAC" (case insensitive)
+- Blocks are generated for all Anesthesia Types except MAC (General, Regional, etc.)
 - Creates duplicate rows for each block in the peripheral_blocks field
 - Format: |cpt_code;MD;Resident;CRNA;M1;M2|cpt_code;MD;Resident;CRNA;M1;M2|...
 - Each duplicate row:
@@ -448,10 +449,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         # Debug: Log column availability
         if not has_peripheral_blocks:
             print("⚠️  Warning: 'peripheral_blocks' column not found. Peripheral block rows will not be generated.")
-        if not has_anesthesia_type:
-            print("⚠️  Warning: 'Anesthesia Type' column not found. Peripheral block rows will not be generated.")
         elif has_peripheral_blocks:
-            print(f"✅ Found 'peripheral_blocks' and 'Anesthesia Type' columns. Peripheral block rows will be generated when Anesthesia Type = 'General'")
+            if has_anesthesia_type:
+                print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated for all Anesthesia Types EXCEPT 'MAC'")
+            else:
+                print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated (Anesthesia Type column not found, so no MAC check)")
         
         # Process each row
         result_rows = []
@@ -706,12 +708,17 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # Check if we need to create peripheral block rows
             # Conditions:
             # 1. peripheral_blocks field is non-empty
-            # 2. Anesthesia Type = "General" (case insensitive)
-            if has_peripheral_blocks and has_anesthesia_type:
+            # 2. Anesthesia Type is NOT "MAC" (case insensitive) - blocks are generated for all types except MAC
+            if has_peripheral_blocks:
                 peripheral_blocks_value = row.get('peripheral_blocks', '')
-                anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()
                 
-                if anesthesia_type_val == 'GENERAL':
+                # Check Anesthesia Type only if the column exists
+                anesthesia_type_val = ''
+                if has_anesthesia_type:
+                    anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()
+                
+                # Skip blocks ONLY if Anesthesia Type is MAC
+                if anesthesia_type_val != 'MAC':
                     # Parse the peripheral blocks
                     blocks = parse_peripheral_blocks(peripheral_blocks_value)
                     
@@ -822,6 +829,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         
                         # Add the block row to results
                         result_rows.append(block_row)
+                else:
+                    # Anesthesia Type is 'MAC', so skip peripheral blocks
+                    if peripheral_blocks_value and str(peripheral_blocks_value).strip():
+                        print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is 'MAC'")
                 else:
                     # Anesthesia Type is not 'GENERAL', so skip peripheral blocks
                     if peripheral_blocks_value and str(peripheral_blocks_value).strip():
