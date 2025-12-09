@@ -489,7 +489,7 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 10, model: str = "gemini-2.5-flash", max_workers: int = 3):
+def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-2.5-flash", max_workers: int = 12):
     """Background task to split PDF using new splitting method"""
     job = job_status[job_id]
     
@@ -1940,9 +1940,9 @@ async def split_pdf_gemini(
             raise HTTPException(status_code=400, detail="File must be a PDF")
         
         # Fixed configuration
-        batch_size = 10
+        batch_size = 5
         model = "gemini-2.5-flash"
-        max_workers = 3
+        max_workers = 12
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -2410,7 +2410,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, peripheral_blocks_mode: str = "other"):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -2419,6 +2419,7 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
+        peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
     """
     job = job_status[job_id]
     
@@ -2426,7 +2427,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         job.status = "processing"
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
-        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}..."
+        blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{blocks_mode_msg}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -2443,8 +2445,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         
         output_file_csv = result_base.with_suffix('.csv')
         
-        # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, and time limiting parameter
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time)
+        # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, and peripheral blocks mode
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, peripheral_blocks_mode)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -2722,7 +2724,8 @@ async def generate_modifiers_route(
     csv_file: UploadFile = File(...),
     turn_off_medical_direction: bool = Form(False),
     generate_qk_duplicate: bool = Form(False),
-    limit_anesthesia_time: bool = Form(False)
+    limit_anesthesia_time: bool = Form(False),
+    peripheral_blocks_mode: str = Form("other")
 ):
     """Upload a CSV or XLSX file to generate medical modifiers
     
@@ -2731,10 +2734,11 @@ async def generate_modifiers_route(
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
+        peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
     """
     
     try:
-        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}")
+        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}, peripheral_blocks_mode: {peripheral_blocks_mode}")
         
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -2765,13 +2769,14 @@ async def generate_modifiers_route(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, peripheral_blocks_mode)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
-        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}"}
+        blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
+        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{blocks_mode_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")

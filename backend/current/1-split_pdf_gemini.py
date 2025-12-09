@@ -205,7 +205,7 @@ If pages 2 and 4 in this batch contain all the strings, return:
             pass
 
 
-def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=10, model="gemini-2.5-flash", max_workers=3):
+def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-2.5-flash", max_workers=12):
     """
     Find all pages that contain ALL the filter strings using Gemini with parallel processing.
     
@@ -352,7 +352,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=10, model="gemini-2.5-flash", max_workers=3):
+def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-2.5-flash", max_workers=12):
     """
     Main function to split a PDF using Gemini with parallel processing.
     
@@ -414,9 +414,9 @@ def main():
     INPUT_PDF = "input.pdf"
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]  # Default filter
-    BATCH_SIZE = 10  # Process 10 pages per API call
+    BATCH_SIZE = 5  # Process 5 pages per API call
     MODEL = "gemini-2.5-flash"
-    MAX_WORKERS = 3  # Process 3 batches in parallel
+    MAX_WORKERS = 12  # Process 12 batches in parallel
     
     # Parse command-line arguments
     if len(sys.argv) > 1:

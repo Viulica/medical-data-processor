@@ -3020,6 +3020,44 @@
                     }}
                   </p>
                 </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">📋</span>
+                      <span class="toggle-text"
+                        >Peripheral Blocks Mode</span
+                      >
+                    </label>
+                  </div>
+                  <div style="margin-top: 0.5rem">
+                    <label class="radio-option" style="display: flex; align-items: center; margin-bottom: 0.5rem; cursor: pointer;">
+                      <input 
+                        type="radio" 
+                        v-model="peripheralBlocksMode" 
+                        value="other" 
+                        style="margin-right: 0.5rem; cursor: pointer;"
+                      />
+                      <span><strong>Other Groups</strong> - Generate blocks when Anesthesia Type is NOT "MAC"</span>
+                    </label>
+                    <label class="radio-option" style="display: flex; align-items: center; cursor: pointer;">
+                      <input 
+                        type="radio" 
+                        v-model="peripheralBlocksMode" 
+                        value="UNI" 
+                        style="margin-right: 0.5rem; cursor: pointer;"
+                      />
+                      <span><strong>UNI</strong> - Generate blocks ONLY when Anesthesia Type is "General"</span>
+                    </label>
+                  </div>
+                  <p class="toggle-description" style="margin-top: 0.5rem">
+                    {{
+                      peripheralBlocksMode === "UNI"
+                        ? "UNI Mode: Peripheral blocks will be generated ONLY when Anesthesia Type equals 'General'. All other anesthesia types will skip block generation."
+                        : "Other Groups Mode: Peripheral blocks will be generated for all Anesthesia Types except 'MAC'. This includes General, Regional, and other types."
+                    }}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -5312,6 +5350,7 @@ export default {
       enableMedicalDirection: true, // Toggle for medical direction (true = enabled, false = disabled)
       enableQkDuplicate: false, // Toggle for QK duplicate line generation (false = disabled by default)
       limitAnesthesiaTime: false, // Toggle for limiting anesthesia time to 480 minutes (false = disabled by default)
+      peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -7852,12 +7891,15 @@ export default {
       formData.append("generate_qk_duplicate", this.enableQkDuplicate);
       // Add anesthesia time limiting parameter
       formData.append("limit_anesthesia_time", this.limitAnesthesiaTime);
+      // Add peripheral blocks mode parameter
+      formData.append("peripheral_blocks_mode", this.peripheralBlocksMode);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
       console.log("⚕️ Enable Medical Direction:", this.enableMedicalDirection);
       console.log("🔄 Enable QK Duplicate:", this.enableQkDuplicate);
       console.log("⏱️ Limit Anesthesia Time:", this.limitAnesthesiaTime);
+      console.log("📋 Peripheral Blocks Mode:", this.peripheralBlocksMode);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -7963,6 +8005,8 @@ export default {
       this.isModifiersCsvDragActive = false;
       this.enableMedicalDirection = true;
       this.enableQkDuplicate = false;
+      this.limitAnesthesiaTime = false;
+      this.peripheralBlocksMode = "other";
     },
 
     getModifiersStatusTitle() {

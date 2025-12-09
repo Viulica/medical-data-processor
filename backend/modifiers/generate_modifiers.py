@@ -26,9 +26,10 @@ Special Cases:
   but limits to only P modifier when they are not.
 
 Peripheral Blocks Row Generation:
-- When "peripheral_blocks" field is non-empty AND "Anesthesia Type" is NOT "MAC" (case insensitive)
-- Blocks are generated for all Anesthesia Types except MAC (General, Regional, etc.)
-- Creates duplicate rows for each block in the peripheral_blocks field
+- Mode selection via peripheral_blocks_mode parameter:
+  * "UNI": Generate blocks ONLY when "Anesthesia Type" = "General" (case insensitive)
+  * "other": Generate blocks when "Anesthesia Type" is NOT "MAC" (case insensitive)
+- When conditions are met and "peripheral_blocks" field is non-empty, creates duplicate rows for each block
 - Format: |cpt_code;MD;Resident;CRNA;M1;M2|cpt_code;MD;Resident;CRNA;M1;M2|...
 - Each duplicate row:
   * ASA Code and Procedure Code = CPT code from block
@@ -344,7 +345,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, peripheral_blocks_mode="other"):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -355,6 +356,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
+        peripheral_blocks_mode: Mode for peripheral block generation
+            - "UNI": Generate blocks ONLY when Anesthesia Type is "General"
+            - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
     """
     try:
         # Load modifiers definition
@@ -381,6 +385,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("Anesthesia time will be limited to maximum 480 minutes (8 hours)")
             print("Time limiting will ONLY apply to rows where ASA Code = 01967")
             print("=" * 80)
+        
+        # Log peripheral blocks mode
+        print("=" * 80)
+        if peripheral_blocks_mode == "UNI":
+            print("📋 PERIPHERAL BLOCKS MODE: UNI")
+            print("Peripheral blocks will be generated ONLY when Anesthesia Type = 'General'")
+        else:
+            print("📋 PERIPHERAL BLOCKS MODE: Other Groups")
+            print("Peripheral blocks will be generated when Anesthesia Type is NOT 'MAC'")
+        print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
         insurances_df = pd.DataFrame()
@@ -451,9 +465,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("⚠️  Warning: 'peripheral_blocks' column not found. Peripheral block rows will not be generated.")
         elif has_peripheral_blocks:
             if has_anesthesia_type:
-                print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated for all Anesthesia Types EXCEPT 'MAC'")
+                if peripheral_blocks_mode == "UNI":
+                    print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated ONLY when Anesthesia Type = 'General' (UNI mode)")
+                else:
+                    print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated for all Anesthesia Types EXCEPT 'MAC' (Other Groups mode)")
             else:
-                print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated (Anesthesia Type column not found, so no MAC check)")
+                print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated (Anesthesia Type column not found)")
         
         # Process each row
         result_rows = []
@@ -706,9 +723,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         result_rows.append(tee_row)
             
             # Check if we need to create peripheral block rows
-            # Conditions:
-            # 1. peripheral_blocks field is non-empty
-            # 2. Anesthesia Type is NOT "MAC" (case insensitive) - blocks are generated for all types except MAC
+            # Conditions depend on peripheral_blocks_mode:
+            # - "UNI": Generate ONLY when Anesthesia Type = "General"
+            # - "other": Generate when Anesthesia Type is NOT "MAC"
             if has_peripheral_blocks:
                 peripheral_blocks_value = row.get('peripheral_blocks', '')
                 
@@ -717,8 +734,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 if has_anesthesia_type:
                     anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()
                 
-                # Skip blocks ONLY if Anesthesia Type is MAC
-                if anesthesia_type_val != 'MAC':
+                # Determine if blocks should be generated based on mode
+                should_generate_blocks = False
+                if peripheral_blocks_mode == "UNI":
+                    # UNI mode: Generate ONLY when Anesthesia Type is "General"
+                    should_generate_blocks = (anesthesia_type_val == 'GENERAL')
+                else:
+                    # Other mode: Generate when Anesthesia Type is NOT "MAC"
+                    should_generate_blocks = (anesthesia_type_val != 'MAC')
+                
+                if should_generate_blocks:
                     # Parse the peripheral blocks
                     blocks = parse_peripheral_blocks(peripheral_blocks_value)
                     
@@ -830,9 +855,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         # Add the block row to results
                         result_rows.append(block_row)
                 else:
-                    # Anesthesia Type is 'MAC', so skip peripheral blocks
+                    # Blocks were skipped - log reason based on mode
                     if peripheral_blocks_value and str(peripheral_blocks_value).strip():
-                        print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is 'MAC'")
+                        if peripheral_blocks_mode == "UNI":
+                            print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is '{row.get('Anesthesia Type', '')}' (UNI mode requires 'General')")
+                        else:
+                            print(f"⚠️  Row {idx}: Skipping peripheral blocks - Anesthesia Type is 'MAC'")
         
         # Create result dataframe
         result_df = pd.DataFrame(result_rows)
