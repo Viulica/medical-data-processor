@@ -1801,7 +1801,55 @@
                 <h3>Custom Coding Instructions</h3>
               </div>
               <div class="settings-content">
-                <div class="form-group">
+                <!-- Template Selection Toggle -->
+                <div class="template-selection-toggle">
+                  <label class="toggle-label">
+                    <input
+                      v-model="useCptTemplateInsteadOfText"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Use saved template</span>
+                  </label>
+                </div>
+
+                <!-- Template Dropdown (when using template) -->
+                <div
+                  v-if="useCptTemplateInsteadOfText"
+                  class="template-dropdown-section"
+                  style="margin-top: 10px"
+                >
+                  <select
+                    v-model="selectedCptInstructionId"
+                    class="template-select"
+                    @focus="ensureCptInstructionsLoaded"
+                  >
+                    <option :value="null" disabled>
+                      Select CPT template...
+                    </option>
+                    <option
+                      v-for="instruction in predictionInstructions.filter(
+                        (i) => i.instruction_type === 'cpt'
+                      )"
+                      :key="instruction.id"
+                      :value="instruction.id"
+                    >
+                      {{ instruction.name }}
+                    </option>
+                  </select>
+                  <p class="template-hint">
+                    <a
+                      href="#"
+                      @click.prevent="loadPredictionInstructions"
+                      class="manage-link"
+                    >
+                      Manage instruction templates
+                    </a>
+                  </p>
+                </div>
+
+                <!-- Manual Text Input (when not using template) -->
+                <div v-else class="form-group" style="margin-top: 10px">
                   <label
                     for="cpt-vision-custom-instructions"
                     class="form-label"
@@ -7278,6 +7326,8 @@ export default {
       this.useVisionPrediction = false;
       this.visionPageCount = 1;
       this.cptVisionCustomInstructions = "";
+      this.useCptTemplateInsteadOfText = false;
+      this.selectedCptInstructionId = null;
       this.cptJobId = null;
       this.cptJobStatus = null;
       this.isPredictingCpt = false;
