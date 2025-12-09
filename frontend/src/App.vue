@@ -1022,6 +1022,7 @@
                   >
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                    <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
                   </select>
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
