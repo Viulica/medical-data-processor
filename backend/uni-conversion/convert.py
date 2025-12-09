@@ -366,6 +366,188 @@ CRITICAL RULES:
     return (icd_codes, False, prompt, "")
 
 
+def update_icd_codes_to_latest(icd_codes, procedure, post_op_diagnosis, post_op_coded, client=None):
+    """
+    Use Gemini AI with web search to update ICD codes to their latest versions.
+    Verifies each code is the most current version for the specific diagnosis.
+    Maintains the original order and diagnoses - only updates code versions.
+    
+    Args:
+        icd_codes: List of ICD codes (up to 4) - these will be updated to latest versions
+        procedure: Procedure description string
+        post_op_diagnosis: POST-OP DIAGNOSIS string (supplementary)
+        post_op_coded: Post-op Diagnosis - Coded string (supplementary)
+        client: Google AI client (optional, will create if not provided)
+    
+    Returns:
+        Tuple of (updated_codes, success_flag, final_prompt, final_response) where:
+        - updated_codes: List of updated ICD codes in the same order as input
+        - success_flag: Boolean indicating if AI update was successful
+        - final_prompt: The exact prompt sent to the AI
+        - final_response: The exact response received from the AI
+    """
+    # If no codes, return empty list
+    if not icd_codes or len(icd_codes) == 0:
+        return (icd_codes, True, "", "")
+    
+    # Initialize Google AI client if not provided
+    if client is None:
+        try:
+            client = genai.Client(
+                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
+            )
+        except Exception as e:
+            print(f"    ⚠️  Could not initialize AI client: {str(e)}")
+            return (icd_codes, False, "", "")
+    
+    # Prepare the prompt with emphasis on using Google search to verify latest versions
+    prompt = f"""
+You are a medical coding expert tasked with updating ICD diagnosis codes to their LATEST CURRENT VERSIONS.
+
+PROCEDURE:
+{procedure if procedure and not pd.isna(procedure) else "Not specified"}
+
+SUPPLEMENTARY INFORMATION:
+Post-op Diagnosis: {post_op_diagnosis if post_op_diagnosis and not pd.isna(post_op_diagnosis) else "Not specified"}
+Post-op Diagnosis - Coded: {post_op_coded if post_op_coded and not pd.isna(post_op_coded) else "Not specified"}
+
+CURRENT ICD CODES (in order):
+{chr(10).join([f"{i+1}. {code}" for i, code in enumerate(icd_codes)])}
+
+TASK:
+For EACH ICD code above, you must:
+1. Use Google Search to verify if the code is the LATEST CURRENT VERSION for that specific diagnosis
+2. If a newer version exists, replace it with the latest version
+3. If the code is already the latest version, keep it unchanged
+4. MAINTAIN THE EXACT SAME ORDER as provided above
+5. DO NOT change the diagnosis - only update the code version if outdated
+
+IMPORTANT RULES:
+- Use Google Search to check the latest ICD-10-CM code versions for each diagnosis
+- Preserve the order: Code 1 stays first, Code 2 stays second, etc.
+- Only update codes that have newer versions available
+- If a code is already current, return it exactly as provided
+- Do NOT reorder codes or change diagnoses
+- Do NOT add or remove codes
+
+RESPONSE FORMAT:
+Return ONLY a JSON object with this exact structure:
+{{
+    "updated_codes": ["ICD1", "ICD2", "ICD3", "ICD4"]
+}}
+
+Where:
+- "updated_codes" contains all {len(icd_codes)} codes in THE SAME ORDER as input (updated to latest versions)
+
+CRITICAL RULES:
+1. Return ONLY valid JSON, no markdown formatting, no code blocks, no other text
+2. Include ALL {len(icd_codes)} codes in "updated_codes" in THE SAME ORDER
+3. Use Google Search to verify each code is the latest version
+4. If a code is already current, return it exactly as provided (preserve format/case)
+5. Your entire response must be parseable as JSON
+"""
+    
+    # Retry logic - attempt up to 5 times
+    max_retries = 5
+    for attempt in range(max_retries):
+        raw_response_text = ""
+        try:
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                )
+            ]
+
+            tools = [
+                types.Tool(googleSearch=types.GoogleSearch(
+                )),
+            ]
+            
+            generate_content_config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,  # Lower temperature for more consistent/accurate code updates
+                tools=tools
+            )
+
+            # Get AI response using gemini-flash-latest with web search
+            response = client.models.generate_content(
+                model="gemini-flash-latest",
+                contents=contents,
+                config=generate_content_config,
+            )
+            
+            # Capture the RAW response exactly as returned by the model
+            raw_response_text = response.text
+            
+            # Now clean the response for parsing
+            response_text = response.text.strip()
+            
+            # Clean the response by removing any markdown code block formatting
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]  # Remove ```json
+            if response_text.startswith('```'):
+                response_text = response_text[3:]   # Remove ```
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]  # Remove trailing ```
+            response_text = response_text.strip()
+            
+            # Parse the JSON response
+            ai_decision = json.loads(response_text)
+            updated_codes = ai_decision.get('updated_codes', icd_codes)
+            
+            # Validate that we have the same number of codes
+            if len(updated_codes) != len(icd_codes):
+                if attempt < max_retries - 1:
+                    print(f"    ⚠️  AI returned wrong number of codes (attempt {attempt + 1}/{max_retries})")
+                    print(f"        Expected: {len(icd_codes)} codes")
+                    print(f"        Received: {len(updated_codes)} codes")
+                    continue
+                else:
+                    print(f"    ⚠️  AI returned wrong number of codes after {max_retries} attempts, using original codes")
+                    return (icd_codes, False, prompt, raw_response_text)
+            
+            # Success - return updated codes in same order
+            return (updated_codes, True, prompt, raw_response_text)
+                
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"    ⚠️  AI code update failed (attempt {attempt + 1}/{max_retries}): {str(e)}, retrying...")
+                continue
+            else:
+                print(f"    ⚠️  AI code update failed after {max_retries} attempts: {str(e)}")
+                return (icd_codes, False, prompt, raw_response_text)
+    
+    # This should never be reached, but just in case
+    return (icd_codes, False, prompt, "")
+
+
+def process_icd_update_task(args):
+    """
+    Process a single ICD update task (for threading).
+    
+    Args:
+        args: Tuple of (row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded)
+    
+    Returns:
+        Tuple of (row_idx, updated_codes, success_flag, final_prompt, final_response)
+    """
+    row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
+    
+    # Initialize client for this thread
+    try:
+        client = genai.Client(
+            api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
+        )
+    except Exception as e:
+        print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
+        return (row_idx, icd_codes, False, "", "")
+    
+    # Update codes to latest versions
+    updated_codes, success_flag, final_prompt, final_response = update_icd_codes_to_latest(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
+    return (row_idx, updated_codes, success_flag, final_prompt, final_response)
+
+
 def extract_mednet_code(value):
     """
     Extract only numeric part from Mednet Code.
@@ -1130,7 +1312,73 @@ def convert_data(input_file, output_file=None):
         else:
             print("\n⏭️  Phase 2: AI client not available, skipping ICD reordering")
         
-        # PHASE 3: Process each data row with regular conversion + apply reordered ICD codes
+        # PHASE 2.5: Parallel AI update of ICD codes to latest versions
+        icd_updated_map = {}  # Map row_idx -> updated_codes
+        icd_update_success_map = {}    # Map row_idx -> success_flag
+        icd_update_prompt_map = {}     # Map row_idx -> final_prompt
+        icd_update_response_map = {}   # Map row_idx -> final_response
+        
+        if ai_client is not None:
+            # Prepare tasks for all rows with ICD codes (use reordered codes if available, otherwise original)
+            update_tasks = []
+            for data in icd_extraction_data:
+                row_idx = data['row_idx']
+                # Use reordered codes if available, otherwise use original extracted codes
+                codes_to_update = icd_reordered_map.get(row_idx, data['unique_codes'])
+                
+                # Only process rows that have at least one ICD code
+                if len(codes_to_update) >= 1:
+                    update_tasks.append((
+                        row_idx,
+                        codes_to_update,
+                        data['procedure'],
+                        data['post_op_diag'],
+                        data['post_op_coded']
+                    ))
+            
+            if update_tasks:
+                print(f"\n🔄 Phase 2.5: AI updating {len(update_tasks)} rows with ICD codes to latest versions (10 workers)...")
+                
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    # Submit all tasks
+                    future_to_row = {executor.submit(process_icd_update_task, task): task[0] for task in update_tasks}
+                    
+                    completed = 0
+                    total = len(future_to_row)
+                    successful_updates = 0
+                    
+                    # Collect results as they complete
+                    for future in as_completed(future_to_row):
+                        completed += 1
+                        row_idx = future_to_row[future]
+                        
+                        try:
+                            result_row_idx, updated_codes, success_flag, final_prompt, final_response = future.result()
+                            icd_updated_map[result_row_idx] = updated_codes
+                            icd_update_success_map[result_row_idx] = success_flag
+                            icd_update_prompt_map[result_row_idx] = final_prompt
+                            icd_update_response_map[result_row_idx] = final_response
+                            
+                            if success_flag:
+                                successful_updates += 1
+                            
+                            # Progress update every 10%
+                            if completed % max(1, total // 10) == 0:
+                                progress = (completed / total) * 100
+                                print(f"    📊 Progress: {completed}/{total} ({progress:.1f}%) - {successful_updates} successful")
+                        except Exception as e:
+                            print(f"    ⚠️  Row {row_idx}: Exception during AI code update: {str(e)}")
+                            icd_update_success_map[row_idx] = False
+                            icd_update_prompt_map[row_idx] = ""
+                            icd_update_response_map[row_idx] = ""
+                
+                print(f"✓ AI code update complete for {len(icd_updated_map)} rows ({successful_updates} successful)")
+            else:
+                print("\n⏭️  Phase 2.5: No rows with ICD codes, skipping AI code update")
+        else:
+            print("\n⏭️  Phase 2.5: AI client not available, skipping ICD code update")
+        
+        # PHASE 3: Process each data row with regular conversion + apply updated ICD codes
         print(f"\n📝 Phase 3: Processing {len(df)} rows with field mapping...")
         
         for row_idx in range(len(df)):
@@ -1504,27 +1752,65 @@ def convert_data(input_file, output_file=None):
             elif "Concurrent Providers" not in new_row:
                 new_row["Concurrent Providers"] = ""
             
-            # Get ICD codes from Phase 1 extraction and Phase 2 AI reordering
-            # Check if this row was AI-reordered, otherwise use original extracted codes
-            if row_idx in icd_reordered_map:
+            # Get ICD codes: Priority 1 = Updated codes (Phase 2.5), Priority 2 = Reordered codes (Phase 2), Priority 3 = Original extracted codes
+            # Also track codes before update for logging
+            codes_before_update = None
+            if row_idx in icd_updated_map:
+                # Use updated codes from Phase 2.5
+                unique_codes = icd_updated_map[row_idx]
+                # Codes before update: use reordered codes if available, otherwise original extracted codes
+                if row_idx in icd_reordered_map:
+                    codes_before_update = icd_reordered_map[row_idx]
+                else:
+                    codes_before_update = icd_extraction_data[row_idx]['unique_codes']
+                # Check if AI update was successful for this row
+                ai_update_success = icd_update_success_map.get(row_idx, False)
+                update_prompt = icd_update_prompt_map.get(row_idx, "")
+                update_response = icd_update_response_map.get(row_idx, "")
+                # Also check reordering status if it was done
+                ai_reorder_success = icd_success_map.get(row_idx, False)
+                reorder_prompt = icd_prompt_map.get(row_idx, "")
+                reorder_response = icd_response_map.get(row_idx, "")
+            elif row_idx in icd_reordered_map:
+                # Use reordered codes from Phase 2
                 unique_codes = icd_reordered_map[row_idx]
+                codes_before_update = unique_codes  # No update happened, so before = after
                 # Check if AI reordering was successful for this row
-                ai_success = icd_success_map.get(row_idx, False)
-                final_prompt = icd_prompt_map.get(row_idx, "")
-                final_response = icd_response_map.get(row_idx, "")
+                ai_reorder_success = icd_success_map.get(row_idx, False)
+                reorder_prompt = icd_prompt_map.get(row_idx, "")
+                reorder_response = icd_response_map.get(row_idx, "")
+                ai_update_success = False
+                update_prompt = ""
+                update_response = ""
             else:
+                # Use original extracted codes
                 unique_codes = icd_extraction_data[row_idx]['unique_codes']
-                # If no AI reordering attempted (less than 2 codes), mark as successful
-                ai_success = True if len(unique_codes) <= 1 else False
-                final_prompt = ""
-                final_response = ""
+                codes_before_update = unique_codes  # No update happened, so before = after
+                # If no AI processing attempted (less than 2 codes), mark as successful
+                ai_reorder_success = True if len(unique_codes) <= 1 else False
+                reorder_prompt = ""
+                reorder_response = ""
+                ai_update_success = False
+                update_prompt = ""
+                update_response = ""
             
             # Add ICD AI Reordering Success column
-            new_row["ICD AI Reordering Success"] = "Yes" if ai_success else "No"
+            new_row["ICD AI Reordering Success"] = "Yes" if ai_reorder_success else "No"
             
-            # Add logging columns for AI interaction
-            new_row["ICD AI Final Prompt"] = final_prompt
-            new_row["ICD AI Final Response"] = final_response
+            # Add ICD AI Update Success column
+            new_row["ICD AI Update Success"] = "Yes" if ai_update_success else "No"
+            
+            # Add logging columns for AI reordering interaction
+            new_row["ICD AI Reordering Prompt"] = reorder_prompt
+            new_row["ICD AI Reordering Response"] = reorder_response
+            
+            # Add logging columns for AI update interaction
+            new_row["ICD AI Update Prompt"] = update_prompt
+            new_row["ICD AI Update Response"] = update_response
+            
+            # Add logging columns for codes before and after update
+            new_row["ICD Codes Before Update"] = "; ".join(codes_before_update) if codes_before_update else ""
+            new_row["ICD Codes After Update"] = "; ".join(unique_codes) if unique_codes else ""
             
             # Add detailed ICD extraction logging columns
             extraction_data = icd_extraction_data[row_idx]
