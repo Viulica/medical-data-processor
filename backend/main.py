@@ -2752,47 +2752,87 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         
         # Read predictions file (handle both Excel and CSV)
         predictions_path_obj = Path(predictions_path)
+        predictions_df = None
+        
         if predictions_path_obj.suffix.lower() in ('.xlsx', '.xls'):
             try:
-                predictions_df = pd.read_excel(predictions_path, dtype=str, engine='openpyxl')
+                # Use appropriate engine based on file extension
+                if predictions_path_obj.suffix.lower() == '.xlsx':
+                    predictions_df = pd.read_excel(predictions_path, dtype=str, engine='openpyxl')
+                else:  # .xls file
+                    # Try xlrd first, then fall back to auto-detect
+                    try:
+                        predictions_df = pd.read_excel(predictions_path, dtype=str, engine='xlrd')
+                    except Exception:
+                        # Auto-detect engine (will use xlrd if available, otherwise openpyxl)
+                        predictions_df = pd.read_excel(predictions_path, dtype=str, engine=None)
+                logger.info(f"Successfully read predictions file as Excel ({predictions_path_obj.suffix.lower()})")
             except Exception as e:
-                logger.warning(f"Failed to read predictions as Excel, trying CSV: {e}")
-                predictions_df = pd.read_csv(predictions_path, dtype=str, encoding='utf-8')
+                logger.warning(f"Failed to read predictions as Excel: {e}, trying CSV with multiple encodings")
+                # Try multiple encodings for CSV files
+                encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+                for encoding in encodings_to_try:
+                    try:
+                        predictions_df = pd.read_csv(predictions_path, dtype=str, encoding=encoding)
+                        logger.info(f"Successfully read predictions file as CSV with encoding: {encoding}")
+                        break
+                    except (UnicodeDecodeError, Exception) as csv_error:
+                        continue
         else:
             # Try multiple encodings for CSV files
-            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
-            predictions_df = None
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             for encoding in encodings_to_try:
                 try:
                     predictions_df = pd.read_csv(predictions_path, dtype=str, encoding=encoding)
                     logger.info(f"Successfully read predictions file with encoding: {encoding}")
                     break
-                except UnicodeDecodeError:
+                except (UnicodeDecodeError, Exception) as csv_error:
                     continue
-            if predictions_df is None:
-                raise Exception("Could not read predictions file with any standard encoding")
+        
+        if predictions_df is None:
+            raise Exception("Could not read predictions file. Please ensure it's a valid Excel (.xlsx, .xls) or CSV file.")
         
         # Read ground truth file (handle both Excel and CSV)
         ground_truth_path_obj = Path(ground_truth_path)
+        ground_truth_df = None
+        
         if ground_truth_path_obj.suffix.lower() in ('.xlsx', '.xls'):
             try:
-                ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='openpyxl')
+                # Use appropriate engine based on file extension
+                if ground_truth_path_obj.suffix.lower() == '.xlsx':
+                    ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='openpyxl')
+                else:  # .xls file
+                    # Try xlrd first, then fall back to auto-detect
+                    try:
+                        ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='xlrd')
+                    except Exception:
+                        # Auto-detect engine (will use xlrd if available, otherwise openpyxl)
+                        ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine=None)
+                logger.info(f"Successfully read ground truth file as Excel ({ground_truth_path_obj.suffix.lower()})")
             except Exception as e:
-                logger.warning(f"Failed to read ground truth as Excel, trying CSV: {e}")
-                ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding='utf-8')
+                logger.warning(f"Failed to read ground truth as Excel: {e}, trying CSV with multiple encodings")
+                # Try multiple encodings for CSV files
+                encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+                for encoding in encodings_to_try:
+                    try:
+                        ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding=encoding)
+                        logger.info(f"Successfully read ground truth file as CSV with encoding: {encoding}")
+                        break
+                    except (UnicodeDecodeError, Exception) as csv_error:
+                        continue
         else:
             # Try multiple encodings for CSV files
-            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
-            ground_truth_df = None
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
             for encoding in encodings_to_try:
                 try:
                     ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding=encoding)
                     logger.info(f"Successfully read ground truth file with encoding: {encoding}")
                     break
-                except UnicodeDecodeError:
+                except (UnicodeDecodeError, Exception) as csv_error:
                     continue
-            if ground_truth_df is None:
-                raise Exception("Could not read ground truth file with any standard encoding")
+        
+        if ground_truth_df is None:
+            raise Exception("Could not read ground truth file. Please ensure it's a valid Excel (.xlsx, .xls) or CSV file.")
         
         job.message = "Finding required columns..."
         job.progress = 20
