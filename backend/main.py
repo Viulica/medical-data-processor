@@ -2870,13 +2870,16 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.progress = 40
         
         # Create a dictionary for ground truth lookup (store full row data)
+        # IMPORTANT: Only take the FIRST occurrence of each account ID
         gt_dict = {}
         gt_row_dict = {}  # Store full row data for detailed reporting
         for idx, row in ground_truth_df.iterrows():
             account_id = str(row[account_id_col_gt]).strip()
-            asa_code = str(row[asa_code_col_gt]).strip() if pd.notna(row[asa_code_col_gt]) else ''
-            gt_dict[account_id] = asa_code
-            gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
+            # Only add if we haven't seen this account ID before (take FIRST occurrence)
+            if account_id not in gt_dict:
+                asa_code = str(row[asa_code_col_gt]).strip() if pd.notna(row[asa_code_col_gt]) else ''
+                gt_dict[account_id] = asa_code
+                gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
         
         # Compare predictions with ground truth
         comparison_data = []
