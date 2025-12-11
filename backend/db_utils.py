@@ -59,12 +59,14 @@ def init_database():
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL UNIQUE,
         description TEXT,
+        category VARCHAR(50),
         template_data JSONB NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
     CREATE INDEX IF NOT EXISTS idx_template_name ON instruction_templates(name);
+    CREATE INDEX IF NOT EXISTS idx_template_category ON instruction_templates(category);
     
     CREATE TABLE IF NOT EXISTS prediction_instructions (
         id SERIAL PRIMARY KEY,
@@ -115,10 +117,26 @@ def init_database():
     CREATE INDEX IF NOT EXISTS idx_instruction_additions_templates_name ON instruction_additions_templates(name);
     """
     
+    # Migration SQL to add category column if it doesn't exist
+    migration_sql = """
+    DO $$ 
+    BEGIN 
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'instruction_templates' 
+            AND column_name = 'category'
+        ) THEN
+            ALTER TABLE instruction_templates ADD COLUMN category VARCHAR(50);
+            CREATE INDEX IF NOT EXISTS idx_template_category ON instruction_templates(category);
+        END IF;
+    END $$;
+    """
+    
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(create_table_sql)
+                cur.execute(migration_sql)
                 logger.info("✅ Database schema initialized successfully")
                 return True
     except Exception as e:
@@ -267,7 +285,7 @@ def get_modifiers_dict():
 # Instruction Templates Management
 # ============================================================
 
-def get_all_templates(page=1, page_size=50, search=None):
+def get_all_templates(page=1, page_size=50, search=None, category=None):
     """
     Get instruction templates from the database with pagination.
     
@@ -275,6 +293,7 @@ def get_all_templates(page=1, page_size=50, search=None):
         page: Page number (1-indexed)
         page_size: Number of records per page
         search: Optional search term for template name
+        category: Optional category filter ('DEMO', 'DEMO + CPT + ICD', 'CHARGE')
     
     Returns:
         Dictionary with 'templates', 'total', 'page', 'page_size', 'total_pages'
@@ -282,12 +301,21 @@ def get_all_templates(page=1, page_size=50, search=None):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Build WHERE clause for search
-                where_clause = ""
+                # Build WHERE clause for search and category
+                where_conditions = []
                 params = []
+                
                 if search:
-                    where_clause = "WHERE name ILIKE %s OR description ILIKE %s"
+                    where_conditions.append("(name ILIKE %s OR description ILIKE %s)")
                     params.extend([f"%{search}%", f"%{search}%"])
+                
+                if category:
+                    where_conditions.append("category = %s")
+                    params.append(category)
+                
+                where_clause = ""
+                if where_conditions:
+                    where_clause = "WHERE " + " AND ".join(where_conditions)
                 
                 # Get total count
                 count_query = f"SELECT COUNT(*) FROM instruction_templates {where_clause}"
@@ -300,7 +328,7 @@ def get_all_templates(page=1, page_size=50, search=None):
                 
                 # Get paginated results
                 data_query = f"""
-                    SELECT id, name, description, created_at, updated_at
+                    SELECT id, name, description, category, created_at, updated_at
                     FROM instruction_templates
                     {where_clause}
                     ORDER BY name
@@ -341,13 +369,13 @@ def get_template(template_id=None, template_name=None):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if template_id:
                     cur.execute("""
-                        SELECT id, name, description, template_data, created_at, updated_at
+                        SELECT id, name, description, category, template_data, created_at, updated_at
                         FROM instruction_templates
                         WHERE id = %s
                     """, (template_id,))
                 elif template_name:
                     cur.execute("""
-                        SELECT id, name, description, template_data, created_at, updated_at
+                        SELECT id, name, description, category, template_data, created_at, updated_at
                         FROM instruction_templates
                         WHERE name = %s
                     """, (template_name,))
@@ -361,7 +389,7 @@ def get_template(template_id=None, template_name=None):
         return None
 
 
-def create_template(name, description, template_data):
+def create_template(name, description, template_data, category=None):
     """
     Create a new instruction template.
     Returns the created template ID on success, None on failure.
@@ -370,6 +398,7 @@ def create_template(name, description, template_data):
         name: Template name (unique)
         description: Template description
         template_data: Dictionary/JSON containing the template field definitions
+        category: Template category ('DEMO', 'DEMO + CPT + ICD', 'CHARGE')
     """
     import json
     
@@ -377,10 +406,10 @@ def create_template(name, description, template_data):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    INSERT INTO instruction_templates (name, description, template_data, created_at, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO instruction_templates (name, description, category, template_data, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     RETURNING id
-                """, (name, description, json.dumps(template_data)))
+                """, (name, description, category, json.dumps(template_data)))
                 result = cur.fetchone()
                 return result['id'] if result else None
     except Exception as e:
@@ -388,7 +417,7 @@ def create_template(name, description, template_data):
         return None
 
 
-def update_template(template_id, name=None, description=None, template_data=None):
+def update_template(template_id, name=None, description=None, template_data=None, category=None):
     """
     Update an existing instruction template.
     Returns True on success, False on failure.
@@ -398,6 +427,7 @@ def update_template(template_id, name=None, description=None, template_data=None
         name: New name (optional)
         description: New description (optional)
         template_data: New template data (optional)
+        category: New category (optional)
     """
     import json
     
@@ -416,6 +446,10 @@ def update_template(template_id, name=None, description=None, template_data=None
     if template_data is not None:
         updates.append("template_data = %s")
         params.append(json.dumps(template_data))
+    
+    if category is not None:
+        updates.append("category = %s")
+        params.append(category)
     
     if not updates:
         return True  # Nothing to update
