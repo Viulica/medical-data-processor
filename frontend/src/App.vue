@@ -4753,6 +4753,23 @@
                 class="search-input"
               />
             </div>
+            <div class="search-box" style="margin-left: 10px">
+              <select
+                v-model="templateCategoryFilter"
+                @change="onTemplateCategoryFilterChange"
+                class="search-input"
+                style="cursor: pointer"
+              >
+                <option :value="null">All Categories</option>
+                <option
+                  v-for="category in templateCategories"
+                  :key="category"
+                  :value="category"
+                >
+                  {{ category }}
+                </option>
+              </select>
+            </div>
             <button @click="showAddTemplateModal = true" class="add-btn">
               ➕ Upload New Template
             </button>
@@ -4766,7 +4783,16 @@
               class="template-card"
             >
               <div class="template-card-header">
-                <h3>{{ template.name }}</h3>
+                <div style="flex: 1">
+                  <h3>{{ template.name }}</h3>
+                  <span
+                    v-if="template.category"
+                    class="category-badge"
+                    :class="getCategoryBadgeClass(template.category)"
+                  >
+                    {{ template.category }}
+                  </span>
+                </div>
                 <div class="template-card-actions">
                   <button
                     @click="viewTemplateDetails(template)"
@@ -4958,6 +4984,19 @@
                 ></textarea>
               </div>
               <div class="form-group">
+                <label>Category</label>
+                <select v-model="currentTemplate.category" class="form-input">
+                  <option :value="null">Select a category (optional)</option>
+                  <option
+                    v-for="category in templateCategories"
+                    :key="category"
+                    :value="category"
+                  >
+                    {{ category }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
                 <label>Excel File *</label>
                 <input
                   ref="templateExcelInput"
@@ -5020,6 +5059,19 @@
                   rows="3"
                   placeholder="Optional description of this template..."
                 ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Category</label>
+                <select v-model="currentTemplate.category" class="form-input">
+                  <option :value="null">Select a category (optional)</option>
+                  <option
+                    v-for="category in templateCategories"
+                    :key="category"
+                    :value="category"
+                  >
+                    {{ category }}
+                  </option>
+                </select>
               </div>
               <div class="form-group">
                 <label>Replace Excel File (Optional)</label>
@@ -5868,8 +5920,11 @@ export default {
         id: null,
         name: "",
         description: "",
+        category: null,
         file: null,
       },
+      templateCategories: ["DEMO", "DEMO + CPT + ICD", "CHARGE"],
+      templateCategoryFilter: null,
       viewingTemplate: null,
       editingFields: [],
       isSavingFields: false,
@@ -9484,6 +9539,10 @@ export default {
           params.search = this.templateSearch;
         }
 
+        if (this.templateCategoryFilter) {
+          params.category = this.templateCategoryFilter;
+        }
+
         const response = await axios.get(
           joinUrl(API_BASE_URL, "api/templates"),
           { params }
@@ -9509,6 +9568,20 @@ export default {
         this.templateCurrentPage = 1;
         this.loadTemplates(false);
       }, 500);
+    },
+
+    onTemplateCategoryFilterChange() {
+      this.templateCurrentPage = 1;
+      this.loadTemplates(false);
+    },
+
+    getCategoryBadgeClass(category) {
+      const classes = {
+        DEMO: "category-badge-demo",
+        "DEMO + CPT + ICD": "category-badge-full",
+        CHARGE: "category-badge-charge",
+      };
+      return classes[category] || "";
     },
 
     goToTemplatePage(page) {
@@ -9541,6 +9614,9 @@ export default {
         const formData = new FormData();
         formData.append("name", this.currentTemplate.name);
         formData.append("description", this.currentTemplate.description || "");
+        if (this.currentTemplate.category) {
+          formData.append("category", this.currentTemplate.category);
+        }
         formData.append("excel_file", this.currentTemplate.file);
 
         await axios.post(
@@ -9571,6 +9647,7 @@ export default {
         id: template.id,
         name: template.name,
         description: template.description || "",
+        category: template.category || null,
         file: null,
       };
       this.showEditTemplateModal = true;
@@ -9587,6 +9664,9 @@ export default {
         const formData = new FormData();
         formData.append("name", this.currentTemplate.name);
         formData.append("description", this.currentTemplate.description || "");
+        if (this.currentTemplate.category) {
+          formData.append("category", this.currentTemplate.category);
+        }
         if (this.currentTemplate.file) {
           formData.append("excel_file", this.currentTemplate.file);
         }
@@ -9774,6 +9854,7 @@ export default {
         id: null,
         name: "",
         description: "",
+        category: null,
         file: null,
       };
       this.viewingTemplate = null;
@@ -11918,6 +11999,33 @@ input:checked + .slider:hover {
 
 .template-card:hover {
   border-color: #3b82f6;
+}
+
+/* Category Badge Styles */
+.category-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.category-badge-demo {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.category-badge-full {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.category-badge-charge {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: white;
   box-shadow: 0 8px 16px rgba(59, 130, 246, 0.15);
   transform: translateY(-2px);
 }
