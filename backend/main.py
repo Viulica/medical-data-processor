@@ -122,6 +122,7 @@ async def startup_event():
     logger.info("🚀 Medical Data Processor API starting up...")
     logger.info(f"📡 Port: {PORT}")
     logger.info(f"🔑 Google API Key: {'Set' if os.environ.get('GOOGLE_API_KEY') else 'Not set'}")
+    logger.info(f"🔑 OCR.space API Key: {'Set' if os.environ.get('OCRSPACE_API_KEY') else 'Not set'}")
     logger.info(f"🔑 OpenRouter API Key: {'Set' if os.environ.get('OPENROUTER_API_KEY') else 'Not set'}")
     logger.info(f"🔑 OpenAI API Key: {'Set' if os.environ.get('OPENAI_API_KEY') else 'Not set'} (fallback for OpenRouter)")
     logger.info(f"🌍 Environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'development')}")
@@ -639,20 +640,19 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         job.message = "Starting PDF splitting with OCR.space..."
         job.progress = 10
         
-        # Use existing output folder
+        # Use job-specific output folder (prevents conflicts with concurrent users)
         current_dir = Path(__file__).parent / "current"
-        output_dir = current_dir / "output"
+        output_dir = current_dir / "output" / job_id  # Job-specific folder
         
         # Create output folder if it doesn't exist
-        output_dir.mkdir(exist_ok=True)
-        
-        # Clear output folder first
-        if output_dir.exists():
-            for file in output_dir.glob("*.pdf"):
-                file.unlink()
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         job.message = f"Analyzing PDF with OCR.space API (filter: '{filter_string}')..."
         job.progress = 30
+        
+        # Use job-specific output folder (prevents conflicts with concurrent users)
+        output_dir = current_dir / "output" / job_id  # Job-specific folder
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         # Set up environment for the script
         env = os.environ.copy()
@@ -676,7 +676,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         # Args: input_pdf, output_folder, filter_strings, max_workers
         logger.info(f"Running OCR.space split script with filter: {filter_string}")
         logger.info(f"Input PDF: {pdf_path}")
-        logger.info(f"Output folder: {output_dir}")
+        logger.info(f"Output folder: {output_dir} (job-specific)")
         logger.info(f"Max workers: {max_workers}")
         
         process = None
@@ -685,7 +685,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
                 sys.executable, 
                 str(script_path),
                 str(pdf_path),  # input PDF
-                str(output_dir),  # output folder
+                str(output_dir),  # output folder (job-specific)
                 filter_string,  # filter string
                 str(max_workers)  # parallel workers
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)

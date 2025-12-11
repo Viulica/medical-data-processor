@@ -23,8 +23,10 @@ class OCRSpaceAPI:
     """Simple wrapper for OCR.space API with connection pooling for speed"""
     
     def __init__(self, api_key=None):
-        # Hardcoded API key
-        self.api_key = api_key or "K89032562388957"
+        # Get API key from environment variable (same approach as Google Gemini)
+        self.api_key = api_key or os.environ.get("OCRSPACE_API_KEY")
+        if not self.api_key:
+            raise ValueError("OCRSPACE_API_KEY environment variable not set!")
         self.base_url = "https://api.ocr.space/parse/image"
         # Use session for connection pooling (much faster!)
         self.session = requests.Session()
