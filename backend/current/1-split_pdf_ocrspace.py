@@ -27,7 +27,8 @@ class OCRSpaceAPI:
         self.api_key = api_key or os.environ.get("OCRSPACE_API_KEY")
         if not self.api_key:
             raise ValueError("OCRSPACE_API_KEY environment variable not set!")
-        self.base_url = "https://api.ocr.space/parse/image"
+        # Use PRO tier endpoint (free tier is api.ocr.space)
+        self.base_url = "https://apipro1.ocr.space/parse/image"
         # Use session for connection pooling (much faster!)
         self.session = requests.Session()
         # Reuse connections - speeds up multiple requests significantly
