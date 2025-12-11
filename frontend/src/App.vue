@@ -12014,20 +12014,18 @@ input:checked + .slider:hover {
 }
 
 .category-badge-demo {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: white;
 }
 
 .category-badge-full {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
   color: white;
 }
 
 .category-badge-charge {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
 }
 
 .template-card-header {
