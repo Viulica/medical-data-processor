@@ -3644,11 +3644,11 @@ async def delete_modifier(mednet_code: str):
 # ============================================================================
 
 @app.get("/api/templates")
-async def get_templates(page: int = 1, page_size: int = 50, search: str = None, category: str = None):
+async def get_templates(page: int = 1, page_size: int = 50, search: str = None):
     """Get instruction templates from database with pagination"""
     try:
         from db_utils import get_all_templates
-        result = get_all_templates(page=page, page_size=page_size, search=search, category=category)
+        result = get_all_templates(page=page, page_size=page_size, search=search)
         return result
     except Exception as e:
         logger.error(f"Failed to get templates: {e}")
@@ -3693,7 +3693,6 @@ async def get_template_by_name(template_name: str):
 async def upload_template(
     name: str = Form(...),
     description: str = Form(""),
-    category: str = Form(None),
     excel_file: UploadFile = File(...)
 ):
     """Upload an Excel file and save it as an instruction template"""
@@ -3703,11 +3702,6 @@ async def upload_template(
         # Validate file type
         if not excel_file.filename.endswith(('.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
-        
-        # Validate category if provided
-        valid_categories = ['DEMO', 'DEMO + CPT + ICD', 'CHARGE']
-        if category and category not in valid_categories:
-            raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}")
         
         # Save uploaded file temporarily
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
@@ -3730,8 +3724,7 @@ async def upload_template(
             template_id = create_template(
                 name=name,
                 description=description,
-                template_data={'fields': field_definitions},
-                category=category
+                template_data={'fields': field_definitions}
             )
             
             if template_id:
@@ -3739,8 +3732,7 @@ async def upload_template(
                     "message": "Template uploaded successfully",
                     "template_id": template_id,
                     "name": name,
-                    "fields_count": len(field_definitions),
-                    "category": category
+                    "fields_count": len(field_definitions)
                 }
             else:
                 raise HTTPException(status_code=500, detail="Failed to save template to database")
@@ -3764,7 +3756,6 @@ async def update_template(
     template_id: int,
     name: str = Form(None),
     description: str = Form(None),
-    category: str = Form(None),
     excel_file: UploadFile = File(None)
 ):
     """Update an existing instruction template"""
@@ -3776,12 +3767,6 @@ async def update_template(
         existing_template = get_template(template_id=template_id)
         if not existing_template:
             raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
-        
-        # Validate category if provided
-        if category:
-            valid_categories = ['DEMO', 'DEMO + CPT + ICD', 'CHARGE']
-            if category not in valid_categories:
-                raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}")
         
         # Prepare update parameters
         template_data = None
@@ -3819,8 +3804,7 @@ async def update_template(
             template_id=template_id,
             name=name,
             description=description,
-            template_data=template_data,
-            category=category
+            template_data=template_data
         )
         
         if success:
