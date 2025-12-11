@@ -20,21 +20,31 @@ from pathlib import Path
 
 
 class OCRSpaceAPI:
-    """Simple wrapper for OCR.space API"""
+    """Simple wrapper for OCR.space API with connection pooling for speed"""
     
     def __init__(self, api_key=None):
         # Hardcoded API key
         self.api_key = api_key or "K89032562388957"
         self.base_url = "https://api.ocr.space/parse/image"
+        # Use session for connection pooling (much faster!)
+        self.session = requests.Session()
+        # Reuse connections - speeds up multiple requests significantly
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=20,  # Number of connection pools
+            pool_maxsize=25,      # Max connections per pool (increased for 15 workers)
+            max_retries=3
+        )
+        self.session.mount('https://', adapter)
     
-    def ocr_pdf_page(self, pdf_bytes, language='eng', timeout=60):
+    def ocr_pdf_page(self, pdf_bytes, language='eng', timeout=30, fast_mode=True):
         """
         Extract text from a PDF page.
         
         Args:
             pdf_bytes: PDF file bytes
             language: OCR language (default: 'eng')
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (reduced for speed)
+            fast_mode: Use faster OCR engine (True) or more accurate (False)
             
         Returns:
             Extracted text as string, or None on error
@@ -45,17 +55,17 @@ class OCRSpaceAPI:
                 'apikey': self.api_key,
                 'language': language,
                 'isOverlayRequired': False,
-                'detectOrientation': True,
-                'scale': True,
-                'OCREngine': 2,  # OCR Engine 2 is more accurate
+                'detectOrientation': False,  # Disable for speed
+                'scale': False,  # Disable for speed
+                'OCREngine': 1 if fast_mode else 2,  # Engine 1 is faster, Engine 2 more accurate
             }
             
             files = {
                 'file': ('page.pdf', pdf_bytes, 'application/pdf')
             }
             
-            # Make API request
-            response = requests.post(
+            # Make API request with session (reuses connections)
+            response = self.session.post(
                 self.base_url,
                 data=payload,
                 files=files,
@@ -84,11 +94,15 @@ class OCRSpaceAPI:
         except Exception as e:
             print(f"  ⚠️  OCR error: {str(e)}")
             return None
+    
+    def __del__(self):
+        """Close session when done"""
+        if hasattr(self, 'session'):
+            self.session.close()
 
 
-def extract_single_page_pdf(pdf_path, page_num):
-    """Extract a single page from PDF as bytes"""
-    reader = PdfReader(pdf_path)
+def extract_single_page_pdf(reader, page_num):
+    """Extract a single page from PDF as bytes (optimized - reuses reader)"""
     writer = PdfWriter()
     writer.add_page(reader.pages[page_num])
     
@@ -98,7 +112,7 @@ def extract_single_page_pdf(pdf_path, page_num):
     return pdf_bytes.getvalue()
 
 
-def check_page_matches(pdf_path, page_num, filter_strings, ocr_api, case_sensitive=False):
+def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive=False):
     """
     Check if a page contains ALL the filter strings.
     
@@ -106,11 +120,11 @@ def check_page_matches(pdf_path, page_num, filter_strings, ocr_api, case_sensiti
         tuple: (page_num, matches: bool)
     """
     try:
-        # Extract single page as PDF bytes
-        page_pdf_bytes = extract_single_page_pdf(pdf_path, page_num)
+        # Extract single page as PDF bytes (reuses reader - faster!)
+        page_pdf_bytes = extract_single_page_pdf(reader, page_num)
         
-        # OCR the page
-        text = ocr_api.ocr_pdf_page(page_pdf_bytes)
+        # OCR the page (using fast mode for speed)
+        text = ocr_api.ocr_pdf_page(page_pdf_bytes, fast_mode=True, timeout=20)
         
         if not text:
             return page_num, False
@@ -132,29 +146,29 @@ def check_page_matches(pdf_path, page_num, filter_strings, ocr_api, case_sensiti
         return page_num, False
 
 
-def find_matching_pages(pdf_path, filter_strings, max_workers=5, case_sensitive=False):
+def find_matching_pages(pdf_path, filter_strings, max_workers=15, case_sensitive=False):
     """
     Find all pages that contain ALL the filter strings.
     
     Args:
         pdf_path: Path to PDF file
         filter_strings: List of strings that ALL must be present
-        max_workers: Number of parallel workers (default: 5)
+        max_workers: Number of parallel workers (default: 10 - increased for speed!)
         case_sensitive: Whether search is case-sensitive
         
     Returns:
         List of matching page numbers (0-based)
     """
-    # Initialize OCR API
+    # Initialize OCR API (with connection pooling)
     ocr_api = OCRSpaceAPI()
     
-    # Get total pages
+    # Get total pages (read once, reuse for all pages)
     reader = PdfReader(pdf_path)
     total_pages = len(reader.pages)
     
     filter_display = " AND ".join([f'"{s}"' for s in filter_strings])
     print(f"📄 Scanning {total_pages} pages for: {filter_display}")
-    print(f"🔍 Using OCR.space API")
+    print(f"🔍 Using OCR.space API (Fast Mode)")
     print(f"🧵 Processing with {max_workers} parallel workers")
     print()
     
@@ -162,9 +176,9 @@ def find_matching_pages(pdf_path, filter_strings, max_workers=5, case_sensitive=
     matching_pages = []
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
+        # Submit all tasks (reuse reader for speed)
         futures = {
-            executor.submit(check_page_matches, pdf_path, page_num, filter_strings, ocr_api, case_sensitive): page_num
+            executor.submit(check_page_matches, reader, page_num, filter_strings, ocr_api, case_sensitive): page_num
             for page_num in range(total_pages)
         }
         
@@ -230,7 +244,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=5, case_sensitive=False):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=15, case_sensitive=False):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -285,7 +299,7 @@ def main():
     INPUT_PDF = "input.pdf"
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]
-    MAX_WORKERS = 5  # OCR.space free tier has rate limits
+    MAX_WORKERS = 15  # Increased for speed (OCR.space can handle this)
     CASE_SENSITIVE = False
     
     # Parse command-line arguments
