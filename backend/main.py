@@ -630,6 +630,140 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         # Clean up memory even on failure
         gc.collect()
 
+def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str, max_workers: int = 5):
+    """Background task to split PDF using OCR.space API"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Starting PDF splitting with OCR.space..."
+        job.progress = 10
+        
+        # Use existing output folder
+        current_dir = Path(__file__).parent / "current"
+        output_dir = current_dir / "output"
+        
+        # Create output folder if it doesn't exist
+        output_dir.mkdir(exist_ok=True)
+        
+        # Clear output folder first
+        if output_dir.exists():
+            for file in output_dir.glob("*.pdf"):
+                file.unlink()
+        
+        job.message = f"Analyzing PDF with OCR.space API (filter: '{filter_string}')..."
+        job.progress = 30
+        
+        # Set up environment for the script
+        env = os.environ.copy()
+        env['PYTHONPATH'] = str(current_dir)
+        
+        # Limit OpenBLAS threads to prevent resource exhaustion
+        env['OPENBLAS_NUM_THREADS'] = '12'
+        env['OMP_NUM_THREADS'] = '12'
+        env['MKL_NUM_THREADS'] = '12'
+        
+        # Path to OCR.space splitting script
+        script_path = current_dir / "1-split_pdf_ocrspace.py"
+        
+        if not script_path.exists():
+            raise Exception(f"OCR.space splitting script not found: {script_path}")
+        
+        job.message = f"OCR processing PDF pages..."
+        job.progress = 40
+        
+        # Run the OCR.space splitting script
+        # Args: input_pdf, output_folder, filter_strings, max_workers
+        logger.info(f"Running OCR.space split script with filter: {filter_string}")
+        logger.info(f"Input PDF: {pdf_path}")
+        logger.info(f"Output folder: {output_dir}")
+        logger.info(f"Max workers: {max_workers}")
+        
+        process = None
+        try:
+            process = subprocess.Popen([
+                sys.executable, 
+                str(script_path),
+                str(pdf_path),  # input PDF
+                str(output_dir),  # output folder
+                filter_string,  # filter string
+                str(max_workers)  # parallel workers
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)
+            
+            job.message = "OCR.space processing PDF pages..."
+            job.progress = 60
+            
+            # Wait for process with timeout (20 minutes max)
+            stdout, stderr = process.communicate(timeout=1200)
+            
+            logger.info(f"OCR.space script stdout: {stdout}")
+            logger.info(f"OCR.space script stderr: {stderr}")
+            
+            if process.returncode != 0:
+                raise Exception(f"OCR.space splitting failed: {stderr}")
+            
+        except subprocess.TimeoutExpired:
+            # Kill the process and all its children if it times out
+            if process:
+                logger.warning(f"OCR.space PDF splitting timed out, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise Exception("OCR.space PDF splitting timed out after 20 minutes")
+        except Exception as e:
+            # Ensure process is terminated on any error
+            if process and process.poll() is None:
+                logger.warning(f"OCR.space PDF splitting failed, killing process tree for PID {process.pid}")
+                kill_process_tree(process)
+                gc.collect()  # Force cleanup after killing process
+            raise e
+        
+        job.message = "Creating ZIP archive of split PDFs..."
+        job.progress = 85
+        
+        # Create ZIP file with all split PDFs
+        zip_path = Path(f"/tmp/results/{job_id}_split_pdfs_ocrspace.zip")
+        zip_path.parent.mkdir(exist_ok=True)
+        
+        # Find all PDF files created by the script
+        pdf_files = list(output_dir.glob("*.pdf"))
+        
+        if not pdf_files:
+            raise Exception("No PDF files were created by the splitting script. This could mean no matching pages were found.")
+        
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for pdf_file in pdf_files:
+                zipf.write(pdf_file, pdf_file.name)
+        
+        job.result_file = str(zip_path)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections."
+        
+        # Clean up uploaded file
+        os.unlink(pdf_path)
+        logger.info(f"Cleaned up input file: {pdf_path}")
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after OCR.space PDF splitting")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"PDF splitting failed: {str(e)}"
+        logger.error(f"Split job {job_id} failed: {str(e)}")
+        
+        # Clean up on error
+        try:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+                logger.info(f"Cleaned up input file on error: {pdf_path}")
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup error: {cleanup_error}")
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
     """Background task to predict CPT codes from CSV procedures"""
     job = job_status[job_id]
@@ -1989,6 +2123,50 @@ async def split_pdf_gemini(
         
     except Exception as e:
         logger.error(f"Gemini PDF split upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/split-pdf-ocrspace")
+async def split_pdf_ocrspace(
+    background_tasks: BackgroundTasks,
+    pdf_file: UploadFile = File(...),
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
+):
+    """Upload a PDF file to split using OCR.space API - fastest and most reliable method"""
+    
+    try:
+        logger.info(f"Received OCR.space PDF split request - pdf: {pdf_file.filename}, filter: {filter_string}")
+        
+        # Validate file type
+        if not pdf_file.filename.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="File must be a PDF")
+        
+        # Fixed configuration
+        max_workers = 5  # OCR.space rate limits
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created OCR.space split job {job_id}")
+        
+        # Save uploaded PDF
+        pdf_path = f"/tmp/{job_id}_input.pdf"
+        
+        with open(pdf_path, "wb") as f:
+            shutil.copyfileobj(pdf_file.file, f)
+        
+        logger.info(f"PDF saved - path: {pdf_path}")
+        
+        # Start background processing with OCR.space method
+        background_tasks.add_task(split_pdf_ocrspace_background, job_id, pdf_path, filter_string, max_workers)
+        
+        logger.info(f"Background OCR.space split task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "PDF uploaded and OCR.space splitting started"}
+        
+    except Exception as e:
+        logger.error(f"OCR.space PDF split upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/download/{job_id}")

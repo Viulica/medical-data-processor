@@ -71,7 +71,15 @@ Here is the clinical information:
 
 Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
 
-Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
+You must respond with a JSON object in this exact format:
+{{
+  "code": "00840",
+  "explanation": "Brief explanation of why this code was chosen (1-2 sentences)"
+}}
+
+The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
+
+Respond with ONLY the JSON object, nothing else."""
 
     # Retry mechanism with exponential backoff
     max_retries = 5
@@ -92,8 +100,33 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 ]
             )
             
-            # Extract the predicted code from the response
-            predicted_code = response.output_text.strip()
+            # Extract the predicted code and explanation from the response
+            response_text = response.output_text.strip()
+            
+            # Try to parse JSON response
+            predicted_code = None
+            explanation = ""
+            try:
+                # Try to extract JSON if wrapped in markdown code blocks
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0].strip()
+                
+                result = json.loads(response_text)
+                predicted_code = result.get("code", "").strip()
+                explanation = result.get("explanation", "").strip()
+            except (json.JSONDecodeError, AttributeError):
+                # Fallback: try to extract code if JSON parsing fails
+                # Look for code pattern (5 digits starting with 0)
+                code_match = re.search(r'\b0\d{4}\b', response_text)
+                if code_match:
+                    predicted_code = code_match.group(0)
+                    explanation = response_text.replace(predicted_code, "").strip()
+                else:
+                    # Last resort: use entire response as code
+                    predicted_code = response_text
+                    explanation = ""
             
             # Handle usage and cost calculation
             tokens = 0
@@ -122,7 +155,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 
                 cost = input_cost + output_cost
             
-            return predicted_code, tokens, cost, None
+            return predicted_code, explanation, tokens, cost, None
             
         except Exception as e:
             error_str = str(e)
@@ -141,14 +174,14 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                     continue
                 else:
                     logger.error(f"Max retries reached for rate limit error: {error_message}")
-                    return None, 0, 0.0, f"Rate limit exceeded after {max_retries} attempts: {error_str}"
+                    return None, "", 0, 0.0, f"Rate limit exceeded after {max_retries} attempts: {error_str}"
             else:
                 # For non-429 errors, don't retry
                 logger.error(f"Error calling OpenAI API: {error_message}")
-                return None, 0, 0.0, error_message
+                return None, "", 0, 0.0, error_message
     
     # Should never reach here, but just in case
-    return None, 0, 0.0, "Max retries reached"
+    return None, "", 0, 0.0, "Max retries reached"
 
 
 def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
@@ -206,7 +239,15 @@ IMPORTANT: Look at the document images carefully to identify:
 
 Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
 
-Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - that is your ENTIRE response to me."""
+You must respond with a JSON object in this exact format:
+{{
+  "code": "00840",
+  "explanation": "Brief explanation of why this code was chosen (1-2 sentences)"
+}}
+
+The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
+
+Respond with ONLY the JSON object, nothing else."""
     
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
@@ -258,11 +299,36 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
             
             response_data = response.json()
             
-            # Extract the predicted code from the response
+            # Extract the predicted code and explanation from the response
+            predicted_code = None
+            explanation = ""
             if "choices" in response_data and len(response_data["choices"]) > 0:
-                content = response_data["choices"][0]["message"]["content"]
-                if content:
-                    predicted_code = content.strip()
+                content_text = response_data["choices"][0]["message"]["content"]
+                if content_text:
+                    content_text = content_text.strip()
+                    
+                    # Try to parse JSON response
+                    try:
+                        # Try to extract JSON if wrapped in markdown code blocks
+                        if "```json" in content_text:
+                            content_text = content_text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in content_text:
+                            content_text = content_text.split("```")[1].split("```")[0].strip()
+                        
+                        result = json.loads(content_text)
+                        predicted_code = result.get("code", "").strip()
+                        explanation = result.get("explanation", "").strip()
+                    except (json.JSONDecodeError, AttributeError):
+                        # Fallback: try to extract code if JSON parsing fails
+                        # Look for code pattern (5 digits starting with 0)
+                        code_match = re.search(r'\b0\d{4}\b', content_text)
+                        if code_match:
+                            predicted_code = code_match.group(0)
+                            explanation = content_text.replace(predicted_code, "").strip()
+                        else:
+                            # Last resort: use entire response as code
+                            predicted_code = content_text
+                            explanation = ""
                 else:
                     raise Exception(f"Empty response content. Response: {response_data}")
             else:
@@ -301,7 +367,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 
                 cost = input_cost + output_cost
             
-            return predicted_code, tokens, cost, None
+            return predicted_code, explanation, tokens, cost, None
             
         except requests.exceptions.HTTPError as e:
             error_str = str(e)
@@ -338,7 +404,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 continue
             else:
                 logger.error(f"Max retries reached for image prediction: {error_message}")
-                return None, 0, 0.0, error_message
+                return None, "", 0, 0.0, error_message
                 
         except requests.exceptions.RequestException as e:
             error_message = f"Request Error: {str(e)}"
@@ -351,7 +417,7 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 continue
             else:
                 logger.error(f"Max retries reached for request error on image prediction: {error_message}")
-                return None, 0, 0.0, error_message
+                return None, "", 0, 0.0, error_message
                 
         except Exception as e:
             error_str = str(e)
@@ -373,10 +439,10 @@ Answer with the anesthesia CPT code ONLY, nothing else. For example "00840" - th
                 continue
             else:
                 logger.error(f"Max retries reached for image prediction: {error_message}")
-                return None, 0, 0.0, error_message
+                return None, "", 0, 0.0, error_message
     
     # Should never reach here, but just in case
-    return None, 0, 0.0, "Max retries reached"
+    return None, "", 0, 0.0, "Max retries reached"
 
 
 def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
@@ -697,6 +763,7 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
         
         # Initialize result columns
         predictions = [None] * len(df)
+        explanations = [""] * len(df)
         tokens_list = [0] * len(df)
         costs_list = [0.0] * len(df)
         errors_list = [None] * len(df)
@@ -713,9 +780,9 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
                 postop = str(row.get('Post-op diagnosis', '')) if pd.notna(row.get('Post-op diagnosis')) else ""
                 
                 if not procedure or procedure.strip() == "":
-                    return idx, "ERROR: Empty procedure", 0, 0.0, "Procedure Description is empty or missing"
+                    return idx, "ERROR: Empty procedure", "", 0, 0.0, "Procedure Description is empty or missing"
                 
-                predicted_code, tokens, cost, error = predict_asa_code_general(
+                predicted_code, explanation, tokens, cost, error = predict_asa_code_general(
                     procedure, preop, postop, cpt_codes_text, model, api_key
                 )
                 
@@ -723,11 +790,11 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
                 if not predicted_code:
                     if error:
                         error_display = f"ERROR: {error[:50]}" if len(error) > 50 else f"ERROR: {error}"
-                        return idx, error_display, tokens, cost, error
+                        return idx, error_display, "", tokens, cost, error
                     else:
-                        return idx, "ERROR: No prediction returned", tokens, cost, "No prediction returned from API"
+                        return idx, "ERROR: No prediction returned", "", tokens, cost, "No prediction returned from API"
                 
-                return idx, predicted_code, tokens, cost, error
+                return idx, predicted_code, explanation, tokens, cost, error
             except Exception as e:
                 error_msg = f"Unexpected error processing row {idx}: {str(e)}"
                 logger.error(error_msg)
@@ -738,9 +805,10 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
             
             completed = 0
             for future in as_completed(futures):
-                idx, predicted_code, tokens, cost, error = future.result()
+                idx, predicted_code, explanation, tokens, cost, error = future.result()
                 # Use the returned prediction (which may already contain "ERROR: ..." format)
                 predictions[idx] = predicted_code if predicted_code else "ERROR: No prediction"
+                explanations[idx] = explanation if explanation else ""
                 tokens_list[idx] = tokens
                 costs_list[idx] = cost
                 errors_list[idx] = error
@@ -756,10 +824,11 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
         insert_index = df.columns.get_loc("Procedure Description") + 1
         df.insert(insert_index, "ASA Code", predictions)
         df.insert(insert_index + 1, "Procedure Code", predictions)
-        df.insert(insert_index + 2, "Model Source", model_sources)
-        df.insert(insert_index + 3, "Tokens Used", tokens_list)
-        df.insert(insert_index + 4, "Cost (USD)", costs_list)
-        df.insert(insert_index + 5, "Error Message", errors_list)
+        df.insert(insert_index + 2, "Code Explanation", explanations)
+        df.insert(insert_index + 3, "Model Source", model_sources)
+        df.insert(insert_index + 4, "Tokens Used", tokens_list)
+        df.insert(insert_index + 5, "Cost (USD)", costs_list)
+        df.insert(insert_index + 6, "Error Message", errors_list)
         
         # Calculate totals
         total_tokens = sum(tokens_list)
@@ -895,10 +964,10 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                 
                 if not image_data_list:
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
-                    return idx, filename, "ERROR", 0, 0.0, error_msg, "openrouter_vision"
+                    return idx, filename, "ERROR", "", 0, 0.0, error_msg, "openrouter_vision"
                 
                 # Predict ASA code from images
-                predicted_code, tokens, cost, error = predict_asa_code_from_images(
+                predicted_code, explanation, tokens, cost, error = predict_asa_code_from_images(
                     image_data_list, cpt_codes_text, model, api_key, custom_instructions
                 )
                 
@@ -906,26 +975,27 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                 if not predicted_code:
                     if error:
                         # Put error in ASA Code column for visibility, but also keep in Error Message
-                        return idx, filename, f"ERROR: {error[:50]}", tokens, cost, error, "openrouter_vision"
+                        return idx, filename, f"ERROR: {error[:50]}", "", tokens, cost, error, "openrouter_vision"
                     else:
-                        return idx, filename, "ERROR: No prediction returned", tokens, cost, "No prediction returned from API", "openrouter_vision"
+                        return idx, filename, "ERROR: No prediction returned", "", tokens, cost, "No prediction returned from API", "openrouter_vision"
                 
-                return idx, filename, predicted_code, tokens, cost, error, "openrouter_vision"
+                return idx, filename, predicted_code, explanation, tokens, cost, error, "openrouter_vision"
                 
             except Exception as e:
                 error_msg = f"Unexpected error processing {filename}: {str(e)}"
                 logger.error(error_msg)
-                return idx, filename, f"ERROR: {type(e).__name__}", 0, 0.0, error_msg, "openrouter_vision"
+                return idx, filename, f"ERROR: {type(e).__name__}", "", 0, 0.0, error_msg, "openrouter_vision"
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_pdf, idx, pdf_path): idx for idx, pdf_path in enumerate(pdf_files)}
             
             completed = 0
             for future in as_completed(futures):
-                idx, filename, predicted_code, tokens, cost, error, model_source = future.result()
+                idx, filename, predicted_code, explanation, tokens, cost, error, model_source = future.result()
                 results[idx] = {
                     'filename': filename,
                     'prediction': predicted_code,
+                    'explanation': explanation,
                     'tokens': tokens,
                     'cost': cost,
                     'error': error,
@@ -942,6 +1012,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         # Convert results to lists in correct order
         filenames = [results[i]['filename'] for i in range(len(pdf_files))]
         predictions = [results[i]['prediction'] for i in range(len(pdf_files))]
+        explanations = [results[i]['explanation'] for i in range(len(pdf_files))]
         tokens_list = [results[i]['tokens'] for i in range(len(pdf_files))]
         costs_list = [results[i]['cost'] for i in range(len(pdf_files))]
         errors_list = [results[i]['error'] for i in range(len(pdf_files))]
@@ -952,6 +1023,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
             'Patient Filename': filenames,
             'ASA Code': predictions,
             'Procedure Code': predictions,
+            'Code Explanation': explanations,
             'Model Source': model_sources,
             'Tokens Used': tokens_list,
             'Cost (USD)': costs_list,

@@ -34,7 +34,11 @@
             @click="activeTab = 'unified'"
             :class="{ active: activeTab === 'unified' }"
             class="tab-btn"
-            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;"
+            style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              font-weight: 600;
+            "
           >
             🔮 Extract + CPT + ICD
           </button>
@@ -77,7 +81,12 @@
             <button
               @click="toggleConvertersDropdown"
               :class="{
-                active: ['uni', 'instructions', 'merge-csn', 'check-cpt'].includes(activeTab),
+                active: [
+                  'uni',
+                  'instructions',
+                  'merge-csn',
+                  'check-cpt',
+                ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
             >
@@ -411,7 +420,9 @@
                     >
                   </label>
                   <p class="template-hint" style="margin-top: 10px">
-                    When enabled, extracts CSN number from PDF filename (e.g., "24_CSN-100255177928_D.pdf") and adds it as the first column in the output
+                    When enabled, extracts CSN number from PDF filename (e.g.,
+                    "24_CSN-100255177928_D.pdf") and adds it as the first column
+                    in the output
                   </p>
                 </div>
               </div>
@@ -804,18 +815,34 @@
 
         <!-- Unified Processing Tab (Extract + CPT + ICD) -->
         <div v-if="activeTab === 'unified'" class="upload-section">
-          <div class="section-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px; color: white; margin-bottom: 30px;">
-            <h2 style="color: white; margin-bottom: 10px;">🔮 Unified Processing: Extract + CPT + ICD</h2>
-            <p style="color: #f0f0f0; font-size: 16px;">
-              Combine data extraction, CPT code prediction, and ICD code prediction in one streamlined workflow.
-              Upload your files once and get a comprehensive result with all information merged intelligently.
+          <div
+            class="section-header"
+            style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              padding: 30px;
+              border-radius: 12px;
+              color: white;
+              margin-bottom: 30px;
+            "
+          >
+            <h2 style="color: white; margin-bottom: 10px">
+              🔮 Unified Processing: Extract + CPT + ICD
+            </h2>
+            <p style="color: #f0f0f0; font-size: 16px">
+              Combine data extraction, CPT code prediction, and ICD code
+              prediction in one streamlined workflow. Upload your files once and
+              get a comprehensive result with all information merged
+              intelligently.
             </p>
           </div>
 
           <!-- Enable/Disable Steps -->
-          <div class="upload-card" style="margin-bottom: 20px; border: 2px solid #667eea;">
-            <div class="card-header" style="background: #667eea; color: white;">
-              <h3 style="color: white;">⚙️ Configure Processing Steps</h3>
+          <div
+            class="upload-card"
+            style="margin-bottom: 20px; border: 2px solid #667eea"
+          >
+            <div class="card-header" style="background: #667eea; color: white">
+              <h3 style="color: white">⚙️ Configure Processing Steps</h3>
             </div>
             <div class="settings-content">
               <div class="form-group">
@@ -1000,7 +1027,9 @@
               </div>
               <div class="settings-content">
                 <div class="setting-group">
-                  <label for="unified-extraction-pages">Pages per document</label>
+                  <label for="unified-extraction-pages"
+                    >Pages per document</label
+                  >
                   <div class="input-wrapper">
                     <input
                       id="unified-extraction-pages"
@@ -1023,13 +1052,17 @@
                     v-model="unifiedExtractionModel"
                     class="form-select"
                   >
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                    <option value="gemini-2.5-flash">
+                      Gemini 2.5 Flash (Recommended)
+                    </option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
                   </select>
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
-                  <label for="unified-worktracker-group">Worktracker Group (Optional)</label>
+                  <label for="unified-worktracker-group"
+                    >Worktracker Group (Optional)</label
+                  >
                   <input
                     id="unified-worktracker-group"
                     v-model="unifiedWorktrackerGroup"
@@ -1040,7 +1073,9 @@
                   />
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
-                  <label for="unified-worktracker-batch">Worktracker Batch # (Optional)</label>
+                  <label for="unified-worktracker-batch"
+                    >Worktracker Batch # (Optional)</label
+                  >
                   <input
                     id="unified-worktracker-batch"
                     v-model="unifiedWorktrackerBatch"
@@ -1069,21 +1104,35 @@
                       class="checkbox-input"
                     />
                     <span class="checkbox-text">
-                      📸 Predict ASA codes from PDF pages (Vision Mode - uses GPT-5)
+                      📸 Predict ASA codes from PDF pages (Vision Mode - uses
+                      GPT-5)
                     </span>
                   </label>
-                  <p class="form-hint" v-if="unifiedCptVisionMode" style="margin-top: 8px; color: #6b7280">
-                    Vision mode analyzes actual PDF pages instead of extracted text. Great for handwritten notes or complex document layouts.
+                  <p
+                    class="form-hint"
+                    v-if="unifiedCptVisionMode"
+                    style="margin-top: 8px; color: #6b7280"
+                  >
+                    Vision mode analyzes actual PDF pages instead of extracted
+                    text. Great for handwritten notes or complex document
+                    layouts.
                   </p>
-                  <p class="form-hint" v-else style="margin-top: 8px; color: #6b7280">
-                    Will use extracted text from Step 1 (Data Extraction must be enabled)
+                  <p
+                    class="form-hint"
+                    v-else
+                    style="margin-top: 8px; color: #6b7280"
+                  >
+                    Will use extracted text from Step 1 (Data Extraction must be
+                    enabled)
                   </p>
                 </div>
 
                 <!-- Vision Mode Settings -->
                 <div v-if="unifiedCptVisionMode">
                   <div class="setting-group" style="margin-top: 15px">
-                    <label for="unified-cpt-vision-pages">Pages to Analyze per PDF</label>
+                    <label for="unified-cpt-vision-pages"
+                      >Pages to Analyze per PDF</label
+                    >
                     <input
                       id="unified-cpt-vision-pages"
                       v-model.number="unifiedCptVisionPages"
@@ -1093,7 +1142,10 @@
                       class="page-input"
                       placeholder="1"
                     />
-                    <small class="help-text">AI will analyze the first N pages from each patient PDF (1-50)</small>
+                    <small class="help-text"
+                      >AI will analyze the first N pages from each patient PDF
+                      (1-50)</small
+                    >
                   </div>
                   <div class="setting-group" style="margin-top: 15px">
                     <label for="unified-cpt-workers-vision">Max Workers</label>
@@ -1106,9 +1158,11 @@
                       class="page-input"
                       placeholder="5"
                     />
-                    <small class="help-text">Number of concurrent processing threads</small>
+                    <small class="help-text"
+                      >Number of concurrent processing threads</small
+                    >
                   </div>
-                  
+
                   <!-- Custom Instructions with Template Toggle for Vision Mode -->
                   <div class="form-group" style="margin-top: 15px">
                     <div class="template-selection-toggle">
@@ -1159,8 +1213,12 @@
 
                     <!-- Manual Text Input (when not using template) -->
                     <div v-else style="margin-top: 10px">
-                      <label for="unified-cpt-vision-instructions" class="form-label">
-                        Additional instructions for CPT code prediction (optional):
+                      <label
+                        for="unified-cpt-vision-instructions"
+                        class="form-label"
+                      >
+                        Additional instructions for CPT code prediction
+                        (optional):
                       </label>
                       <textarea
                         id="unified-cpt-vision-instructions"
@@ -1169,8 +1227,12 @@
                         rows="3"
                         placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
                       ></textarea>
-                      <p class="form-hint" style="margin-top: 8px; color: #6b7280">
-                        These instructions will be appended to the AI prompt for all predictions in this batch.
+                      <p
+                        class="form-hint"
+                        style="margin-top: 8px; color: #6b7280"
+                      >
+                        These instructions will be appended to the AI prompt for
+                        all predictions in this batch.
                       </p>
                     </div>
                   </div>
@@ -1179,7 +1241,9 @@
                 <!-- Non-Vision Mode Settings -->
                 <div v-else>
                   <div class="setting-group" style="margin-top: 15px">
-                    <label for="unified-cpt-client">Choose Client for CPT Coding</label>
+                    <label for="unified-cpt-client"
+                      >Choose Client for CPT Coding</label
+                    >
                     <select
                       id="unified-cpt-client"
                       v-model="unifiedCptSelectedClient"
@@ -1194,7 +1258,9 @@
                     </select>
                   </div>
                   <div class="setting-group" style="margin-top: 15px">
-                    <label for="unified-cpt-workers-nonvision">Max Workers</label>
+                    <label for="unified-cpt-workers-nonvision"
+                      >Max Workers</label
+                    >
                     <input
                       id="unified-cpt-workers-nonvision"
                       v-model.number="unifiedCptMaxWorkers"
@@ -1204,9 +1270,11 @@
                       class="page-input"
                       placeholder="5"
                     />
-                    <small class="help-text">Number of concurrent processing threads</small>
+                    <small class="help-text"
+                      >Number of concurrent processing threads</small
+                    >
                   </div>
-                  
+
                   <!-- Custom Instructions with Template Toggle -->
                   <div class="form-group" style="margin-top: 15px">
                     <div class="template-selection-toggle">
@@ -1257,7 +1325,10 @@
 
                     <!-- Manual Text Input (when not using template) -->
                     <div v-else style="margin-top: 10px">
-                      <label for="unified-cpt-instructions-manual" class="form-label">
+                      <label
+                        for="unified-cpt-instructions-manual"
+                        class="form-label"
+                      >
                         Additional instructions for medical coder (optional):
                       </label>
                       <textarea
@@ -1281,7 +1352,9 @@
               </div>
               <div class="settings-content">
                 <div class="setting-group">
-                  <label for="unified-icd-pages">Pages to Analyze per PDF</label>
+                  <label for="unified-icd-pages"
+                    >Pages to Analyze per PDF</label
+                  >
                   <input
                     id="unified-icd-pages"
                     v-model.number="unifiedIcdPages"
@@ -1291,7 +1364,10 @@
                     class="page-input"
                     placeholder="1"
                   />
-                  <small class="help-text">AI will analyze the first N pages from each patient PDF (1-50)</small>
+                  <small class="help-text"
+                    >AI will analyze the first N pages from each patient PDF
+                    (1-50)</small
+                  >
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
                   <label for="unified-icd-workers">Max Workers</label>
@@ -1304,9 +1380,11 @@
                     class="page-input"
                     placeholder="5"
                   />
-                  <small class="help-text">Number of concurrent processing threads</small>
+                  <small class="help-text"
+                    >Number of concurrent processing threads</small
+                  >
                 </div>
-                
+
                 <!-- Custom Instructions with Template Toggle -->
                 <div class="form-group" style="margin-top: 15px">
                   <div class="template-selection-toggle">
@@ -1357,8 +1435,12 @@
 
                   <!-- Manual Text Input (when not using template) -->
                   <div v-else style="margin-top: 10px">
-                    <label for="unified-icd-instructions-manual" class="form-label">
-                      Additional instructions for ICD code prediction (optional):
+                    <label
+                      for="unified-icd-instructions-manual"
+                      class="form-label"
+                    >
+                      Additional instructions for ICD code prediction
+                      (optional):
                     </label>
                     <textarea
                       id="unified-icd-instructions-manual"
@@ -1367,8 +1449,12 @@
                       rows="3"
                       placeholder="Enter specific coding guidelines, corrections, or preferences that should be applied to the AI predictions..."
                     ></textarea>
-                    <p class="form-hint" style="margin-top: 8px; color: #6b7280">
-                      These instructions will be appended to the AI prompt for all predictions in this batch.
+                    <p
+                      class="form-hint"
+                      style="margin-top: 8px; color: #6b7280"
+                    >
+                      These instructions will be appended to the AI prompt for
+                      all predictions in this batch.
                     </p>
                   </div>
                 </div>
@@ -1382,7 +1468,9 @@
               @click="startUnifiedProcessing"
               :disabled="!canProcessUnified || isProcessingUnified"
               class="process-btn"
-              style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+              style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              "
             >
               <span v-if="isProcessingUnified" class="spinner"></span>
               <span v-else class="btn-icon">🔮</span>
@@ -1458,7 +1546,9 @@
             </div>
 
             <div
-              v-if="unifiedJobStatus.status === 'failed' && unifiedJobStatus.error"
+              v-if="
+                unifiedJobStatus.status === 'failed' && unifiedJobStatus.error
+              "
               class="error-section"
             >
               <div class="error-message">
@@ -1483,22 +1573,32 @@
           <div class="upload-card" style="margin-bottom: 20px">
             <div class="settings-content">
               <div class="form-group">
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    v-model="useGeminiSplit"
-                    class="checkbox-input"
-                  />
-                  <span class="checkbox-text">
-                    ⚡ Use New Splitting Method (Recommended)
-                  </span>
+                <label class="form-label">
+                  <span class="label-icon">🔧</span>
+                  Splitting Method
                 </label>
-                <p
-                  class="form-hint"
-                  v-if="!useGeminiSplit"
-                  style="margin-top: 10px; color: #6b7280"
-                >
-                  OCR-based method (legacy). Slower and can be resource-intensive.
+                <select v-model="splitMethod" class="form-select">
+                  <option value="ocrspace">
+                    OCR.space API (Recommended - Fastest & Most Reliable)
+                  </option>
+                  <option value="gemini">
+                    Gemini AI (Good for complex layouts)
+                  </option>
+                  <option value="legacy">
+                    Legacy OCR (Slow, local processing)
+                  </option>
+                </select>
+                <p class="form-hint" style="margin-top: 10px; color: #6b7280">
+                  <span v-if="splitMethod === 'ocrspace'">
+                    ⚡ Uses OCR.space API - fast, reliable, and accurate. Best
+                    for most documents.
+                  </span>
+                  <span v-else-if="splitMethod === 'gemini'">
+                    🤖 Uses Gemini AI - good for complex layouts but slower.
+                  </span>
+                  <span v-else>
+                    🐌 Legacy local OCR - slowest option, not recommended.
+                  </span>
                 </p>
               </div>
             </div>
@@ -2636,7 +2736,6 @@
                 </div>
               </div>
             </div>
-
           </div>
 
           <!-- Action Buttons -->
@@ -2792,9 +2891,7 @@
             >
               <span v-if="isMergingCSN" class="spinner"></span>
               <span v-else class="btn-icon">🔗</span>
-              {{
-                isMergingCSN ? "Merging files..." : "Start Merge by CSN"
-              }}
+              {{ isMergingCSN ? "Merging files..." : "Start Merge by CSN" }}
             </button>
 
             <button
@@ -2844,7 +2941,10 @@
               class="success-section"
             >
               <div class="download-format-group">
-                <button @click="downloadMergeResults('csv')" class="download-btn">
+                <button
+                  @click="downloadMergeResults('csv')"
+                  class="download-btn"
+                >
                   <span class="btn-icon">📥</span>
                   Download CSV
                 </button>
@@ -2875,8 +2975,8 @@
           <div class="section-header">
             <h2>Check CPT Codes</h2>
             <p>
-              Upload predictions and ground truth XLSX files to compare ASA codes
-              and calculate accuracy metrics
+              Upload predictions and ground truth XLSX files to compare ASA
+              codes and calculate accuracy metrics
             </p>
           </div>
 
@@ -3072,7 +3172,9 @@
             </div>
 
             <div
-              v-if="cptCheckJobStatus.status === 'failed' && cptCheckJobStatus.error"
+              v-if="
+                cptCheckJobStatus.status === 'failed' && cptCheckJobStatus.error
+              "
               class="error-section"
             >
               <div class="error-message">
@@ -3290,29 +3392,48 @@
                   <div class="toggle-header">
                     <label class="toggle-label">
                       <span class="toggle-icon">📋</span>
-                      <span class="toggle-text"
-                        >Peripheral Blocks Mode</span
-                      >
+                      <span class="toggle-text">Peripheral Blocks Mode</span>
                     </label>
                   </div>
                   <div style="margin-top: 0.5rem">
-                    <label class="radio-option" style="display: flex; align-items: center; margin-bottom: 0.5rem; cursor: pointer;">
-                      <input 
-                        type="radio" 
-                        v-model="peripheralBlocksMode" 
-                        value="other" 
-                        style="margin-right: 0.5rem; cursor: pointer;"
+                    <label
+                      class="radio-option"
+                      style="
+                        display: flex;
+                        align-items: center;
+                        margin-bottom: 0.5rem;
+                        cursor: pointer;
+                      "
+                    >
+                      <input
+                        type="radio"
+                        v-model="peripheralBlocksMode"
+                        value="other"
+                        style="margin-right: 0.5rem; cursor: pointer"
                       />
-                      <span><strong>Other Groups</strong> - Generate blocks when Anesthesia Type is NOT "MAC"</span>
+                      <span
+                        ><strong>Other Groups</strong> - Generate blocks when
+                        Anesthesia Type is NOT "MAC"</span
+                      >
                     </label>
-                    <label class="radio-option" style="display: flex; align-items: center; cursor: pointer;">
-                      <input 
-                        type="radio" 
-                        v-model="peripheralBlocksMode" 
-                        value="UNI" 
-                        style="margin-right: 0.5rem; cursor: pointer;"
+                    <label
+                      class="radio-option"
+                      style="
+                        display: flex;
+                        align-items: center;
+                        cursor: pointer;
+                      "
+                    >
+                      <input
+                        type="radio"
+                        v-model="peripheralBlocksMode"
+                        value="UNI"
+                        style="margin-right: 0.5rem; cursor: pointer"
                       />
-                      <span><strong>UNI</strong> - Generate blocks ONLY when Anesthesia Type is "General"</span>
+                      <span
+                        ><strong>UNI</strong> - Generate blocks ONLY when
+                        Anesthesia Type is "General"</span
+                      >
                     </label>
                   </div>
                   <p class="toggle-description" style="margin-top: 0.5rem">
@@ -4610,7 +4731,6 @@
           </div>
         </div>
 
-
         <!-- Templates Manager Tab -->
         <div v-if="activeTab === 'templates'" class="upload-section">
           <div class="section-header">
@@ -5561,7 +5681,7 @@ export default {
       isSplitting: false,
       isPdfDragActive: false,
       statusPollingInterval: null,
-      useGeminiSplit: true, // Default to new splitting method (recommended)
+      splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
       // CPT prediction functionality
       csvFile: null,
       selectedClient: "uni",
@@ -5825,7 +5945,11 @@ export default {
     },
     canProcessUnified() {
       // Must have at least one step enabled
-      if (!this.unifiedEnableExtraction && !this.unifiedEnableCpt && !this.unifiedEnableIcd) {
+      if (
+        !this.unifiedEnableExtraction &&
+        !this.unifiedEnableCpt &&
+        !this.unifiedEnableIcd
+      ) {
         return false;
       }
       // Must have ZIP file uploaded
@@ -5841,7 +5965,10 @@ export default {
       }
       // Validate extraction settings if enabled
       if (this.unifiedEnableExtraction) {
-        if (this.unifiedExtractionPages < 1 || this.unifiedExtractionPages > 50) {
+        if (
+          this.unifiedExtractionPages < 1 ||
+          this.unifiedExtractionPages > 50
+        ) {
           return false;
         }
       }
@@ -5863,7 +5990,9 @@ export default {
       return this.mergeCsvFile1 !== null && this.mergeCsvFile2 !== null;
     },
     canCheckCptCodes() {
-      return this.cptPredictionsFile !== null && this.cptGroundTruthFile !== null;
+      return (
+        this.cptPredictionsFile !== null && this.cptGroundTruthFile !== null
+      );
     },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
@@ -6186,7 +6315,12 @@ export default {
     },
 
     async startSplitting() {
-      const method = this.useGeminiSplit ? "new" : "OCR";
+      const methodNames = {
+        ocrspace: "OCR.space API",
+        gemini: "Gemini AI",
+        legacy: "Legacy OCR",
+      };
+      const method = methodNames[this.splitMethod] || this.splitMethod;
       console.log(`🚀 Starting PDF splitting process (${method} method)...`);
       console.log(
         "📄 PDF File:",
@@ -6220,12 +6354,14 @@ export default {
 
       // Choose endpoint based on method
       let splitUrl;
-      if (this.useGeminiSplit) {
+      if (this.splitMethod === "ocrspace") {
+        splitUrl = joinUrl(API_BASE_URL, "split-pdf-ocrspace");
+      } else if (this.splitMethod === "gemini") {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf-gemini");
       } else {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf");
       }
-      
+
       console.log("🔧 Split URL:", splitUrl);
 
       try {
@@ -6775,7 +6911,7 @@ export default {
     },
 
     // ==================== UNIFIED PROCESSING METHODS ====================
-    
+
     triggerUnifiedZipUpload() {
       this.$refs.unifiedZipInput.click();
     },
@@ -6802,7 +6938,7 @@ export default {
       event.preventDefault();
       this.isUnifiedZipDragActive = false;
       const file = event.dataTransfer.files[0];
-      if (file && file.name.endsWith('.zip')) {
+      if (file && file.name.endsWith(".zip")) {
         this.unifiedZipFile = file;
       }
     },
@@ -6811,18 +6947,24 @@ export default {
       event.preventDefault();
       this.isUnifiedExcelDragActive = false;
       const file = event.dataTransfer.files[0];
-      if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+      if (file && (file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
         this.unifiedExcelFile = file;
       }
     },
 
     async startUnifiedProcessing() {
       if (!this.canProcessUnified) {
-        this.toast.error("Please upload files and configure at least one processing step");
+        this.toast.error(
+          "Please upload files and configure at least one processing step"
+        );
         return;
       }
 
-      if (!this.unifiedEnableExtraction && !this.unifiedEnableCpt && !this.unifiedEnableIcd) {
+      if (
+        !this.unifiedEnableExtraction &&
+        !this.unifiedEnableCpt &&
+        !this.unifiedEnableIcd
+      ) {
         this.toast.error("Please enable at least one processing step");
         return;
       }
@@ -6832,14 +6974,20 @@ export default {
 
       const formData = new FormData();
       formData.append("zip_file", this.unifiedZipFile);
-      
+
       // Add either excel file or template ID for extraction
-      if (this.unifiedUseExtractionTemplate && this.unifiedSelectedExtractionTemplateId) {
-        formData.append("template_id", this.unifiedSelectedExtractionTemplateId);
+      if (
+        this.unifiedUseExtractionTemplate &&
+        this.unifiedSelectedExtractionTemplateId
+      ) {
+        formData.append(
+          "template_id",
+          this.unifiedSelectedExtractionTemplateId
+        );
       } else {
         formData.append("excel_file", this.unifiedExcelFile);
       }
-      
+
       // Extraction parameters
       formData.append("enable_extraction", this.unifiedEnableExtraction);
       formData.append("extraction_n_pages", this.unifiedExtractionPages);
@@ -6847,7 +6995,7 @@ export default {
       formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
       formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
       formData.append("extract_csn", "false");
-      
+
       // CPT parameters
       formData.append("enable_cpt", this.unifiedEnableCpt);
       formData.append("cpt_vision_mode", this.unifiedCptVisionMode);
@@ -6857,20 +7005,32 @@ export default {
         formData.append("cpt_client", this.unifiedCptSelectedClient);
       }
       formData.append("cpt_max_workers", this.unifiedCptMaxWorkers);
-      formData.append("cpt_custom_instructions", this.unifiedCptCustomInstructions || "");
+      formData.append(
+        "cpt_custom_instructions",
+        this.unifiedCptCustomInstructions || ""
+      );
       // Send CPT template ID if template is selected (works for both vision and non-vision modes)
       if (this.unifiedUseCptTemplate && this.unifiedSelectedCptInstructionId) {
-        formData.append("cpt_instruction_template_id", this.unifiedSelectedCptInstructionId);
+        formData.append(
+          "cpt_instruction_template_id",
+          this.unifiedSelectedCptInstructionId
+        );
       }
-      
+
       // ICD parameters
       formData.append("enable_icd", this.unifiedEnableIcd);
       formData.append("icd_n_pages", this.unifiedIcdPages);
       formData.append("icd_max_workers", this.unifiedIcdMaxWorkers);
-      formData.append("icd_custom_instructions", this.unifiedIcdCustomInstructions || "");
+      formData.append(
+        "icd_custom_instructions",
+        this.unifiedIcdCustomInstructions || ""
+      );
       // Send template ID if template is selected
       if (this.unifiedUseIcdTemplate && this.unifiedSelectedIcdInstructionId) {
-        formData.append("icd_instruction_template_id", this.unifiedSelectedIcdInstructionId);
+        formData.append(
+          "icd_instruction_template_id",
+          this.unifiedSelectedIcdInstructionId
+        );
       }
 
       try {
@@ -6889,7 +7049,7 @@ export default {
         this.unifiedJobId = data.job_id;
 
         this.toast.success("Unified processing started!");
-        
+
         // Start polling for status
         this.pollUnifiedJobStatus();
       } catch (error) {
@@ -6928,7 +7088,9 @@ export default {
             setTimeout(checkStatus, 3000);
           } else {
             this.isProcessingUnified = false;
-            this.toast.error("Processing timeout - please check status manually");
+            this.toast.error(
+              "Processing timeout - please check status manually"
+            );
           }
         } catch (error) {
           console.error("Error checking status:", error);
@@ -6974,7 +7136,7 @@ export default {
       }
     },
 
-    async downloadUnifiedResults(format = 'csv') {
+    async downloadUnifiedResults(format = "csv") {
       if (!this.unifiedJobId) return;
 
       try {
@@ -8069,7 +8231,10 @@ export default {
         const link = document.createElement("a");
         link.href = url;
         const ext = format === "xlsx" ? "xlsx" : "csv";
-        link.setAttribute("download", `merged_by_csn_${this.mergeJobId}.${ext}`);
+        link.setAttribute(
+          "download",
+          `merged_by_csn_${this.mergeJobId}.${ext}`
+        );
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -8247,7 +8412,10 @@ export default {
 
       try {
         const response = await axios.get(
-          joinUrl(API_BASE_URL, `download/${this.cptCheckJobId}?format=${format}`),
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.cptCheckJobId}?format=${format}`
+          ),
           {
             responseType: "blob",
           }
@@ -8257,7 +8425,10 @@ export default {
         const link = document.createElement("a");
         link.href = url;
         const ext = format === "xlsx" ? "xlsx" : "csv";
-        link.setAttribute("download", `cpt_codes_comparison_${this.cptCheckJobId}.${ext}`);
+        link.setAttribute(
+          "download",
+          `cpt_codes_comparison_${this.cptCheckJobId}.${ext}`
+        );
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -9291,8 +9462,6 @@ export default {
         this.$refs.specialCasesTemplateFileInput.value = "";
       }
     },
-
-
 
     // ========================================================================
     // Templates Manager Methods
