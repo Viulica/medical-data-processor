@@ -124,7 +124,18 @@ class OCRSpaceAPI:
                 # Extract text
                 if result.get('ParsedResults'):
                     text = result['ParsedResults'][0].get('ParsedText', '')
-                    return text.strip()
+                    text = text.strip()
+                    
+                    # Log first few lines of extracted text for debugging
+                    if text:
+                        lines = text.split('\n')[:5]  # First 5 lines
+                        preview = '\n'.join(lines)
+                        print(f"  📝 Extracted text preview ({len(text)} chars, {len(text.split())} words):")
+                        print(f"     {preview[:200]}..." if len(preview) > 200 else f"     {preview}")
+                    else:
+                        print(f"  ⚠️  No text extracted from page")
+                    
+                    return text
                 
                 return None
                 
@@ -171,10 +182,19 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         page_pdf_bytes = extract_single_page_pdf(reader, page_num)
         
         # OCR the page (using fast mode for speed)
+        print(f"  🔍 Processing page {page_num + 1}...")
         text = ocr_api.ocr_pdf_page(page_pdf_bytes, fast_mode=True, timeout=20)
         
         if not text:
+            print(f"  ⚠️  Page {page_num + 1}: No text extracted")
             return page_num, False
+        
+        # Log page text summary
+        text_lines = text.split('\n')
+        print(f"  📄 Page {page_num + 1}: Extracted {len(text)} chars, {len(text_lines)} lines")
+        if text_lines:
+            first_lines = '\n'.join(text_lines[:3])  # First 3 lines
+            print(f"  📝 First lines:\n     {first_lines[:150]}..." if len(first_lines) > 150 else f"  📝 First lines:\n     {first_lines}")
         
         # Check if ALL filter strings are present
         if not case_sensitive:
