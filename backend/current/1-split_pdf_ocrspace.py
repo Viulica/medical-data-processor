@@ -24,7 +24,8 @@ class OCRSpaceAPI:
     """Simple wrapper for OCR.space API with connection pooling for speed"""
     
     # Semaphore to limit concurrent API requests (API allows max 10 concurrent)
-    _concurrency_semaphore = Semaphore(8)  # Use 8 to stay safely under the 10 limit
+    # Using 2 to be extremely safe and avoid hitting the limit
+    _concurrency_semaphore = Semaphore(2)
     
     def __init__(self, api_key=None):
         # Get API key from environment variable (same approach as Google Gemini)
@@ -39,14 +40,14 @@ class OCRSpaceAPI:
         # Use PRO tier endpoint (free tier is api.ocr.space)
         self.base_url = "https://apipro1.ocr.space/parse/image"
         print(f"🌐 OCR endpoint: {self.base_url}")
-        print(f"🔒 Max concurrent requests: 8 (API limit: 10)")
+        print(f"🔒 Max concurrent requests: 2 (API limit: 10)")
         
         # Use session for connection pooling (much faster!)
         self.session = requests.Session()
-        # Reuse connections - keep pool size low to respect API limits
+        # Reuse connections - keep pool size very low to respect API limits
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=1,   # Single connection pool
-            pool_maxsize=8,       # Max 8 connections (under API limit of 10)
+            pool_maxsize=2,       # Max 2 connections (well under API limit of 10)
             max_retries=3
         )
         self.session.mount('https://', adapter)
@@ -65,7 +66,10 @@ class OCRSpaceAPI:
             Extracted text as string, or None on error
         """
         # Acquire semaphore to limit concurrent requests (respects API limit of 10)
+        # This ensures we never exceed 2 concurrent requests
         with self._concurrency_semaphore:
+            # Small delay to ensure connections are properly managed
+            time.sleep(0.1)
             try:
                 # Prepare the request
                 payload = {
@@ -189,7 +193,7 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         return page_num, False
 
 
-def find_matching_pages(pdf_path, filter_strings, max_workers=5, case_sensitive=False):
+def find_matching_pages(pdf_path, filter_strings, max_workers=3, case_sensitive=False):
     """
     Find all pages that contain ALL the filter strings.
     
@@ -287,7 +291,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=5, case_sensitive=False):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=3, case_sensitive=False):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -342,7 +346,7 @@ def main():
     INPUT_PDF = "input.pdf"
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]
-    MAX_WORKERS = 5  # Reduced to 5 for better stability
+    MAX_WORKERS = 3  # Reduced to 3 to respect API's 10 concurrent connection limit
     CASE_SENSITIVE = False
     
     # Parse command-line arguments
