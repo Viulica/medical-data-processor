@@ -40,8 +40,8 @@ class OCRSpaceAPI:
         self.session = requests.Session()
         # Reuse connections - speeds up multiple requests significantly
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=20,  # Number of connection pools
-            pool_maxsize=25,      # Max connections per pool (increased for 15 workers)
+            pool_connections=10,  # Number of connection pools
+            pool_maxsize=10,      # Max connections per pool (for 5 workers)
             max_retries=3
         )
         self.session.mount('https://', adapter)
@@ -182,7 +182,7 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         return page_num, False
 
 
-def find_matching_pages(pdf_path, filter_strings, max_workers=15, case_sensitive=False):
+def find_matching_pages(pdf_path, filter_strings, max_workers=5, case_sensitive=False):
     """
     Find all pages that contain ALL the filter strings.
     
@@ -280,7 +280,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=15, case_sensitive=False):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=5, case_sensitive=False):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -335,7 +335,7 @@ def main():
     INPUT_PDF = "input.pdf"
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]
-    MAX_WORKERS = 15  # Increased for speed (OCR.space can handle this)
+    MAX_WORKERS = 5  # Reduced to 5 for better stability
     CASE_SENSITIVE = False
     
     # Parse command-line arguments
