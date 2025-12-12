@@ -27,8 +27,15 @@ class OCRSpaceAPI:
         self.api_key = api_key or os.environ.get("OCRSPACE_API_KEY")
         if not self.api_key:
             raise ValueError("OCRSPACE_API_KEY environment variable not set!")
+        
+        # Debug: Show API key info (masked for security)
+        key_preview = f"{self.api_key[:8]}...{self.api_key[-4:]}" if len(self.api_key) > 12 else "***"
+        print(f"🔑 Using API key: {key_preview} (length: {len(self.api_key)})")
+        
         # Use PRO tier endpoint (free tier is api.ocr.space)
         self.base_url = "https://apipro1.ocr.space/parse/image"
+        print(f"🌐 OCR endpoint: {self.base_url}")
+        
         # Use session for connection pooling (much faster!)
         self.session = requests.Session()
         # Reuse connections - speeds up multiple requests significantly
@@ -63,6 +70,12 @@ class OCRSpaceAPI:
                 'OCREngine': 1 if fast_mode else 2,  # Engine 1 is faster, Engine 2 more accurate
             }
             
+            # Debug: Show payload (mask API key)
+            debug_payload = payload.copy()
+            debug_payload['apikey'] = f"{payload['apikey'][:8]}...{payload['apikey'][-4:]}" if len(payload['apikey']) > 12 else "***"
+            print(f"  📤 Request payload: {debug_payload}")
+            print(f"  📎 File size: {len(pdf_bytes)} bytes")
+            
             files = {
                 'file': ('page.pdf', pdf_bytes, 'application/pdf')
             }
@@ -75,13 +88,26 @@ class OCRSpaceAPI:
                 timeout=timeout
             )
             
-            response.raise_for_status()
+            # Debug logging
+            print(f"  📡 Response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                print(f"  ❌ HTTP Error {response.status_code}: {response.reason}")
+                print(f"  📄 Response body: {response.text[:500]}")
+                response.raise_for_status()
+            
             result = response.json()
             
-            # Check for errors
+            # Check for errors in the API response
             if result.get('IsErroredOnProcessing'):
                 error_msg = result.get('ErrorMessage', ['Unknown error'])[0]
                 print(f"  ⚠️  OCR error: {error_msg}")
+                return None
+            
+            # Check for OCR exit status
+            if 'OCRExitCode' in result and result['OCRExitCode'] != 1:
+                print(f"  ⚠️  OCR Exit Code: {result['OCRExitCode']}")
+                print(f"  📄 Full response: {json.dumps(result, indent=2)[:500]}")
                 return None
             
             # Extract text
@@ -94,8 +120,15 @@ class OCRSpaceAPI:
         except requests.exceptions.Timeout:
             print(f"  ⚠️  OCR request timeout")
             return None
+        except requests.exceptions.HTTPError as e:
+            print(f"  ❌ HTTP Error: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"  📄 Response body: {e.response.text[:1000]}")
+            return None
         except Exception as e:
-            print(f"  ⚠️  OCR error: {str(e)}")
+            print(f"  ⚠️  OCR error: {type(e).__name__}: {str(e)}")
+            import traceback
+            print(f"  🔍 Traceback: {traceback.format_exc()[:500]}")
             return None
     
     def __del__(self):
