@@ -17,10 +17,14 @@ import requests
 from PyPDF2 import PdfReader, PdfWriter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Semaphore
 
 
 class OCRSpaceAPI:
     """Simple wrapper for OCR.space API with connection pooling for speed"""
+    
+    # Semaphore to limit concurrent API requests (API allows max 10 concurrent)
+    _concurrency_semaphore = Semaphore(8)  # Use 8 to stay safely under the 10 limit
     
     def __init__(self, api_key=None):
         # Get API key from environment variable (same approach as Google Gemini)
@@ -35,13 +39,14 @@ class OCRSpaceAPI:
         # Use PRO tier endpoint (free tier is api.ocr.space)
         self.base_url = "https://apipro1.ocr.space/parse/image"
         print(f"🌐 OCR endpoint: {self.base_url}")
+        print(f"🔒 Max concurrent requests: 8 (API limit: 10)")
         
         # Use session for connection pooling (much faster!)
         self.session = requests.Session()
-        # Reuse connections - speeds up multiple requests significantly
+        # Reuse connections - keep pool size low to respect API limits
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=10,  # Number of connection pools
-            pool_maxsize=10,      # Max connections per pool (for 5 workers)
+            pool_connections=1,   # Single connection pool
+            pool_maxsize=8,       # Max 8 connections (under API limit of 10)
             max_retries=3
         )
         self.session.mount('https://', adapter)
@@ -59,77 +64,79 @@ class OCRSpaceAPI:
         Returns:
             Extracted text as string, or None on error
         """
-        try:
-            # Prepare the request
-            payload = {
-                'apikey': self.api_key,
-                'language': language,
-                'isOverlayRequired': False,
-                'detectOrientation': False,  # Disable for speed
-                'scale': False,  # Disable for speed
-                'OCREngine': 1 if fast_mode else 2,  # Engine 1 is faster, Engine 2 more accurate
-            }
-            
-            # Debug: Show payload (mask API key)
-            debug_payload = payload.copy()
-            debug_payload['apikey'] = f"{payload['apikey'][:8]}...{payload['apikey'][-4:]}" if len(payload['apikey']) > 12 else "***"
-            print(f"  📤 Request payload: {debug_payload}")
-            print(f"  📎 File size: {len(pdf_bytes)} bytes")
-            
-            files = {
-                'file': ('page.pdf', pdf_bytes, 'application/pdf')
-            }
-            
-            # Make API request with session (reuses connections)
-            response = self.session.post(
-                self.base_url,
-                data=payload,
-                files=files,
-                timeout=timeout
-            )
-            
-            # Debug logging
-            print(f"  📡 Response status: {response.status_code}")
-            
-            if response.status_code != 200:
-                print(f"  ❌ HTTP Error {response.status_code}: {response.reason}")
-                print(f"  📄 Response body: {response.text[:500]}")
-                response.raise_for_status()
-            
-            result = response.json()
-            
-            # Check for errors in the API response
-            if result.get('IsErroredOnProcessing'):
-                error_msg = result.get('ErrorMessage', ['Unknown error'])[0]
-                print(f"  ⚠️  OCR error: {error_msg}")
+        # Acquire semaphore to limit concurrent requests (respects API limit of 10)
+        with self._concurrency_semaphore:
+            try:
+                # Prepare the request
+                payload = {
+                    'apikey': self.api_key,
+                    'language': language,
+                    'isOverlayRequired': False,
+                    'detectOrientation': False,  # Disable for speed
+                    'scale': False,  # Disable for speed
+                    'OCREngine': 1 if fast_mode else 2,  # Engine 1 is faster, Engine 2 more accurate
+                }
+                
+                # Debug: Show payload (mask API key)
+                debug_payload = payload.copy()
+                debug_payload['apikey'] = f"{payload['apikey'][:8]}...{payload['apikey'][-4:]}" if len(payload['apikey']) > 12 else "***"
+                print(f"  📤 Request payload: {debug_payload}")
+                print(f"  📎 File size: {len(pdf_bytes)} bytes")
+                
+                files = {
+                    'file': ('page.pdf', pdf_bytes, 'application/pdf')
+                }
+                
+                # Make API request with session (reuses connections)
+                response = self.session.post(
+                    self.base_url,
+                    data=payload,
+                    files=files,
+                    timeout=timeout
+                )
+                
+                # Debug logging
+                print(f"  📡 Response status: {response.status_code}")
+                
+                if response.status_code != 200:
+                    print(f"  ❌ HTTP Error {response.status_code}: {response.reason}")
+                    print(f"  📄 Response body: {response.text[:500]}")
+                    response.raise_for_status()
+                
+                result = response.json()
+                
+                # Check for errors in the API response
+                if result.get('IsErroredOnProcessing'):
+                    error_msg = result.get('ErrorMessage', ['Unknown error'])[0]
+                    print(f"  ⚠️  OCR error: {error_msg}")
+                    return None
+                
+                # Check for OCR exit status
+                if 'OCRExitCode' in result and result['OCRExitCode'] != 1:
+                    print(f"  ⚠️  OCR Exit Code: {result['OCRExitCode']}")
+                    print(f"  📄 Full response: {json.dumps(result, indent=2)[:500]}")
+                    return None
+                
+                # Extract text
+                if result.get('ParsedResults'):
+                    text = result['ParsedResults'][0].get('ParsedText', '')
+                    return text.strip()
+                
                 return None
-            
-            # Check for OCR exit status
-            if 'OCRExitCode' in result and result['OCRExitCode'] != 1:
-                print(f"  ⚠️  OCR Exit Code: {result['OCRExitCode']}")
-                print(f"  📄 Full response: {json.dumps(result, indent=2)[:500]}")
+                
+            except requests.exceptions.Timeout:
+                print(f"  ⚠️  OCR request timeout")
                 return None
-            
-            # Extract text
-            if result.get('ParsedResults'):
-                text = result['ParsedResults'][0].get('ParsedText', '')
-                return text.strip()
-            
-            return None
-            
-        except requests.exceptions.Timeout:
-            print(f"  ⚠️  OCR request timeout")
-            return None
-        except requests.exceptions.HTTPError as e:
-            print(f"  ❌ HTTP Error: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"  📄 Response body: {e.response.text[:1000]}")
-            return None
-        except Exception as e:
-            print(f"  ⚠️  OCR error: {type(e).__name__}: {str(e)}")
-            import traceback
-            print(f"  🔍 Traceback: {traceback.format_exc()[:500]}")
-            return None
+            except requests.exceptions.HTTPError as e:
+                print(f"  ❌ HTTP Error: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"  📄 Response body: {e.response.text[:1000]}")
+                return None
+            except Exception as e:
+                print(f"  ⚠️  OCR error: {type(e).__name__}: {str(e)}")
+                import traceback
+                print(f"  🔍 Traceback: {traceback.format_exc()[:500]}")
+                return None
     
     def __del__(self):
         """Close session when done"""
