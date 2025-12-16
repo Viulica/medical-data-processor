@@ -281,11 +281,19 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 )),
             ]
             
+            # Use thinking_level="HIGH" for gemini-3-pro-preview, otherwise use thinking_budget=-1
+            if model == "gemini-3-pro-preview":
+                thinking_config = types.ThinkingConfig(
+                    thinking_level="HIGH",
+                )
+            else:
+                thinking_config = types.ThinkingConfig(
+                    thinking_budget=-1,
+                )
+            
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain",
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=-1,
-                ),
+                thinking_config=thinking_config,
                 tools=tools
             )
 
