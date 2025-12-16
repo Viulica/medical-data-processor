@@ -76,9 +76,9 @@ class OCRSpaceAPI:
                     'apikey': self.api_key,
                     'language': language,
                     'isOverlayRequired': False,
-                    'detectOrientation': False,  # Disable for speed
-                    'scale': False,  # Disable for speed
-                    'OCREngine': 1 if fast_mode else 2,  # Engine 1 is faster, Engine 2 more accurate
+                    'detectOrientation': True,  # Enable for accuracy (matches local OCR)
+                    'scale': True,  # Enable for better quality
+                    'OCREngine': 2 if not fast_mode else 1,  # Engine 2 = more accurate (matches local Tesseract OEM 3)
                 }
                 
                 # Debug: Show payload (mask API key)
@@ -181,9 +181,9 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         # Extract single page as PDF bytes (reuses reader - faster!)
         page_pdf_bytes = extract_single_page_pdf(reader, page_num)
         
-        # OCR the page (using fast mode for speed)
+        # OCR the page (using accurate mode to match local OCR quality)
         print(f"  🔍 Processing page {page_num + 1}...")
-        text = ocr_api.ocr_pdf_page(page_pdf_bytes, fast_mode=True, timeout=20)
+        text = ocr_api.ocr_pdf_page(page_pdf_bytes, fast_mode=False, timeout=30)
         
         if not text:
             print(f"  ⚠️  Page {page_num + 1}: No text extracted")
