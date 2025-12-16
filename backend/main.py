@@ -551,10 +551,10 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
-            
-            job.message = "Gemini processing PDF pages..."
-            job.progress = 60
-            
+        
+        job.message = "Gemini processing PDF pages..."
+        job.progress = 60
+        
         # Call the function directly
         filter_strings = [filter_string]
         created_count = split_pdf_with_gemini(
