@@ -1758,6 +1758,8 @@
 
             <div
               v-if="splitJobStatus.status === 'completed'"
+              class="success-section"
+            >
               <!-- Reasoning Display (Gemini only) -->
               <div
                 v-if="splitMethod === 'gemini' && splitJobStatus.metadata && splitJobStatus.metadata.reasoning"
@@ -1777,8 +1779,6 @@
                 </div>
               </div>
               <!-- End Reasoning Display -->
-              class="success-section"
-            >
               <button @click="downloadSplitResults" class="download-btn">
                 <span class="btn-icon">📥</span>
                 Download Split PDFs (ZIP)
