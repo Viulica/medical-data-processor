@@ -29,6 +29,7 @@ Peripheral Blocks Row Generation:
 - Mode selection via peripheral_blocks_mode parameter:
   * "UNI": Generate blocks ONLY when "Anesthesia Type" = "General" (case insensitive)
   * "other": Generate blocks when "Anesthesia Type" is NOT "MAC" (case insensitive)
+- If peripheral_blocks field contains "NONE DONE", NO blocks will be generated (regardless of mode)
 - When conditions are met and "peripheral_blocks" field is non-empty, creates duplicate rows for each block
 - Format: |cpt_code;MD;Resident;CRNA;M1;M2|cpt_code;MD;Resident;CRNA;M1;M2|...
 - Each duplicate row:
@@ -744,116 +745,122 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     should_generate_blocks = (anesthesia_type_val != 'MAC')
                 
                 if should_generate_blocks:
-                    # Parse the peripheral blocks
-                    blocks = parse_peripheral_blocks(peripheral_blocks_value)
-                    
-                    # Debug logging for peripheral blocks
-                    if peripheral_blocks_value and str(peripheral_blocks_value).strip():
-                        if not blocks:
-                            print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
-                    
-                    # Create a duplicate row for each block
-                    for block_idx, block in enumerate(blocks):
-                        # Create a copy of the original input row (not the modified new_row)
-                        block_row = row.copy()
+                    # Check if peripheral_blocks contains "NONE DONE" - if so, skip block generation
+                    peripheral_blocks_str = str(peripheral_blocks_value).strip().upper()
+                    if 'NONE DONE' in peripheral_blocks_str or 'NONEDONE' in peripheral_blocks_str:
+                        # Skip all block generation when "NONE DONE" is present
+                        print(f"ℹ️  Row {idx}: Skipping peripheral blocks - peripheral_blocks contains 'NONE DONE'")
+                    else:
+                        # Parse the peripheral blocks
+                        blocks = parse_peripheral_blocks(peripheral_blocks_value)
                         
-                        # Set ASA Code and Procedure Code to the CPT code from the block
-                        block_row['ASA Code'] = block['cpt_code']
-                        block_row['Procedure Code'] = block['cpt_code']
+                        # Debug logging for peripheral blocks
+                        if peripheral_blocks_value and str(peripheral_blocks_value).strip():
+                            if not blocks:
+                                print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
                         
-                        # Set provider information from the block
-                        if has_md_column:
-                            block_row['MD'] = block['md']
-                        if has_resident_column:
-                            block_row['Resident'] = block['resident']
-                        if has_crna_column:
-                            block_row['CRNA'] = block['crna']
-                        
-                        # Handle ICD codes based on CPT code
-                        cpt_code = block['cpt_code']
-                        
-                        # Special case: ASA Code 01967 or 1967
-                        asa_code = str(block_row.get('ASA Code', '')).strip()
-                        if asa_code in ['01967', '1967']:
-                            # Clear all ICD codes and set ICD1 = "080"
-                            for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                if icd_col in block_row:
-                                    block_row[icd_col] = ''
-                            block_row['ICD1'] = '080'
-                        
-                        # Define peripheral nerve block CPT codes
-                        peripheral_nerve_blocks = [
-                            '64445', '64446',  # Sciatic
-                            '64415', '64416',  # Interscalene
-                            '64447', '64448',  # Femoral
-                            '64466', '64467', '64468', '64469',  # ESP
-                            '64488'  # TAP
-                        ]
-                        
-                        if cpt_code in peripheral_nerve_blocks:
-                            # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
-                            for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                if icd_col in block_row:
-                                    block_row[icd_col] = ''
-                            block_row['ICD1'] = 'G89.18'
-                        
-                        elif cpt_code == '36620':
-                            # Arterial line: Keep ICD codes from original input row (already in block_row)
-                            pass
-                        
-                        elif cpt_code == '76937':
-                            # Ultrasound guidance: Keep ICD codes ONLY if it comes after 36620
-                            if block_idx > 0 and blocks[block_idx - 1]['cpt_code'] == '36620':
-                                # Keep ICD codes from original input row (already in block_row)
-                                pass
-                            else:
-                                # Clear all ICD codes
+                        # Create a duplicate row for each block
+                        for block_idx, block in enumerate(blocks):
+                            # Create a copy of the original input row (not the modified new_row)
+                            block_row = row.copy()
+                            
+                            # Set ASA Code and Procedure Code to the CPT code from the block
+                            block_row['ASA Code'] = block['cpt_code']
+                            block_row['Procedure Code'] = block['cpt_code']
+                            
+                            # Set provider information from the block
+                            if has_md_column:
+                                block_row['MD'] = block['md']
+                            if has_resident_column:
+                                block_row['Resident'] = block['resident']
+                            if has_crna_column:
+                                block_row['CRNA'] = block['crna']
+                            
+                            # Handle ICD codes based on CPT code
+                            cpt_code = block['cpt_code']
+                            
+                            # Special case: ASA Code 01967 or 1967
+                            asa_code = str(block_row.get('ASA Code', '')).strip()
+                            if asa_code in ['01967', '1967']:
+                                # Clear all ICD codes and set ICD1 = "080"
                                 for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                     if icd_col in block_row:
                                         block_row[icd_col] = ''
-                        
-                        elif cpt_code in ['36556', '93503']:
-                            # CVP: Clear all ICD codes
-                            for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                if icd_col in block_row:
-                                    block_row[icd_col] = ''
-                        
-                        else:
-                            # Any other CPT code: Clear all ICD codes
-                            for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                if icd_col in block_row:
-                                    block_row[icd_col] = ''
-                        
-                        # Clear Concurrent Providers
-                        if 'Concurrent Providers' in block_row:
-                            block_row['Concurrent Providers'] = ''
-                        
-                        # Clear An Start and An Stop columns (keep only in original row)
-                        if 'An Start' in block_row:
-                            block_row['An Start'] = ''
-                        if 'An Stop' in block_row:
-                            block_row['An Stop'] = ''
-                        
-                        # Clear SRNA field
-                        if 'SRNA' in block_row:
-                            block_row['SRNA'] = ''
-                        
-                        # Clear Anesthesia Type field
-                        if 'Anesthesia Type' in block_row:
-                            block_row['Anesthesia Type'] = ''
-                        
-                        # Set Responsible Provider to MD value from block
-                        if 'Responsible Provider' in block_row:
-                            block_row['Responsible Provider'] = block['md']
-                        
-                        # Clear all modifier columns and set M1 and M2 from the block
-                        block_row['M1'] = block['m1']
-                        block_row['M2'] = block['m2']
-                        block_row['M3'] = ''
-                        block_row['M4'] = ''
-                        
-                        # Add the block row to results
-                        result_rows.append(block_row)
+                                block_row['ICD1'] = '080'
+                            
+                            # Define peripheral nerve block CPT codes
+                            peripheral_nerve_blocks = [
+                                '64445', '64446',  # Sciatic
+                                '64415', '64416',  # Interscalene
+                                '64447', '64448',  # Femoral
+                                '64466', '64467', '64468', '64469',  # ESP
+                                '64488'  # TAP
+                            ]
+                            
+                            if cpt_code in peripheral_nerve_blocks:
+                                # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
+                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = ''
+                                block_row['ICD1'] = 'G89.18'
+                            
+                            elif cpt_code == '36620':
+                                # Arterial line: Keep ICD codes from original input row (already in block_row)
+                                pass
+                            
+                            elif cpt_code == '76937':
+                                # Ultrasound guidance: Keep ICD codes ONLY if it comes after 36620
+                                if block_idx > 0 and blocks[block_idx - 1]['cpt_code'] == '36620':
+                                    # Keep ICD codes from original input row (already in block_row)
+                                    pass
+                                else:
+                                    # Clear all ICD codes
+                                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                        if icd_col in block_row:
+                                            block_row[icd_col] = ''
+                            
+                            elif cpt_code in ['36556', '93503']:
+                                # CVP: Clear all ICD codes
+                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = ''
+                            
+                            else:
+                                # Any other CPT code: Clear all ICD codes
+                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = ''
+                            
+                            # Clear Concurrent Providers
+                            if 'Concurrent Providers' in block_row:
+                                block_row['Concurrent Providers'] = ''
+                            
+                            # Clear An Start and An Stop columns (keep only in original row)
+                            if 'An Start' in block_row:
+                                block_row['An Start'] = ''
+                            if 'An Stop' in block_row:
+                                block_row['An Stop'] = ''
+                            
+                            # Clear SRNA field
+                            if 'SRNA' in block_row:
+                                block_row['SRNA'] = ''
+                            
+                            # Clear Anesthesia Type field
+                            if 'Anesthesia Type' in block_row:
+                                block_row['Anesthesia Type'] = ''
+                            
+                            # Set Responsible Provider to MD value from block
+                            if 'Responsible Provider' in block_row:
+                                block_row['Responsible Provider'] = block['md']
+                            
+                            # Clear all modifier columns and set M1 and M2 from the block
+                            block_row['M1'] = block['m1']
+                            block_row['M2'] = block['m2']
+                            block_row['M3'] = ''
+                            block_row['M4'] = ''
+                            
+                            # Add the block row to results
+                            result_rows.append(block_row)
                 else:
                     # Blocks were skipped - log reason based on mode
                     if peripheral_blocks_value and str(peripheral_blocks_value).strip():
