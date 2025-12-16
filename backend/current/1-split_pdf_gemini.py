@@ -107,8 +107,7 @@ If pages 2 and 4 in this batch contain all the strings, return:
         ]
         
         generate_content_config = types.GenerateContentConfig(
-            response_mime_type="text/plain",
-            thinking_config=types.ThinkingConfig(thinking_budget=0)  # Turn off thinking for faster responses
+            response_mime_type="text/plain"
         )
         
         # Try up to max_retries times to get valid JSON
