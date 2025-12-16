@@ -160,6 +160,7 @@ class ProcessingJob:
         self.result_file = None
         self.result_file_xlsx = None  # Store XLSX version
         self.error = None
+        self.metadata = {}  # Store additional data like reasoning
 
 def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
     """Background task to process PDFs"""
@@ -535,54 +536,39 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         job.message = f"Analyzing PDF pages..."
         job.progress = 40
         
-        # Run the new splitting script
-        # Args: input_pdf, output_folder, filter_strings, batch_size, model, max_workers
-        logger.info(f"Running new split script with filter: {filter_string}")
+        # Import and call the function directly to capture reasoning
+        import sys
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("split_pdf_gemini", script_path)
+        split_module = importlib.util.module_from_spec(spec)
+        sys.modules["split_pdf_gemini"] = split_module
+        spec.loader.exec_module(split_module)
+        split_pdf_with_gemini = split_module.split_pdf_with_gemini
+        
+        logger.info(f"Running Gemini split function with filter: {filter_string}")
         logger.info(f"Input PDF: {pdf_path}")
         logger.info(f"Output folder: {output_dir}")
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
         
-        process = None
-        try:
-            process = subprocess.Popen([
-                sys.executable, 
-                str(script_path),
-                str(pdf_path),  # input PDF
-                str(output_dir),  # output folder
-                filter_string,  # filter string
-                str(batch_size),  # batch size
-                model,  # model name
-                str(max_workers)  # parallel workers
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)
-            
-            job.message = "Gemini processing PDF pages..."
-            job.progress = 60
-            
-            # Wait for process with timeout (30 minutes max for Gemini splitting)
-            stdout, stderr = process.communicate(timeout=1800)
-            
-            logger.info(f"Gemini script stdout: {stdout}")
-            logger.info(f"Gemini script stderr: {stderr}")
-            
-            if process.returncode != 0:
-                raise Exception(f"Gemini splitting failed: {stderr}")
-            
-        except subprocess.TimeoutExpired:
-            # Kill the process and all its children if it times out
-            if process:
-                logger.warning(f"Gemini PDF splitting timed out, killing process tree for PID {process.pid}")
-                kill_process_tree(process)
-                gc.collect()  # Force cleanup after killing process
-            raise Exception("Gemini PDF splitting timed out after 30 minutes")
-        except Exception as e:
-            # Ensure process is terminated on any error
-            if process and process.poll() is None:
-                logger.warning(f"Gemini PDF splitting failed, killing process tree for PID {process.pid}")
-                kill_process_tree(process)
-                gc.collect()  # Force cleanup after killing process
-            raise e
+        job.message = "Gemini processing PDF pages..."
+        job.progress = 60
+        
+        # Call the function directly
+        filter_strings = [filter_string]
+        created_count, reasoning_dict = split_pdf_with_gemini(
+            pdf_path, str(output_dir), filter_strings, batch_size, model, max_workers
+        )
+        
+        if created_count is None:
+            raise Exception("Gemini splitting failed - no sections created")
+        
+        # Store reasoning in job metadata
+        if reasoning_dict:
+            job.metadata = job.metadata or {}
+            job.metadata['reasoning'] = {str(k): v for k, v in reasoning_dict.items()}
+            logger.info(f"Captured reasoning for {len(reasoning_dict)} pages")
         
         job.message = "Creating ZIP archive of split PDFs..."
         job.progress = 85
@@ -1646,13 +1632,17 @@ async def get_job_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = job_status[job_id]
-    return {
+    response = {
         "job_id": job_id,
         "status": job.status,
         "progress": job.progress,
         "message": job.message,
         "error": job.error
     }
+    # Include metadata if present (e.g., reasoning for PDF splitting)
+    if hasattr(job, 'metadata') and job.metadata:
+        response["metadata"] = job.metadata
+    return response
 
 @app.delete("/cleanup/{job_id}")
 async def cleanup_job(job_id: str):
@@ -2083,7 +2073,8 @@ async def split_pdf(
 async def split_pdf_gemini(
     background_tasks: BackgroundTasks,
     pdf_file: UploadFile = File(...),
-    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
+    batch_size: int = Form(default=5, description="Number of pages to process per API call (1-50)")
 ):
     """Upload a single PDF file to split into sections using new splitting method"""
     
@@ -2094,10 +2085,15 @@ async def split_pdf_gemini(
         if not pdf_file.filename.endswith('.pdf'):
             raise HTTPException(status_code=400, detail="File must be a PDF")
         
-        # Fixed configuration
-        batch_size = 5
+        # Validate batch size
+        if batch_size < 1 or batch_size > 50:
+            raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
+        
+        # Configuration
         model = "gemini-flash-latest"
         max_workers = 12
+        
+        logger.info(f"Using batch_size: {batch_size}")
         
         # Generate job ID
         job_id = str(uuid.uuid4())

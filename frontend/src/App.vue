@@ -1667,7 +1667,37 @@
                   Enter the text that appears on pages where you want to split
                   the PDF. The system will create a new section starting from
                   each page containing this text.
-                  <strong>Case insensitive search.</strong>
+                  <span v-if="splitMethod === 'gemini'">
+                    <strong>Exact case-sensitive match required for Gemini method.</strong>
+                  </span>
+                  <span v-else>
+                    <strong>Case insensitive search.</strong>
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <!-- Batch Size Input (Gemini only) -->
+            <div v-if="splitMethod === 'gemini'" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>Batch Size</h3>
+              </div>
+              <div class="page-count-selector">
+                <label for="splitBatchSize">
+                  Pages per API call:
+                </label>
+                <input
+                  id="splitBatchSize"
+                  v-model.number="splitBatchSize"
+                  type="number"
+                  min="1"
+                  max="50"
+                  class="page-input"
+                  :disabled="isSplitting"
+                />
+                <p class="page-hint">
+                  Number of pages to process per API call (1-50). Lower values = more API calls but faster individual calls. Default: 5.
                 </p>
               </div>
             </div>
@@ -1728,6 +1758,25 @@
 
             <div
               v-if="splitJobStatus.status === 'completed'"
+              <!-- Reasoning Display (Gemini only) -->
+              <div
+                v-if="splitMethod === 'gemini' && splitJobStatus.metadata && splitJobStatus.metadata.reasoning"
+                class="reasoning-section"
+                style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;"
+              >
+                <h4 style="margin-top: 0; margin-bottom: 15px; color: #495057;">
+                  📋 AI Reasoning for Page Analysis
+                </h4>
+                <div
+                  v-for="(reasoning, pageIndex) in splitJobStatus.metadata.reasoning"
+                  :key="pageIndex"
+                  style="margin-bottom: 10px; padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #007bff;"
+                >
+                  <strong style="color: #007bff;">Page {{ parseInt(pageIndex) + 1 }}:</strong>
+                  <span style="margin-left: 8px; color: #495057;">{{ reasoning }}</span>
+                </div>
+              </div>
+              <!-- End Reasoning Display -->
               class="success-section"
             >
               <button @click="downloadSplitResults" class="download-btn">
@@ -5676,6 +5725,7 @@ export default {
       // Split PDF functionality
       pdfFile: null,
       filterString: "",
+      splitBatchSize: 5, // Batch size for Gemini splitting (pages per API call)
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
@@ -6352,6 +6402,12 @@ export default {
       formData.append("pdf_file", this.pdfFile);
       formData.append("filter_string", this.filterString.trim());
 
+      // Add batch size for Gemini method
+      if (this.splitMethod === "gemini") {
+        const batchSize = this.splitBatchSize || 5;
+        formData.append("batch_size", batchSize.toString());
+      }
+
       // Choose endpoint based on method
       let splitUrl;
       if (this.splitMethod === "ocrspace") {
@@ -6498,6 +6554,7 @@ export default {
     },
 
     resetSplitForm() {
+      this.splitBatchSize = 5;
       this.pdfFile = null;
       this.filterString = "";
       this.splitJobId = null;
