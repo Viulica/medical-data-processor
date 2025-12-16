@@ -90,6 +90,7 @@ try:
     from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
     logger.info("✅ FastAPI imported successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import FastAPI: {e}")
@@ -3900,7 +3901,8 @@ async def export_template_as_excel(template_id: int):
         return FileResponse(
             path=temp_file.name,
             filename=filename,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            background=BackgroundTask(lambda: os.unlink(temp_file.name))
         )
     
     except HTTPException:
@@ -3910,59 +3912,66 @@ async def export_template_as_excel(template_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to export template: {str(e)}")
 
 
-@app.get("/api/templates/export-all")
-async def export_all_templates():
-    """Export ALL templates as a single JSON file for bulk editing"""
+@app.get("/api/templates/{template_id}/download-json")
+async def download_template_json(template_id: int):
+    """Download a template as a JSON file"""
+    import json
+    
     try:
-        from db_utils import get_all_templates_for_export
-        import json
-        from datetime import datetime
+        from db_utils import get_template
+        template = get_template(template_id=template_id)
         
-        templates = get_all_templates_for_export()
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
         
-        if not templates:
-            raise HTTPException(status_code=404, detail="No templates found")
-        
-        # Convert datetime objects to strings for JSON serialization
-        for template in templates:
-            if template.get('created_at'):
-                template['created_at'] = template['created_at'].isoformat()
-            if template.get('updated_at'):
-                template['updated_at'] = template['updated_at'].isoformat()
-        
-        # Create a JSON structure
-        export_data = {
-            'exported_at': datetime.utcnow().isoformat(),
-            'total_templates': len(templates),
-            'templates': templates
+        # Prepare the template data for download
+        # Convert datetime objects to ISO format strings
+        download_data = {
+            'id': template['id'],
+            'name': template['name'],
+            'description': template.get('description', ''),
+            'template_data': template['template_data'],
+            'created_at': template['created_at'].isoformat() if template.get('created_at') else None,
+            'updated_at': template['updated_at'].isoformat() if template.get('updated_at') else None
         }
         
         # Create temporary JSON file
-        temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
-        json.dump(export_data, temp_file, indent=2)
+        temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8')
+        json.dump(download_data, temp_file, indent=2, ensure_ascii=False)
         temp_file.close()
         
         # Return file
-        filename = f"all_templates_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"{template['name'].replace(' ', '_')}_template.json"
         return FileResponse(
             path=temp_file.name,
             filename=filename,
-            media_type="application/json"
+            media_type="application/json",
+            background=BackgroundTask(lambda: os.unlink(temp_file.name))
         )
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to export all templates: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to export templates: {str(e)}")
+        logger.error(f"Failed to download template {template_id} as JSON: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download template: {str(e)}")
 
 
-@app.post("/api/templates/import-all")
-async def import_all_templates(json_file: UploadFile = File(...)):
-    """Import and update multiple templates from a JSON file"""
+@app.post("/api/templates/{template_id}/upload-json")
+async def upload_template_json(
+    template_id: int,
+    json_file: UploadFile = File(...)
+):
+    """Upload a JSON file to update a template"""
     import json
     
     try:
+        from db_utils import get_template, update_template as update_template_in_db
+        
+        # Check if template exists
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
         # Validate file type
         if not json_file.filename.endswith('.json'):
             raise HTTPException(status_code=400, detail="Only JSON files (.json) are supported")
@@ -3970,41 +3979,53 @@ async def import_all_templates(json_file: UploadFile = File(...)):
         # Read and parse JSON file
         content = await json_file.read()
         try:
-            data = json.loads(content)
+            uploaded_data = json.loads(content.decode('utf-8'))
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
         
-        # Extract templates array
-        templates = data.get('templates', [])
-        if not templates:
-            raise HTTPException(status_code=400, detail="No templates found in JSON file. Expected 'templates' array.")
+        # Extract template_data
+        template_data = uploaded_data.get('template_data')
+        if not template_data:
+            raise HTTPException(status_code=400, detail="JSON file must contain 'template_data' field")
         
-        # Validate template structure
-        for idx, template in enumerate(templates):
-            if not isinstance(template, dict):
-                raise HTTPException(status_code=400, detail=f"Template at index {idx} is not a valid object")
-            if not template.get('name'):
-                raise HTTPException(status_code=400, detail=f"Template at index {idx} missing 'name' field")
-            if not template.get('template_data'):
-                raise HTTPException(status_code=400, detail=f"Template '{template.get('name')}' missing 'template_data' field")
+        # Validate that fields exist
+        fields = template_data.get('fields', [])
+        if not fields:
+            raise HTTPException(status_code=400, detail="template_data must contain at least one field")
         
-        # Bulk update/create templates
-        from db_utils import bulk_update_templates
-        result = bulk_update_templates(templates)
+        # Validate that all fields have names
+        for idx, field in enumerate(fields):
+            if not field.get('name'):
+                raise HTTPException(status_code=400, detail=f"Field at index {idx} is missing 'name'")
         
-        return {
-            "message": "Templates imported successfully",
-            "created": result['created'],
-            "updated": result['updated'],
-            "total_processed": result['created'] + result['updated'],
-            "errors": result['errors']
-        }
+        # Optional: Also update name and description if provided in JSON
+        name = uploaded_data.get('name')
+        description = uploaded_data.get('description')
+        
+        # Update template in database
+        success = update_template_in_db(
+            template_id=template_id,
+            name=name if name and name != existing_template['name'] else None,
+            description=description if description is not None else None,
+            template_data=template_data
+        )
+        
+        if success:
+            # Get updated template
+            updated_template = get_template(template_id=template_id)
+            return {
+                "message": "Template updated successfully from JSON",
+                "template": updated_template,
+                "fields_count": len(fields)
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template")
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to import templates: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to import templates: {str(e)}")
+        logger.error(f"Failed to upload JSON for template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload JSON: {str(e)}")
 
 
 # ============================================================================
