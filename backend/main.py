@@ -551,10 +551,10 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
-        
-        job.message = "Gemini processing PDF pages..."
-        job.progress = 60
-        
+            
+            job.message = "Gemini processing PDF pages..."
+            job.progress = 60
+            
         # Call the function directly
         filter_strings = [filter_string]
         created_count = split_pdf_with_gemini(
@@ -628,20 +628,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         output_dir.mkdir(parents=True, exist_ok=True)
         
         job.message = f"Analyzing PDF with OCR.space API (filter: '{filter_string}')..."
-        job.progress = 30
-        
-        # Use job-specific output folder (prevents conflicts with concurrent users)
-        output_dir = current_dir / "output" / job_id  # Job-specific folder
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Set up environment for the script
-        env = os.environ.copy()
-        env['PYTHONPATH'] = str(current_dir)
-        
-        # Limit OpenBLAS threads to prevent resource exhaustion
-        env['OPENBLAS_NUM_THREADS'] = '12'
-        env['OMP_NUM_THREADS'] = '12'
-        env['MKL_NUM_THREADS'] = '12'
+        job.progress = 10
         
         # Path to OCR.space splitting script
         script_path = current_dir / "1-split_pdf_ocrspace.py"
@@ -650,55 +637,42 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
             raise Exception(f"OCR.space splitting script not found: {script_path}")
         
         job.message = f"OCR processing PDF pages..."
-        job.progress = 40
+        job.progress = 20
         
-        # Run the OCR.space splitting script
-        # Args: input_pdf, output_folder, filter_strings, max_workers
-        logger.info(f"Running OCR.space split script with filter: {filter_string}")
+        # Import and call the function directly (like Gemini) for progress tracking
+        import sys
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("split_pdf_ocrspace", script_path)
+        split_module = importlib.util.module_from_spec(spec)
+        sys.modules["split_pdf_ocrspace"] = split_module
+        spec.loader.exec_module(split_module)
+        split_pdf_with_ocrspace = split_module.split_pdf_with_ocrspace
+        
+        logger.info(f"Running OCR.space split function with filter: {filter_string}")
         logger.info(f"Input PDF: {pdf_path}")
         logger.info(f"Output folder: {output_dir} (job-specific)")
         logger.info(f"Max workers: {max_workers}")
         
-        process = None
-        try:
-            process = subprocess.Popen([
-                sys.executable, 
-                str(script_path),
-                str(pdf_path),  # input PDF
-                str(output_dir),  # output folder (job-specific)
-                filter_string,  # filter string
-                str(max_workers)  # parallel workers
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=current_dir, env=env)
-            
-            job.message = "OCR.space processing PDF pages..."
-            job.progress = 60
-            
-            # Wait for process with timeout (20 minutes max)
-            stdout, stderr = process.communicate(timeout=1200)
-            
-            logger.info(f"OCR.space script stdout: {stdout}")
-            logger.info(f"OCR.space script stderr: {stderr}")
-            
-            if process.returncode != 0:
-                raise Exception(f"OCR.space splitting failed: {stderr}")
-            
-        except subprocess.TimeoutExpired:
-            # Kill the process and all its children if it times out
-            if process:
-                logger.warning(f"OCR.space PDF splitting timed out, killing process tree for PID {process.pid}")
-                kill_process_tree(process)
-                gc.collect()  # Force cleanup after killing process
-            raise Exception("OCR.space PDF splitting timed out after 20 minutes")
-        except Exception as e:
-            # Ensure process is terminated on any error
-            if process and process.poll() is None:
-                logger.warning(f"OCR.space PDF splitting failed, killing process tree for PID {process.pid}")
-                kill_process_tree(process)
-                gc.collect()  # Force cleanup after killing process
-            raise e
+        # Progress callback function - maps OCR progress (0-100%) to job progress (20-90%)
+        # OCR processing: 20-90% (70% range)
+        # ZIP creation: 90-100% (10% range)
+        def progress_callback(completed, total, message):
+            if total > 0:
+                ocr_progress_pct = int((completed / total) * 70)  # 0-70% for OCR
+                job.progress = 20 + ocr_progress_pct  # Map to 20-90% range
+                job.message = f"OCR.space: {message} ({completed}/{total} pages)"
+        
+        # Call the function directly with progress callback
+        filter_strings = [filter_string]
+        created_count = split_pdf_with_ocrspace(
+            pdf_path, str(output_dir), filter_strings, max_workers, False, progress_callback
+        )
+        
+        if created_count is None:
+            raise Exception("OCR.space splitting failed - no sections created")
         
         job.message = "Creating ZIP archive of split PDFs..."
-        job.progress = 85
+        job.progress = 90
         
         # Create ZIP file with all split PDFs
         zip_path = Path(f"/tmp/results/{job_id}_split_pdfs_ocrspace.zip")

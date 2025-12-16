@@ -279,7 +279,7 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         return page_num, False
 
 
-def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=False):
+def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=False, progress_callback=None):
     """
     Find all pages that contain ALL the filter strings.
     
@@ -288,6 +288,7 @@ def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=
         filter_strings: List of strings that ALL must be present
         max_workers: Number of parallel workers (default: 7 - matches API semaphore)
         case_sensitive: Whether search is case-sensitive
+        progress_callback: Optional callback function(completed, total, message) for progress updates
         
     Returns:
         List of matching page numbers (0-based)
@@ -301,12 +302,24 @@ def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=
     
     filter_display = " AND ".join([f'"{s}"' for s in filter_strings])
     print(f"📄 Scanning {total_pages} pages for: {filter_display}")
-    print(f"🔍 Using OCR.space API (Fast Mode)")
+    print(f"🔍 Using OCR.space API (Enhanced Mode)")
     print(f"🧵 Processing with {max_workers} parallel workers")
     print()
     
     # Process pages in parallel
     matching_pages = []
+    completed_count = 0
+    
+    # Thread-safe progress tracking
+    import threading
+    progress_lock = threading.Lock()
+    
+    def update_progress():
+        nonlocal completed_count
+        with progress_lock:
+            completed_count += 1
+            if progress_callback:
+                progress_callback(completed_count, total_pages, f"Processing page {completed_count}/{total_pages}")
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks (reuse reader for speed)
@@ -318,6 +331,7 @@ def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=
         # Collect results
         for future in as_completed(futures):
             page_num, matches = future.result()
+            update_progress()  # Update progress after each page completes
             if matches:
                 matching_pages.append(page_num)
     
@@ -377,7 +391,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=7, case_sensitive=False):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=7, case_sensitive=False, progress_callback=None):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -387,6 +401,7 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
         filter_strings: List of strings that ALL must be present on a page
         max_workers: Number of parallel workers (default: 7 - matches API semaphore)
         case_sensitive: Whether search is case-sensitive
+        progress_callback: Optional callback function(completed, total, message) for progress updates
         
     Returns:
         Number of sections created, or None if there was an error
@@ -403,7 +418,7 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
     os.makedirs(output_folder, exist_ok=True)
     
     # Find matching pages
-    detection_pages = find_matching_pages(input_pdf_path, filter_strings, max_workers, case_sensitive)
+    detection_pages = find_matching_pages(input_pdf_path, filter_strings, max_workers, case_sensitive, progress_callback)
     
     if not detection_pages:
         print("\n⚠️  No matching pages found - no sections to create")

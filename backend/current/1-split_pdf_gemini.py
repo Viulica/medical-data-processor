@@ -178,9 +178,9 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                         raise ValueError(f"'{page_key}' must be a boolean (true/false), got: {page_match}")
                     
                     if page_match:
-                        # Convert: batch 1-based -> batch 0-based -> document 0-based
+                    # Convert: batch 1-based -> batch 0-based -> document 0-based
                         doc_page_idx = actual_pages[batch_page_num - 1]
-                        matching_pages.append(doc_page_idx)
+                    matching_pages.append(doc_page_idx)
                 
                 print(f"  ✅ Successfully parsed response for pages {page_start + 1}-{page_end} (attempt {attempt + 1})")
                 if matching_pages:

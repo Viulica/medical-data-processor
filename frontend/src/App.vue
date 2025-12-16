@@ -1582,7 +1582,7 @@
                     New Splitting Method
                   </option>
                   <option value="legacy">
-                    Legacy OCR (Slow, local processing)
+                    Old Splitting Method
                   </option>
                 </select>
                 <p class="form-hint" style="margin-top: 10px; color: #6b7280">
@@ -6312,7 +6312,7 @@ export default {
     async startSplitting() {
       const methodNames = {
         ocrspace: "New Splitting Method",
-        legacy: "Legacy OCR",
+        legacy: "Old Splitting Method",
       };
       const method = methodNames[this.splitMethod] || this.splitMethod;
       console.log(`🚀 Starting PDF splitting process (${method} method)...`);
