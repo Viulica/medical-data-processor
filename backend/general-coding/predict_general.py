@@ -483,6 +483,7 @@ IMPORTANT INSTRUCTIONS:
 7. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
 8. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
 9. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+10. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
