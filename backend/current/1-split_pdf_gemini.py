@@ -37,9 +37,7 @@ def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_string
         max_retries: Maximum number of retry attempts for parsing
     
     Returns:
-        Tuple of (matching_pages, reasoning_dict) where:
-        - matching_pages: List of page numbers (0-based) that contain the exact filter string, or None on failure
-        - reasoning_dict: Dictionary with reasoning for each page, or None on failure
+        List of page numbers (0-based) that contain the exact filter string, or None on failure
     """
     
     # Create a temporary PDF with just these pages
@@ -73,34 +71,19 @@ CRITICAL INSTRUCTIONS:
 1. CAREFULLY REVIEW EACH PAGE in this batch - examine every page thoroughly
 2. A page matches ONLY if it contains the text EXACTLY as written above (case-sensitive match)
 3. The text must appear exactly as: "{filter_display}"
-4. For EACH page, provide your reasoning about whether it matches or not
-5. Return your answer as a JSON object with this EXACT structure:
+4. Return your answer as a JSON object with this EXACT structure:
 {{
-    "matching_pages": [1, 3, 5],
-    "reasoning": {{
-        "page_1": "Found exact text '{filter_display}' in header section",
-        "page_2": "No match - text not found on this page",
-        "page_3": "Found exact text '{filter_display}' in patient information section"
-    }}
+    "matching_pages": [1, 3, 5]
 }}
 
-6. Page numbers should be 1-based (first page is 1, second page is 2, etc.)
-7. The "reasoning" object should contain an entry for EACH page in this batch
-8. If NO pages match, return: {{"matching_pages": [], "reasoning": {{"page_1": "No match", "page_2": "No match"}}}}
-9. Return ONLY the JSON object, no other text or explanation
-10. The JSON must be valid and parseable
+5. Page numbers should be 1-based (first page is 1, second page is 2, etc.)
+6. If NO pages match, return: {{"matching_pages": []}}
+7. Return ONLY the JSON object, no other text or explanation
+8. The JSON must be valid and parseable
 
 Example:
 If pages 2 and 4 contain the exact text "{filter_display}", return:
-{{
-    "matching_pages": [2, 4],
-    "reasoning": {{
-        "page_1": "No match - text '{filter_display}' not found",
-        "page_2": "Match found - exact text '{filter_display}' appears in document header",
-        "page_3": "No match - text '{filter_display}' not found",
-        "page_4": "Match found - exact text '{filter_display}' appears in patient section"
-    }}
-}}
+{{"matching_pages": [2, 4]}}
 """
         
         # Read the PDF data
@@ -165,14 +148,8 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                 if not isinstance(result["matching_pages"], list):
                     raise ValueError(f"'matching_pages' must be a list: {result}")
                 
-                # Extract reasoning (optional)
-                reasoning = result.get("reasoning", {})
-                if not isinstance(reasoning, dict):
-                    reasoning = {}
-                
                 # Convert batch-relative page numbers (1-based) to document-absolute page numbers (0-based)
                 matching_pages = []
-                reasoning_dict = {}
                 
                 for page_num in result["matching_pages"]:
                     if not isinstance(page_num, int):
@@ -184,39 +161,30 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                     doc_page_idx = actual_pages[page_num - 1]
                     matching_pages.append(doc_page_idx)
                 
-                # Build reasoning dict with document-absolute page numbers
-                for batch_page_num in range(1, len(actual_pages) + 1):
-                    doc_page_idx = actual_pages[batch_page_num - 1]
-                    page_key = f"page_{batch_page_num}"
-                    if page_key in reasoning:
-                        reasoning_dict[doc_page_idx] = reasoning[page_key]
-                    else:
-                        reasoning_dict[doc_page_idx] = "No reasoning provided"
-                
                 print(f"  ✅ Successfully parsed response for pages {page_start + 1}-{page_end} (attempt {attempt + 1})")
                 if matching_pages:
                     # Convert to 1-based for display
                     display_pages = [p + 1 for p in matching_pages]
                     print(f"     Found matches on pages: {display_pages}")
                 
-                return matching_pages, reasoning_dict
+                return matching_pages
                 
             except json.JSONDecodeError as e:
                 print(f"  ⚠️  JSON parsing failed for pages {page_start + 1}-{page_end} (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
                     print(f"  ❌ Final JSON parsing failure for pages {page_start + 1}-{page_end}")
                     print(f"     Raw response: {response_text[:200]}...")
-                    return None, None
+                    return None
             except ValueError as e:
                 print(f"  ⚠️  Response validation failed for pages {page_start + 1}-{page_end} (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
                     print(f"  ❌ Final validation failure for pages {page_start + 1}-{page_end}")
-                    return None, None
+                    return None
             except Exception as e:
                 print(f"  ⚠️  API call failed for pages {page_start + 1}-{page_end} (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
                     print(f"  ❌ Final API failure for pages {page_start + 1}-{page_end}")
-                    return None, None
+                    return None
             
             # Exponential backoff with jitter for retries
             if attempt < max_retries - 1:
@@ -226,7 +194,7 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                 print(f"  ⏳ Retrying pages {page_start + 1}-{page_end} in {delay:.1f} seconds...")
                 time.sleep(delay)
         
-        return None, None
+        return None
         
     finally:
         # Clean up temporary file
@@ -248,9 +216,7 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
         max_workers: Number of parallel threads (default: 3)
     
     Returns:
-        Tuple of (matching_pages, all_reasoning) where:
-        - matching_pages: List of page numbers (0-based) that match, or None if there was an error
-        - all_reasoning: Dictionary mapping page index (0-based) to reasoning string, or None if error
+        List of page numbers (0-based) that match, or None if there was an error
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
@@ -284,7 +250,6 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
     
     # Store results with their order index to prevent mixing
     results_with_order = []
-    all_reasoning = {}
     failed_batches = []
     
     # Process batches in parallel
@@ -303,17 +268,14 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
             order_idx, batch_start, batch_end = future_to_batch[future]
             
             try:
-                matching_pages, reasoning_dict = future.result()
+                matching_pages = future.result()
                 
                 if matching_pages is None:
                     print(f"❌ Failed to process batch {batch_start + 1}-{batch_end} after all retries")
                     failed_batches.append((batch_start, batch_end))
                 else:
                     # Store with order index to sort later
-                    results_with_order.append((order_idx, matching_pages, reasoning_dict))
-                    # Merge reasoning into all_reasoning
-                    if reasoning_dict:
-                        all_reasoning.update(reasoning_dict)
+                    results_with_order.append((order_idx, matching_pages))
                     
             except Exception as e:
                 print(f"❌ Exception processing batch {batch_start + 1}-{batch_end}: {str(e)}")
@@ -324,14 +286,14 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
         print(f"\n❌ {len(failed_batches)} batch(es) failed:")
         for batch_start, batch_end in failed_batches:
             print(f"   - Pages {batch_start + 1}-{batch_end}")
-        return None, None
+        return None
     
     # Sort results by order index to maintain correct sequence
     results_with_order.sort(key=lambda x: x[0])
     
     # Collect all matching pages in correct order
     all_matching_pages = []
-    for order_idx, matching_pages, reasoning_dict in results_with_order:
+    for order_idx, matching_pages in results_with_order:
         all_matching_pages.extend(matching_pages)
     
     print(f"\n✅ Scan complete! Found {len(all_matching_pages)} matching pages")
@@ -340,7 +302,7 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
         display_pages = [p + 1 for p in sorted(all_matching_pages)]
         print(f"   Matching pages: {display_pages}")
     
-    return sorted(all_matching_pages), all_reasoning
+    return sorted(all_matching_pages)
 
 
 def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pages):
@@ -402,9 +364,7 @@ def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_s
         max_workers: Number of parallel threads (default: 3)
     
     Returns:
-        Tuple of (created_count, reasoning_dict) where:
-        - created_count: Number of sections created, or None if there was an error
-        - reasoning_dict: Dictionary mapping page index (0-based) to reasoning string
+        Number of sections created, or None if there was an error
     """
     
     print("=" * 70)
@@ -418,17 +378,17 @@ def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_s
     os.makedirs(output_folder, exist_ok=True)
     
     # Find matching pages with parallel processing
-    detection_pages, reasoning_dict = find_matching_pages_with_gemini(
+    detection_pages = find_matching_pages_with_gemini(
         input_pdf_path, filter_strings, batch_size, model, max_workers
     )
     
     if detection_pages is None:
         print("\n❌ Failed to find matching pages")
-        return None, None
+        return None
     
     if not detection_pages:
         print("\n⚠️  No matching pages found - no sections to create")
-        return 0, reasoning_dict or {}
+        return 0
     
     # Get total pages for section creation
     reader = PdfReader(input_pdf_path)
@@ -443,7 +403,7 @@ def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_s
     else:
         print("\n❌ Failed to create PDF sections")
     
-    return created_count, reasoning_dict or {}
+    return created_count
 
 
 def main():
@@ -492,18 +452,12 @@ def main():
         sys.exit(1)
     
     # Run the splitting with parallel processing
-    result, reasoning_dict = split_pdf_with_gemini(
+    result = split_pdf_with_gemini(
         INPUT_PDF, OUTPUT_FOLDER, FILTER_STRINGS, BATCH_SIZE, MODEL, MAX_WORKERS
     )
     
     if result is None:
         sys.exit(1)
-    
-    # Print reasoning summary
-    if reasoning_dict:
-        print("\n📋 Reasoning Summary:")
-        for page_idx in sorted(reasoning_dict.keys()):
-            print(f"   Page {page_idx + 1}: {reasoning_dict[page_idx]}")
     
     sys.exit(0)
 

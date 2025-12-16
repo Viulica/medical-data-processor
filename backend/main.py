@@ -536,7 +536,7 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         job.message = f"Analyzing PDF pages..."
         job.progress = 40
         
-        # Import and call the function directly to capture reasoning
+        # Import and call the function directly
         import sys
         import importlib.util
         spec = importlib.util.spec_from_file_location("split_pdf_gemini", script_path)
@@ -557,18 +557,12 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         
         # Call the function directly
         filter_strings = [filter_string]
-        created_count, reasoning_dict = split_pdf_with_gemini(
+        created_count = split_pdf_with_gemini(
             pdf_path, str(output_dir), filter_strings, batch_size, model, max_workers
         )
         
         if created_count is None:
             raise Exception("Gemini splitting failed - no sections created")
-        
-        # Store reasoning in job metadata
-        if reasoning_dict:
-            job.metadata = job.metadata or {}
-            job.metadata['reasoning'] = {str(k): v for k, v in reasoning_dict.items()}
-            logger.info(f"Captured reasoning for {len(reasoning_dict)} pages")
         
         job.message = "Creating ZIP archive of split PDFs..."
         job.progress = 85
