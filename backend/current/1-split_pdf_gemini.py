@@ -106,7 +106,9 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
         
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="text/plain",
-            thinking_config=types.ThinkingConfig(thinking_budget=3000)
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=-1,
+            ),
         )
         
         # Try up to max_retries times to get valid JSON
