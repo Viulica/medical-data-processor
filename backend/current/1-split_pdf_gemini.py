@@ -62,7 +62,11 @@ def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_string
         # Create the prompt - filter_strings should be a single string
         filter_display = filter_strings[0] if isinstance(filter_strings, list) and filter_strings else str(filter_strings)
         
+        num_pages_in_batch = len(actual_pages)
+        
         prompt = f"""You are analyzing a PDF document to find pages that contain specific text.
+
+This batch contains {num_pages_in_batch} page(s). You MUST analyze ALL {num_pages_in_batch} pages.
 
 I need you to identify which pages contain the following text string EXACTLY as written:
 "{filter_display}"
@@ -71,7 +75,7 @@ CRITICAL INSTRUCTIONS:
 1. CAREFULLY REVIEW EACH PAGE in this batch - examine every page thoroughly
 2. A page matches ONLY if it contains the text EXACTLY as written above (case-sensitive match)
 3. The text must appear exactly as: "{filter_display}"
-4. Return your answer as a JSON object with this EXACT structure, providing true/false for EACH page:
+4. Return your answer as a JSON object providing true/false for EACH of the {num_pages_in_batch} pages:
 {{
     "page_1": true,
     "page_2": false,
@@ -80,13 +84,13 @@ CRITICAL INSTRUCTIONS:
     "page_5": false
 }}
 
-5. Page numbers should be 1-based (first page is 1, second page is 2, etc.)
-6. You MUST include an entry for EVERY page in this batch (page_1, page_2, page_3, etc.)
+5. Page numbers should be 1-based (page_1 is the first page in this batch, page_2 is the second, etc.)
+6. You MUST include an entry for ALL {num_pages_in_batch} pages: page_1 through page_{num_pages_in_batch}
 7. Use true if the page contains the exact text "{filter_display}", false otherwise
 8. Return ONLY the JSON object, no other text or explanation
 9. The JSON must be valid and parseable
 
-Example:
+Example for a {num_pages_in_batch}-page batch:
 If pages 2 and 4 contain the exact text "{filter_display}", return:
 {{
     "page_1": false,
@@ -174,9 +178,9 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                         raise ValueError(f"'{page_key}' must be a boolean (true/false), got: {page_match}")
                     
                     if page_match:
-                    # Convert: batch 1-based -> batch 0-based -> document 0-based
+                        # Convert: batch 1-based -> batch 0-based -> document 0-based
                         doc_page_idx = actual_pages[batch_page_num - 1]
-                    matching_pages.append(doc_page_idx)
+                        matching_pages.append(doc_page_idx)
                 
                 print(f"  ✅ Successfully parsed response for pages {page_start + 1}-{page_end} (attempt {attempt + 1})")
                 if matching_pages:
