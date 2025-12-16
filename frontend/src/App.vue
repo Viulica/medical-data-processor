@@ -382,7 +382,6 @@
                       type="text"
                       class="page-input"
                       placeholder="Enter group name (optional)"
-                      disabled
                     />
                   </div>
                   <div>
@@ -393,7 +392,6 @@
                       type="text"
                       class="page-input"
                       placeholder="Enter batch number (optional)"
-                      disabled
                     />
                   </div>
                   <p class="page-hint" style="margin-top: 10px">
@@ -692,7 +690,6 @@
                       type="text"
                       class="page-input"
                       placeholder="Enter group name (optional)"
-                      disabled
                     />
                   </div>
                   <small class="help-text">
@@ -710,7 +707,6 @@
                       type="text"
                       class="page-input"
                       placeholder="Enter batch number (optional)"
-                      disabled
                     />
                   </div>
                   <small class="help-text">
@@ -1069,7 +1065,6 @@
                     type="text"
                     class="page-input"
                     placeholder="Enter group name"
-                    disabled
                   />
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
@@ -1082,7 +1077,6 @@
                     type="text"
                     class="page-input"
                     placeholder="Enter batch number"
-                    disabled
                   />
                 </div>
               </div>
