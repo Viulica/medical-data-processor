@@ -71,19 +71,30 @@ CRITICAL INSTRUCTIONS:
 1. CAREFULLY REVIEW EACH PAGE in this batch - examine every page thoroughly
 2. A page matches ONLY if it contains the text EXACTLY as written above (case-sensitive match)
 3. The text must appear exactly as: "{filter_display}"
-4. Return your answer as a JSON object with this EXACT structure:
+4. Return your answer as a JSON object with this EXACT structure, providing true/false for EACH page:
 {{
-    "matching_pages": [1, 3, 5]
+    "page_1": true,
+    "page_2": false,
+    "page_3": true,
+    "page_4": false,
+    "page_5": false
 }}
 
 5. Page numbers should be 1-based (first page is 1, second page is 2, etc.)
-6. If NO pages match, return: {{"matching_pages": []}}
-7. Return ONLY the JSON object, no other text or explanation
-8. The JSON must be valid and parseable
+6. You MUST include an entry for EVERY page in this batch (page_1, page_2, page_3, etc.)
+7. Use true if the page contains the exact text "{filter_display}", false otherwise
+8. Return ONLY the JSON object, no other text or explanation
+9. The JSON must be valid and parseable
 
 Example:
 If pages 2 and 4 contain the exact text "{filter_display}", return:
-{{"matching_pages": [2, 4]}}
+{{
+    "page_1": false,
+    "page_2": true,
+    "page_3": false,
+    "page_4": true,
+    "page_5": false
+}}
 """
         
         # Read the PDF data
@@ -143,31 +154,37 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                 # Parse JSON
                 result = json.loads(cleaned_response)
                 
-                # Validate structure
-                if "matching_pages" not in result:
-                    raise ValueError(f"Missing 'matching_pages' key in response: {result}")
-                
-                if not isinstance(result["matching_pages"], list):
-                    raise ValueError(f"'matching_pages' must be a list: {result}")
+                # Validate structure - should be an object with page_1, page_2, etc.
+                if not isinstance(result, dict):
+                    raise ValueError(f"Response must be a JSON object: {result}")
                 
                 # Convert batch-relative page numbers (1-based) to document-absolute page numbers (0-based)
                 matching_pages = []
                 
-                for page_num in result["matching_pages"]:
-                    if not isinstance(page_num, int):
-                        raise ValueError(f"Page number must be integer: {page_num}")
-                    if page_num < 1 or page_num > len(actual_pages):
-                        print(f"  ⚠️  Warning: Page number {page_num} out of range for batch, skipping")
+                # Process each page in the batch
+                for batch_page_num in range(1, len(actual_pages) + 1):
+                    page_key = f"page_{batch_page_num}"
+                    
+                    if page_key not in result:
+                        print(f"  ⚠️  Warning: Missing '{page_key}' in response, treating as false")
                         continue
-                    # Convert: batch 1-based -> batch 0-based -> document 0-based
-                    doc_page_idx = actual_pages[page_num - 1]
-                    matching_pages.append(doc_page_idx)
+                    
+                    page_match = result[page_key]
+                    if not isinstance(page_match, bool):
+                        raise ValueError(f"'{page_key}' must be a boolean (true/false), got: {page_match}")
+                    
+                    if page_match:
+                        # Convert: batch 1-based -> batch 0-based -> document 0-based
+                        doc_page_idx = actual_pages[batch_page_num - 1]
+                        matching_pages.append(doc_page_idx)
                 
                 print(f"  ✅ Successfully parsed response for pages {page_start + 1}-{page_end} (attempt {attempt + 1})")
                 if matching_pages:
                     # Convert to 1-based for display
                     display_pages = [p + 1 for p in matching_pages]
                     print(f"     Found matches on pages: {display_pages}")
+                else:
+                    print(f"     No matches found in this batch")
                 
                 return matching_pages
                 
