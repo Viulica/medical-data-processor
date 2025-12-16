@@ -611,7 +611,7 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str, max_workers: int = 15):
+def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str, max_workers: int = 7):
     """Background task to split PDF using OCR.space API"""
     job = job_status[job_id]
     
@@ -2136,7 +2136,7 @@ async def split_pdf_ocrspace(
             raise HTTPException(status_code=400, detail="File must be a PDF")
         
         # Fixed configuration
-        max_workers = 15  # Increased for speed (PRO tier can handle this)
+        max_workers = 7  # Optimal speed while staying under API limit (7 concurrent requests)
         
         # Generate job ID
         job_id = str(uuid.uuid4())

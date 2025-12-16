@@ -27,8 +27,8 @@ class OCRSpaceAPI:
     """Simple wrapper for OCR.space API with connection pooling for speed"""
     
     # Semaphore to limit concurrent API requests (API allows max 10 concurrent)
-    # Using 2 to be extremely safe and avoid hitting the limit
-    _concurrency_semaphore = Semaphore(2)
+    # Using 7 for optimal speed while staying under API limit
+    _concurrency_semaphore = Semaphore(7)
     
     def __init__(self, api_key=None):
         # Get API key from environment variable (same approach as Google Gemini)
@@ -279,14 +279,14 @@ def check_page_matches(reader, page_num, filter_strings, ocr_api, case_sensitive
         return page_num, False
 
 
-def find_matching_pages(pdf_path, filter_strings, max_workers=3, case_sensitive=False):
+def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=False):
     """
     Find all pages that contain ALL the filter strings.
     
     Args:
         pdf_path: Path to PDF file
         filter_strings: List of strings that ALL must be present
-        max_workers: Number of parallel workers (default: 10 - increased for speed!)
+        max_workers: Number of parallel workers (default: 7 - matches API semaphore)
         case_sensitive: Whether search is case-sensitive
         
     Returns:
@@ -377,7 +377,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=3, case_sensitive=False):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=7, case_sensitive=False):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -385,7 +385,7 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
         input_pdf_path: Path to the input PDF file
         output_folder: Path to the output folder for split PDFs
         filter_strings: List of strings that ALL must be present on a page
-        max_workers: Number of parallel workers (default: 5)
+        max_workers: Number of parallel workers (default: 7 - matches API semaphore)
         case_sensitive: Whether search is case-sensitive
         
     Returns:
