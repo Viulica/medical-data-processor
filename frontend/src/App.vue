@@ -4748,9 +4748,33 @@
                 class="search-input"
               />
             </div>
-            <button @click="showAddTemplateModal = true" class="add-btn">
-              ➕ Upload New Template
-            </button>
+            <div class="bulk-actions-group">
+              <button
+                @click="exportAllTemplatesAsJSON"
+                class="add-btn bulk-action-btn"
+                :disabled="templates.length === 0"
+                title="Download all templates as JSON for bulk editing"
+              >
+                📥 Download All (JSON)
+              </button>
+              <button
+                @click="triggerImportJSONFile"
+                class="add-btn bulk-action-btn"
+                title="Upload JSON file to update/create templates"
+              >
+                📤 Upload JSON
+              </button>
+              <input
+                ref="jsonFileInput"
+                type="file"
+                accept=".json"
+                @change="handleImportJSONFile"
+                style="display: none"
+              />
+              <button @click="showAddTemplateModal = true" class="add-btn">
+                ➕ Upload New Template
+              </button>
+            </div>
           </div>
 
           <!-- Templates Grid -->
@@ -9758,6 +9782,102 @@ export default {
       }
     },
 
+    async exportAllTemplatesAsJSON() {
+      try {
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/templates/export-all"),
+          {
+            responseType: "blob",
+          }
+        );
+
+        // Create download link
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const timestamp = new Date()
+          .toISOString()
+          .replace(/[:.]/g, "-")
+          .slice(0, -5);
+        link.setAttribute("download", `all_templates_${timestamp}.json`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("All templates exported successfully!");
+      } catch (error) {
+        console.error("Failed to export all templates:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to export all templates"
+        );
+      }
+    },
+
+    triggerImportJSONFile() {
+      // Trigger the hidden file input
+      this.$refs.jsonFileInput.click();
+    },
+
+    async handleImportJSONFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      // Validate file type
+      if (!file.name.endsWith(".json")) {
+        this.toast.error("Please select a valid JSON file");
+        event.target.value = ""; // Reset file input
+        return;
+      }
+
+      try {
+        // Confirm before importing
+        if (
+          !confirm(
+            "This will update or create templates from the JSON file. Existing templates with matching names will be updated. Continue?"
+          )
+        ) {
+          event.target.value = ""; // Reset file input
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("json_file", file);
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "api/templates/import-all"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        // Show success message with details
+        const { created, updated, errors } = response.data;
+        let message = `Successfully imported templates!\n`;
+        message += `Created: ${created}, Updated: ${updated}`;
+        if (errors && errors.length > 0) {
+          message += `\n\nErrors:\n${errors.join("\n")}`;
+        }
+
+        this.toast.success(message);
+
+        // Reload templates
+        await this.loadTemplates(false);
+        await this.loadAllTemplatesForDropdown();
+      } catch (error) {
+        console.error("Failed to import templates:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to import templates"
+        );
+      } finally {
+        // Reset file input so the same file can be selected again
+        event.target.value = "";
+      }
+    },
+
     closeTemplateModals() {
       this.showAddTemplateModal = false;
       this.showEditTemplateModal = false;
@@ -11218,6 +11338,28 @@ input:checked + .slider:hover {
 .add-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.bulk-actions-group {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.bulk-action-btn {
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  font-size: 0.95rem;
+}
+
+.bulk-action-btn:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
 }
 
 .bulk-import-section {

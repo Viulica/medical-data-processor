@@ -551,10 +551,10 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
-            
-            job.message = "Gemini processing PDF pages..."
-            job.progress = 60
-            
+        
+        job.message = "Gemini processing PDF pages..."
+        job.progress = 60
+        
         # Call the function directly
         filter_strings = [filter_string]
         created_count = split_pdf_with_gemini(
@@ -3908,6 +3908,103 @@ async def export_template_as_excel(template_id: int):
     except Exception as e:
         logger.error(f"Failed to export template {template_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to export template: {str(e)}")
+
+
+@app.get("/api/templates/export-all")
+async def export_all_templates():
+    """Export ALL templates as a single JSON file for bulk editing"""
+    try:
+        from db_utils import get_all_templates_for_export
+        import json
+        from datetime import datetime
+        
+        templates = get_all_templates_for_export()
+        
+        if not templates:
+            raise HTTPException(status_code=404, detail="No templates found")
+        
+        # Convert datetime objects to strings for JSON serialization
+        for template in templates:
+            if template.get('created_at'):
+                template['created_at'] = template['created_at'].isoformat()
+            if template.get('updated_at'):
+                template['updated_at'] = template['updated_at'].isoformat()
+        
+        # Create a JSON structure
+        export_data = {
+            'exported_at': datetime.utcnow().isoformat(),
+            'total_templates': len(templates),
+            'templates': templates
+        }
+        
+        # Create temporary JSON file
+        temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
+        json.dump(export_data, temp_file, indent=2)
+        temp_file.close()
+        
+        # Return file
+        filename = f"all_templates_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        return FileResponse(
+            path=temp_file.name,
+            filename=filename,
+            media_type="application/json"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export all templates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to export templates: {str(e)}")
+
+
+@app.post("/api/templates/import-all")
+async def import_all_templates(json_file: UploadFile = File(...)):
+    """Import and update multiple templates from a JSON file"""
+    import json
+    
+    try:
+        # Validate file type
+        if not json_file.filename.endswith('.json'):
+            raise HTTPException(status_code=400, detail="Only JSON files (.json) are supported")
+        
+        # Read and parse JSON file
+        content = await json_file.read()
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+        
+        # Extract templates array
+        templates = data.get('templates', [])
+        if not templates:
+            raise HTTPException(status_code=400, detail="No templates found in JSON file. Expected 'templates' array.")
+        
+        # Validate template structure
+        for idx, template in enumerate(templates):
+            if not isinstance(template, dict):
+                raise HTTPException(status_code=400, detail=f"Template at index {idx} is not a valid object")
+            if not template.get('name'):
+                raise HTTPException(status_code=400, detail=f"Template at index {idx} missing 'name' field")
+            if not template.get('template_data'):
+                raise HTTPException(status_code=400, detail=f"Template '{template.get('name')}' missing 'template_data' field")
+        
+        # Bulk update/create templates
+        from db_utils import bulk_update_templates
+        result = bulk_update_templates(templates)
+        
+        return {
+            "message": "Templates imported successfully",
+            "created": result['created'],
+            "updated": result['updated'],
+            "total_processed": result['created'] + result['updated'],
+            "errors": result['errors']
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to import templates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to import templates: {str(e)}")
 
 
 # ============================================================================

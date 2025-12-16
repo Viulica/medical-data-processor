@@ -453,6 +453,110 @@ def delete_template(template_id):
         return False
 
 
+def get_all_templates_for_export():
+    """
+    Get ALL templates with full data for export (no pagination).
+    Returns a list of all templates with their complete data.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, name, description, template_data, created_at, updated_at
+                    FROM instruction_templates
+                    ORDER BY name
+                """)
+                results = cur.fetchall()
+                return [dict(row) for row in results]
+    except Exception as e:
+        logger.error(f"Failed to get all templates for export: {e}")
+        return []
+
+
+def bulk_update_templates(templates_data):
+    """
+    Bulk update or create templates from imported JSON data.
+    
+    Args:
+        templates_data: List of template dictionaries with keys: name, description, template_data
+                       Optionally can include 'id' to update existing templates by ID
+    
+    Returns:
+        Dictionary with results: {
+            'created': number of new templates created,
+            'updated': number of templates updated,
+            'errors': list of error messages
+        }
+    """
+    import json
+    
+    created = 0
+    updated = 0
+    errors = []
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                for template in templates_data:
+                    try:
+                        name = template.get('name')
+                        description = template.get('description', '')
+                        template_data = template.get('template_data')
+                        template_id = template.get('id')
+                        
+                        if not name:
+                            errors.append(f"Template missing 'name' field: {template}")
+                            continue
+                        
+                        if not template_data:
+                            errors.append(f"Template '{name}' missing 'template_data' field")
+                            continue
+                        
+                        # Check if template exists (by ID or name)
+                        if template_id:
+                            cur.execute("SELECT id FROM instruction_templates WHERE id = %s", (template_id,))
+                        else:
+                            cur.execute("SELECT id FROM instruction_templates WHERE name = %s", (name,))
+                        
+                        existing = cur.fetchone()
+                        
+                        if existing:
+                            # Update existing template
+                            update_id = existing['id']
+                            cur.execute("""
+                                UPDATE instruction_templates
+                                SET name = %s, description = %s, template_data = %s, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = %s
+                            """, (name, description, json.dumps(template_data), update_id))
+                            updated += 1
+                        else:
+                            # Create new template
+                            cur.execute("""
+                                INSERT INTO instruction_templates (name, description, template_data, created_at, updated_at)
+                                VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            """, (name, description, json.dumps(template_data)))
+                            created += 1
+                    
+                    except Exception as e:
+                        error_msg = f"Error processing template '{template.get('name', 'unknown')}': {str(e)}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+                
+                return {
+                    'created': created,
+                    'updated': updated,
+                    'errors': errors
+                }
+    
+    except Exception as e:
+        logger.error(f"Failed to bulk update templates: {e}")
+        return {
+            'created': 0,
+            'updated': 0,
+            'errors': [f"Database error: {str(e)}"]
+        }
+
+
 # ============================================================
 # Prediction Instructions Management (CPT/ICD)
 # ============================================================
