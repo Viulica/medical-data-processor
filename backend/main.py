@@ -551,10 +551,10 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
-        
-        job.message = "Gemini processing PDF pages..."
-        job.progress = 60
-        
+            
+            job.message = "Gemini processing PDF pages..."
+            job.progress = 60
+            
         # Call the function directly
         filter_strings = [filter_string]
         created_count = split_pdf_with_gemini(
@@ -2068,7 +2068,8 @@ async def split_pdf_gemini(
     background_tasks: BackgroundTasks,
     pdf_file: UploadFile = File(...),
     filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
-    batch_size: int = Form(default=5, description="Number of pages to process per API call (1-50)")
+    batch_size: int = Form(default=5, description="Number of pages to process per API call (1-50)"),
+    model: str = Form(default="gemini-2.5-pro", description="Gemini model to use")
 ):
     """Upload a single PDF file to split into sections using new splitting method"""
     
@@ -2083,11 +2084,15 @@ async def split_pdf_gemini(
         if batch_size < 1 or batch_size > 50:
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
+        # Validate model
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-3-pro-preview"]
+        if model not in valid_models:
+            raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
+        
         # Configuration
-        model = "gemini-flash-latest"
         max_workers = 12
         
-        logger.info(f"Using batch_size: {batch_size}")
+        logger.info(f"Using batch_size: {batch_size}, model: {model}")
         
         # Generate job ID
         job_id = str(uuid.uuid4())

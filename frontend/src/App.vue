@@ -1671,7 +1671,7 @@
                     <strong>Exact case-sensitive match required for Gemini method.</strong>
                   </span>
                   <span v-else>
-                    <strong>Case insensitive search.</strong>
+                  <strong>Case insensitive search.</strong>
                   </span>
                 </p>
               </div>
@@ -1699,6 +1699,44 @@
                 <p class="page-hint">
                   Number of pages to process per API call (1-50). Lower values = more API calls but faster individual calls. Default: 5.
                 </p>
+              </div>
+            </div>
+
+            <!-- Model Selection (Gemini only) -->
+            <div v-if="splitMethod === 'gemini'" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
+                <h3>AI Model</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label for="splitModel" class="form-label">
+                    <span class="label-icon">🤖</span>
+                    Gemini Model
+                  </label>
+                  <select
+                    id="splitModel"
+                    v-model="splitModel"
+                    class="form-select"
+                    :disabled="isSplitting"
+                  >
+                    <option value="gemini-2.5-pro">
+                      Gemini 2.5 Pro (Recommended - Most Accurate)
+                    </option>
+                    <option value="gemini-2.5-flash">
+                      Gemini 2.5 Flash (Faster)
+                    </option>
+                    <option value="gemini-flash-latest">
+                      Gemini Flash Latest (Fastest)
+                    </option>
+                    <option value="gemini-3-pro-preview">
+                      Gemini 3 Pro Preview (Latest)
+                    </option>
+                  </select>
+                  <p class="form-hint" style="margin-top: 10px; color: #6b7280">
+                    Choose the Gemini model for PDF analysis. Pro models are more accurate but slower.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -5726,6 +5764,7 @@ export default {
       pdfFile: null,
       filterString: "",
       splitBatchSize: 5, // Batch size for Gemini splitting (pages per API call)
+      splitModel: "gemini-2.5-pro", // Model for Gemini splitting
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
@@ -6402,10 +6441,12 @@ export default {
       formData.append("pdf_file", this.pdfFile);
       formData.append("filter_string", this.filterString.trim());
 
-      // Add batch size for Gemini method
+      // Add batch size and model for Gemini method
       if (this.splitMethod === "gemini") {
         const batchSize = this.splitBatchSize || 5;
         formData.append("batch_size", batchSize.toString());
+        const model = this.splitModel || "gemini-2.5-pro";
+        formData.append("model", model);
       }
 
       // Choose endpoint based on method
@@ -6555,6 +6596,7 @@ export default {
 
     resetSplitForm() {
       this.splitBatchSize = 5;
+      this.splitModel = "gemini-2.5-pro";
       this.pdfFile = null;
       this.filterString = "";
       this.splitJobId = null;

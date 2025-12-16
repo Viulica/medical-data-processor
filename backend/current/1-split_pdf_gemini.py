@@ -23,7 +23,7 @@ def is_openrouter_model(model_name):
     return '/' in model_name or model_name.startswith('google/')
 
 
-def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-flash-latest", max_retries=3):
+def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-2.5-pro", max_retries=3):
     """
     Ask Gemini which pages in the given range contain the exact filter string.
     
@@ -174,9 +174,9 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
                         raise ValueError(f"'{page_key}' must be a boolean (true/false), got: {page_match}")
                     
                     if page_match:
-                        # Convert: batch 1-based -> batch 0-based -> document 0-based
+                    # Convert: batch 1-based -> batch 0-based -> document 0-based
                         doc_page_idx = actual_pages[batch_page_num - 1]
-                        matching_pages.append(doc_page_idx)
+                    matching_pages.append(doc_page_idx)
                 
                 print(f"  ✅ Successfully parsed response for pages {page_start + 1}-{page_end} (attempt {attempt + 1})")
                 if matching_pages:
@@ -223,7 +223,7 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
             pass
 
 
-def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-flash-latest", max_workers=12):
+def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-2.5-pro", max_workers=12):
     """
     Find all pages that contain the exact filter string using Gemini with parallel processing.
     
@@ -370,7 +370,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-flash-latest", max_workers=12):
+def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-2.5-pro", max_workers=12):
     """
     Main function to split a PDF using Gemini with parallel processing.
     
@@ -379,7 +379,7 @@ def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_s
         output_folder: Path to the output folder for split PDFs
         filter_strings: List containing a single string to match exactly (case-sensitive)
         batch_size: Number of pages to process per API call (default: 30)
-        model: Model name to use (default: gemini-flash-latest)
+        model: Model name to use (default: gemini-2.5-pro)
         max_workers: Number of parallel threads (default: 3)
     
     Returns:
@@ -433,7 +433,7 @@ def main():
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]  # Default filter
     BATCH_SIZE = 5  # Process 5 pages per API call
-    MODEL = "gemini-flash-latest"
+    MODEL = "gemini-2.5-pro"
     MAX_WORKERS = 12  # Process 12 batches in parallel
     
     # Parse command-line arguments
