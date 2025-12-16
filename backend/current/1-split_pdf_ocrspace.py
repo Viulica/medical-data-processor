@@ -14,6 +14,9 @@ import sys
 import json
 import time
 import requests
+import fitz  # PyMuPDF for high-quality PDF to image conversion
+from PIL import Image, ImageEnhance
+from io import BytesIO
 from PyPDF2 import PdfReader, PdfWriter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -52,9 +55,57 @@ class OCRSpaceAPI:
         )
         self.session.mount('https://', adapter)
     
+    def pdf_to_enhanced_image(self, pdf_bytes, dpi=200):
+        """
+        Convert PDF page to enhanced image for better OCR accuracy.
+        Matches local OCR preprocessing pipeline.
+        
+        Args:
+            pdf_bytes: PDF file bytes
+            dpi: Resolution (default: 200 - higher than local's 150 for better quality)
+            
+        Returns:
+            PNG image bytes, or None on error
+        """
+        try:
+            # Open PDF with PyMuPDF (same as local OCR)
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page = doc.load_page(0)  # Single page PDF
+            
+            # Convert to image at high DPI (same as local OCR method)
+            mat = fitz.Matrix(dpi/72, dpi/72)
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Convert to PIL Image for preprocessing
+            img_data = pix.tobytes("png")
+            image = Image.open(BytesIO(img_data))
+            doc.close()
+            
+            # Image enhancement pipeline (improves OCR accuracy)
+            # Convert to grayscale for better text detection
+            if image.mode != 'L':
+                image = image.convert('L')
+            
+            # Enhance contrast (makes text sharper)
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(1.5)  # 50% more contrast
+            
+            # Enhance sharpness (better character recognition)
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(2.0)  # 2x sharpness
+            
+            # Convert back to PNG bytes
+            output = BytesIO()
+            image.save(output, format='PNG', optimize=True)
+            return output.getvalue()
+            
+        except Exception as e:
+            print(f"  ⚠️  Image preprocessing error: {str(e)}")
+            return None
+    
     def ocr_pdf_page(self, pdf_bytes, language='eng', timeout=30, fast_mode=True):
         """
-        Extract text from a PDF page.
+        Extract text from a PDF page with enhanced preprocessing.
         
         Args:
             pdf_bytes: PDF file bytes
@@ -71,6 +122,21 @@ class OCRSpaceAPI:
             # Small delay to ensure connections are properly managed
             time.sleep(0.1)
             try:
+                # ENHANCEMENT: Convert PDF to preprocessed image for better accuracy
+                # This matches the local OCR workflow (PDF -> Image -> OCR)
+                print(f"  🖼️  Preprocessing PDF page (converting to enhanced 200 DPI image)...")
+                image_bytes = self.pdf_to_enhanced_image(pdf_bytes, dpi=200)
+                
+                if not image_bytes:
+                    print(f"  ⚠️  Image preprocessing failed, falling back to raw PDF")
+                    image_bytes = pdf_bytes
+                    file_type = 'application/pdf'
+                    file_name = 'page.pdf'
+                else:
+                    file_type = 'image/png'
+                    file_name = 'page.png'
+                    print(f"  ✅ Preprocessed image ready ({len(image_bytes)} bytes)")
+                
                 # Prepare the request
                 payload = {
                     'apikey': self.api_key,
@@ -85,10 +151,10 @@ class OCRSpaceAPI:
                 debug_payload = payload.copy()
                 debug_payload['apikey'] = f"{payload['apikey'][:8]}...{payload['apikey'][-4:]}" if len(payload['apikey']) > 12 else "***"
                 print(f"  📤 Request payload: {debug_payload}")
-                print(f"  📎 File size: {len(pdf_bytes)} bytes")
+                print(f"  📎 File size: {len(image_bytes)} bytes ({file_name})")
                 
                 files = {
-                    'file': ('page.pdf', pdf_bytes, 'application/pdf')
+                    'file': (file_name, image_bytes, file_type)
                 }
                 
                 # Make API request with session (reuses connections)
