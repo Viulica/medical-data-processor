@@ -5130,8 +5130,15 @@ def process_unified_background(
         
         base_df.to_csv(result_csv, index=False)
         
-        # Convert to XLSX
+        # Convert to XLSX with ID column protection
         try:
+            # Explicitly set ID columns as text to prevent scientific notation in Excel
+            id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
+            for col in id_columns:
+                if col in base_df.columns:
+                    # Only convert non-empty values to string to avoid 'nan' text
+                    base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
+            
             base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
         except Exception as e:
             logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")

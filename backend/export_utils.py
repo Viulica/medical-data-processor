@@ -45,8 +45,19 @@ def save_dataframe_dual_format(df, base_path, csv_only=False):
         xlsx_path = None
         if not csv_only:
             xlsx_path = base_path.with_suffix('.xlsx')
+            
+            # Make a copy to avoid modifying the original dataframe
+            df_copy = df.copy()
+            
+            # Explicitly set ID columns as text to prevent scientific notation in Excel
+            id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
+            for col in id_columns:
+                if col in df_copy.columns:
+                    # Only convert non-empty values to string to avoid 'nan' text
+                    df_copy[col] = df_copy[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
+            
             # Use openpyxl engine for better compatibility
-            df.to_excel(xlsx_path, index=False, engine='openpyxl')
+            df_copy.to_excel(xlsx_path, index=False, engine='openpyxl')
             logger.info(f"Saved XLSX to: {xlsx_path}")
         
         return str(csv_path), str(xlsx_path) if xlsx_path else None
@@ -77,6 +88,13 @@ def convert_csv_to_xlsx(csv_path, xlsx_path=None):
         
         # Read CSV with dtype=str to preserve data formatting
         df = pd.read_csv(csv_path, dtype=str)
+        
+        # Explicitly set ID columns as text to prevent scientific notation in Excel
+        id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
+        for col in id_columns:
+            if col in df.columns:
+                # Only convert non-empty values to string to avoid 'nan' text
+                df[col] = df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
         
         # Save as XLSX
         df.to_excel(xlsx_path, index=False, engine='openpyxl')
