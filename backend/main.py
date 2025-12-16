@@ -490,7 +490,7 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-2.5-flash", max_workers: int = 12):
+def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-flash-latest", max_workers: int = 12):
     """Background task to split PDF using new splitting method"""
     job = job_status[job_id]
     
@@ -2096,7 +2096,7 @@ async def split_pdf_gemini(
         
         # Fixed configuration
         batch_size = 5
-        model = "gemini-2.5-flash"
+        model = "gemini-flash-latest"
         max_workers = 12
         
         # Generate job ID

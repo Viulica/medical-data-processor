@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-PDF Splitting using Gemini 2.5 Flash
-=====================================
+PDF Splitting using Gemini Flash Latest
+========================================
 This script splits PDFs by asking Gemini to identify pages containing specific text.
-Process 10 pages per API call for efficiency.
+Process pages in batches per API call for efficiency.
 """
 
 import os
@@ -23,21 +23,21 @@ def is_openrouter_model(model_name):
     return '/' in model_name or model_name.startswith('google/')
 
 
-def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-2.5-flash", max_retries=3):
+def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-flash-latest", max_retries=3):
     """
-    Ask Gemini which pages in the given range contain ALL the filter strings.
+    Ask Gemini which pages in the given range contain the exact filter string.
     
     Args:
         client: Google GenAI client
         pdf_path: Path to the PDF file
         page_start: Starting page index (0-based)
         page_end: Ending page index (exclusive, 0-based)
-        filter_strings: List of strings that ALL must be present on a page
+        filter_strings: List containing a single string to match exactly (case-sensitive)
         model: Model name to use
         max_retries: Maximum number of retry attempts for parsing
     
     Returns:
-        List of page numbers (0-based) that contain ALL filter strings, or None on failure
+        List of page numbers (0-based) that contain the exact filter string, or None on failure
     """
     
     # Create a temporary PDF with just these pages
@@ -59,17 +59,17 @@ def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_string
         temp_pdf_path = temp_pdf.name
     
     try:
-        # Create the prompt
-        filter_display = " AND ".join([f'"{s}"' for s in filter_strings])
+        # Create the prompt - filter_strings should be a single string
+        filter_display = filter_strings[0] if isinstance(filter_strings, list) and filter_strings else str(filter_strings)
         
         prompt = f"""You are analyzing a PDF document to find pages that contain specific text.
 
-I need you to identify which pages contain ALL of the following text strings (case-insensitive):
-{filter_display}
+I need you to identify which pages contain the following text string EXACTLY as written:
+"{filter_display}"
 
 IMPORTANT INSTRUCTIONS:
-1. A page matches ONLY if it contains ALL of the listed strings
-2. The search is case-insensitive
+1. A page matches ONLY if it contains the text EXACTLY as written above (case-sensitive match)
+2. The text must appear exactly as: "{filter_display}"
 3. Return your answer as a JSON object with this EXACT structure:
 {{
     "matching_pages": [1, 3, 5]
@@ -80,11 +80,8 @@ IMPORTANT INSTRUCTIONS:
 6. Return ONLY the JSON object, no other text or explanation
 7. The JSON must be valid and parseable
 
-This batch contains pages {page_start + 1} to {page_end} of the original document.
-Return the page numbers relative to THIS batch (1-based within the batch).
-
 Example:
-If pages 2 and 4 in this batch contain all the strings, return:
+If pages 2 and 4 contain the exact text "{filter_display}", return:
 {{"matching_pages": [2, 4]}}
 """
         
@@ -204,13 +201,13 @@ If pages 2 and 4 in this batch contain all the strings, return:
             pass
 
 
-def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-2.5-flash", max_workers=12):
+def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-flash-latest", max_workers=12):
     """
-    Find all pages that contain ALL the filter strings using Gemini with parallel processing.
+    Find all pages that contain the exact filter string using Gemini with parallel processing.
     
     Args:
         pdf_path: Path to the PDF file
-        filter_strings: List of strings that ALL must be present on a page
+        filter_strings: List containing a single string to match exactly (case-sensitive)
         batch_size: Number of pages to process per API call
         model: Model name to use
         max_workers: Number of parallel threads (default: 3)
@@ -232,8 +229,8 @@ def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, mode
     reader = PdfReader(pdf_path)
     total_pages = len(reader.pages)
     
-    filter_display = " AND ".join([f'"{s}"' for s in filter_strings])
-    print(f"📄 Scanning {total_pages} pages for: {filter_display}")
+    filter_display = filter_strings[0] if isinstance(filter_strings, list) and filter_strings else str(filter_strings)
+    print(f"📄 Scanning {total_pages} pages for: \"{filter_display}\"")
     print(f"🤖 Using model: {model}")
     print(f"📦 Processing {batch_size} pages per API call")
     print(f"🧵 Using {max_workers} parallel threads")
@@ -351,16 +348,16 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-2.5-flash", max_workers=12):
+def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-flash-latest", max_workers=12):
     """
     Main function to split a PDF using Gemini with parallel processing.
     
     Args:
         input_pdf_path: Path to the input PDF file
         output_folder: Path to the output folder for split PDFs
-        filter_strings: List of strings that ALL must be present on a page
+        filter_strings: List containing a single string to match exactly (case-sensitive)
         batch_size: Number of pages to process per API call (default: 30)
-        model: Model name to use (default: gemini-2.5-flash)
+        model: Model name to use (default: gemini-flash-latest)
         max_workers: Number of parallel threads (default: 3)
     
     Returns:
@@ -414,7 +411,7 @@ def main():
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]  # Default filter
     BATCH_SIZE = 5  # Process 5 pages per API call
-    MODEL = "gemini-2.5-flash"
+    MODEL = "gemini-flash-latest"
     MAX_WORKERS = 12  # Process 12 batches in parallel
     
     # Parse command-line arguments
