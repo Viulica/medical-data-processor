@@ -283,6 +283,9 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
             
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain",
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=-1,
+                ),
                 tools=tools
             )
 

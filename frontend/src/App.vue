@@ -1579,10 +1579,7 @@
                 </label>
                 <select v-model="splitMethod" class="form-select">
                   <option value="ocrspace">
-                    OCR.space API (Recommended - Fastest & Most Reliable)
-                  </option>
-                  <option value="gemini">
-                    Gemini AI (Good for complex layouts)
+                    New Splitting Method
                   </option>
                   <option value="legacy">
                     Legacy OCR (Slow, local processing)
@@ -1590,11 +1587,8 @@
                 </select>
                 <p class="form-hint" style="margin-top: 10px; color: #6b7280">
                   <span v-if="splitMethod === 'ocrspace'">
-                    ⚡ Uses OCR.space API - fast, reliable, and accurate. Best
+                    ⚡ Uses enhanced OCR API - fast, reliable, and accurate. Best
                     for most documents.
-                  </span>
-                  <span v-else-if="splitMethod === 'gemini'">
-                    🤖 Uses Gemini AI - good for complex layouts but slower.
                   </span>
                   <span v-else>
                     🐌 Legacy local OCR - slowest option, not recommended.
@@ -1667,78 +1661,11 @@
                   Enter the text that appears on pages where you want to split
                   the PDF. The system will create a new section starting from
                   each page containing this text.
-                  <span v-if="splitMethod === 'gemini'">
-                    <strong>Exact case-sensitive match required for Gemini method.</strong>
-                  </span>
-                  <span v-else>
                   <strong>Case insensitive search.</strong>
-                  </span>
                 </p>
               </div>
             </div>
 
-            <!-- Batch Size Input (Gemini only) -->
-            <div v-if="splitMethod === 'gemini'" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">3</div>
-                <h3>Batch Size</h3>
-              </div>
-              <div class="page-count-selector">
-                <label for="splitBatchSize">
-                  Pages per API call:
-                </label>
-                <input
-                  id="splitBatchSize"
-                  v-model.number="splitBatchSize"
-                  type="number"
-                  min="1"
-                  max="50"
-                  class="page-input"
-                  :disabled="isSplitting"
-                />
-                <p class="page-hint">
-                  Number of pages to process per API call (1-50). Lower values = more API calls but faster individual calls. Default: 5.
-                </p>
-              </div>
-            </div>
-
-            <!-- Model Selection (Gemini only) -->
-            <div v-if="splitMethod === 'gemini'" class="upload-card">
-              <div class="card-header">
-                <div class="step-number">4</div>
-                <h3>AI Model</h3>
-              </div>
-              <div class="settings-content">
-                <div class="form-group">
-                  <label for="splitModel" class="form-label">
-                    <span class="label-icon">🤖</span>
-                    Gemini Model
-                  </label>
-                  <select
-                    id="splitModel"
-                    v-model="splitModel"
-                    class="form-select"
-                    :disabled="isSplitting"
-                  >
-                    <option value="gemini-2.5-pro">
-                      Gemini 2.5 Pro (Recommended - Most Accurate)
-                    </option>
-                    <option value="gemini-2.5-flash">
-                      Gemini 2.5 Flash (Faster)
-                    </option>
-                    <option value="gemini-flash-latest">
-                      Gemini Flash Latest (Fastest)
-                    </option>
-                    <option value="gemini-3-pro-preview">
-                      Gemini 3 Pro Preview (Latest)
-                    </option>
-                  </select>
-                  <p class="form-hint" style="margin-top: 10px; color: #6b7280">
-                    Choose the Gemini model for PDF analysis. Pro models are more accurate but slower.
-                  </p>
-                </div>
-              </div>
-            </div>
           </div>
 
           <!-- Action Buttons -->
@@ -1798,25 +1725,6 @@
               v-if="splitJobStatus.status === 'completed'"
               class="success-section"
             >
-              <!-- Reasoning Display (Gemini only) -->
-              <div
-                v-if="splitMethod === 'gemini' && splitJobStatus.metadata && splitJobStatus.metadata.reasoning"
-                class="reasoning-section"
-                style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;"
-              >
-                <h4 style="margin-top: 0; margin-bottom: 15px; color: #495057;">
-                  📋 AI Reasoning for Page Analysis
-                </h4>
-                <div
-                  v-for="(reasoning, pageIndex) in splitJobStatus.metadata.reasoning"
-                  :key="pageIndex"
-                  style="margin-bottom: 10px; padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #007bff;"
-                >
-                  <strong style="color: #007bff;">Page {{ parseInt(pageIndex) + 1 }}:</strong>
-                  <span style="margin-left: 8px; color: #495057;">{{ reasoning }}</span>
-                </div>
-              </div>
-              <!-- End Reasoning Display -->
               <button @click="downloadSplitResults" class="download-btn">
                 <span class="btn-icon">📥</span>
                 Download Split PDFs (ZIP)
@@ -5763,8 +5671,6 @@ export default {
       // Split PDF functionality
       pdfFile: null,
       filterString: "",
-      splitBatchSize: 5, // Batch size for Gemini splitting (pages per API call)
-      splitModel: "gemini-2.5-pro", // Model for Gemini splitting
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
@@ -6405,8 +6311,7 @@ export default {
 
     async startSplitting() {
       const methodNames = {
-        ocrspace: "OCR.space API",
-        gemini: "Gemini AI",
+        ocrspace: "New Splitting Method",
         legacy: "Legacy OCR",
       };
       const method = methodNames[this.splitMethod] || this.splitMethod;
@@ -6441,20 +6346,10 @@ export default {
       formData.append("pdf_file", this.pdfFile);
       formData.append("filter_string", this.filterString.trim());
 
-      // Add batch size and model for Gemini method
-      if (this.splitMethod === "gemini") {
-        const batchSize = this.splitBatchSize || 5;
-        formData.append("batch_size", batchSize.toString());
-        const model = this.splitModel || "gemini-2.5-pro";
-        formData.append("model", model);
-      }
-
       // Choose endpoint based on method
       let splitUrl;
       if (this.splitMethod === "ocrspace") {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf-ocrspace");
-      } else if (this.splitMethod === "gemini") {
-        splitUrl = joinUrl(API_BASE_URL, "split-pdf-gemini");
       } else {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf");
       }
@@ -6595,8 +6490,6 @@ export default {
     },
 
     resetSplitForm() {
-      this.splitBatchSize = 5;
-      this.splitModel = "gemini-2.5-pro";
       this.pdfFile = null;
       this.filterString = "";
       this.splitJobId = null;
