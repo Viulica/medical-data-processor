@@ -1414,10 +1414,10 @@ def convert_data(input_file, output_file=None):
                     new_row["Patient Last Name"] = split_patient_name(patient_name, "last")
                     new_row["Patient First Name"] = split_patient_name(patient_name, "first")
                     new_row["Patient Middle Name"] = split_patient_name(patient_name, "middle")
-                elif "dob" in old_col.lower():
+                elif old_col.lower() == "dob" or old_col.lower() == "patient dob":
                     # DOB with "if self" logic - check relationship to determine patient vs guarantor DOB
                     new_row[new_header] = process_dob_gender_logic(df, row_idx, old_col, new_header, is_dob=True)
-                elif "sex" in old_col.lower():
+                elif old_col.lower() == "sex" or old_col.lower() == "patient sex" or old_col.lower() == "gender":
                     # Gender with "if self" logic - check relationship to determine patient vs guarantor gender
                     new_row[new_header] = process_dob_gender_logic(df, row_idx, old_col, new_header, is_dob=False)
                 elif "nill" in str(value).lower() or "nil" in str(value).lower():
@@ -1618,11 +1618,11 @@ def convert_data(input_file, output_file=None):
                 elif "an stop" in new_header.lower() or "an stop" in old_col.lower():
                     # Anesthesia Stop: format time and combine with date
                     new_row[new_header] = format_anesthesia_time(df, row_idx, value, "stop")
-                elif "surgeons" in old_col.lower():
+                elif old_col.lower() == "surgeons" or old_col.lower() == "surgeon":
                     # Surgeon field: create both Surgeon and Referring fields
                     new_row[new_header] = value  # Original Surgeon field
                     new_row["Referring"] = value  # Duplicate as Referring field
-                elif "csn" in old_col.lower():
+                elif old_col.lower() == "csn":
                     # CSN field: create both Case # and CSN fields
                     new_row[new_header] = value  # Original Case # field (via mapping)
                     new_row["CSN"] = value  # Also populate CSN field
