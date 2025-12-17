@@ -1618,11 +1618,11 @@ def convert_data(input_file, output_file=None):
                 elif "an stop" in new_header.lower() or "an stop" in old_col.lower():
                     # Anesthesia Stop: format time and combine with date
                     new_row[new_header] = format_anesthesia_time(df, row_idx, value, "stop")
-                elif old_col.lower() == "surgeons" or old_col.lower() == "surgeon":
+                elif "surgeons" in old_col.lower():
                     # Surgeon field: create both Surgeon and Referring fields
                     new_row[new_header] = value  # Original Surgeon field
                     new_row["Referring"] = value  # Duplicate as Referring field
-                elif old_col.lower() == "csn":
+                elif "csn" in old_col.lower():
                     # CSN field: create both Case # and CSN fields
                     new_row[new_header] = value  # Original Case # field (via mapping)
                     new_row["CSN"] = value  # Also populate CSN field
