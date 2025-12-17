@@ -250,9 +250,10 @@ def get_modifiers_dict():
     Returns: dict mapping mednet_code -> (medicare_modifiers, bill_medical_direction)
     """
     try:
-        modifiers = get_all_modifiers()
+        # Get all modifiers with a large page size to retrieve all records
+        modifiers_data = get_all_modifiers(page=1, page_size=100000)
         result = {}
-        for mod in modifiers:
+        for mod in modifiers_data['modifiers']:
             result[mod['mednet_code']] = (
                 mod['medicare_modifiers'],
                 mod['bill_medical_direction']
