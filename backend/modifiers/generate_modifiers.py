@@ -815,8 +815,29 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             if not blocks:
                                 print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
                         
+                        # Define peripheral nerve block CPT codes (needed for skip check)
+                        peripheral_nerve_blocks = [
+                            '64445', '64446',  # Sciatic
+                            '64415', '64416',  # Interscalene
+                            '64447', '64448',  # Femoral
+                            '64466', '64467', '64468', '64469',  # ESP
+                            '64488'  # TAP
+                        ]
+                        
                         # Create a duplicate row for each block
                         for block_idx, block in enumerate(blocks):
+                            cpt_code = block['cpt_code']
+                            
+                            # Skip ultrasound guidance (76937) if it comes after a peripheral nerve block
+                            # (It's OK after arterial line 36620, but NOT after peripheral nerve blocks)
+                            if cpt_code == '76937':
+                                if block_idx > 0:
+                                    previous_cpt_code = blocks[block_idx - 1]['cpt_code']
+                                    # Skip if previous block was a peripheral nerve block
+                                    if previous_cpt_code in peripheral_nerve_blocks:
+                                        print(f"ℹ️  Row {idx}: Skipping ultrasound guidance (76937) - comes after peripheral nerve block ({previous_cpt_code})")
+                                        continue
+                            
                             # Create a copy of the original input row (not the modified new_row)
                             block_row = row.copy()
                             
@@ -833,7 +854,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 block_row['CRNA'] = block['crna']
                             
                             # Handle ICD codes based on CPT code
-                            cpt_code = block['cpt_code']
                             
                             # Special case: ASA Code 01967 or 1967
                             asa_code = str(block_row.get('ASA Code', '')).strip()
@@ -843,15 +863,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                     if icd_col in block_row:
                                         block_row[icd_col] = ''
                                 block_row['ICD1'] = '080'
-                            
-                            # Define peripheral nerve block CPT codes
-                            peripheral_nerve_blocks = [
-                                '64445', '64446',  # Sciatic
-                                '64415', '64416',  # Interscalene
-                                '64447', '64448',  # Femoral
-                                '64466', '64467', '64468', '64469',  # ESP
-                                '64488'  # TAP
-                            ]
                             
                             if cpt_code in peripheral_nerve_blocks:
                                 # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
@@ -886,6 +897,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                     if icd_col in block_row:
                                         block_row[icd_col] = ''
+                            
+                            # Set Type Of Service based on block type
+                            if 'Type Of Service' in block_row:
+                                if cpt_code in peripheral_nerve_blocks:
+                                    # Peripheral nerve blocks: SURGERY
+                                    block_row['Type Of Service'] = 'SURGERY'
+                                elif cpt_code == '36620':
+                                    # Arterial line: SURGERY
+                                    block_row['Type Of Service'] = 'SURGERY'
+                                elif cpt_code == '76937':
+                                    # Ultrasound guidance: DIAGNOSTIC RADIOLOGY
+                                    block_row['Type Of Service'] = 'DIAGNOSTIC RADIOLOGY'
                             
                             # Clear Concurrent Providers
                             if 'Concurrent Providers' in block_row:
