@@ -982,12 +982,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
                         
                         # Define peripheral nerve block CPT codes (needed for skip check)
-                        peripheral_nerve_blocks = [
+                       peripheral_nerve_blocks = [
                             '64445', '64446',  # Sciatic
                             '64415', '64416',  # Interscalene
+                            '64417', '64418',  # Axillary (New)
                             '64447', '64448',  # Femoral
                             '64466', '64467', '64468', '64469',  # ESP
-                            '64488'  # TAP
+                            '64488',           # TAP
+                            '62322', '62323',  # Neuraxial/Spinal (New)
                         ]
                         
                         # Create a duplicate row for each block
