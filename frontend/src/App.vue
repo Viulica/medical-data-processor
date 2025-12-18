@@ -1056,6 +1056,23 @@
                   </select>
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-extraction-workers">Max Workers</label>
+                  <div class="input-wrapper">
+                    <input
+                      id="unified-extraction-workers"
+                      v-model.number="unifiedExtractionMaxWorkers"
+                      type="number"
+                      min="1"
+                      max="20"
+                      class="page-input"
+                      placeholder="10"
+                    />
+                  </div>
+                  <small class="help-text">
+                    Number of concurrent processing threads
+                  </small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
                   <label for="unified-worktracker-group"
                     >Worktracker Group (Optional)</label
                   >
@@ -1572,17 +1589,13 @@
                   Splitting Method
                 </label>
                 <select v-model="splitMethod" class="form-select">
-                  <option value="ocrspace">
-                    New Splitting Method
-                  </option>
-                  <option value="legacy">
-                    Old Splitting Method
-                  </option>
+                  <option value="ocrspace">New Splitting Method</option>
+                  <option value="legacy">Old Splitting Method</option>
                 </select>
                 <p class="form-hint" style="margin-top: 10px; color: #6b7280">
                   <span v-if="splitMethod === 'ocrspace'">
-                    ⚡ Uses enhanced OCR API - fast, reliable, and accurate. Best
-                    for most documents.
+                    ⚡ Uses enhanced OCR API - fast, reliable, and accurate.
+                    Best for most documents.
                   </span>
                   <span v-else>
                     🐌 Legacy local OCR - slowest option, not recommended.
@@ -1659,7 +1672,6 @@
                 </p>
               </div>
             </div>
-
           </div>
 
           <!-- Action Buttons -->
@@ -5086,7 +5098,12 @@
                     <h4>Fields ({{ editingFields.length }})</h4>
                     <div class="fields-actions">
                       <button
-                        @click="downloadTemplateJson(viewingTemplate.id, viewingTemplate.name)"
+                        @click="
+                          downloadTemplateJson(
+                            viewingTemplate.id,
+                            viewingTemplate.name
+                          )
+                        "
                         class="json-btn download-json-btn"
                         title="Download template as JSON"
                       >
@@ -5783,6 +5800,7 @@ export default {
       // Unified - Extraction settings
       unifiedExtractionPages: 2,
       unifiedExtractionModel: "gemini-3-flash-preview",
+      unifiedExtractionMaxWorkers: 10,
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
       unifiedUseExtractionTemplate: false,
@@ -7001,6 +7019,10 @@ export default {
       formData.append("enable_extraction", this.unifiedEnableExtraction);
       formData.append("extraction_n_pages", this.unifiedExtractionPages);
       formData.append("extraction_model", this.unifiedExtractionModel);
+      formData.append(
+        "extraction_max_workers",
+        this.unifiedExtractionMaxWorkers
+      );
       formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
       formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
       formData.append("extract_csn", "false");
@@ -7188,6 +7210,7 @@ export default {
       // Extraction settings
       this.unifiedExtractionPages = 2;
       this.unifiedExtractionModel = "gemini-3-flash-preview";
+      this.unifiedExtractionMaxWorkers = 10;
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
       this.unifiedUseExtractionTemplate = false;
@@ -9791,14 +9814,18 @@ export default {
       const file = event.target.files[0];
       if (!file) return;
 
-      if (!file.name.endsWith('.json')) {
+      if (!file.name.endsWith(".json")) {
         this.toast.error("Please select a JSON file");
         return;
       }
 
       // Confirm before uploading
-      if (!confirm("This will replace the current template fields with the JSON file. Continue?")) {
-        event.target.value = ''; // Reset file input
+      if (
+        !confirm(
+          "This will replace the current template fields with the JSON file. Continue?"
+        )
+      ) {
+        event.target.value = ""; // Reset file input
         return;
       }
 
@@ -9807,7 +9834,10 @@ export default {
         formData.append("json_file", file);
 
         const response = await axios.post(
-          joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}/upload-json`),
+          joinUrl(
+            API_BASE_URL,
+            `api/templates/${this.viewingTemplate.id}/upload-json`
+          ),
           formData,
           {
             headers: {
@@ -9816,17 +9846,20 @@ export default {
           }
         );
 
-        this.toast.success(`Template updated successfully! ${response.data.fields_count} fields loaded.`);
-        
+        this.toast.success(
+          `Template updated successfully! ${response.data.fields_count} fields loaded.`
+        );
+
         // Reload the template details
         await this.viewTemplateDetails(this.viewingTemplate);
-        
       } catch (error) {
         console.error("Failed to upload JSON:", error);
-        this.toast.error(error.response?.data?.detail || "Failed to upload JSON file");
+        this.toast.error(
+          error.response?.data?.detail || "Failed to upload JSON file"
+        );
       } finally {
         // Reset file input
-        event.target.value = '';
+        event.target.value = "";
       }
     },
 
