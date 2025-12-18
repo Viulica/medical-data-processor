@@ -80,7 +80,7 @@ def load_modifiers_definition(definition_file="modifiers_definition.csv"):
     """
     Load the modifiers definition from PostgreSQL database.
     Falls back to CSV file if database is not available.
-    Returns a dictionary mapping mednet codes to (medicare_modifiers, medical_direction) tuples.
+    Returns a dictionary mapping mednet codes to (medicare_modifiers, medical_direction, enable_qs) tuples.
     """
     # Try to load from database first
     try:
@@ -106,13 +106,15 @@ def load_modifiers_definition(definition_file="modifiers_definition.csv"):
         
         df = pd.read_csv(definition_path)
         
-        # Create dictionary mapping MedNet Code to (Medicare Modifiers, Bill Medical Direction)
+        # Create dictionary mapping MedNet Code to (Medicare Modifiers, Bill Medical Direction, Enable QS)
         modifiers_dict = {}
         for _, row in df.iterrows():
             mednet_code = str(row['MedNet Code']).strip()
             medicare_modifiers = str(row['Medicare Modifiers']).strip().upper() == 'YES'
             medical_direction = str(row['Bill Medical Direction']).strip().upper() == 'YES'
-            modifiers_dict[mednet_code] = (medicare_modifiers, medical_direction)
+            # CSV fallback: default enable_qs to True for backward compatibility
+            enable_qs = True
+            modifiers_dict[mednet_code] = (medicare_modifiers, medical_direction, enable_qs)
         
         print(f"📄 Loaded {len(modifiers_dict)} modifiers definitions from CSV (fallback)")
         return modifiers_dict
@@ -367,12 +369,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         
         # DEBUG: Check if specific codes are loaded
         if '3136' in modifiers_dict:
-            print(f"\n✅ Code 3136 loaded from DB: medicare_modifiers={modifiers_dict['3136'][0]}, medical_direction={modifiers_dict['3136'][1]}")
+            print(f"\n✅ Code 3136 loaded from DB: medicare_modifiers={modifiers_dict['3136'][0]}, medical_direction={modifiers_dict['3136'][1]}, enable_qs={modifiers_dict['3136'][2]}")
         else:
             print(f"\n⚠️  Code 3136 NOT found in modifiers_dict")
         
         if '003' in modifiers_dict:
-            print(f"✅ Code 003 loaded from DB: medicare_modifiers={modifiers_dict['003'][0]}, medical_direction={modifiers_dict['003'][1]}\n")
+            print(f"✅ Code 003 loaded from DB: medicare_modifiers={modifiers_dict['003'][0]}, medical_direction={modifiers_dict['003'][1]}, enable_qs={modifiers_dict['003'][2]}\n")
         else:
             print(f"⚠️  Code 003 NOT found in modifiers_dict\n")
         
@@ -521,6 +523,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             medicare_modifiers = False
             has_md = False
             has_crna = False
+            enable_qs = True  # Default to True
             
             # Determine M1 modifier (AA/QK/QZ) based on mednet code
             if primary_mednet_code and primary_mednet_code != '' and primary_mednet_code.lower() != 'nan':
@@ -530,12 +533,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     successful_matches += 1
                     
                     # Get the modifiers settings
-                    medicare_modifiers, medical_direction = modifiers_dict[primary_mednet_code]
+                    medicare_modifiers, medical_direction, enable_qs = modifiers_dict[primary_mednet_code]
                     
                     # DEBUG LOGGING for specific codes
                     if primary_mednet_code in ['3136', '003']:
                         print(f"\n🔍 DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
-                        print(f"   From DB: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}")
+                        print(f"   From DB: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}, enable_qs={enable_qs}")
                     
                     # Override medical direction if turn_off_medical_direction is enabled
                     if turn_off_medical_direction:
@@ -600,15 +603,20 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if primary_mednet_code in ['3136', '003']:
                         print(f"   GC modifier added (Resident: '{resident_value}')")
             
-            # Determine QS modifier based on Anesthesia Type AND medicare modifiers
-            if has_anesthesia_type and medicare_modifiers:
+            # Determine QS modifier based on Anesthesia Type AND medicare modifiers AND enable_qs setting
+            if has_anesthesia_type and medicare_modifiers and enable_qs:
                 anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
                 if anesthesia_type == 'MAC':
                     qs_modifier = 'QS'
                     if primary_mednet_code in ['3136', '003']:
-                        print(f"   QS modifier added (Anesthesia Type: MAC)")
+                        print(f"   QS modifier added (Anesthesia Type: MAC, enable_qs: {enable_qs})")
                 elif primary_mednet_code in ['3136', '003']:
                     print(f"   QS modifier NOT added (Anesthesia Type: '{anesthesia_type}', expected 'MAC')")
+            elif has_anesthesia_type and medicare_modifiers and not enable_qs:
+                # QS is disabled for this insurance
+                if primary_mednet_code in ['3136', '003']:
+                    anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
+                    print(f"   QS modifier DISABLED for this insurance (Anesthesia Type: {anesthesia_type}, enable_qs: {enable_qs})")
             
             # Determine P modifier based on Physical Status
             if has_physical_status:

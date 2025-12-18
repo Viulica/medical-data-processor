@@ -50,6 +50,7 @@ def init_database():
         mednet_code VARCHAR(50) PRIMARY KEY,
         medicare_modifiers BOOLEAN NOT NULL DEFAULT FALSE,
         bill_medical_direction BOOLEAN NOT NULL DEFAULT FALSE,
+        enable_qs BOOLEAN NOT NULL DEFAULT TRUE,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
@@ -159,7 +160,7 @@ def get_all_modifiers(page=1, page_size=50, search=None):
                 
                 # Get paginated results
                 data_query = f"""
-                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, updated_at
+                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
                     FROM modifiers_config
                     {where_clause}
                     ORDER BY mednet_code
@@ -195,7 +196,7 @@ def get_modifier(mednet_code):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, updated_at
+                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
                     FROM modifiers_config
                     WHERE mednet_code = %s
                 """, (mednet_code,))
@@ -206,7 +207,7 @@ def get_modifier(mednet_code):
         return None
 
 
-def upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction):
+def upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction, enable_qs=True):
     """
     Insert or update a modifier configuration.
     Returns True on success, False on failure.
@@ -215,14 +216,15 @@ def upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction):
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO modifiers_config (mednet_code, medicare_modifiers, bill_medical_direction, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO modifiers_config (mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (mednet_code) 
                     DO UPDATE SET 
                         medicare_modifiers = EXCLUDED.medicare_modifiers,
                         bill_medical_direction = EXCLUDED.bill_medical_direction,
+                        enable_qs = EXCLUDED.enable_qs,
                         updated_at = CURRENT_TIMESTAMP
-                """, (mednet_code, medicare_modifiers, bill_medical_direction))
+                """, (mednet_code, medicare_modifiers, bill_medical_direction, enable_qs))
                 return True
     except Exception as e:
         logger.error(f"Failed to upsert modifier {mednet_code}: {e}")
@@ -247,7 +249,7 @@ def delete_modifier(mednet_code):
 def get_modifiers_dict():
     """
     Get modifiers as a dictionary for use in generate_modifiers.py
-    Returns: dict mapping mednet_code -> (medicare_modifiers, bill_medical_direction)
+    Returns: dict mapping mednet_code -> (medicare_modifiers, bill_medical_direction, enable_qs)
     """
     try:
         # Get all modifiers with a large page size to retrieve all records
@@ -256,7 +258,8 @@ def get_modifiers_dict():
         for mod in modifiers_data['modifiers']:
             result[mod['mednet_code']] = (
                 mod['medicare_modifiers'],
-                mod['bill_medical_direction']
+                mod['bill_medical_direction'],
+                mod.get('enable_qs', True)  # Default to True if not present
             )
         return result
     except Exception as e:

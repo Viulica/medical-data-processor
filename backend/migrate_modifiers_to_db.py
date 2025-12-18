@@ -70,12 +70,13 @@ def migrate_csv_to_db():
         """Insert with retry logic for connection issues"""
         try:
             cur.execute("""
-                INSERT INTO modifiers_config (mednet_code, medicare_modifiers, bill_medical_direction, updated_at)
-                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                INSERT INTO modifiers_config (mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at)
+                VALUES (%s, %s, %s, TRUE, CURRENT_TIMESTAMP)
                 ON CONFLICT (mednet_code) 
                 DO UPDATE SET 
                     medicare_modifiers = EXCLUDED.medicare_modifiers,
                     bill_medical_direction = EXCLUDED.bill_medical_direction,
+                    enable_qs = COALESCE(modifiers_config.enable_qs, TRUE),
                     updated_at = CURRENT_TIMESTAMP
             """, (mednet_code, medicare_modifiers, bill_medical_direction))
             return True

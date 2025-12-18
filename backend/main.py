@@ -3546,18 +3546,20 @@ async def get_modifier(mednet_code: str):
 async def create_or_update_modifier(
     mednet_code: str = Form(...),
     medicare_modifiers: bool = Form(...),
-    bill_medical_direction: bool = Form(...)
+    bill_medical_direction: bool = Form(...),
+    enable_qs: bool = Form(True)
 ):
     """Create or update a modifier configuration"""
     try:
         from db_utils import upsert_modifier
-        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction)
+        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction, enable_qs)
         if success:
             return {
                 "message": "Modifier saved successfully",
                 "mednet_code": mednet_code,
                 "medicare_modifiers": medicare_modifiers,
-                "bill_medical_direction": bill_medical_direction
+                "bill_medical_direction": bill_medical_direction,
+                "enable_qs": enable_qs
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to save modifier")
@@ -3571,18 +3573,20 @@ async def create_or_update_modifier(
 async def update_modifier(
     mednet_code: str,
     medicare_modifiers: bool = Form(...),
-    bill_medical_direction: bool = Form(...)
+    bill_medical_direction: bool = Form(...),
+    enable_qs: bool = Form(True)
 ):
     """Update an existing modifier configuration"""
     try:
         from db_utils import upsert_modifier
-        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction)
+        success = upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction, enable_qs)
         if success:
             return {
                 "message": "Modifier updated successfully",
                 "mednet_code": mednet_code,
                 "medicare_modifiers": medicare_modifiers,
-                "bill_medical_direction": bill_medical_direction
+                "bill_medical_direction": bill_medical_direction,
+                "enable_qs": enable_qs
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to update modifier")
