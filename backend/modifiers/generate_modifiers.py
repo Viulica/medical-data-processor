@@ -815,6 +815,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 print(f"   Final Modifiers: M1='{new_row['M1']}', M2='{new_row['M2']}', M3='{new_row['M3']}', M4='{new_row['M4']}'")
                 print(f"   medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}\n")
             
+            # Special case: If ASA Code is 01967 in main charge, clear ICD1-ICD4 and set ICD1 = "O80"
+            asa_code = str(new_row.get('ASA Code', '')).strip()
+            if asa_code == '01967':
+                # Clear all ICD codes
+                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                    if icd_col in new_row:
+                        new_row[icd_col] = ''
+                # Set ICD1 to "O80"
+                if 'ICD1' in new_row:
+                    new_row['ICD1'] = 'O80'
+                    print(f"Row {idx + 1}: ASA Code 01967 detected - cleared ICD1-ICD4 and set ICD1 = 'O80'")
+            
             result_rows.append(new_row)
             
             # Check if we need to create a QK duplicate row
@@ -982,7 +994,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 print(f"⚠️  Row {idx}: peripheral_blocks field has value but parsed to 0 blocks: '{peripheral_blocks_value}'")
                         
                         # Define peripheral nerve block CPT codes (needed for skip check)
-                       peripheral_nerve_blocks = [
+                        peripheral_nerve_blocks = [
                             '64445', '64446',  # Sciatic
                             '64415', '64416',  # Interscalene
                             '64417', '64418',  # Axillary (New)
