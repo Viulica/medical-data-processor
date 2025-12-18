@@ -6807,7 +6807,7 @@ export default {
       }
 
       formData.append("n_pages", this.pageCountFast);
-      formData.append("model", "gemini-flash-latest"); // Use the fast model
+      formData.append("model", "gemini-3-flash-preview"); // Use the fast model
 
       // Add worktracker fields if provided
       if (this.worktrackerGroupFast) {

@@ -492,7 +492,7 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-flash-latest", max_workers: int = 12):
+def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12):
     """Background task to split PDF using new splitting method"""
     job = job_status[job_id]
     
@@ -986,7 +986,7 @@ answer ONLY with the code, nothing else"""
                 )
                 
                 review_response = fallback_client.models.generate_content(
-                    model="gemini-flash-latest",
+                    model="gemini-3-flash-preview",
                     contents=[types.Content(role="user", parts=[{"text": review_prompt}])],
                     config=review_config
                 )
@@ -2060,7 +2060,7 @@ async def split_pdf_gemini(
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
         # Validate model
-        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-3-pro-preview"]
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"]
         if model not in valid_models:
             raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
         
