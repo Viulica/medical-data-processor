@@ -876,7 +876,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 logger.warning(f"Colonoscopy correction failed: {str(e)}, returning original prediction")
                 return predicted_code
 
-        def get_prediction_and_review(procedure, retries=5):
+        def get_prediction_and_review(procedure, extracted_description=None, retries=5):
             """Two-stage prediction: 1) Custom model predicts, 2) Gemini Flash reviews"""
             
             # Check if input is invalid (None, empty, or less than 3 characters)
@@ -917,9 +917,42 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                         last_error = str(e)
                         failure_reason = f"Base model error (attempt {attempt + 1}/{retries}): {str(e)}"
 
-            # Fallback to production model if custom model failed
+            # Determine what to use for fallback model: ALWAYS prefer extracted description if available
+            fallback_procedure_str = None
+            if extracted_description:
+                extracted_str = str(extracted_description) if extracted_description is not None else ""
+                extracted_str = extracted_str.strip()
+                if extracted_str and len(extracted_str) >= 3:
+                    fallback_procedure_str = extracted_str
+                    logger.info(f"Fallback model will use 'Procedure Description Extracted'")
+            
+            # If no extracted description available, use original procedure description
+            if not fallback_procedure_str:
+                fallback_procedure_str = procedure_str
+            
+            # Track if base model returned 01926 (to trigger fallback)
+            base_returned_01926 = (initial_prediction == "01926")
+            
+            # Special case: If base model returned 01926, trigger fallback with extracted description
+            if base_returned_01926:
+                if fallback_procedure_str and fallback_procedure_str != procedure_str:
+                    logger.info(f"Base model returned 01926, switching to extracted description and using fallback model")
+                elif not fallback_procedure_str or len(fallback_procedure_str) < 3:
+                    failure_reason = f"Base model returned 01926, but extracted description is invalid or unavailable"
+                    # Keep 01926 if no valid extracted description - don't trigger fallback
+                else:
+                    logger.info(f"Base model returned 01926, using fallback model with original procedure")
+                
+                # Reset to trigger fallback (only if we have valid fallback procedure)
+                if fallback_procedure_str and len(fallback_procedure_str) >= 3:
+                    initial_prediction = None
+
+            # Fallback to production model if custom model failed OR returned 01926
             if not initial_prediction:
                 try:
+                    # Use extracted description for fallback if available, otherwise use original
+                    fallback_prompt = f'For this procedure: "{fallback_procedure_str}" give me the most appropriate anesthesia CPT code'
+                    
                     # Add web search to fallback model
                     fallback_tools = [
                         types.Tool(googleSearch=types.GoogleSearch()),
@@ -930,17 +963,33 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     
                     response = fallback_client.models.generate_content(
                         model=fallback_model,
-                        contents=[types.Content(role="user", parts=[{"text": prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
+                        contents=[types.Content(role="user", parts=[{"text": fallback_prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
                         config=fallback_config
                     )
                     fallback_result = response.text
                     if fallback_result:
                         initial_prediction = format_asa_code(fallback_result.strip())
-                        model_source = "fallback"
+                        # Track if this was triggered by 01926
+                        if base_returned_01926:
+                            model_source = "fallback_01926_triggered"
+                        else:
+                            model_source = "fallback"
                     else:
-                        return f"Prediction failed: empty response", "error", f"Fallback model returned empty response. Base model failure: {failure_reason}"
+                        # If fallback fails and base returned 01926, return 01926
+                        if base_returned_01926:
+                            initial_prediction = "01926"
+                            model_source = "base_model"
+                            failure_reason = f"Base model returned 01926, fallback model returned empty response"
+                        else:
+                            return f"Prediction failed: empty response", "error", f"Fallback model returned empty response. Base model failure: {failure_reason}"
                 except Exception as e:
-                    return f"Prediction failed: {str(e)}", "error", f"Fallback model error: {str(e)}. Base model failure: {failure_reason}"
+                    # If fallback errors and base returned 01926, return 01926
+                    if base_returned_01926:
+                        initial_prediction = "01926"
+                        model_source = "base_model"
+                        failure_reason = f"Base model returned 01926, fallback model error: {str(e)}"
+                    else:
+                        return f"Prediction failed: {str(e)}", "error", f"Fallback model error: {str(e)}. Base model failure: {failure_reason}"
 
             # Stage 2: Review with custom instructions (if available)
             try:
@@ -1024,6 +1073,11 @@ answer ONLY with the code, nothing else"""
         if "Procedure Description" not in df.columns:
             raise Exception("CSV file missing 'Procedure Description' column")
         
+        # Check if "Procedure Description Extracted" column exists
+        has_extracted = "Procedure Description Extracted" in df.columns
+        if has_extracted:
+            logger.info("Found 'Procedure Description Extracted' column - will use for 01926 fallback")
+        
         # Load insurances.csv for colonoscopy correction
         job.message = "Loading insurance data for colonoscopy corrections..."
         insurances_df = pd.DataFrame()
@@ -1046,7 +1100,18 @@ answer ONLY with the code, nothing else"""
         failure_reasons = [None] * len(df)
         
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
+            # Pass extracted description if available
+            if has_extracted:
+                futures = {
+                    executor.submit(
+                        get_prediction_and_review, 
+                        proc, 
+                        df.iloc[i].get("Procedure Description Extracted", None)
+                    ): i 
+                    for i, proc in enumerate(df["Procedure Description"])
+                }
+            else:
+                futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
             
             completed = 0
             for future in as_completed(futures):
