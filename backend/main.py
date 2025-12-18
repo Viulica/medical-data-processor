@@ -982,7 +982,9 @@ answer ONLY with the code, nothing else"""
                     temperature=0.3,  # Lower temperature for more consistent reviews
                     top_p=0.9,
                     max_output_tokens=50,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=types.ThinkingConfig(
+                        thinking_level="HIGH",
+                    ),
                 )
                 
                 review_response = fallback_client.models.generate_content(
