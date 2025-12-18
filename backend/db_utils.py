@@ -142,6 +142,14 @@ def get_all_modifiers(page=1, page_size=50, search=None):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Check if enable_qs column exists
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'modifiers_config' AND column_name = 'enable_qs'
+                """)
+                has_enable_qs = cur.fetchone() is not None
+                
                 # Build WHERE clause for search (exact match)
                 where_clause = ""
                 params = []
@@ -158,14 +166,25 @@ def get_all_modifiers(page=1, page_size=50, search=None):
                 offset = (page - 1) * page_size
                 total_pages = (total + page_size - 1) // page_size  # Ceiling division
                 
-                # Get paginated results
-                data_query = f"""
-                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
-                    FROM modifiers_config
-                    {where_clause}
-                    ORDER BY mednet_code
-                    LIMIT %s OFFSET %s
-                """
+                # Get paginated results - conditionally include enable_qs if column exists
+                if has_enable_qs:
+                    data_query = f"""
+                        SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
+                        FROM modifiers_config
+                        {where_clause}
+                        ORDER BY mednet_code
+                        LIMIT %s OFFSET %s
+                    """
+                else:
+                    # Column doesn't exist yet - select without it and default to True
+                    data_query = f"""
+                        SELECT mednet_code, medicare_modifiers, bill_medical_direction, TRUE as enable_qs, updated_at
+                        FROM modifiers_config
+                        {where_clause}
+                        ORDER BY mednet_code
+                        LIMIT %s OFFSET %s
+                    """
+                
                 cur.execute(data_query, params + [page_size, offset])
                 results = cur.fetchall()
                 
@@ -178,6 +197,8 @@ def get_all_modifiers(page=1, page_size=50, search=None):
                 }
     except Exception as e:
         logger.error(f"Failed to get modifiers: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             'modifiers': [],
             'total': 0,
@@ -195,15 +216,34 @@ def get_modifier(mednet_code):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Check if enable_qs column exists
                 cur.execute("""
-                    SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
-                    FROM modifiers_config
-                    WHERE mednet_code = %s
-                """, (mednet_code,))
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'modifiers_config' AND column_name = 'enable_qs'
+                """)
+                has_enable_qs = cur.fetchone() is not None
+                
+                # Conditionally include enable_qs if column exists
+                if has_enable_qs:
+                    cur.execute("""
+                        SELECT mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at
+                        FROM modifiers_config
+                        WHERE mednet_code = %s
+                    """, (mednet_code,))
+                else:
+                    cur.execute("""
+                        SELECT mednet_code, medicare_modifiers, bill_medical_direction, TRUE as enable_qs, updated_at
+                        FROM modifiers_config
+                        WHERE mednet_code = %s
+                    """, (mednet_code,))
+                
                 result = cur.fetchone()
                 return dict(result) if result else None
     except Exception as e:
         logger.error(f"Failed to get modifier {mednet_code}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -215,6 +255,24 @@ def upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction, ena
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # Check if enable_qs column exists, if not add it
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'modifiers_config' AND column_name = 'enable_qs'
+                """)
+                has_enable_qs = cur.fetchone() is not None
+                
+                if not has_enable_qs:
+                    # Add the column if it doesn't exist
+                    logger.info("Adding enable_qs column to modifiers_config table...")
+                    cur.execute("""
+                        ALTER TABLE modifiers_config 
+                        ADD COLUMN enable_qs BOOLEAN NOT NULL DEFAULT TRUE
+                    """)
+                    conn.commit()
+                
+                # Now perform the upsert
                 cur.execute("""
                     INSERT INTO modifiers_config (mednet_code, medicare_modifiers, bill_medical_direction, enable_qs, updated_at)
                     VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
@@ -228,6 +286,8 @@ def upsert_modifier(mednet_code, medicare_modifiers, bill_medical_direction, ena
                 return True
     except Exception as e:
         logger.error(f"Failed to upsert modifier {mednet_code}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
@@ -256,14 +316,17 @@ def get_modifiers_dict():
         modifiers_data = get_all_modifiers(page=1, page_size=100000)
         result = {}
         for mod in modifiers_data['modifiers']:
+            # enable_qs will be included by get_all_modifiers (either from column or defaulted to True)
             result[mod['mednet_code']] = (
                 mod['medicare_modifiers'],
                 mod['bill_medical_direction'],
-                mod.get('enable_qs', True)  # Default to True if not present
+                mod.get('enable_qs', True)  # Default to True if not present (shouldn't happen now)
             )
         return result
     except Exception as e:
         logger.error(f"Failed to get modifiers dict: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {}
 
 
