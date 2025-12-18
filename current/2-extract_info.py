@@ -123,23 +123,14 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 )
             ]
             
-            # Use HIGH thinking level for gemini-3 models, otherwise use thinking_budget=-1
-            if model == "gemini-3-pro-preview" or model == "gemini-3-flash-preview":
-                thinking_config = types.ThinkingConfig(
-                    thinking_level="HIGH",
-                )
-                generate_content_config = types.GenerateContentConfig(
-                    response_mime_type="text/plain",
-                    thinking_config=thinking_config,
-                )
-            else:
-                thinking_config = types.ThinkingConfig(
-                    thinking_budget=-1,
-                )
-                generate_content_config = types.GenerateContentConfig(
-                    response_mime_type="text/plain",
-                    thinking_config=thinking_config,
-                )
+            # Use thinking_budget=-1 for all models
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=-1,
+            )
+            generate_content_config = types.GenerateContentConfig(
+                response_mime_type="text/plain",
+                thinking_config=thinking_config,
+            )
 
             # Collect the full response with retry on API failures
             full_response = ""

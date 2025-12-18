@@ -1048,8 +1048,8 @@
                     v-model="unifiedExtractionModel"
                     class="form-select"
                   >
-                    <option value="gemini-2.5-flash">
-                      Gemini 2.5 Flash (Recommended)
+                    <option value="gemini-3-flash-preview">
+                      Gemini 3 Flash Preview (Recommended)
                     </option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
@@ -5782,7 +5782,7 @@ export default {
       unifiedEnableIcd: true,
       // Unified - Extraction settings
       unifiedExtractionPages: 2,
-      unifiedExtractionModel: "gemini-2.5-flash",
+      unifiedExtractionModel: "gemini-3-flash-preview",
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
       unifiedUseExtractionTemplate: false,
@@ -7187,7 +7187,7 @@ export default {
       this.unifiedEnableIcd = true;
       // Extraction settings
       this.unifiedExtractionPages = 2;
-      this.unifiedExtractionModel = "gemini-2.5-flash";
+      this.unifiedExtractionModel = "gemini-3-flash-preview";
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
       this.unifiedUseExtractionTemplate = false;
