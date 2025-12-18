@@ -64,6 +64,19 @@ TEE (Transesophageal Echocardiogram) Row Generation:
   * SRNA cleared
   * Anesthesia Type cleared
   * Other fields copied from original row
+
+Emergent Case Row Generation:
+- When "emergent_case" = TRUE
+- Creates a single duplicate row for the emergent case procedure
+- Each emergent_case row:
+  * ASA Code and Procedure Code = 99140 (hardcoded)
+  * M1, M2, M3, M4 = cleared
+  * ICD1-ICD4 = copied from original row (not changed)
+  * Concurrent Providers cleared
+  * An Start and An Stop cleared
+  * SRNA preserved (not cleared)
+  * Anesthesia Type cleared
+  * Other fields copied from original row
 """
 
 import pandas as pd
@@ -202,16 +215,18 @@ def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=4
     """
     Calculate anesthesia time from An Start and An Stop columns and limit to max_minutes.
     
-    Format: Both times are in HHMM format (4 digits), e.g., "1415" = 14:15 (2:15 PM)
+    Supports two formats:
+    1. HHMM format (4 digits), e.g., "1415" = 14:15 (2:15 PM)
+    2. Full datetime string, e.g., "12/05/2025 07:14:00 AM" or "12/05/2025 10:44:00 PM"
     
     Args:
-        an_start_str: Start time as string (e.g., "1415")
-        an_stop_str: Stop time as string (e.g., "1813")
+        an_start_str: Start time as string (e.g., "1415" or "12/05/2025 07:14:00 AM")
+        an_stop_str: Stop time as string (e.g., "1813" or "12/05/2025 10:44:00 PM")
         max_minutes: Maximum allowed minutes (default 480)
     
     Returns:
         Tuple of (adjusted_an_stop_str, was_limited)
-        - adjusted_an_stop_str: The adjusted stop time in HHMM format, or original if no adjustment needed
+        - adjusted_an_stop_str: The adjusted stop time in original format, or original if no adjustment needed
         - was_limited: Boolean indicating if the time was limited
     """
     # Check if both values exist and are valid
@@ -225,21 +240,85 @@ def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=4
         an_start_str = str(an_start_str).strip()
         an_stop_str = str(an_stop_str).strip()
         
-        # Parse times (format: HHMM, e.g., "1415" = 14:15)
-        if len(an_start_str) < 3 or len(an_stop_str) < 3:
+        # Detect format: if it contains "/" or ":" with spaces, it's likely a datetime string
+        is_datetime_format = '/' in an_start_str or (':' in an_start_str and ' ' in an_start_str)
+        
+        start_hour = None
+        start_minute = None
+        stop_hour = None
+        stop_minute = None
+        original_format_start = an_start_str
+        original_format_stop = an_stop_str
+        
+        if is_datetime_format:
+            # Parse as datetime string
+            try:
+                # Try to parse with pandas
+                start_dt = pd.to_datetime(an_start_str, errors='coerce')
+                stop_dt = pd.to_datetime(an_stop_str, errors='coerce')
+                
+                if pd.isna(start_dt) or pd.isna(stop_dt):
+                    # If pandas parsing fails, try manual parsing
+                    raise ValueError("Pandas parsing failed")
+                
+                start_hour = start_dt.hour
+                start_minute = start_dt.minute
+                stop_hour = stop_dt.hour
+                stop_minute = stop_dt.minute
+                
+            except Exception:
+                # Manual parsing for common formats like "12/05/2025 07:14:00 AM"
+                # Extract time portion (after the space)
+                start_parts = an_start_str.split()
+                stop_parts = an_stop_str.split()
+                
+                if len(start_parts) >= 2 and len(stop_parts) >= 2:
+                    start_time_str = start_parts[1]  # e.g., "07:14:00"
+                    stop_time_str = stop_parts[1]     # e.g., "10:44:00"
+                    start_ampm = start_parts[2] if len(start_parts) > 2 else ''
+                    stop_ampm = stop_parts[2] if len(stop_parts) > 2 else ''
+                    
+                    # Parse time (HH:MM:SS or HH:MM)
+                    start_time_parts = start_time_str.split(':')
+                    stop_time_parts = stop_time_str.split(':')
+                    
+                    if len(start_time_parts) >= 2 and len(stop_time_parts) >= 2:
+                        start_hour = int(start_time_parts[0])
+                        start_minute = int(start_time_parts[1])
+                        stop_hour = int(stop_time_parts[0])
+                        stop_minute = int(stop_time_parts[1])
+                        
+                        # Handle AM/PM
+                        if start_ampm.upper() == 'PM' and start_hour != 12:
+                            start_hour += 12
+                        elif start_ampm.upper() == 'AM' and start_hour == 12:
+                            start_hour = 0
+                        
+                        if stop_ampm.upper() == 'PM' and stop_hour != 12:
+                            stop_hour += 12
+                        elif stop_ampm.upper() == 'AM' and stop_hour == 12:
+                            stop_hour = 0
+                else:
+                    raise ValueError("Could not parse datetime format")
+        else:
+            # Parse as HHMM format
+            if len(an_start_str) < 3 or len(an_stop_str) < 3:
+                return an_stop_str, False
+            
+            # Handle 3-digit times (e.g., "013" = 00:13) or 4-digit times (e.g., "1415" = 14:15)
+            if len(an_start_str) == 3:
+                an_start_str = '0' + an_start_str
+            if len(an_stop_str) == 3:
+                an_stop_str = '0' + an_stop_str
+            
+            # Extract hours and minutes
+            start_hour = int(an_start_str[:2])
+            start_minute = int(an_start_str[2:4])
+            stop_hour = int(an_stop_str[:2])
+            stop_minute = int(an_stop_str[2:4])
+        
+        if start_hour is None or start_minute is None or stop_hour is None or stop_minute is None:
             return an_stop_str, False
-        
-        # Handle 3-digit times (e.g., "013" = 00:13) or 4-digit times (e.g., "1415" = 14:15)
-        if len(an_start_str) == 3:
-            an_start_str = '0' + an_start_str
-        if len(an_stop_str) == 3:
-            an_stop_str = '0' + an_stop_str
-        
-        # Extract hours and minutes
-        start_hour = int(an_start_str[:2])
-        start_minute = int(an_start_str[2:4])
-        stop_hour = int(an_stop_str[:2])
-        stop_minute = int(an_stop_str[2:4])
         
         # Convert to total minutes from midnight
         start_total_minutes = start_hour * 60 + start_minute
@@ -262,12 +341,48 @@ def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=4
             if new_stop_total_minutes >= 1440:
                 new_stop_total_minutes = new_stop_total_minutes % 1440
             
-            # Convert back to HHMM format
+            # Convert back to original format
             new_stop_hour = new_stop_total_minutes // 60
             new_stop_minute = new_stop_total_minutes % 60
             
-            # Format as 4-digit string (e.g., "1813")
-            adjusted_an_stop = f"{new_stop_hour:02d}{new_stop_minute:02d}"
+            if is_datetime_format:
+                # Reconstruct datetime string with adjusted time
+                # Try to preserve the original format
+                try:
+                    # Parse original stop datetime to get date part
+                    stop_dt = pd.to_datetime(original_format_stop, errors='coerce')
+                    if not pd.isna(stop_dt):
+                        # Create new datetime with adjusted time
+                        new_stop_dt = stop_dt.replace(hour=new_stop_hour, minute=new_stop_minute, second=0)
+                        # Format back to string (try to match original format)
+                        adjusted_an_stop = new_stop_dt.strftime('%m/%d/%Y %I:%M:%S %p')
+                    else:
+                        # Fallback: reconstruct from original string
+                        stop_parts = original_format_stop.split()
+                        if len(stop_parts) >= 1:
+                            date_part = stop_parts[0]  # e.g., "12/05/2025"
+                            ampm = 'AM' if new_stop_hour < 12 else 'PM'
+                            display_hour = new_stop_hour if new_stop_hour <= 12 else new_stop_hour - 12
+                            if display_hour == 0:
+                                display_hour = 12
+                            adjusted_an_stop = f"{date_part} {display_hour:02d}:{new_stop_minute:02d}:00 {ampm}"
+                        else:
+                            adjusted_an_stop = original_format_stop
+                except Exception:
+                    # Fallback: reconstruct from original string
+                    stop_parts = original_format_stop.split()
+                    if len(stop_parts) >= 1:
+                        date_part = stop_parts[0]  # e.g., "12/05/2025"
+                        ampm = 'AM' if new_stop_hour < 12 else 'PM'
+                        display_hour = new_stop_hour if new_stop_hour <= 12 else new_stop_hour - 12
+                        if display_hour == 0:
+                            display_hour = 12
+                        adjusted_an_stop = f"{date_part} {display_hour:02d}:{new_stop_minute:02d}:00 {ampm}"
+                    else:
+                        adjusted_an_stop = original_format_stop
+            else:
+                # Format as 4-digit string (e.g., "1813")
+                adjusted_an_stop = f"{new_stop_hour:02d}{new_stop_minute:02d}"
             
             return adjusted_an_stop, True
         else:
@@ -473,6 +588,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         # Check for TEE columns
         has_tee_was_done = 'tee_was_done' in df.columns
         has_tee_diagnosis = 'tee_diagnosis' in df.columns
+        
+        # Check for emergent_case column
+        has_emergent_case = 'emergent_case' in df.columns
         
         # Debug: Log column availability
         if not has_peripheral_blocks:
@@ -783,6 +901,49 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         
                         # Add the TEE row to results
                         result_rows.append(tee_row)
+            
+            # Check if we need to create an emergent_case row
+            # Conditions:
+            # 1. emergent_case column exists
+            # 2. emergent_case = TRUE
+            if has_emergent_case:
+                emergent_case_value = str(row.get('emergent_case', '')).strip().upper()
+                
+                if emergent_case_value == 'TRUE':
+                    # Create a copy of the original input row (not the modified new_row)
+                    emergent_row = row.copy()
+                    
+                    # Set ASA Code and Procedure Code to 99140
+                    emergent_row['ASA Code'] = '99140'
+                    emergent_row['Procedure Code'] = '99140'
+                    
+                    # Clear all modifiers (M1-M4)
+                    emergent_row['M1'] = ''
+                    emergent_row['M2'] = ''
+                    emergent_row['M3'] = ''
+                    emergent_row['M4'] = ''
+                    
+                    # Keep ICD1-ICD4 from original row (don't clear them)
+                    # ICD codes are already copied from row.copy(), so they're preserved
+                    
+                    # Clear Concurrent Providers
+                    if 'Concurrent Providers' in emergent_row:
+                        emergent_row['Concurrent Providers'] = ''
+                    
+                    # Clear An Start and An Stop columns (keep only in original row)
+                    if 'An Start' in emergent_row:
+                        emergent_row['An Start'] = ''
+                    if 'An Stop' in emergent_row:
+                        emergent_row['An Stop'] = ''
+                    
+                    # Keep SRNA field (don't clear it for emergent_case)
+                    
+                    # Clear Anesthesia Type field
+                    if 'Anesthesia Type' in emergent_row:
+                        emergent_row['Anesthesia Type'] = ''
+                    
+                    # Add the emergent_case row to results
+                    result_rows.append(emergent_row)
             
             # Check if we need to create peripheral block rows
             # Conditions depend on peripheral_blocks_mode:
