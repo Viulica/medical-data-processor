@@ -8710,7 +8710,7 @@ export default {
       this.enableMedicalDirection = true;
       this.enableQkDuplicate = false;
       this.limitAnesthesiaTime = false;
-      this.turnOffBcbsMedicareModifiers = true;
+      this.enableBcbsMedicareModifiers = false;
       this.peripheralBlocksMode = "other";
     },
 
