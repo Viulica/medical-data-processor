@@ -5826,7 +5826,7 @@ export default {
       // Unified - Extraction settings
       unifiedExtractionPages: 2,
       unifiedExtractionModel: "gemini-3-flash-preview",
-      unifiedExtractionMaxWorkers: 10,
+      unifiedExtractionMaxWorkers: 20,
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
       unifiedUseExtractionTemplate: false,
@@ -5834,14 +5834,14 @@ export default {
       // Unified - CPT settings
       unifiedCptVisionMode: false,
       unifiedCptSelectedClient: "uni", // For non-vision mode
-      unifiedCptMaxWorkers: 5,
+      unifiedCptMaxWorkers: 20,
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 1, // For vision mode
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
       unifiedIcdPages: 1,
-      unifiedIcdMaxWorkers: 5,
+      unifiedIcdMaxWorkers: 20,
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
@@ -7236,7 +7236,7 @@ export default {
       // Extraction settings
       this.unifiedExtractionPages = 2;
       this.unifiedExtractionModel = "gemini-3-flash-preview";
-      this.unifiedExtractionMaxWorkers = 10;
+      this.unifiedExtractionMaxWorkers = 20;
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
       this.unifiedUseExtractionTemplate = false;
@@ -7245,13 +7245,13 @@ export default {
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
       this.unifiedCptVisionPages = 1;
-      this.unifiedCptMaxWorkers = 5;
+      this.unifiedCptMaxWorkers = 20;
       this.unifiedCptCustomInstructions = "";
       this.unifiedUseCptTemplate = false;
       this.unifiedSelectedCptInstructionId = null;
       // ICD settings
       this.unifiedIcdPages = 1;
-      this.unifiedIcdMaxWorkers = 5;
+      this.unifiedIcdMaxWorkers = 20;
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
       this.unifiedSelectedIcdInstructionId = null;

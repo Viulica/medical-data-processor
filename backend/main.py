@@ -1031,6 +1031,9 @@ answer ONLY with the code, nothing else"""
                     temperature=0.3,  # Lower temperature for more consistent reviews
                     top_p=0.9,
                     max_output_tokens=50,
+                    thinking_config=types.ThinkingConfig(
+                        thinking_level="HIGH",
+                    ),
                 )
                 
                 review_response = fallback_client.models.generate_content(
@@ -5260,7 +5263,7 @@ async def process_unified(
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
     extraction_model: str = Form(default="gemini-2.5-flash"),
-    extraction_max_workers: int = Form(default=10),  # Configurable extraction parallelism
+    extraction_max_workers: int = Form(default=20),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     extract_csn: bool = Form(default=False),
@@ -5269,13 +5272,13 @@ async def process_unified(
     cpt_vision_mode: bool = Form(default=False),
     cpt_client: str = Form(default="uni"),  # For non-vision mode
     cpt_vision_pages: int = Form(default=1),  # For vision mode
-    cpt_max_workers: int = Form(default=10),  # Increased for better parallelism
+    cpt_max_workers: int = Form(default=20),  # Increased for better parallelism
     cpt_custom_instructions: str = Form(default=""),
     cpt_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
-    icd_max_workers: int = Form(default=10),  # Increased for better parallelism
+    icd_max_workers: int = Form(default=20),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
 ):

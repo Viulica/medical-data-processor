@@ -305,6 +305,9 @@ CRITICAL RULES:
                 response_mime_type="application/json",
                 temperature=0.3,  # Lower temperature for more consistent output
                 tools=tools,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level="HIGH",
+                ),
             )
 
             # Get AI response
@@ -468,6 +471,9 @@ CRITICAL RULES:
                 response_mime_type="application/json",
                 temperature=0.2,  # Lower temperature for more consistent/accurate code updates
                 tools=tools,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level="HIGH",
+                ),
             )
 
             # Get AI response using gemini-3-flash-preview with web search
