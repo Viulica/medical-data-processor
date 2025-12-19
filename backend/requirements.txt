@@ -6,7 +6,7 @@ python-dotenv==1.1.0
 starlette==0.45.3
 
 # Google AI / Vertex AI
-google-genai==1.13.0
+google-genai>=1.13.0
 google-auth==2.39.0
 googleapis-common-protos==1.70.0
 grpcio==1.71.0
