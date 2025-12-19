@@ -1173,6 +1173,24 @@
                       >Number of concurrent processing threads</small
                     >
                   </div>
+                  <div class="setting-group" style="margin-top: 15px">
+                    <label class="checkbox-label">
+                      <input
+                        type="checkbox"
+                        id="unified-cpt-include-code-list"
+                        v-model="unifiedCptIncludeCodeList"
+                        class="checkbox-input"
+                      />
+                      <span class="checkbox-text">
+                        Include Complete CPT Code List in Prompt
+                      </span>
+                    </label>
+                    <small class="help-text"
+                      >When enabled, the full list of valid CPT codes will be
+                      included in the AI prompt. Disable to reduce token usage
+                      and potentially improve speed.</small
+                    >
+                  </div>
 
                   <!-- Custom Instructions with Template Toggle for Vision Mode -->
                   <div class="form-group" style="margin-top: 15px">
@@ -3468,6 +3486,35 @@
                         ? "UNI Mode: Peripheral blocks will be generated ONLY when Anesthesia Type equals 'General'. All other anesthesia types will skip block generation."
                         : "Other Groups Mode: Peripheral blocks will be generated for all Anesthesia Types except 'MAC'. This includes General, Regional, and other types."
                     }}
+                  </p>
+                </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">🏥</span>
+                      <span class="toggle-text"
+                        >Add PT Modifier for Non-Medicare</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="addPtForNonMedicare" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      addPtForNonMedicare
+                        ? "PT modifier will be added for non-Medicare insurances when polyps are found and colonoscopy is screening."
+                        : "PT modifier will only be added for Medicare insurances when polyps are found and colonoscopy is screening."
+                    }}
+                  </p>
+                  <p
+                    class="toggle-description"
+                    style="margin-top: 0.5rem; font-style: italic; color: #666"
+                  >
+                    Note: Turn this on for TQA-ARSC and maybe others, leave off
+                    for UNI
                   </p>
                 </div>
               </div>
@@ -5799,6 +5846,7 @@ export default {
       limitAnesthesiaTime: false, // Toggle for limiting anesthesia time to 480 minutes (false = disabled by default)
       enableBcbsMedicareModifiers: false, // Toggle for BCBS Medicare modifiers (true = normal generation, false = only P modifiers for 003)
       peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
+      addPtForNonMedicare: false, // Toggle for adding PT modifier to non-Medicare insurances
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -5837,6 +5885,7 @@ export default {
       unifiedCptMaxWorkers: 20,
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 1, // For vision mode
+      unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
@@ -7058,6 +7107,10 @@ export default {
       formData.append("cpt_vision_mode", this.unifiedCptVisionMode);
       if (this.unifiedCptVisionMode) {
         formData.append("cpt_vision_pages", this.unifiedCptVisionPages);
+        formData.append(
+          "cpt_include_code_list",
+          this.unifiedCptIncludeCodeList
+        );
       } else {
         formData.append("cpt_client", this.unifiedCptSelectedClient);
       }
@@ -7245,6 +7298,7 @@ export default {
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
       this.unifiedCptVisionPages = 1;
+      this.unifiedCptIncludeCodeList = true;
       this.unifiedCptMaxWorkers = 20;
       this.unifiedCptCustomInstructions = "";
       this.unifiedUseCptTemplate = false;
@@ -8593,6 +8647,8 @@ export default {
       );
       // Add peripheral blocks mode parameter
       formData.append("peripheral_blocks_mode", this.peripheralBlocksMode);
+      // Add PT modifier for non-Medicare parameter
+      formData.append("add_pt_for_non_medicare", this.addPtForNonMedicare);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
@@ -8604,6 +8660,7 @@ export default {
         this.enableBcbsMedicareModifiers
       );
       console.log("📋 Peripheral Blocks Mode:", this.peripheralBlocksMode);
+      console.log("🏥 Add PT for Non-Medicare:", this.addPtForNonMedicare);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -8712,6 +8769,7 @@ export default {
       this.limitAnesthesiaTime = false;
       this.enableBcbsMedicareModifiers = false;
       this.peripheralBlocksMode = "other";
+      this.addPtForNonMedicare = false;
     },
 
     getModifiersStatusTitle() {

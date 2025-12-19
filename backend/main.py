@@ -1446,7 +1446,7 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         # Clean up memory even on failure
         gc.collect()
 
-def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5, custom_instructions: str = None):
+def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 5, custom_instructions: str = None):
     """Background task to predict ICD codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -2646,7 +2646,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other"):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -2657,6 +2657,7 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
         turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
+        add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
     """
     job = job_status[job_id]
     
@@ -2666,7 +2667,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
         bcbs_msg = ' + BCBS Modifiers OFF' if turn_off_bcbs_medicare_modifiers else ''
         blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
-        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}..."
+        pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}{pt_non_medicare_msg}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -2683,8 +2685,8 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         
         output_file_csv = result_base.with_suffix('.csv')
         
-        # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, BCBS modifiers parameter, and peripheral blocks mode
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode)
+        # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, BCBS modifiers parameter, peripheral blocks mode, and PT for non-Medicare parameter
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -3374,7 +3376,8 @@ async def generate_modifiers_route(
     generate_qk_duplicate: bool = Form(False),
     limit_anesthesia_time: bool = Form(False),
     turn_off_bcbs_medicare_modifiers: bool = Form(True),
-    peripheral_blocks_mode: str = Form("other")
+    peripheral_blocks_mode: str = Form("other"),
+    add_pt_for_non_medicare: bool = Form(False)
 ):
     """Upload a CSV or XLSX file to generate medical modifiers
     
@@ -3385,10 +3388,11 @@ async def generate_modifiers_route(
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
         turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
+        add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
     """
     
     try:
-        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}, turn_off_bcbs_medicare_modifiers: {turn_off_bcbs_medicare_modifiers}, peripheral_blocks_mode: {peripheral_blocks_mode}")
+        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}, turn_off_bcbs_medicare_modifiers: {turn_off_bcbs_medicare_modifiers}, peripheral_blocks_mode: {peripheral_blocks_mode}, add_pt_for_non_medicare: {add_pt_for_non_medicare}")
         
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -3419,7 +3423,7 @@ async def generate_modifiers_route(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
@@ -3427,7 +3431,9 @@ async def generate_modifiers_route(
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
         bcbs_msg = ' + BCBS Modifiers OFF' if turn_off_bcbs_medicare_modifiers else ''
         blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
-        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}"}
+        pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
+        pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
+        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}{pt_non_medicare_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")
@@ -4610,6 +4616,7 @@ def process_unified_background(
     cpt_vision_mode: bool,
     cpt_client: str,
     cpt_vision_pages: int,
+    cpt_include_code_list: bool,
     cpt_max_workers: int,
     cpt_custom_instructions: str,
     cpt_instruction_template_id: Optional[int],
@@ -4796,11 +4803,12 @@ def process_unified_background(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path,
                         n_pages=cpt_vision_pages,
-                        model="openai/gpt-5:online",
+                        model="openai/gpt-5.2:online",
                         api_key=api_key,
                         max_workers=cpt_max_workers,
                         progress_callback=cpt_progress,
-                        custom_instructions=cpt_custom_instructions
+                        custom_instructions=cpt_custom_instructions,
+                        include_code_list=cpt_include_code_list
                     )
                     cpt_result[0] = result
                 except Exception as e:
@@ -4812,7 +4820,7 @@ def process_unified_background(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path,
                         n_pages=icd_n_pages,
-                        model="openai/gpt-5:online",
+                        model="openai/gpt-5.2:online",
                         api_key=api_key,
                         max_workers=icd_max_workers,
                         progress_callback=icd_progress,
@@ -4887,16 +4895,17 @@ def process_unified_background(
                     job.progress = min(progress_pct, 55)
                     job.message = f"CPT prediction: {message}"
                 
-                # Run CPT prediction with vision (always uses openai/gpt-5:online)
+                # Run CPT prediction with vision (always uses openai/gpt-5.2:online)
                 success = predict_codes_from_pdfs_api(
                     pdf_folder=str(temp_dir / "input"),
                     output_file=cpt_csv_path,
                     n_pages=cpt_vision_pages,
-                    model="openai/gpt-5:online",  # Vision mode always uses GPT-5
+                    model="openai/gpt-5.2:online",  # Vision mode always uses GPT-5.2
                     api_key=api_key,
                     max_workers=cpt_max_workers,
                     progress_callback=cpt_progress,
-                    custom_instructions=cpt_custom_instructions
+                    custom_instructions=cpt_custom_instructions,
+                    include_code_list=cpt_include_code_list
                 )
                 
                 if success:
@@ -5017,12 +5026,12 @@ def process_unified_background(
                 job.progress = min(progress_pct, 85)
                 job.message = f"ICD prediction: {message}"
             
-            # Run ICD prediction (always uses GPT-5 vision)
+            # Run ICD prediction (always uses GPT-5.2 vision)
             success = predict_icd_codes_from_pdfs_api(
                 pdf_folder=str(temp_dir / "input"),
                 output_file=icd_csv_path,
                 n_pages=icd_n_pages,
-                model="openai/gpt-5:online",  # ICD always uses GPT-5 vision
+                model="openai/gpt-5.2:online",  # ICD always uses GPT-5.2 vision
                 api_key=api_key,
                 max_workers=icd_max_workers,
                 progress_callback=icd_progress,
@@ -5097,7 +5106,7 @@ def process_unified_background(
                 
                 if filename_col and 'source_file' in base_df.columns:
                     # Extract CPT-related columns (actual column names from predict_codes_from_pdfs_api)
-                    cpt_cols_to_merge = ['ASA Code', 'Procedure Code', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+                    cpt_cols_to_merge = ['ASA Code', 'Procedure Code', 'Model Source', 'Error Message']
                     cpt_cols_available = [col for col in cpt_cols_to_merge if col in cpt_df.columns]
                     
                     # Include filename column for merging
@@ -5272,6 +5281,7 @@ async def process_unified(
     cpt_vision_mode: bool = Form(default=False),
     cpt_client: str = Form(default="uni"),  # For non-vision mode
     cpt_vision_pages: int = Form(default=1),  # For vision mode
+    cpt_include_code_list: bool = Form(default=True),  # Include CPT code list in prompt
     cpt_max_workers: int = Form(default=20),  # Increased for better parallelism
     cpt_custom_instructions: str = Form(default=""),
     cpt_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
@@ -5402,6 +5412,7 @@ async def process_unified(
             cpt_vision_mode=cpt_vision_mode,
             cpt_client=cpt_client,
             cpt_vision_pages=cpt_vision_pages,
+            cpt_include_code_list=cpt_include_code_list,
             cpt_max_workers=cpt_max_workers,
             cpt_custom_instructions=cpt_custom_instructions,
             cpt_instruction_template_id=cpt_instruction_template_id,

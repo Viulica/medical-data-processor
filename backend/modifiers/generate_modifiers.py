@@ -10,6 +10,8 @@ Modifier Hierarchy:
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
 5. PT modifier - Added to LAST position (M4) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
+   - By default, PT modifier is only added for Medicare insurances
+   - If add_pt_for_non_medicare=True, PT modifier is also added for non-Medicare insurances
    NOTE: PT modifier does NOT require Medicare Modifiers
 
 Medical Direction Override:
@@ -465,7 +467,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other"):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -480,6 +482,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         peripheral_blocks_mode: Mode for peripheral block generation
             - "UNI": Generate blocks ONLY when Anesthesia Type is "General"
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
+        add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
     """
     try:
         # Load modifiers definition
@@ -535,6 +538,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("📋 PERIPHERAL BLOCKS MODE: Other Groups")
             print("Peripheral blocks will be generated when Anesthesia Type is NOT 'MAC'")
         print("=" * 80)
+        
+        # Log PT modifier for non-Medicare mode
+        if add_pt_for_non_medicare:
+            print("=" * 80)
+            print("🏥 PT MODIFIER FOR NON-MEDICARE ENABLED 🏥")
+            print("PT modifier will be added for non-Medicare insurances when polyps found and screening colonoscopy")
+            print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
         insurances_df = pd.DataFrame()
@@ -775,8 +785,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             print(f"   P modifier NOT added (Invalid Physical Status: '{physical_status}')")
                         pass
             
-            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE AND Medicare insurance
-            # PT modifier requires Medicare insurance
+            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE
+            # By default, PT modifier requires Medicare insurance
+            # If add_pt_for_non_medicare is True, PT modifier is added for non-Medicare insurances too
             if has_polyps_found_column and has_colonoscopy_screening_column:
                 polyps_value = str(row.get('Polyps found', '')).strip().upper()
                 colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper()
@@ -791,13 +802,25 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
                             is_medicare = True
                 
-                # PT is added only when polyps are found AND it's a screening colonoscopy AND it's Medicare
-                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE' and is_medicare:
+                # PT is added when polyps are found AND it's a screening colonoscopy
+                # AND either: (1) it's Medicare, OR (2) add_pt_for_non_medicare is True and it's NOT Medicare
+                should_add_pt = False
+                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE':
+                    if is_medicare:
+                        # Always add PT for Medicare when conditions are met
+                        should_add_pt = True
+                    elif add_pt_for_non_medicare:
+                        # Add PT for non-Medicare when option is enabled
+                        should_add_pt = True
+                
+                if should_add_pt:
                     pt_modifier = 'PT'
-                    if primary_mednet_code in ['3136', '003']:
-                        print(f"   PT modifier: added (Polyps=FOUND, Screening=TRUE, Medicare=True)")
-                elif primary_mednet_code in ['3136', '003'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE'):
-                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, Medicare={is_medicare})")
+                    if primary_mednet_code in ['3136', '003', '00812']:
+                        medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
+                        print(f"   PT modifier: added (Polyps=FOUND, Screening=TRUE, {medicare_status})")
+                elif primary_mednet_code in ['3136', '003', '00812'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE'):
+                    medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
+                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
             # Place modifiers in first available slots (M1, M2, M3, M4)

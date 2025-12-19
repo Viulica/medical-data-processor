@@ -184,16 +184,17 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True):
     """
     Predict ASA code using OpenRouter API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
-        cpt_codes_text: Reference text containing all valid CPT codes
-        model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
+        cpt_codes_text: Reference text containing all valid CPT codes (ignored if include_code_list=False)
+        model: Model to use (default: openai/gpt-5.2:online). For OpenRouter, must use format "openai/gpt-5.2" or "openai/gpt-5.2:online"
         api_key: OpenRouter API key
         custom_instructions: Optional custom instructions to append to the prompt
+        include_code_list: Whether to include the complete CPT code list in the prompt (default True)
     
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
@@ -208,13 +209,51 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
         return None, 0, 0.0, "No API key provided"
     
     # Prepare the prompt
-    prompt = f"""You are a medical anesthesia CPT coder.
+    if include_code_list:
+        prompt = f"""You are a medical anesthesia CPT coder.
 
 Your task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).
 
 Here is the reference list of valid anesthesia CPT codes:
 
 {cpt_codes_text}
+
+CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
+
+1. COLONOSCOPY CODING (Most Common Errors):
+   - Use 00812 (screening colonoscopy) if ANY of these are present:
+     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
+     * Procedure states "screening"
+     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
+     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
+     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+     * Pre-op states "Colon cancer screening"
+   - Use 00811 (diagnostic colonoscopy) ONLY if:
+     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
+     * NO screening indicators present
+   - When uncertain: If ANY screening indicator exists, use 00812
+
+IMPORTANT: Look at the document images carefully to identify:
+- Procedure description
+- Pre-operative diagnosis
+- Post-operative diagnosis
+- Any relevant medical information that can help determine the correct anesthesia CPT code
+
+Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
+
+You must respond with a JSON object in this exact format:
+{{
+  "code": "00840",
+  "explanation": "Brief explanation of why this code was chosen (1-2 sentences)"
+}}
+
+The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
+
+Respond with ONLY the JSON object, nothing else."""
+    else:
+        prompt = """You are a medical anesthesia CPT coder.
+
+Your task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).
 
 CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
@@ -445,13 +484,13 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5:online", api_key=None, custom_instructions=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None):
     """
     Predict ICD codes using OpenRouter API from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
-        model: Model to use (default: openai/gpt-5:online). For OpenRouter, must use format "openai/gpt-5" or "openai/gpt-5:online"
+        model: Model to use (default: openai/gpt-5.2:online). For OpenRouter, must use format "openai/gpt-5.2" or "openai/gpt-5.2:online"
         api_key: OpenRouter API key
         custom_instructions: Optional custom instructions to append to the prompt
     
@@ -477,14 +516,20 @@ IMPORTANT INSTRUCTIONS:
 1. Analyze the entire PDF document carefully to understand the procedure and patient condition
 2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
 3. CRITICAL: If there is both pre-operative and post-operative diagnosis listed, always put in ICD1 the code for the post-operative diagnosis!
-4. CRITICAL: If the procedure is a SCREENING colonoscopy, then use Z12.11 as the primary ICD code (ICD1)!
-5. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
-6. Only include ICD codes that are directly relevant to the procedure or patient condition
-7. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
-8. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
-9. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
-10. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
-11. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
+4. CRITICAL COLONOSCOPY CODING RULES:
+   - General screening colonoscopy: Code Z12.11 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
+   - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
+5. CRITICAL VAGINAL DELIVERY CODING RULE:
+   - If the procedure is a planned vaginal delivery labor (CPT code 01967): Use O80 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
+6. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+7. Only include ICD codes that are directly relevant to the procedure or patient condition
+8. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
+9. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+10. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+11. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
+12. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
+13. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
+14. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
@@ -610,7 +655,7 @@ Respond with ONLY the JSON object, nothing else."""
                 tokens = total_tokens
                 
                 # Cost estimation based on model
-                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model:
+                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model or "gpt-5.2" in model:
                     input_cost = prompt_tokens * 0.01 / 1000
                     output_cost = completion_tokens * 0.03 / 1000
                 elif "gpt-4o-mini" in model:
@@ -828,9 +873,7 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
         df.insert(insert_index + 1, "Procedure Code", predictions)
         df.insert(insert_index + 2, "Code Explanation", explanations)
         df.insert(insert_index + 3, "Model Source", model_sources)
-        df.insert(insert_index + 4, "Tokens Used", tokens_list)
-        df.insert(insert_index + 5, "Cost (USD)", costs_list)
-        df.insert(insert_index + 6, "Error Message", errors_list)
+        df.insert(insert_index + 4, "Error Message", errors_list)
         
         # Calculate totals
         total_tokens = sum(tokens_list)
@@ -897,7 +940,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
     
@@ -905,11 +948,12 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
         n_pages: Number of pages to extract from each PDF (default 1)
-        model: OpenRouter model to use (default openai/gpt-5:online). Must use format "openai/gpt-5" or "openai/gpt-5:online" for OpenRouter
+        model: OpenRouter model to use (default openai/gpt-5.2:online). Must use format "openai/gpt-5.2" or "openai/gpt-5.2:online" for OpenRouter
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
         custom_instructions: Optional custom instructions to append to the prompt
+        include_code_list: Whether to include the complete CPT code list in the prompt (default True)
     
     Returns:
         bool: True if successful, False otherwise
@@ -920,9 +964,10 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         
         logger.info(f"Starting image-based CPT prediction with model: {model}")
         logger.info(f"Extracting {n_pages} page(s) from each PDF")
+        logger.info(f"Include CPT code list: {include_code_list}")
         
-        # Load CPT codes reference
-        cpt_codes_text = load_cpt_codes()
+        # Load CPT codes reference only if needed
+        cpt_codes_text = load_cpt_codes() if include_code_list else ""
         
         # Find all PDF files in folder (recursively search subdirectories)
         pdf_folder_path = Path(pdf_folder)
@@ -970,7 +1015,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                 
                 # Predict ASA code from images
                 predicted_code, explanation, tokens, cost, error = predict_asa_code_from_images(
-                    image_data_list, cpt_codes_text, model, api_key, custom_instructions
+                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list
                 )
                 
                 # If prediction failed, use error message
@@ -1027,8 +1072,6 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
             'Procedure Code': predictions,
             'Code Explanation': explanations,
             'Model Source': model_sources,
-            'Tokens Used': tokens_list,
-            'Cost (USD)': costs_list,
             'Error Message': errors_list
         })
         
@@ -1055,7 +1098,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
     
@@ -1063,7 +1106,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
         n_pages: Number of pages to extract from each PDF (default 1)
-        model: OpenRouter model to use (default openai/gpt-5:online). Must use format "openai/gpt-5" or "openai/gpt-5:online" for OpenRouter
+        model: OpenRouter model to use (default openai/gpt-5.2:online). Must use format "openai/gpt-5.2" or "openai/gpt-5.2:online" for OpenRouter
         api_key: OpenRouter API key
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
