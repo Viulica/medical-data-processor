@@ -9,10 +9,11 @@ Modifier Hierarchy:
    NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
-5. PT modifier - Added to LAST position (M4) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
-   - By default, PT modifier is only added for Medicare insurances
-   - If add_pt_for_non_medicare=True, PT modifier is also added for non-Medicare insurances
-   NOTE: PT modifier does NOT require Medicare Modifiers
+5. PT modifier - Added to LAST available position (no gaps) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
+   - PT modifier REQUIRES Medicare Modifiers = YES for the insurance
+   - By default, PT modifier is only added for Medicare insurances (with Medicare Modifiers = YES)
+   - If add_pt_for_non_medicare=True, PT modifier can also be added for non-Medicare insurances (but still requires Medicare Modifiers = YES)
+   - PT modifier is placed in the last sequential position (M1, M2, M3, or M4) without gaps
 
 Medical Direction Override:
 - When turn_off_medical_direction=True, all medical direction YES values from the database
@@ -786,13 +787,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         pass
             
             # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE
-            # By default, PT modifier requires Medicare insurance
-            # If add_pt_for_non_medicare is True, PT modifier is added for non-Medicare insurances too
+            # PT modifier requires Medicare Modifiers = YES for the insurance
+            # If add_pt_for_non_medicare is True, PT modifier can also be added for non-Medicare insurances (but still requires Medicare Modifiers = YES)
             if has_polyps_found_column and has_colonoscopy_screening_column:
                 polyps_value = str(row.get('Polyps found', '')).strip().upper()
                 colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper()
                 
-                # Check if insurance is Medicare
+                # Check if insurance is Medicare (for logging/debugging purposes)
                 is_medicare = False
                 if primary_mednet_code and not insurances_df.empty:
                     # Find the insurance plan by MedNet Code
@@ -802,29 +803,32 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
                             is_medicare = True
                 
-                # PT is added when polyps are found AND it's a screening colonoscopy
-                # AND either: (1) it's Medicare, OR (2) add_pt_for_non_medicare is True and it's NOT Medicare
+                # PT is added when:
+                # 1. Polyps found = "FOUND" AND colonoscopy_is_screening = "TRUE"
+                # 2. Medicare Modifiers = YES (from modifiers_dict lookup)
+                # 3. AND either: (a) it's Medicare insurance, OR (b) add_pt_for_non_medicare is True and it's NOT Medicare
                 should_add_pt = False
-                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE':
+                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE' and medicare_modifiers:
                     if is_medicare:
-                        # Always add PT for Medicare when conditions are met
+                        # Add PT for Medicare when conditions are met and Medicare Modifiers = YES
                         should_add_pt = True
                     elif add_pt_for_non_medicare:
-                        # Add PT for non-Medicare when option is enabled
+                        # Add PT for non-Medicare when option is enabled and Medicare Modifiers = YES
                         should_add_pt = True
                 
                 if should_add_pt:
                     pt_modifier = 'PT'
                     if primary_mednet_code in ['3136', '003', '00812']:
                         medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                        print(f"   PT modifier: added (Polyps=FOUND, Screening=TRUE, {medicare_status})")
+                        print(f"   PT modifier: added (Polyps=FOUND, Screening=TRUE, Medicare Modifiers=YES, {medicare_status})")
                 elif primary_mednet_code in ['3136', '003', '00812'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE'):
                     medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
+                    medicare_modifiers_status = "YES" if medicare_modifiers else "NO"
+                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, Medicare Modifiers={medicare_modifiers_status}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
             
-            # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > M5 (PT - goes in LAST position)
-            # Place modifiers in first available slots (M1, M2, M3, M4)
-            # PT modifier always goes in the LAST position (M4) if it exists
+            # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > PT (goes in LAST position)
+            # Place modifiers sequentially without gaps
+            # PT modifier always goes in the LAST available position (no gaps allowed)
             
             # Collect all modifiers in priority order (excluding PT)
             modifiers_list = []
@@ -837,27 +841,20 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             if p_modifier:
                 modifiers_list.append(p_modifier)
             
-            # If PT modifier exists, ensure it goes in LAST position (M4)
+            # Add PT modifier to the end of the list (it goes in the last position)
             if pt_modifier:
-                # Place first modifiers in M1, M2, M3, reserve M4 for PT
-                if len(modifiers_list) >= 1:
-                    new_row['M1'] = modifiers_list[0]
-                if len(modifiers_list) >= 2:
-                    new_row['M2'] = modifiers_list[1]
-                if len(modifiers_list) >= 3:
-                    new_row['M3'] = modifiers_list[2]
-                # M4 is reserved for PT
-                new_row['M4'] = pt_modifier
-            else:
-                # No PT modifier, place all modifiers normally
-                if len(modifiers_list) >= 1:
-                    new_row['M1'] = modifiers_list[0]
-                if len(modifiers_list) >= 2:
-                    new_row['M2'] = modifiers_list[1]
-                if len(modifiers_list) >= 3:
-                    new_row['M3'] = modifiers_list[2]
-                if len(modifiers_list) >= 4:
-                    new_row['M4'] = modifiers_list[3]
+                modifiers_list.append(pt_modifier)
+            
+            # Place modifiers sequentially in M1, M2, M3, M4 without gaps
+            # PT will automatically be in the last position since it's added last
+            if len(modifiers_list) >= 1:
+                new_row['M1'] = modifiers_list[0]
+            if len(modifiers_list) >= 2:
+                new_row['M2'] = modifiers_list[1]
+            if len(modifiers_list) >= 3:
+                new_row['M3'] = modifiers_list[2]
+            if len(modifiers_list) >= 4:
+                new_row['M4'] = modifiers_list[3]
             
             # DEBUG LOGGING for final modifiers assigned
             if primary_mednet_code in ['3136', '003']:
