@@ -705,6 +705,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
                     
+                    # Check if original row has an existing M1 value - if so, use it instead of generated value
+                    original_m1 = row.get('M1', '')
+                    if original_m1 and not pd.isna(original_m1) and str(original_m1).strip() != '':
+                        generated_m1 = m1_modifier  # Store the generated value for debug logging
+                        m1_modifier = str(original_m1).strip()
+                        if primary_mednet_code in ['3136', '003']:
+                            print(f"   M1 modifier overridden with original value: '{m1_modifier}' (was generated: '{generated_m1}')")
+                    
                     # DEBUG LOGGING for M1 modifier
                     if primary_mednet_code in ['3136', '003']:
                         print(f"   M1 modifier determined: '{m1_modifier}'")
@@ -1000,6 +1008,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             '64417', '64418',  # Axillary (New)
                             '64447', '64448',  # Femoral
                             '64466', '64467', '64468', '64469',  # ESP
+                            '64473',           # Fascial Plane (iPACK / PENG) (New)
                             '64488',           # TAP
                             '62322', '62323',  # Neuraxial/Spinal (New)
                         ]
