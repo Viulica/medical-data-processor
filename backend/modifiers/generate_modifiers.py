@@ -19,11 +19,13 @@ Medical Direction Override:
 
 Special Cases:
 - Mednet Code 003 (Blue Cross): 
-  * If BOTH MD and CRNA are present: Artificially set Medicare Modifiers = YES and Medical Direction = YES
-    (unless turn_off_medical_direction is True, then Medical Direction stays NO)
-  * If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
-  This allows normal modifier generation (including GC) when both providers are present,
-  but limits to only P modifier when they are not.
+  * If turn_off_bcbs_medicare_modifiers is True: Only generate P modifiers (set Medicare Modifiers = NO and Medical Direction = NO)
+  * If turn_off_bcbs_medicare_modifiers is False:
+    - If BOTH MD and CRNA are present: Artificially set Medicare Modifiers = YES and Medical Direction = YES
+      (unless turn_off_medical_direction is True, then Medical Direction stays NO)
+    - If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
+  This allows normal modifier generation (including GC) when both providers are present and BCBS modifiers are enabled,
+  but limits to only P modifier when BCBS modifiers are turned off or when providers are not both present.
 
 Peripheral Blocks Row Generation:
 - Mode selection via peripheral_blocks_mode parameter:
@@ -463,7 +465,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, peripheral_blocks_mode="other"):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other"):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -474,6 +476,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
+        turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation
             - "UNI": Generate blocks ONLY when Anesthesia Type is "General"
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
@@ -513,6 +516,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("⏱️  ANESTHESIA TIME LIMITING ENABLED ⏱️")
             print("Anesthesia time will be limited to maximum 480 minutes (8 hours)")
             print("Time limiting will ONLY apply to rows where ASA Code = 01967")
+            print("=" * 80)
+        
+        # Log BCBS Medicare modifiers mode
+        if turn_off_bcbs_medicare_modifiers:
+            print("=" * 80)
+            print("🔵 BCBS MEDICARE MODIFIERS TURNED OFF 🔵")
+            print("For MedNet Code 003 (Blue Cross), ONLY P modifiers will be generated")
+            print("No M1, GC, or QS modifiers will be generated for code 003")
             print("=" * 80)
         
         # Log peripheral blocks mode
@@ -688,8 +699,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     # SPECIAL CASE: Mednet code 003 (Blue Cross)
                     # Override modifiers settings based on MD and CRNA presence
                     # Note: If turn_off_medical_direction is True, we don't allow medical_direction to be set to True
+                    # Note: If turn_off_bcbs_medicare_modifiers is True, only generate P modifiers (set both to NO)
                     if primary_mednet_code == '003':
-                        if has_md and has_crna:
+                        if turn_off_bcbs_medicare_modifiers:
+                            # BCBS Medicare modifiers turned off: only generate P modifiers
+                            medicare_modifiers = False
+                            medical_direction = False
+                            print(f"   Special Case 003: BCBS Medicare Modifiers OFF - Only P modifiers will be generated")
+                        elif has_md and has_crna:
                             # Both MD and CRNA present: artificially set both to YES
                             medicare_modifiers = True
                             # Only set medical_direction to True if turn_off_medical_direction is False
@@ -700,7 +717,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             medicare_modifiers = False
                             medical_direction = False
                         
-                        print(f"   Special Case 003: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}")
+                        if not turn_off_bcbs_medicare_modifiers:
+                            print(f"   Special Case 003: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}")
                     
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)

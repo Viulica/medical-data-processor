@@ -3392,6 +3392,31 @@
                 <div class="ai-toggle-container" style="margin-top: 1rem">
                   <div class="toggle-header">
                     <label class="toggle-label">
+                      <span class="toggle-icon">🔵</span>
+                      <span class="toggle-text"
+                        >Turn off BCBS Medicare Modifiers</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input
+                        type="checkbox"
+                        v-model="turnOffBcbsMedicareModifiers"
+                      />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      turnOffBcbsMedicareModifiers
+                        ? "BCBS Medicare Modifiers are TURNED OFF. For MedNet Code 003 (Blue Cross), ONLY P modifiers will be generated, regardless of provider presence."
+                        : "BCBS Medicare Modifiers are ENABLED. For MedNet Code 003 (Blue Cross), normal modifier generation will apply when both MD and CRNA are present."
+                    }}
+                  </p>
+                </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
                       <span class="toggle-icon">📋</span>
                       <span class="toggle-text">Peripheral Blocks Mode</span>
                     </label>
@@ -5772,6 +5797,7 @@ export default {
       enableMedicalDirection: true, // Toggle for medical direction (true = enabled, false = disabled)
       enableQkDuplicate: false, // Toggle for QK duplicate line generation (false = disabled by default)
       limitAnesthesiaTime: false, // Toggle for limiting anesthesia time to 480 minutes (false = disabled by default)
+      turnOffBcbsMedicareModifiers: true, // Toggle for BCBS Medicare modifiers (true = only P modifiers for 003, false = normal generation)
       peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
       // Insurance sorting functionality
       insuranceDataCsv: null,
@@ -8560,6 +8586,11 @@ export default {
       formData.append("generate_qk_duplicate", this.enableQkDuplicate);
       // Add anesthesia time limiting parameter
       formData.append("limit_anesthesia_time", this.limitAnesthesiaTime);
+      // Add BCBS Medicare modifiers parameter
+      formData.append(
+        "turn_off_bcbs_medicare_modifiers",
+        this.turnOffBcbsMedicareModifiers
+      );
       // Add peripheral blocks mode parameter
       formData.append("peripheral_blocks_mode", this.peripheralBlocksMode);
 
@@ -8568,6 +8599,10 @@ export default {
       console.log("⚕️ Enable Medical Direction:", this.enableMedicalDirection);
       console.log("🔄 Enable QK Duplicate:", this.enableQkDuplicate);
       console.log("⏱️ Limit Anesthesia Time:", this.limitAnesthesiaTime);
+      console.log(
+        "🔵 Turn off BCBS Medicare Modifiers:",
+        this.turnOffBcbsMedicareModifiers
+      );
       console.log("📋 Peripheral Blocks Mode:", this.peripheralBlocksMode);
 
       try {
@@ -8675,6 +8710,7 @@ export default {
       this.enableMedicalDirection = true;
       this.enableQkDuplicate = false;
       this.limitAnesthesiaTime = false;
+      this.turnOffBcbsMedicareModifiers = true;
       this.peripheralBlocksMode = "other";
     },
 
