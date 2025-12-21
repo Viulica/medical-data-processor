@@ -15,7 +15,266 @@ import logging
 import time
 import requests
 
+# Google GenAI SDK imports
+try:
+    import google.genai as genai
+    from google.genai import types
+    GOOGLE_GENAI_AVAILABLE = True
+except ImportError:
+    GOOGLE_GENAI_AVAILABLE = False
+    genai = None
+    types = None
+
 logger = logging.getLogger(__name__)
+
+
+def is_gemini_model(model_name):
+    """Check if model name indicates a Gemini model (not OpenRouter format)"""
+    # Remove OpenRouter prefixes/suffixes if present
+    clean_model = model_name.replace('google/', '').replace(':online', '')
+    return clean_model.startswith('gemini') or 'gemini' in clean_model.lower()
+
+
+def normalize_gemini_model(model_name):
+    """Normalize Gemini model name by removing OpenRouter prefixes/suffixes"""
+    # Remove OpenRouter format prefixes/suffixes
+    clean_model = model_name.replace('google/', '').replace(':online', '')
+    return clean_model
+
+
+def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, include_code_list=True):
+    """
+    Predict ASA code using Google GenAI SDK from PDF page images
+    
+    Args:
+        image_data_list: List of base64 encoded image strings
+        cpt_codes_text: Reference text containing all valid CPT codes (ignored if include_code_list=False)
+        model: Gemini model name (e.g., "gemini-3-flash-preview", "gemini-2.5-pro")
+        api_key: Google API key
+        custom_instructions: Optional custom instructions to append to the prompt
+        include_code_list: Whether to include the complete CPT code list in the prompt (default True)
+    
+    Returns:
+        tuple: (predicted_code, tokens_used, cost_estimate, error_message)
+    """
+    if not GOOGLE_GENAI_AVAILABLE:
+        return None, 0, 0.0, "Google GenAI SDK not available. Install with: pip install google-genai"
+    
+    # Normalize model name
+    model = normalize_gemini_model(model)
+    
+    # Get API key
+    if api_key:
+        api_key_value = api_key
+    else:
+        api_key_value = os.getenv("GOOGLE_API_KEY")
+    
+    if not api_key_value:
+        return None, 0, 0.0, "No Google API key provided"
+    
+    # Initialize client
+    try:
+        client = genai.Client(api_key=api_key_value)
+    except Exception as e:
+        return None, 0, 0.0, f"Failed to initialize Google GenAI client: {str(e)}"
+    
+    # Prepare the prompt (same as OpenRouter version)
+    if include_code_list:
+        prompt = f"""You are a medical anesthesia CPT coder.
+
+Your task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).
+
+Here is the reference list of valid anesthesia CPT codes:
+
+{cpt_codes_text}
+
+CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
+
+1. COLONOSCOPY CODING (Most Common Errors):
+   - Use 00812 (screening colonoscopy) if ANY of these are present:
+     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
+     * Procedure states "screening"
+     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
+     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
+     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+     * Pre-op states "Colon cancer screening"
+   - Use 00811 (diagnostic colonoscopy) ONLY if:
+     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
+     * NO screening indicators present
+   - When uncertain: If ANY screening indicator exists, use 00812
+
+IMPORTANT: Look at the document images carefully to identify:
+- Procedure description
+- Pre-operative diagnosis
+- Post-operative diagnosis
+- Any relevant medical information that can help determine the correct anesthesia CPT code
+
+Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
+
+You must respond with a JSON object in this exact format:
+{{
+  "code": "00840",
+  "explanation": "Brief explanation of why this code was chosen (1-2 sentences)"
+}}
+
+The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
+
+Respond with ONLY the JSON object, nothing else."""
+    else:
+        prompt = """You are a medical anesthesia CPT coder.
+
+Your task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).
+
+CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
+
+1. COLONOSCOPY CODING (Most Common Errors):
+   - Use 00812 (screening colonoscopy) if ANY of these are present:
+     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
+     * Procedure states "screening"
+     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
+     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
+     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+     * Pre-op states "Colon cancer screening"
+   - Use 00811 (diagnostic colonoscopy) ONLY if:
+     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
+     * NO screening indicators present
+   - When uncertain: If ANY screening indicator exists, use 00812
+
+IMPORTANT: Look at the document images carefully to identify:
+- Procedure description
+- Pre-operative diagnosis
+- Post-operative diagnosis
+- Any relevant medical information that can help determine the correct anesthesia CPT code
+
+Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
+
+You must respond with a JSON object in this exact format:
+{{
+  "code": "00840",
+  "explanation": "Brief explanation of why this code was chosen (1-2 sentences)"
+}}
+
+The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
+
+Respond with ONLY the JSON object, nothing else."""
+    
+    # Append custom instructions if provided
+    if custom_instructions and custom_instructions.strip():
+        prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+    
+    # Build content with images
+    parts = [types.Part.from_text(text=prompt)]
+    
+    # Add images from base64 strings
+    for img_data in image_data_list:
+        # Decode base64 to bytes
+        img_bytes = base64.b64decode(img_data)
+        parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+    
+    contents = [types.Content(role="user", parts=parts)]
+    
+    # Configure thinking for Gemini 3 models
+    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+    else:
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
+    
+    # Enable web search for Gemini models
+    tools = [
+        types.Tool(googleSearch=types.GoogleSearch()),
+    ]
+    
+    generate_content_config = types.GenerateContentConfig(
+        response_mime_type="text/plain",
+        thinking_config=thinking_config,
+        tools=tools
+    )
+    
+    # Retry mechanism with exponential backoff
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            # Call Gemini API
+            full_response = ""
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if chunk.text is not None:
+                    full_response += chunk.text
+            
+            response_text = full_response.strip()
+            
+            if not response_text:
+                raise ValueError("Empty response from API")
+            
+            # Clean up response (remove markdown code blocks if present)
+            cleaned_response = response_text
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
+            # Parse JSON
+            result = json.loads(cleaned_response)
+            predicted_code = result.get("code", "").strip()
+            explanation = result.get("explanation", "").strip()
+            
+            if not predicted_code:
+                raise ValueError("No code found in response")
+            
+            # Estimate tokens and cost (Gemini pricing estimates)
+            # Rough estimates: assume ~4 tokens per character for images, ~1 token per character for text
+            prompt_chars = len(prompt)
+            image_tokens_estimate = len(image_data_list) * 1000  # Rough estimate per image
+            response_chars = len(response_text)
+            total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
+            
+            # Cost estimation for Gemini models (rough estimates)
+            if "gemini-3-flash" in model:
+                cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
+            elif "gemini-3-pro" in model:
+                cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
+            elif "gemini-2.5-flash" in model:
+                cost = total_tokens_estimate * 0.000075 / 1000  # Rough estimate
+            else:
+                cost = total_tokens_estimate * 0.0005 / 1000  # Default estimate
+            
+            return predicted_code, explanation, total_tokens_estimate, cost, None
+            
+        except json.JSONDecodeError as e:
+            error_message = f"JSON parsing failed: {str(e)}"
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 4)
+                logger.warning(f"JSON parsing error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Max retries reached for JSON parsing: {error_message}")
+                # Try to extract code if JSON parsing fails
+                code_match = re.search(r'\b0\d{4}\b', response_text)
+                if code_match:
+                    predicted_code = code_match.group(0)
+                    return predicted_code, response_text.replace(predicted_code, "").strip(), 0, 0.0, None
+                return None, "", 0, 0.0, error_message
+                
+        except Exception as e:
+            error_message = f"API error: {str(e)}"
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 4)
+                logger.warning(f"API error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries}): {error_message}")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Max retries reached: {error_message}")
+                return None, "", 0, 0.0, error_message
+    
+    return None, "", 0, 0.0, "Max retries reached"
+
 
 def predict_asa_code_general(procedure, preop_diagnosis, postop_diagnosis, cpt_codes_text, model="gpt5", api_key=None):
     """
@@ -186,19 +445,24 @@ Respond with ONLY the JSON object, nothing else."""
 
 def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True):
     """
-    Predict ASA code using OpenRouter API from PDF page images
+    Predict ASA code using OpenRouter API or Google GenAI SDK from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes (ignored if include_code_list=False)
-        model: Model to use (default: openai/gpt-5.2:online). For OpenRouter, must use format "openai/gpt-5.2" or "openai/gpt-5.2:online"
-        api_key: OpenRouter API key
+        model: Model to use (default: openai/gpt-5.2:online). For Gemini, use format "gemini-3-flash-preview" or "gemini-2.5-pro"
+        api_key: API key (OpenRouter API key for OpenAI models, Google API key for Gemini models)
         custom_instructions: Optional custom instructions to append to the prompt
         include_code_list: Whether to include the complete CPT code list in the prompt (default True)
     
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
     """
+    # Check if using Gemini model
+    if is_gemini_model(model):
+        return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list)
+    
+    # Use OpenRouter for non-Gemini models
     # Get API key
     if api_key:
         api_key_value = api_key
@@ -484,20 +748,231 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None):
+def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-preview", api_key=None, custom_instructions=None):
     """
-    Predict ICD codes using OpenRouter API from PDF page images
+    Predict ICD codes using Google GenAI SDK from PDF page images
     
     Args:
         image_data_list: List of base64 encoded image strings
-        model: Model to use (default: openai/gpt-5.2:online). For OpenRouter, must use format "openai/gpt-5.2" or "openai/gpt-5.2:online"
-        api_key: OpenRouter API key
+        model: Gemini model name (e.g., "gemini-3-flash-preview", "gemini-2.5-pro")
+        api_key: Google API key
         custom_instructions: Optional custom instructions to append to the prompt
     
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
         icd_codes_dict: Dictionary with keys 'ICD1', 'ICD2', 'ICD3', 'ICD4' containing ICD codes
     """
+    if not GOOGLE_GENAI_AVAILABLE:
+        return None, 0, 0.0, "Google GenAI SDK not available. Install with: pip install google-genai"
+    
+    # Normalize model name
+    model = normalize_gemini_model(model)
+    
+    # Get API key
+    if api_key:
+        api_key_value = api_key
+    else:
+        api_key_value = os.getenv("GOOGLE_API_KEY")
+    
+    if not api_key_value:
+        return None, 0, 0.0, "No Google API key provided"
+    
+    # Initialize client
+    try:
+        client = genai.Client(api_key=api_key_value)
+    except Exception as e:
+        return None, 0, 0.0, f"Failed to initialize Google GenAI client: {str(e)}"
+    
+    # Prepare the prompt (same as OpenRouter version)
+    prompt = """You are a medical coding specialist.
+
+Your task is to analyze the provided medical document page(s) and identify ICD diagnosis codes that are relevant to the procedure being performed.
+
+IMPORTANT INSTRUCTIONS:
+1. Analyze the entire PDF document carefully to understand the procedure and patient condition
+2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
+3. CRITICAL: If there is both pre-operative and post-operative diagnosis listed, always put in ICD1 the code for the post-operative diagnosis!
+4. CRITICAL COLONOSCOPY CODING RULES:
+   - General screening colonoscopy: Code Z12.11 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
+   - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
+5. CRITICAL VAGINAL DELIVERY CODING RULE:
+   - If the procedure is a planned vaginal delivery labor (CPT code 01967): Use O80 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
+6. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+7. Only include ICD codes that are directly relevant to the procedure or patient condition
+8. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
+9. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+10. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+11. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
+12. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
+13. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
+14. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
+
+OUTPUT FORMAT:
+You must respond with ONLY a JSON object in this exact format:
+{
+  "ICD1": "primary_diagnosis_code",
+  "ICD2": "secondary_diagnosis_code_or_empty",
+  "ICD3": "tertiary_diagnosis_code_or_empty",
+  "ICD4": "quaternary_diagnosis_code_or_empty"
+}
+
+If a code doesn't exist, use an empty string "" for that field.
+
+Example response:
+{
+  "ICD1": "K63.5",
+  "ICD2": "E11.9",
+  "ICD3": "I10",
+  "ICD4": ""
+}
+
+Respond with ONLY the JSON object, nothing else."""
+    
+    # Append custom instructions if provided
+    if custom_instructions and custom_instructions.strip():
+        prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+    
+    # Build content with images
+    parts = [types.Part.from_text(text=prompt)]
+    
+    # Add images from base64 strings
+    for img_data in image_data_list:
+        # Decode base64 to bytes
+        img_bytes = base64.b64decode(img_data)
+        parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+    
+    contents = [types.Content(role="user", parts=parts)]
+    
+    # Configure thinking for Gemini 3 models
+    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+    else:
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
+    
+    # Enable web search for Gemini models (required for ICD code validation per prompt)
+    tools = [
+        types.Tool(googleSearch=types.GoogleSearch()),
+    ]
+    
+    generate_content_config = types.GenerateContentConfig(
+        response_mime_type="text/plain",
+        thinking_config=thinking_config,
+        tools=tools
+    )
+    
+    # Retry mechanism with exponential backoff
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            # Call Gemini API
+            full_response = ""
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if chunk.text is not None:
+                    full_response += chunk.text
+            
+            response_text = full_response.strip()
+            
+            if not response_text:
+                raise ValueError("Empty response from API")
+            
+            # Clean up response (remove markdown code blocks if present)
+            cleaned_response = response_text
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
+            # Parse JSON
+            icd_codes_dict = json.loads(cleaned_response)
+            
+            # Ensure all required keys exist
+            result = {
+                "ICD1": icd_codes_dict.get("ICD1", ""),
+                "ICD2": icd_codes_dict.get("ICD2", ""),
+                "ICD3": icd_codes_dict.get("ICD3", ""),
+                "ICD4": icd_codes_dict.get("ICD4", "")
+            }
+            
+            # Estimate tokens and cost (Gemini pricing estimates)
+            prompt_chars = len(prompt)
+            image_tokens_estimate = len(image_data_list) * 1000  # Rough estimate per image
+            response_chars = len(response_text)
+            total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
+            
+            # Cost estimation for Gemini models (rough estimates)
+            if "gemini-3-flash" in model:
+                cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
+            elif "gemini-3-pro" in model:
+                cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
+            elif "gemini-2.5-flash" in model:
+                cost = total_tokens_estimate * 0.000075 / 1000  # Rough estimate
+            else:
+                cost = total_tokens_estimate * 0.0005 / 1000  # Default estimate
+            
+            return result, total_tokens_estimate, cost, None
+            
+        except json.JSONDecodeError as e:
+            error_message = f"JSON parsing failed: {str(e)}"
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 4)
+                logger.warning(f"JSON parsing error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Max retries reached for JSON parsing: {error_message}")
+                # Try to extract codes manually if JSON parsing fails
+                result = {
+                    "ICD1": "",
+                    "ICD2": "",
+                    "ICD3": "",
+                    "ICD4": ""
+                }
+                icd_pattern = r'[A-Z]\d{2}\.?\d*'
+                found_codes = re.findall(icd_pattern, response_text)
+                for i, code in enumerate(found_codes[:4]):
+                    result[f"ICD{i+1}"] = code
+                return result, 0, 0.0, error_message
+                
+        except Exception as e:
+            error_message = f"API error: {str(e)}"
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 4)
+                logger.warning(f"API error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries}): {error_message}")
+                time.sleep(wait_time)
+                continue
+            else:
+                logger.error(f"Max retries reached: {error_message}")
+                return None, 0, 0.0, error_message
+    
+    return None, 0, 0.0, "Max retries reached"
+
+
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None):
+    """
+    Predict ICD codes using OpenRouter API or Google GenAI SDK from PDF page images
+    
+    Args:
+        image_data_list: List of base64 encoded image strings
+        model: Model to use (default: openai/gpt-5.2:online). For Gemini, use format "gemini-3-flash-preview" or "gemini-2.5-pro"
+        api_key: API key (OpenRouter API key for OpenAI models, Google API key for Gemini models)
+        custom_instructions: Optional custom instructions to append to the prompt
+    
+    Returns:
+        tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
+        icd_codes_dict: Dictionary with keys 'ICD1', 'ICD2', 'ICD3', 'ICD4' containing ICD codes
+    """
+    # Check if using Gemini model
+    if is_gemini_model(model):
+        return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions)
+    
+    # Use OpenRouter for non-Gemini models
     # Get API key
     if api_key:
         api_key_value = api_key
@@ -1018,15 +1493,18 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                     image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list
                 )
                 
+                # Determine model source
+                model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
+                
                 # If prediction failed, use error message
                 if not predicted_code:
                     if error:
                         # Put error in ASA Code column for visibility, but also keep in Error Message
-                        return idx, filename, f"ERROR: {error[:50]}", "", tokens, cost, error, "openrouter_vision"
+                        return idx, filename, f"ERROR: {error[:50]}", "", tokens, cost, error, model_source
                     else:
-                        return idx, filename, "ERROR: No prediction returned", "", tokens, cost, "No prediction returned from API", "openrouter_vision"
+                        return idx, filename, "ERROR: No prediction returned", "", tokens, cost, "No prediction returned from API", model_source
                 
-                return idx, filename, predicted_code, explanation, tokens, cost, error, "openrouter_vision"
+                return idx, filename, predicted_code, explanation, tokens, cost, error, model_source
                 
             except Exception as e:
                 error_msg = f"Unexpected error processing {filename}: {str(e)}"
@@ -1163,12 +1641,16 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 
                 if not image_data_list:
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
-                    return idx, filename, {"ICD1": "ERROR", "ICD2": "", "ICD3": "", "ICD4": ""}, 0, 0.0, error_msg, "openrouter_vision"
+                    model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
+                    return idx, filename, {"ICD1": "ERROR", "ICD2": "", "ICD3": "", "ICD4": ""}, 0, 0.0, error_msg, model_source
                 
                 # Predict ICD codes from images
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
                     image_data_list, model, api_key, custom_instructions
                 )
+                
+                # Determine model source
+                model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
                 
                 # If prediction failed, use error message
                 if not icd_codes_dict:
@@ -1179,7 +1661,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                             "ICD3": "",
                             "ICD4": ""
                         }
-                        return idx, filename, error_dict, tokens, cost, error, "openrouter_vision"
+                        return idx, filename, error_dict, tokens, cost, error, model_source
                     else:
                         error_dict = {
                             "ICD1": "ERROR: No prediction",
@@ -1187,20 +1669,21 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                             "ICD3": "",
                             "ICD4": ""
                         }
-                        return idx, filename, error_dict, tokens, cost, "No prediction returned from API", "openrouter_vision"
+                        return idx, filename, error_dict, tokens, cost, "No prediction returned from API", model_source
                 
-                return idx, filename, icd_codes_dict, tokens, cost, error, "openrouter_vision"
+                return idx, filename, icd_codes_dict, tokens, cost, error, model_source
                 
             except Exception as e:
                 error_msg = f"Unexpected error processing {filename}: {str(e)}"
                 logger.error(error_msg)
+                model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
                 error_dict = {
                     "ICD1": f"ERROR: {type(e).__name__}",
                     "ICD2": "",
                     "ICD3": "",
                     "ICD4": ""
                 }
-                return idx, filename, error_dict, 0, 0.0, error_msg, "openrouter_vision"
+                return idx, filename, error_dict, 0, 0.0, error_msg, model_source
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_pdf, idx, pdf_path): idx for idx, pdf_path in enumerate(pdf_files)}

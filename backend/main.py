@@ -1431,7 +1431,14 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         from predict_general import predict_codes_from_pdfs_api
         
-        job.message = f"Processing PDFs with OpenRouter {model} vision model..."
+        # Check if using Gemini model
+        from general-coding.predict_general import is_gemini_model
+        using_gemini = is_gemini_model(model)
+        
+        if using_gemini:
+            job.message = f"Processing PDFs with Gemini {model} vision model..."
+        else:
+            job.message = f"Processing PDFs with OpenRouter {model} vision model..."
         job.progress = 30
         
         # Create output file path
@@ -1445,8 +1452,11 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         # Save to CSV first
         result_file_csv = result_base.with_suffix('.csv')
-        # Use OPENROUTER_API_KEY if available, fallback to OPENAI_API_KEY
-        api_key = os.getenv("OPENROUTER_API_KEY") 
+        # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
+        if using_gemini:
+            api_key = os.getenv("GOOGLE_API_KEY")
+        else:
+            api_key = os.getenv("OPENROUTER_API_KEY") 
         success = predict_codes_from_pdfs_api(
             pdf_folder=str(temp_dir / "pdfs"),
             output_file=str(result_file_csv),
@@ -1459,7 +1469,10 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         )
         
         if not success:
-            raise Exception("OpenRouter vision model prediction failed")
+            if using_gemini:
+                raise Exception("Gemini vision model prediction failed")
+            else:
+                raise Exception("OpenRouter vision model prediction failed")
         
         job.message = "Prediction complete, preparing results..."
         job.progress = 90
@@ -1532,7 +1545,14 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         from predict_general import predict_icd_codes_from_pdfs_api
         
-        job.message = f"Processing PDFs with OpenRouter {model} vision model..."
+        # Check if using Gemini model
+        from general-coding.predict_general import is_gemini_model
+        using_gemini = is_gemini_model(model)
+        
+        if using_gemini:
+            job.message = f"Processing PDFs with Gemini {model} vision model..."
+        else:
+            job.message = f"Processing PDFs with OpenRouter {model} vision model..."
         job.progress = 30
         
         # Create output file path
@@ -1546,8 +1566,11 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         
         # Save to CSV first
         result_file_csv = result_base.with_suffix('.csv')
-        # Use OPENROUTER_API_KEY if available, fallback to OPENAI_API_KEY
-        api_key = os.getenv("OPENROUTER_API_KEY") 
+        # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
+        if using_gemini:
+            api_key = os.getenv("GOOGLE_API_KEY")
+        else:
+            api_key = os.getenv("OPENROUTER_API_KEY") 
         success = predict_icd_codes_from_pdfs_api(
             pdf_folder=str(temp_dir / "pdfs"),
             output_file=str(result_file_csv),
@@ -1560,7 +1583,10 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         )
         
         if not success:
-            raise Exception("OpenRouter vision model ICD prediction failed")
+            if using_gemini:
+                raise Exception("Gemini vision model ICD prediction failed")
+            else:
+                raise Exception("OpenRouter vision model ICD prediction failed")
         
         job.message = "Prediction complete, preparing results..."
         job.progress = 90
@@ -5213,7 +5239,15 @@ def process_unified_background(
                     cpt_csv_path_local = str(temp_dir / "cpt_predictions.csv")
                     Path(cpt_csv_path_local).parent.mkdir(exist_ok=True)
                     
-                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    # Check if using Gemini model
+                    from backend.general-coding.predict_general import is_gemini_model
+                    using_gemini = is_gemini_model(cpt_vision_model)
+                    
+                    # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
+                    if using_gemini:
+                        api_key = os.environ.get('GOOGLE_API_KEY')
+                    else:
+                        api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
                     def cpt_progress(completed, total, message):
                         with lock:
@@ -5245,7 +5279,15 @@ def process_unified_background(
                     icd_csv_path_local = str(temp_dir / "icd_predictions.csv")
                     Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
                     
-                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    # Check if using Gemini model
+                    from backend.general-coding.predict_general import is_gemini_model
+                    using_gemini = is_gemini_model(icd_vision_model)
+                    
+                    # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
+                    if using_gemini:
+                        api_key = os.environ.get('GOOGLE_API_KEY')
+                    else:
+                        api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
                     def icd_progress(completed, total, message):
                         with lock:

@@ -362,7 +362,7 @@
                   </label>
                   <p class="template-hint" style="margin-top: 10px">
                     When enabled, uses OpenRouter API with model:
-                    <code>google/gemini-3-pro-preview:online</code>
+                    <code>gemini-3-pro-preview</code>
                   </p>
                 </div>
               </div>
@@ -1384,14 +1384,13 @@
                         class="model-option-card"
                         :class="{
                           selected:
-                            unifiedCptVisionModel ===
-                            'google/gemini-3-flash-preview:online',
+                            unifiedCptVisionModel === 'gemini-3-flash-preview',
                         }"
                       >
                         <input
                           type="radio"
                           v-model="unifiedCptVisionModel"
-                          value="google/gemini-3-flash-preview:online"
+                          value="gemini-3-flash-preview"
                           class="model-radio"
                         />
                         <div class="model-content">
@@ -1716,14 +1715,13 @@
                       class="model-option-card"
                       :class="{
                         selected:
-                          unifiedIcdVisionModel ===
-                          'google/gemini-3-flash-preview:online',
+                          unifiedIcdVisionModel === 'gemini-3-flash-preview',
                       }"
                     >
                       <input
                         type="radio"
                         v-model="unifiedIcdVisionModel"
-                        value="google/gemini-3-flash-preview:online"
+                        value="gemini-3-flash-preview"
                         class="model-radio"
                       />
                       <div class="model-content">
@@ -2340,15 +2338,13 @@
                   <label
                     class="model-option-card"
                     :class="{
-                      selected:
-                        cptVisionModel ===
-                        'google/gemini-3-flash-preview:online',
+                      selected: cptVisionModel === 'gemini-3-flash-preview',
                     }"
                   >
                     <input
                       type="radio"
                       v-model="cptVisionModel"
-                      value="google/gemini-3-flash-preview:online"
+                      value="gemini-3-flash-preview"
                       class="model-radio"
                     />
                     <div class="model-content">
@@ -2870,15 +2866,13 @@
                   <label
                     class="model-option-card"
                     :class="{
-                      selected:
-                        icdVisionModel ===
-                        'google/gemini-3-flash-preview:online',
+                      selected: icdVisionModel === 'gemini-3-flash-preview',
                     }"
                   >
                     <input
                       type="radio"
                       v-model="icdVisionModel"
-                      value="google/gemini-3-flash-preview:online"
+                      value="gemini-3-flash-preview"
                       class="model-radio"
                     />
                     <div class="model-content">
@@ -6462,14 +6456,14 @@ export default {
       unifiedCptMaxWorkers: 50,
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 49, // For vision mode
-      unifiedCptVisionModel: "openai/gpt-5.2:online", // Vision model selection
+      unifiedCptVisionModel: "gemini-3-flash-preview", // Vision model selection
       unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
       unifiedIcdPages: 49,
       unifiedIcdMaxWorkers: 50,
-      unifiedIcdVisionModel: "openai/gpt-5.2:online", // Vision model selection
+      unifiedIcdVisionModel: "gemini-3-flash-preview", // Vision model selection
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
@@ -7314,10 +7308,8 @@ export default {
       formData.append("excel_file", this.excelFile);
       formData.append("n_pages", this.pageCount);
 
-      // Use OpenRouter model format if enabled, otherwise use Google GenAI
-      const model = this.useOpenRouterStandard
-        ? "google/gemini-3-pro-preview:online"
-        : "gemini-3-pro-preview";
+      // Use Google GenAI (no longer using OpenRouter for Gemini models)
+      const model = "gemini-3-pro-preview";
       formData.append("model", model);
 
       // Add worktracker fields if provided
@@ -7977,7 +7969,7 @@ export default {
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
       this.unifiedCptVisionPages = 49;
-      this.unifiedCptVisionModel = "openai/gpt-5.2:online";
+      this.unifiedCptVisionModel = "gemini-3-flash-preview";
       this.unifiedCptIncludeCodeList = true;
       this.unifiedCptMaxWorkers = 50;
       this.unifiedCptCustomInstructions = "";
@@ -7985,7 +7977,7 @@ export default {
       this.unifiedSelectedCptInstructionId = null;
       // ICD settings
       this.unifiedIcdPages = 49;
-      this.unifiedIcdVisionModel = "openai/gpt-5.2:online";
+      this.unifiedIcdVisionModel = "gemini-3-flash-preview";
       this.unifiedIcdMaxWorkers = 50;
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
