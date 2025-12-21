@@ -1345,7 +1345,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5", max_workers: int = 5, custom_instructions: str = None):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 5, custom_instructions: str = None):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1959,7 +1959,7 @@ async def predict_cpt_from_pdfs(
     background_tasks: BackgroundTasks,
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
-    model: str = Form(default="openai/gpt-5"),
+    model: str = Form(default="openai/gpt-5.2:online"),
     max_workers: int = Form(default=5),
     custom_instructions: Optional[str] = Form(default=None),
     instruction_template_id: Optional[int] = Form(default=None)
@@ -3056,37 +3056,105 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.message = "Finding required columns..."
         job.progress = 20
         
-        # Find AccountId column in predictions (case-insensitive)
+        # Find AccountId column in predictions (case-insensitive) - try multiple variations
         account_id_col_pred = None
-        asa_code_col_pred = None
         for col in predictions_df.columns:
             col_upper = col.upper().strip()
-            if col_upper == 'ACCOUNTID' or col_upper == 'ACCOUNT ID':
+            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
                 account_id_col_pred = col
-            elif col_upper == 'ASA CODE' or col_upper == 'ASA':
-                asa_code_col_pred = col
+                break
         
-        # Find Acc. # column in ground truth (case-insensitive)
+        # Find Cpt column in predictions (case-insensitive)
+        cpt_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'CPT':
+                cpt_col_pred = col
+                break
+        
+        # Find ICD columns in predictions (ICD1, ICD2, ICD3, ICD4)
+        icd_cols_pred = {}
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                icd_cols_pred[col_upper] = col
+        
+        # Find Anesthesia Type column in predictions (if exists)
+        anesthesia_type_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'ANESTHESIA TYPE':
+                anesthesia_type_col_pred = col
+                break
+        
+        # Find AccountId column in ground truth (case-insensitive) - try multiple variations
         account_id_col_gt = None
-        asa_code_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
-            if col_upper == 'ACC. #' or col_upper == 'ACC #' or col_upper == 'ACCOUNTID' or col_upper == 'ACCOUNT ID':
+            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
                 account_id_col_gt = col
-            elif col_upper == 'ASA CODE' or col_upper == 'ASA':
-                asa_code_col_gt = col
+                break
         
+        # Find Cpt column in ground truth (case-insensitive)
+        cpt_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'CPT':
+                cpt_col_gt = col
+                break
+        
+        # Find Icd column in ground truth (case-insensitive) - comma-separated
+        icd_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'ICD':
+                icd_col_gt = col
+                break
+        
+        # Find Anesthesia Type column in ground truth (if exists)
+        anesthesia_type_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'ANESTHESIA TYPE':
+                anesthesia_type_col_gt = col
+                break
+        
+        # Validate required columns
         if account_id_col_pred is None:
-            raise Exception("Predictions file must have 'AccountId' column")
-        if asa_code_col_pred is None:
-            raise Exception("Predictions file must have 'ASA Code' column")
+            raise Exception("Predictions file must have an 'AccountId' or 'Account ID' column")
+        if cpt_col_pred is None:
+            raise Exception("Predictions file must have a 'Cpt' column")
         if account_id_col_gt is None:
-            raise Exception("Ground truth file must have 'Acc. #' column")
-        if asa_code_col_gt is None:
-            raise Exception("Ground truth file must have 'ASA Code' column")
+            raise Exception("Ground truth file must have an 'AccountId' or 'Account ID' column")
+        if cpt_col_gt is None:
+            raise Exception("Ground truth file must have a 'Cpt' column")
         
         job.message = "Matching accounts and comparing codes..."
         job.progress = 40
+        
+        # Helper function to parse comma-separated ICD codes into a list (preserving order)
+        def parse_icd_codes(icd_string):
+            """Parse comma-separated ICD codes into a list of normalized codes"""
+            if pd.isna(icd_string) or not str(icd_string).strip():
+                return []
+            codes = [code.strip().upper() for code in str(icd_string).split(',')]
+            return [c for c in codes if c]  # Remove empty strings
+        
+        # Helper function to get predicted ICD codes as a list
+        def get_predicted_icd_list(row):
+            """Get predicted ICD codes from ICD1, ICD2, ICD3, ICD4 columns as a list"""
+            icd_list = []
+            for icd_num in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                if icd_num in icd_cols_pred:
+                    col_name = icd_cols_pred[icd_num]
+                    value = row[col_name]
+                    if pd.notna(value) and str(value).strip():
+                        icd_list.append(str(value).strip().upper())
+                    else:
+                        icd_list.append('')  # Keep empty strings to preserve position
+                else:
+                    icd_list.append('')  # Column doesn't exist, use empty
+            return icd_list
         
         # Create a dictionary for ground truth lookup (store full row data)
         # IMPORTANT: Only take the FIRST occurrence of each account ID
@@ -3096,79 +3164,267 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             account_id = str(row[account_id_col_gt]).strip()
             # Only add if we haven't seen this account ID before (take FIRST occurrence)
             if account_id not in gt_dict:
-                asa_code = str(row[asa_code_col_gt]).strip() if pd.notna(row[asa_code_col_gt]) else ''
-                gt_dict[account_id] = asa_code
+                gt_dict[account_id] = {
+                    'cpt': str(row[cpt_col_gt]).strip() if pd.notna(row[cpt_col_gt]) else '',
+                    'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else '',
+                    'anesthesia_type': str(row[anesthesia_type_col_gt]).strip() if anesthesia_type_col_gt and pd.notna(row[anesthesia_type_col_gt]) else ''
+                }
                 gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
         
         # Compare predictions with ground truth
         comparison_data = []
         detailed_report_data = []
         case_overview_data = []  # Overview of each case
-        matches = 0
-        mismatches = 0
+        cpt_matches = 0
+        cpt_mismatches = 0
+        icd_matches = 0
+        icd_mismatches = 0
+        icd1_matches = 0
+        icd2_matches = 0
+        icd3_matches = 0
+        icd4_matches = 0
+        anesthesia_matches = 0
+        anesthesia_mismatches = 0
         not_found = 0
         
         for idx, row in predictions_df.iterrows():
             account_id = str(row[account_id_col_pred]).strip()
-            predicted_code = str(row[asa_code_col_pred]).strip() if pd.notna(row[asa_code_col_pred]) else ''
+            predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row[cpt_col_pred]) else ''
+            
+            # Get predicted ICD codes as a list (position-based)
+            predicted_icd_list = get_predicted_icd_list(row)
+            
+            # Get predicted Anesthesia Type
+            predicted_anesthesia = ''
+            if anesthesia_type_col_pred:
+                predicted_anesthesia = str(row[anesthesia_type_col_pred]).strip() if pd.notna(row[anesthesia_type_col_pred]) else ''
             
             # Start building detailed report entry
             detailed_entry = {
                 'Row Number': idx + 1,  # 1-indexed for readability
                 'AccountId': account_id,
                 'Match Status': '',
-                'Predicted ASA Code': predicted_code,
-                'Ground Truth ASA Code': '',
-                'Match': '',
-                'Difference': '',
+                'Predicted Cpt': predicted_cpt,
+                'Ground Truth Cpt': '',
+                'Cpt Match': '',
+                'Predicted Icd1': predicted_icd_list[0] if len(predicted_icd_list) > 0 else '',
+                'Predicted Icd2': predicted_icd_list[1] if len(predicted_icd_list) > 1 else '',
+                'Predicted Icd3': predicted_icd_list[2] if len(predicted_icd_list) > 2 else '',
+                'Predicted Icd4': predicted_icd_list[3] if len(predicted_icd_list) > 3 else '',
+                'Ground Truth Icd1': '',
+                'Ground Truth Icd2': '',
+                'Ground Truth Icd3': '',
+                'Ground Truth Icd4': '',
+                'Icd1 Match': '',
+                'Icd2 Match': '',
+                'Icd3 Match': '',
+                'Icd4 Match': '',
+                'Icd Match': '',
+                'Predicted Anesthesia Type': predicted_anesthesia,
+                'Ground Truth Anesthesia Type': '',
+                'Anesthesia Type Match': '',
+                'Overall Status': '',
+                'Notes': '',
             }
             
-            # Start building case overview entry - includes ALL columns from both files
+            # Start building case overview entry
             case_overview = {
                 'Case #': idx + 1,
                 'Account ID': account_id,
                 'Status': '',
-                'Predicted ASA Code': predicted_code,
-                'Ground Truth ASA Code': '',
+                'Predicted Cpt': predicted_cpt,
+                'Ground Truth Cpt': '',
+                'Cpt Match': '',
+                'Predicted Icd1': predicted_icd_list[0] if len(predicted_icd_list) > 0 else '',
+                'Predicted Icd2': predicted_icd_list[1] if len(predicted_icd_list) > 1 else '',
+                'Predicted Icd3': predicted_icd_list[2] if len(predicted_icd_list) > 2 else '',
+                'Predicted Icd4': predicted_icd_list[3] if len(predicted_icd_list) > 3 else '',
+                'Ground Truth Icd1': '',
+                'Ground Truth Icd2': '',
+                'Ground Truth Icd3': '',
+                'Ground Truth Icd4': '',
+                'Icd1 Match': '',
+                'Icd2 Match': '',
+                'Icd3 Match': '',
+                'Icd4 Match': '',
+                'Icd Match': '',
+                'Predicted Anesthesia Type': predicted_anesthesia,
+                'Ground Truth Anesthesia Type': '',
+                'Anesthesia Type Match': '',
                 'Result': '',
                 'Notes': '',
             }
             
             # Add ALL columns from predictions file to overview
+            excluded_cols = {account_id_col_pred, cpt_col_pred}
+            excluded_cols.update(icd_cols_pred.values())
+            if anesthesia_type_col_pred:
+                excluded_cols.add(anesthesia_type_col_pred)
+            
             for col in predictions_df.columns:
-                if col != account_id_col_pred and col != asa_code_col_pred:
+                if col not in excluded_cols:
                     value = row[col]
                     detailed_entry[f'Predictions: {col}'] = str(value) if pd.notna(value) else ''
                     case_overview[f'Predictions: {col}'] = str(value) if pd.notna(value) else ''
             
             if account_id in gt_dict:
-                ground_truth_code = gt_dict[account_id]
-                is_match = predicted_code == ground_truth_code
+                gt_data = gt_dict[account_id]
+                gt_row = gt_row_dict[account_id]
                 
-                if is_match:
-                    matches += 1
-                    detailed_entry['Match Status'] = 'Match'
-                    detailed_entry['Match'] = 'Yes'
-                    detailed_entry['Difference'] = 'None'
-                    case_overview['Status'] = '✅ MATCH'
-                    case_overview['Result'] = 'CORRECT'
-                    case_overview['Notes'] = f'Predicted code {predicted_code} matches ground truth'
+                # Compare CPT codes
+                gt_cpt = gt_data['cpt']
+                cpt_match = predicted_cpt == gt_cpt
+                if cpt_match:
+                    cpt_matches += 1
                 else:
-                    mismatches += 1
-                    detailed_entry['Match Status'] = 'Mismatch'
-                    detailed_entry['Match'] = 'No'
-                    detailed_entry['Difference'] = f"Predicted: {predicted_code} vs Ground Truth: {ground_truth_code}"
-                    case_overview['Status'] = '❌ MISMATCH'
-                    case_overview['Result'] = 'INCORRECT'
-                    case_overview['Notes'] = f'Predicted {predicted_code} but should be {ground_truth_code}'
+                    cpt_mismatches += 1
                 
-                detailed_entry['Ground Truth ASA Code'] = ground_truth_code
-                case_overview['Ground Truth ASA Code'] = ground_truth_code
+                # Compare ICD codes position-by-position
+                gt_icd_list = parse_icd_codes(gt_data['icd']) if gt_data['icd'] else []
+                
+                # Compare each position
+                icd1_match = False
+                icd2_match = False
+                icd3_match = False
+                icd4_match = False
+                
+                if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
+                    icd1_match = predicted_icd_list[0] == gt_icd_list[0]
+                    if icd1_match:
+                        icd1_matches += 1
+                
+                if len(predicted_icd_list) > 1 and len(gt_icd_list) > 1:
+                    icd2_match = predicted_icd_list[1] == gt_icd_list[1]
+                    if icd2_match:
+                        icd2_matches += 1
+                
+                if len(predicted_icd_list) > 2 and len(gt_icd_list) > 2:
+                    icd3_match = predicted_icd_list[2] == gt_icd_list[2]
+                    if icd3_match:
+                        icd3_matches += 1
+                
+                if len(predicted_icd_list) > 3 and len(gt_icd_list) > 3:
+                    icd4_match = predicted_icd_list[3] == gt_icd_list[3]
+                    if icd4_match:
+                        icd4_matches += 1
+                
+                # Overall ICD match: all positions that exist in both must match
+                max_len = max(len(predicted_icd_list), len(gt_icd_list))
+                icd_match = True
+                for i in range(max_len):
+                    pred_code = predicted_icd_list[i] if i < len(predicted_icd_list) else ''
+                    gt_code = gt_icd_list[i] if i < len(gt_icd_list) else ''
+                    if pred_code != gt_code:
+                        icd_match = False
+                        break
+                
+                if icd_match:
+                    icd_matches += 1
+                else:
+                    icd_mismatches += 1
+                
+                # Compare Anesthesia Type (if present in both)
+                anesthesia_match = None
+                if anesthesia_type_col_pred and anesthesia_type_col_gt:
+                    gt_anesthesia = gt_data['anesthesia_type']
+                    anesthesia_match = predicted_anesthesia.upper() == gt_anesthesia.upper() if predicted_anesthesia and gt_anesthesia else False
+                    if anesthesia_match:
+                        anesthesia_matches += 1
+                    elif predicted_anesthesia and gt_anesthesia:
+                        anesthesia_mismatches += 1
+                
+                # Determine overall status
+                all_match = cpt_match and icd_match
+                if anesthesia_match is not None:
+                    all_match = all_match and anesthesia_match
+                
+                # Build status strings
+                status_parts = []
+                if cpt_match:
+                    status_parts.append('✅ CPT')
+                else:
+                    status_parts.append('❌ CPT')
+                
+                if icd_match:
+                    status_parts.append('✅ ICD')
+                else:
+                    status_parts.append('❌ ICD')
+                
+                if anesthesia_match is not None:
+                    if anesthesia_match:
+                        status_parts.append('✅ ANESTHESIA')
+                    else:
+                        status_parts.append('❌ ANESTHESIA')
+                
+                overall_status = ' | '.join(status_parts)
+                
+                if all_match:
+                    detailed_entry['Match Status'] = 'Match'
+                    detailed_entry['Overall Status'] = '✅ ALL MATCH'
+                    case_overview['Status'] = '✅ ALL MATCH'
+                    case_overview['Result'] = 'CORRECT'
+                    notes = 'All codes match'
+                else:
+                    detailed_entry['Match Status'] = 'Mismatch'
+                    detailed_entry['Overall Status'] = overall_status
+                    case_overview['Status'] = overall_status
+                    case_overview['Result'] = 'INCORRECT'
+                    notes_parts = []
+                    if not cpt_match:
+                        notes_parts.append(f'CPT: predicted {predicted_cpt} vs ground truth {gt_cpt}')
+                    if not icd_match:
+                        pred_icd_str = ', '.join(predicted_icd_list) if predicted_icd_list else '(none)'
+                        gt_icd_str = ', '.join(gt_icd_list) if gt_icd_list else '(none)'
+                        notes_parts.append(f'ICD: predicted [{pred_icd_str}] vs ground truth [{gt_icd_str}]')
+                    if anesthesia_match is False:
+                        notes_parts.append(f'Anesthesia Type: predicted {predicted_anesthesia} vs ground truth {gt_data["anesthesia_type"]}')
+                    notes = '; '.join(notes_parts)
+                
+                # Fill in comparison fields
+                detailed_entry['Ground Truth Cpt'] = gt_cpt
+                detailed_entry['Cpt Match'] = 'Yes' if cpt_match else 'No'
+                case_overview['Ground Truth Cpt'] = gt_cpt
+                case_overview['Cpt Match'] = '✅' if cpt_match else '❌'
+                
+                # Fill in ICD comparison fields
+                detailed_entry['Ground Truth Icd1'] = gt_icd_list[0] if len(gt_icd_list) > 0 else ''
+                detailed_entry['Ground Truth Icd2'] = gt_icd_list[1] if len(gt_icd_list) > 1 else ''
+                detailed_entry['Ground Truth Icd3'] = gt_icd_list[2] if len(gt_icd_list) > 2 else ''
+                detailed_entry['Ground Truth Icd4'] = gt_icd_list[3] if len(gt_icd_list) > 3 else ''
+                detailed_entry['Icd1 Match'] = 'Yes' if icd1_match else 'No'
+                detailed_entry['Icd2 Match'] = 'Yes' if icd2_match else 'No'
+                detailed_entry['Icd3 Match'] = 'Yes' if icd3_match else 'No'
+                detailed_entry['Icd4 Match'] = 'Yes' if icd4_match else 'No'
+                detailed_entry['Icd Match'] = 'Yes' if icd_match else 'No'
+                
+                case_overview['Ground Truth Icd1'] = gt_icd_list[0] if len(gt_icd_list) > 0 else ''
+                case_overview['Ground Truth Icd2'] = gt_icd_list[1] if len(gt_icd_list) > 1 else ''
+                case_overview['Ground Truth Icd3'] = gt_icd_list[2] if len(gt_icd_list) > 2 else ''
+                case_overview['Ground Truth Icd4'] = gt_icd_list[3] if len(gt_icd_list) > 3 else ''
+                case_overview['Icd1 Match'] = '✅' if icd1_match else '❌'
+                case_overview['Icd2 Match'] = '✅' if icd2_match else '❌'
+                case_overview['Icd3 Match'] = '✅' if icd3_match else '❌'
+                case_overview['Icd4 Match'] = '✅' if icd4_match else '❌'
+                case_overview['Icd Match'] = '✅' if icd_match else '❌'
+                
+                if anesthesia_type_col_pred and anesthesia_type_col_gt:
+                    detailed_entry['Ground Truth Anesthesia Type'] = gt_data['anesthesia_type']
+                    detailed_entry['Anesthesia Type Match'] = 'Yes' if anesthesia_match else 'No'
+                    case_overview['Ground Truth Anesthesia Type'] = gt_data['anesthesia_type']
+                    case_overview['Anesthesia Type Match'] = '✅' if anesthesia_match else '❌'
+                
+                detailed_entry['Notes'] = notes
+                case_overview['Notes'] = notes
                 
                 # Add ALL columns from ground truth file (with prefix)
-                gt_row = gt_row_dict[account_id]
+                excluded_gt_cols = {account_id_col_gt, cpt_col_gt}
+                if icd_col_gt:
+                    excluded_gt_cols.add(icd_col_gt)
+                if anesthesia_type_col_gt:
+                    excluded_gt_cols.add(anesthesia_type_col_gt)
+                
                 for col in ground_truth_df.columns:
-                    if col != account_id_col_gt and col != asa_code_col_gt:
+                    if col not in excluded_gt_cols:
                         value = gt_row[col]
                         detailed_entry[f'Ground Truth: {col}'] = str(value) if pd.notna(value) else ''
                         case_overview[f'Ground Truth: {col}'] = str(value) if pd.notna(value) else ''
@@ -3176,33 +3432,77 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 # Simple comparison entry (for backward compatibility)
                 comparison_data.append({
                     'AccountId': account_id,
-                    'Predicted ASA Code': predicted_code,
-                    'Ground Truth ASA Code': ground_truth_code,
-                    'Match': 'Yes' if is_match else 'No',
-                    'Status': 'Match' if is_match else 'Mismatch'
+                    'Predicted Cpt': predicted_cpt,
+                    'Ground Truth Cpt': gt_cpt,
+                    'Cpt Match': 'Yes' if cpt_match else 'No',
+                    'Predicted Icd1': predicted_icd_list[0] if len(predicted_icd_list) > 0 else '',
+                    'Predicted Icd2': predicted_icd_list[1] if len(predicted_icd_list) > 1 else '',
+                    'Predicted Icd3': predicted_icd_list[2] if len(predicted_icd_list) > 2 else '',
+                    'Predicted Icd4': predicted_icd_list[3] if len(predicted_icd_list) > 3 else '',
+                    'Ground Truth Icd1': gt_icd_list[0] if len(gt_icd_list) > 0 else '',
+                    'Ground Truth Icd2': gt_icd_list[1] if len(gt_icd_list) > 1 else '',
+                    'Ground Truth Icd3': gt_icd_list[2] if len(gt_icd_list) > 2 else '',
+                    'Ground Truth Icd4': gt_icd_list[3] if len(gt_icd_list) > 3 else '',
+                    'Icd1 Match': 'Yes' if icd1_match else 'No',
+                    'Icd2 Match': 'Yes' if icd2_match else 'No',
+                    'Icd3 Match': 'Yes' if icd3_match else 'No',
+                    'Icd4 Match': 'Yes' if icd4_match else 'No',
+                    'Icd Match': 'Yes' if icd_match else 'No',
+                    'Predicted Anesthesia Type': predicted_anesthesia,
+                    'Ground Truth Anesthesia Type': gt_data['anesthesia_type'] if anesthesia_type_col_gt else '',
+                    'Anesthesia Type Match': 'Yes' if anesthesia_match else ('N/A' if anesthesia_match is None else 'No'),
+                    'Overall Match': 'Yes' if all_match else 'No',
+                    'Status': 'Match' if all_match else 'Mismatch'
                 })
             else:
                 not_found += 1
                 detailed_entry['Match Status'] = 'Account Not Found'
-                detailed_entry['Match'] = 'No'
-                detailed_entry['Ground Truth ASA Code'] = 'NOT FOUND'
-                detailed_entry['Difference'] = 'Account ID not found in ground truth file'
+                detailed_entry['Overall Status'] = '⚠️ NOT FOUND'
+                detailed_entry['Ground Truth Cpt'] = 'NOT FOUND'
+                detailed_entry['Ground Truth Icd'] = 'NOT FOUND'
+                detailed_entry['Ground Truth Anesthesia Type'] = 'NOT FOUND'
+                detailed_entry['Notes'] = 'Account ID not found in ground truth file'
                 case_overview['Status'] = '⚠️ NOT FOUND'
                 case_overview['Result'] = 'NO COMPARISON'
-                case_overview['Ground Truth ASA Code'] = 'NOT FOUND'
+                case_overview['Ground Truth Cpt'] = 'NOT FOUND'
+                case_overview['Ground Truth Icd'] = 'NOT FOUND'
+                case_overview['Ground Truth Anesthesia Type'] = 'NOT FOUND'
                 case_overview['Notes'] = f'Account {account_id} not found in ground truth file'
                 
                 # Add empty columns for ground truth (to maintain structure)
+                excluded_gt_cols = {account_id_col_gt, cpt_col_gt}
+                if icd_col_gt:
+                    excluded_gt_cols.add(icd_col_gt)
+                if anesthesia_type_col_gt:
+                    excluded_gt_cols.add(anesthesia_type_col_gt)
+                
                 for col in ground_truth_df.columns:
-                    if col != account_id_col_gt and col != asa_code_col_gt:
+                    if col not in excluded_gt_cols:
                         detailed_entry[f'Ground Truth: {col}'] = ''
                 
                 # Simple comparison entry (for backward compatibility)
                 comparison_data.append({
                     'AccountId': account_id,
-                    'Predicted ASA Code': predicted_code,
-                    'Ground Truth ASA Code': 'NOT FOUND',
-                    'Match': 'No',
+                    'Predicted Cpt': predicted_cpt,
+                    'Ground Truth Cpt': 'NOT FOUND',
+                    'Cpt Match': 'No',
+                    'Predicted Icd1': predicted_icd_list[0] if len(predicted_icd_list) > 0 else '',
+                    'Predicted Icd2': predicted_icd_list[1] if len(predicted_icd_list) > 1 else '',
+                    'Predicted Icd3': predicted_icd_list[2] if len(predicted_icd_list) > 2 else '',
+                    'Predicted Icd4': predicted_icd_list[3] if len(predicted_icd_list) > 3 else '',
+                    'Ground Truth Icd1': 'NOT FOUND',
+                    'Ground Truth Icd2': 'NOT FOUND',
+                    'Ground Truth Icd3': 'NOT FOUND',
+                    'Ground Truth Icd4': 'NOT FOUND',
+                    'Icd1 Match': 'No',
+                    'Icd2 Match': 'No',
+                    'Icd3 Match': 'No',
+                    'Icd4 Match': 'No',
+                    'Icd Match': 'No',
+                    'Predicted Anesthesia Type': predicted_anesthesia,
+                    'Ground Truth Anesthesia Type': 'NOT FOUND',
+                    'Anesthesia Type Match': 'No',
+                    'Overall Match': 'No',
                     'Status': 'Account Not Found'
                 })
             
@@ -3222,8 +3522,11 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         case_overview_df = pd.DataFrame(case_overview_data)
         
         # Calculate accuracy metrics
-        total_comparable = matches + mismatches
-        accuracy = (matches / total_comparable * 100) if total_comparable > 0 else 0
+        total_comparable = cpt_matches + cpt_mismatches
+        cpt_accuracy = (cpt_matches / total_comparable * 100) if total_comparable > 0 else 0
+        icd_accuracy = (icd_matches / total_comparable * 100) if total_comparable > 0 else 0
+        overall_matches = sum(1 for entry in comparison_data if entry.get('Overall Match') == 'Yes' and entry.get('Status') != 'Account Not Found')
+        overall_accuracy = (overall_matches / total_comparable * 100) if total_comparable > 0 else 0
         
         # Create summary sheet with more detailed metrics
         summary_data = {
@@ -3231,22 +3534,32 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Total Predictions',
                 'Accounts Found in Ground Truth',
                 'Accounts Not Found',
-                'Matches',
-                'Mismatches',
-                'Accuracy (%)',
-                'Match Rate (%)',
-                'Mismatch Rate (%)',
+                'CPT Matches',
+                'CPT Mismatches',
+                'CPT Accuracy (%)',
+                'ICD Matches',
+                'ICD Mismatches',
+                'ICD Accuracy (%)',
+                'Anesthesia Type Matches',
+                'Anesthesia Type Mismatches',
+                'Overall Matches (All Codes)',
+                'Overall Accuracy (%)',
                 'Not Found Rate (%)'
             ],
             'Value': [
                 len(predictions_df),
                 total_comparable,
                 not_found,
-                matches,
-                mismatches,
-                f'{accuracy:.2f}%',
-                f'{(matches / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%',
-                f'{(mismatches / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%',
+                cpt_matches,
+                cpt_mismatches,
+                f'{cpt_accuracy:.2f}%',
+                icd_matches,
+                icd_mismatches,
+                f'{icd_accuracy:.2f}%',
+                anesthesia_matches,
+                anesthesia_mismatches,
+                overall_matches,
+                f'{overall_accuracy:.2f}%',
                 f'{(not_found / len(predictions_df) * 100):.2f}%' if len(predictions_df) > 0 else '0.00%'
             ]
         }
@@ -3303,7 +3616,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.result_file = str(output_file_xlsx)  # Use XLSX as primary result
         job.status = "completed"
         job.progress = 100
-        job.message = f"Comparison completed! Accuracy: {accuracy:.2f}% ({matches}/{total_comparable} matches)"
+        job.message = f"Comparison completed! CPT: {cpt_accuracy:.2f}% | ICD: {icd_accuracy:.2f}% | Overall: {overall_accuracy:.2f}%"
         
         # Clean up input files
         if os.path.exists(predictions_path):
@@ -3311,7 +3624,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         if os.path.exists(ground_truth_path):
             os.unlink(ground_truth_path)
         
-        logger.info(f"CPT codes check completed for job {job_id}: {accuracy:.2f}% accuracy")
+        logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Overall {overall_accuracy:.2f}%")
         
     except Exception as e:
         logger.error(f"CPT codes check background error: {str(e)}")
@@ -3328,7 +3641,7 @@ async def check_cpt_codes(
     predictions_file: UploadFile = File(...),
     ground_truth_file: UploadFile = File(...)
 ):
-    """Upload two XLSX files (predictions and ground truth) to compare CPT codes and calculate accuracy"""
+    """Upload two CSV/XLSX files (predictions and ground truth) to compare CPT codes, ICD codes, and Anesthesia Type and calculate accuracy"""
     
     try:
         logger.info(f"Received CPT codes check request - predictions: {predictions_file.filename}, ground_truth: {ground_truth_file.filename}")
@@ -4616,6 +4929,7 @@ def process_unified_background(
     cpt_vision_mode: bool,
     cpt_client: str,
     cpt_vision_pages: int,
+    cpt_vision_model: str,
     cpt_include_code_list: bool,
     cpt_max_workers: int,
     cpt_custom_instructions: str,
@@ -4623,6 +4937,7 @@ def process_unified_background(
     # ICD params
     enable_icd: bool,
     icd_n_pages: int,
+    icd_vision_model: str,
     icd_max_workers: int,
     icd_custom_instructions: str,
     icd_instruction_template_id: Optional[int]
@@ -4895,12 +5210,12 @@ def process_unified_background(
                     job.progress = min(progress_pct, 55)
                     job.message = f"CPT prediction: {message}"
                 
-                # Run CPT prediction with vision (always uses openai/gpt-5.2:online)
+                # Run CPT prediction with vision (uses selected model)
                 success = predict_codes_from_pdfs_api(
                     pdf_folder=str(temp_dir / "input"),
                     output_file=cpt_csv_path,
                     n_pages=cpt_vision_pages,
-                    model="openai/gpt-5.2:online",  # Vision mode always uses GPT-5.2
+                    model=cpt_vision_model,  # Use selected vision model
                     api_key=api_key,
                     max_workers=cpt_max_workers,
                     progress_callback=cpt_progress,
@@ -5026,12 +5341,12 @@ def process_unified_background(
                 job.progress = min(progress_pct, 85)
                 job.message = f"ICD prediction: {message}"
             
-            # Run ICD prediction (always uses GPT-5.2 vision)
+            # Run ICD prediction (uses selected vision model)
             success = predict_icd_codes_from_pdfs_api(
                 pdf_folder=str(temp_dir / "input"),
                 output_file=icd_csv_path,
                 n_pages=icd_n_pages,
-                model="openai/gpt-5.2:online",  # ICD always uses GPT-5.2 vision
+                model=icd_vision_model,  # Use selected vision model
                 api_key=api_key,
                 max_workers=icd_max_workers,
                 progress_callback=icd_progress,
@@ -5281,6 +5596,7 @@ async def process_unified(
     cpt_vision_mode: bool = Form(default=False),
     cpt_client: str = Form(default="uni"),  # For non-vision mode
     cpt_vision_pages: int = Form(default=1),  # For vision mode
+    cpt_vision_model: str = Form(default="openai/gpt-5.2:online"),  # Vision model selection
     cpt_include_code_list: bool = Form(default=True),  # Include CPT code list in prompt
     cpt_max_workers: int = Form(default=20),  # Increased for better parallelism
     cpt_custom_instructions: str = Form(default=""),
@@ -5288,6 +5604,7 @@ async def process_unified(
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
+    icd_vision_model: str = Form(default="openai/gpt-5.2:online"),  # Vision model selection
     icd_max_workers: int = Form(default=20),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
@@ -5412,12 +5729,14 @@ async def process_unified(
             cpt_vision_mode=cpt_vision_mode,
             cpt_client=cpt_client,
             cpt_vision_pages=cpt_vision_pages,
+            cpt_vision_model=cpt_vision_model,
             cpt_include_code_list=cpt_include_code_list,
             cpt_max_workers=cpt_max_workers,
             cpt_custom_instructions=cpt_custom_instructions,
             cpt_instruction_template_id=cpt_instruction_template_id,
             enable_icd=enable_icd,
             icd_n_pages=icd_n_pages,
+            icd_vision_model=icd_vision_model,
             icd_max_workers=icd_max_workers,
             icd_custom_instructions=icd_custom_instructions,
             icd_instruction_template_id=icd_instruction_template_id

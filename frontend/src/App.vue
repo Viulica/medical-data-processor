@@ -106,7 +106,7 @@
                 🔗 Merge by CSN
               </button>
               <button @click="selectTab('check-cpt')" class="dropdown-item">
-                ✅ Check CPT Codes
+                ✅ Check CPT & ICD Codes
               </button>
             </div>
           </div>
@@ -1192,6 +1192,121 @@
                     >
                   </div>
 
+                  <!-- Vision Model Selection for Unified Processing -->
+                  <div class="setting-group" style="margin-top: 15px">
+                    <label for="unified-cpt-vision-model" class="form-label"
+                      >Vision Model:</label
+                    >
+                    <p
+                      class="form-hint"
+                      style="
+                        margin-bottom: 1rem;
+                        color: #64748b;
+                        font-size: 0.875rem;
+                      "
+                    >
+                      Choose the AI vision model to analyze PDF pages.
+                    </p>
+                    <div class="model-selection-grid">
+                      <!-- GPT-5.2 Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected:
+                            unifiedCptVisionModel === 'openai/gpt-5.2:online',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="openai/gpt-5.2:online"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">GPT-5.2</span>
+                              <span class="model-badge badge-recommended"
+                                >Recommended</span
+                              >
+                            </div>
+                            <div class="model-provider">OpenAI</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag">⭐ Highest Accuracy</span>
+                            <span class="feature-tag"
+                              >📄 Complex Documents</span
+                            >
+                          </div>
+                        </div>
+                      </label>
+
+                      <!-- GPT-5 Nano Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected:
+                            unifiedCptVisionModel ===
+                            'openai/gpt-5-nano:online',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="openai/gpt-5-nano:online"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">GPT-5 Nano</span>
+                              <span class="model-badge badge-fast">Fast</span>
+                            </div>
+                            <div class="model-provider">OpenAI</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag"
+                              >⚡ Faster Processing</span
+                            >
+                            <span class="feature-tag">💰 Cost-Effective</span>
+                          </div>
+                        </div>
+                      </label>
+
+                      <!-- Gemini 3 Flash Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected:
+                            unifiedCptVisionModel ===
+                            'google/gemini-3-flash-preview:online',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="google/gemini-3-flash-preview:online"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">Gemini 3 Flash</span>
+                              <span class="model-badge badge-preview"
+                                >Preview</span
+                              >
+                            </div>
+                            <div class="model-provider">Google</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag">🚀 Very Fast</span>
+                            <span class="feature-tag">🔬 Preview Model</span>
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
                   <!-- Custom Instructions with Template Toggle for Vision Mode -->
                   <div class="form-group" style="margin-top: 15px">
                     <div class="template-selection-toggle">
@@ -1412,6 +1527,116 @@
                   <small class="help-text"
                     >Number of concurrent processing threads</small
                   >
+                </div>
+
+                <!-- Vision Model Selection for Unified ICD -->
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-icd-vision-model" class="form-label"
+                    >Vision Model:</label
+                  >
+                  <p
+                    class="form-hint"
+                    style="
+                      margin-bottom: 1rem;
+                      color: #64748b;
+                      font-size: 0.875rem;
+                    "
+                  >
+                    Choose the AI vision model to analyze PDF pages.
+                  </p>
+                  <div class="model-selection-grid">
+                    <!-- GPT-5.2 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          unifiedIcdVisionModel === 'openai/gpt-5.2:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="openai/gpt-5.2:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5.2</span>
+                            <span class="model-badge badge-recommended"
+                              >Recommended</span
+                            >
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⭐ Highest Accuracy</span>
+                          <span class="feature-tag">📄 Complex Documents</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- GPT-5 Nano Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          unifiedIcdVisionModel === 'openai/gpt-5-nano:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="openai/gpt-5-nano:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5 Nano</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Faster Processing</span>
+                          <span class="feature-tag">💰 Cost-Effective</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini 3 Flash Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          unifiedIcdVisionModel ===
+                          'google/gemini-3-flash-preview:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="google/gemini-3-flash-preview:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini 3 Flash</span>
+                            <span class="model-badge badge-preview"
+                              >Preview</span
+                            >
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🚀 Very Fast</span>
+                          <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
                 </div>
 
                 <!-- Custom Instructions with Template Toggle -->
@@ -1913,10 +2138,120 @@
               </div>
             </div>
 
-            <!-- Custom Instructions for Vision Mode -->
+            <!-- Vision Model Selection -->
             <div v-if="useVisionPrediction" class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Vision Model Selection</h3>
+              </div>
+              <div class="settings-content">
+                <p
+                  class="form-hint"
+                  style="
+                    margin-bottom: 1.25rem;
+                    color: #64748b;
+                    font-size: 0.875rem;
+                  "
+                >
+                  Choose the AI vision model to analyze PDF pages. Each model
+                  offers different balance of accuracy, speed, and cost.
+                </p>
+                <div class="model-selection-grid">
+                  <!-- GPT-5.2 Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: cptVisionModel === 'openai/gpt-5.2:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="cptVisionModel"
+                      value="openai/gpt-5.2:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">GPT-5.2</span>
+                          <span class="model-badge badge-recommended"
+                            >Recommended</span
+                          >
+                        </div>
+                        <div class="model-provider">OpenAI</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⭐ Highest Accuracy</span>
+                        <span class="feature-tag">📄 Complex Documents</span>
+                      </div>
+                    </div>
+                  </label>
+
+                  <!-- GPT-5 Nano Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: cptVisionModel === 'openai/gpt-5-nano:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="cptVisionModel"
+                      value="openai/gpt-5-nano:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">GPT-5 Nano</span>
+                          <span class="model-badge badge-fast">Fast</span>
+                        </div>
+                        <div class="model-provider">OpenAI</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⚡ Faster Processing</span>
+                        <span class="feature-tag">💰 Cost-Effective</span>
+                      </div>
+                    </div>
+                  </label>
+
+                  <!-- Gemini 3 Flash Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected:
+                        cptVisionModel ===
+                        'google/gemini-3-flash-preview:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="cptVisionModel"
+                      value="google/gemini-3-flash-preview:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Gemini 3 Flash</span>
+                          <span class="model-badge badge-preview">Preview</span>
+                        </div>
+                        <div class="model-provider">Google</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">🚀 Very Fast</span>
+                        <span class="feature-tag">🔬 Preview Model</span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Custom Instructions for Vision Mode -->
+            <div v-if="useVisionPrediction" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>Custom Coding Instructions</h3>
               </div>
               <div class="settings-content">
@@ -2334,10 +2669,119 @@
               </div>
             </div>
 
-            <!-- Custom Instructions for ICD -->
+            <!-- Vision Model Selection for ICD -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Vision Model Selection</h3>
+              </div>
+              <div class="settings-content">
+                <p
+                  class="form-hint"
+                  style="
+                    margin-bottom: 1rem;
+                    color: #64748b;
+                    font-size: 0.875rem;
+                  "
+                >
+                  Choose the AI vision model to analyze PDF pages.
+                </p>
+                <div class="model-selection-grid">
+                  <!-- GPT-5.2 Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: icdVisionModel === 'openai/gpt-5.2:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="icdVisionModel"
+                      value="openai/gpt-5.2:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">GPT-5.2</span>
+                          <span class="model-badge badge-recommended"
+                            >Recommended</span
+                          >
+                        </div>
+                        <div class="model-provider">OpenAI</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⭐ Highest Accuracy</span>
+                        <span class="feature-tag">📄 Complex Documents</span>
+                      </div>
+                    </div>
+                  </label>
+
+                  <!-- GPT-5 Nano Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: icdVisionModel === 'openai/gpt-5-nano:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="icdVisionModel"
+                      value="openai/gpt-5-nano:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">GPT-5 Nano</span>
+                          <span class="model-badge badge-fast">Fast</span>
+                        </div>
+                        <div class="model-provider">OpenAI</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⚡ Faster Processing</span>
+                        <span class="feature-tag">💰 Cost-Effective</span>
+                      </div>
+                    </div>
+                  </label>
+
+                  <!-- Gemini 3 Flash Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected:
+                        icdVisionModel ===
+                        'google/gemini-3-flash-preview:online',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="icdVisionModel"
+                      value="google/gemini-3-flash-preview:online"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Gemini 3 Flash</span>
+                          <span class="model-badge badge-preview">Preview</span>
+                        </div>
+                        <div class="model-provider">Google</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">🚀 Very Fast</span>
+                        <span class="feature-tag">🔬 Preview Model</span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Custom Instructions for ICD -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>Custom Coding Instructions</h3>
               </div>
               <div class="settings-content">
@@ -2992,10 +3436,14 @@
         <!-- Check CPT Codes Tab -->
         <div v-if="activeTab === 'check-cpt'" class="upload-section">
           <div class="section-header">
-            <h2>Check CPT Codes</h2>
+            <h2>Check CPT & ICD Codes</h2>
             <p>
-              Upload predictions and ground truth XLSX files to compare ASA
-              codes and calculate accuracy metrics
+              Upload predictions and ground truth CSV/XLSX files to compare CPT
+              codes, ICD codes, and Anesthesia Type. Predictions file should
+              have columns: AccountId, Cpt, ICD1, ICD2, ICD3, ICD4 (and
+              optionally Anesthesia Type). Ground truth file should have
+              columns: AccountId, Cpt, Icd (comma-separated), and optionally
+              Anesthesia Type.
             </p>
           </div>
 
@@ -3128,8 +3576,8 @@
               <span v-else class="btn-icon">✅</span>
               {{
                 isCheckingCptCodes
-                  ? "Checking CPT Codes..."
-                  : "Start CPT Codes Check"
+                  ? "Checking CPT & ICD Codes..."
+                  : "Start CPT & ICD Codes Check"
               }}
             </button>
 
@@ -5798,10 +6246,12 @@ export default {
       visionZipFile: null,
       visionPageCount: 1,
       isVisionZipDragActive: false,
+      cptVisionModel: "openai/gpt-5.2:online",
       cptVisionCustomInstructions: "",
       // ICD prediction functionality
       icdZipFile: null,
       icdPageCount: 1,
+      icdVisionModel: "openai/gpt-5.2:online",
       icdJobId: null,
       icdJobStatus: null,
       isPredictingIcd: false,
@@ -5885,12 +6335,14 @@ export default {
       unifiedCptMaxWorkers: 20,
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 1, // For vision mode
+      unifiedCptVisionModel: "openai/gpt-5.2:online", // Vision model selection
       unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
       unifiedIcdPages: 1,
       unifiedIcdMaxWorkers: 20,
+      unifiedIcdVisionModel: "openai/gpt-5.2:online", // Vision model selection
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
@@ -7107,6 +7559,7 @@ export default {
       formData.append("cpt_vision_mode", this.unifiedCptVisionMode);
       if (this.unifiedCptVisionMode) {
         formData.append("cpt_vision_pages", this.unifiedCptVisionPages);
+        formData.append("cpt_vision_model", this.unifiedCptVisionModel);
         formData.append(
           "cpt_include_code_list",
           this.unifiedCptIncludeCodeList
@@ -7130,6 +7583,7 @@ export default {
       // ICD parameters
       formData.append("enable_icd", this.unifiedEnableIcd);
       formData.append("icd_n_pages", this.unifiedIcdPages);
+      formData.append("icd_vision_model", this.unifiedIcdVisionModel);
       formData.append("icd_max_workers", this.unifiedIcdMaxWorkers);
       formData.append(
         "icd_custom_instructions",
@@ -7298,6 +7752,7 @@ export default {
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
       this.unifiedCptVisionPages = 1;
+      this.unifiedCptVisionModel = "openai/gpt-5.2:online";
       this.unifiedCptIncludeCodeList = true;
       this.unifiedCptMaxWorkers = 20;
       this.unifiedCptCustomInstructions = "";
@@ -7305,6 +7760,7 @@ export default {
       this.unifiedSelectedCptInstructionId = null;
       // ICD settings
       this.unifiedIcdPages = 1;
+      this.unifiedIcdVisionModel = "openai/gpt-5.2:online";
       this.unifiedIcdMaxWorkers = 20;
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
@@ -7454,7 +7910,7 @@ export default {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
         formData.append("zip_file", this.visionZipFile);
         formData.append("n_pages", this.visionPageCount);
-        formData.append("model", "openai/gpt-5");
+        formData.append("model", this.cptVisionModel);
         formData.append("max_workers", "5");
 
         // Use template or manual instructions (vision and non-vision share same templates)
@@ -7599,6 +8055,7 @@ export default {
       this.visionZipFile = null;
       this.useVisionPrediction = false;
       this.visionPageCount = 1;
+      this.cptVisionModel = "openai/gpt-5.2:online";
       this.cptVisionCustomInstructions = "";
       this.useCptTemplateInsteadOfText = false;
       this.selectedCptInstructionId = null;
@@ -7726,7 +8183,7 @@ export default {
       const formData = new FormData();
       formData.append("zip_file", this.icdZipFile);
       formData.append("n_pages", this.icdPageCount);
-      formData.append("model", "openai/gpt-5");
+      formData.append("model", this.icdVisionModel);
       formData.append("max_workers", "5");
 
       // Use template or manual instructions
@@ -7834,6 +8291,7 @@ export default {
     resetIcdForm() {
       this.icdZipFile = null;
       this.icdPageCount = 1;
+      this.icdVisionModel = "openai/gpt-5.2:online";
       this.icdCustomInstructions = "";
       this.icdJobId = null;
       this.icdJobStatus = null;
@@ -8476,7 +8934,7 @@ export default {
 
         this.cptCheckJobId = response.data.job_id;
         this.toast.success(
-          "CPT codes check started! Check the status section below."
+          "CPT & ICD codes check started! Check the status section below."
         );
 
         // Set initial status
@@ -8487,7 +8945,9 @@ export default {
         };
       } catch (error) {
         console.error("CPT check error:", error);
-        this.toast.error("Failed to start CPT codes check. Please try again.");
+        this.toast.error(
+          "Failed to start CPT & ICD codes check. Please try again."
+        );
         this.isCheckingCptCodes = false;
       }
     },
@@ -8505,11 +8965,13 @@ export default {
         this.cptCheckJobStatus = response.data;
 
         if (response.data.status === "completed") {
-          this.toast.success("CPT codes check completed!");
+          this.toast.success("CPT & ICD codes check completed!");
           this.isCheckingCptCodes = false;
         } else if (response.data.status === "failed") {
           this.toast.error(
-            `CPT codes check failed: ${response.data.error || "Unknown error"}`
+            `CPT & ICD codes check failed: ${
+              response.data.error || "Unknown error"
+            }`
           );
           this.isCheckingCptCodes = false;
         }
@@ -8572,9 +9034,9 @@ export default {
         case "failed":
           return "Check Failed";
         case "processing":
-          return "Checking CPT Codes";
+          return "Checking CPT & ICD Codes";
         default:
-          return "CPT Codes Check Status";
+          return "CPT & ICD Codes Check Status";
       }
     },
 
@@ -12649,5 +13111,131 @@ input:checked + .slider:hover {
   font-family: "Monaco", "Menlo", "Consolas", monospace;
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+/* Model Selection Styles */
+.model-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.model-option-card {
+  display: block;
+  padding: 1.25rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.model-option-card:hover {
+  border-color: #3b82f6;
+  background: #f8fafc;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.model-option-card.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.model-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.model-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.model-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.model-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.model-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.model-provider {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.model-badge {
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-recommended {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-fast {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-preview {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.model-description {
+  font-size: 0.875rem;
+  color: #475569;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.model-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.feature-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  background: #f1f5f9;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.model-option-card.selected .feature-tag {
+  background: #dbeafe;
+  color: #1e40af;
 }
 </style>
