@@ -6954,7 +6954,7 @@ export default {
 
       const formData = new FormData();
       // Append all PDF files
-      this.pdfFiles.forEach((file, index) => {
+      this.pdfFiles.forEach((file) => {
         formData.append("pdf_files", file);
       });
       formData.append("filter_string", this.filterString.trim());
