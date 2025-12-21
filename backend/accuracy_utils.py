@@ -160,12 +160,13 @@ def calculate_accuracy(
     # Validate required columns
     if account_id_col_pred is None:
         raise Exception("Predictions file must have an 'AccountId' or 'Account ID' column")
-    if cpt_col_pred is None:
-        raise Exception("Predictions file must have a 'Cpt' or 'ASA Code' column")
     if account_id_col_gt is None:
         raise Exception("Ground truth file must have an 'AccountId', 'Account ID', or 'Account #' column")
-    if cpt_col_gt is None:
-        raise Exception("Ground truth file must have a 'Cpt' column")
+    
+    # CPT columns are optional (may be disabled)
+    calculate_cpt = cpt_col_pred is not None
+    if calculate_cpt and cpt_col_gt is None:
+        raise Exception("Ground truth file must have a 'Cpt' column when CPT predictions are present")
     
     # Build ground truth lookup dictionary (only first occurrence per account ID)
     gt_dict = {}
@@ -173,7 +174,7 @@ def calculate_accuracy(
         account_id = str(row[account_id_col_gt]).strip()
         if account_id not in gt_dict:
             gt_dict[account_id] = {
-                'cpt': str(row[cpt_col_gt]).strip() if pd.notna(row[cpt_col_gt]) else '',
+                'cpt': str(row[cpt_col_gt]).strip() if calculate_cpt and cpt_col_gt and pd.notna(row[cpt_col_gt]) else '',
                 'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else ''
             }
     
@@ -186,27 +187,28 @@ def calculate_accuracy(
     
     for idx, row in predictions_df.iterrows():
         account_id = str(row[account_id_col_pred]).strip()
-        predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row[cpt_col_pred]) else ''
+        predicted_cpt = str(row[cpt_col_pred]).strip() if calculate_cpt and cpt_col_pred and pd.notna(row[cpt_col_pred]) else ''
         predicted_icd_list = get_predicted_icd_list(row, icd_cols_pred)
         
         if account_id in gt_dict:
             gt_data = gt_dict[account_id]
-            gt_cpt = gt_data['cpt']
             
-            # Compare CPT
-            cpt_total += 1
-            cpt_match = predicted_cpt == gt_cpt
-            if cpt_match:
-                cpt_matches += 1
-            else:
-                pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
-                error_cases.append({
-                    'account_id': account_id,
-                    'pdf_path': pdf_path,
-                    'predicted': predicted_cpt,
-                    'expected': gt_cpt,
-                    'error_type': 'CPT'
-                })
+            # Compare CPT (only if CPT columns exist)
+            if calculate_cpt:
+                gt_cpt = gt_data['cpt']
+                cpt_total += 1
+                cpt_match = predicted_cpt == gt_cpt
+                if cpt_match:
+                    cpt_matches += 1
+                else:
+                    pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
+                    error_cases.append({
+                        'account_id': account_id,
+                        'pdf_path': pdf_path,
+                        'predicted': predicted_cpt,
+                        'expected': gt_cpt,
+                        'error_type': 'CPT'
+                    })
             
             # Compare ICD1
             if icd_col_gt:
@@ -228,11 +230,15 @@ def calculate_accuracy(
                             'error_type': 'ICD1'
                         })
     
-    # Calculate accuracies
-    cpt_accuracy = cpt_matches / cpt_total if cpt_total > 0 else 0.0
-    icd1_accuracy = icd1_matches / icd1_total if icd1_total > 0 else 0.0
+    # Calculate accuracies (CPT is optional)
+    if calculate_cpt:
+        cpt_accuracy = cpt_matches / cpt_total if cpt_total > 0 else 0.0
+        logger.info(f"CPT Accuracy: {cpt_accuracy:.2%} ({cpt_matches}/{cpt_total})")
+    else:
+        cpt_accuracy = None
+        logger.info("CPT Accuracy: Not calculated (CPT predictions not present)")
     
-    logger.info(f"CPT Accuracy: {cpt_accuracy:.2%} ({cpt_matches}/{cpt_total})")
+    icd1_accuracy = icd1_matches / icd1_total if icd1_total > 0 else 0.0
     logger.info(f"ICD1 Accuracy: {icd1_accuracy:.2%} ({icd1_matches}/{icd1_total})")
     
     return cpt_accuracy, icd1_accuracy, error_cases

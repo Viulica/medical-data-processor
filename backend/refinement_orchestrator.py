@@ -205,106 +205,111 @@ def run_refinement_job(
                     pdf_mapping=pdf_mapping
                 )
                 
-                # Update best accuracy
-                if cpt_accuracy > best_cpt_accuracy:
-                    best_cpt_accuracy = cpt_accuracy
-                    best_cpt_template_id = current_cpt_template_id
-                
-                logger.info(f"[Refinement {job_id}] CPT Accuracy: {cpt_accuracy:.2%}")
-                
-                # Update job status
-                update_refinement_job(
-                    job_id,
-                    iteration=cpt_iteration,
-                    cpt_accuracy=cpt_accuracy,
-                    best_cpt_accuracy=best_cpt_accuracy,
-                    current_cpt_template_id=current_cpt_template_id,
-                    best_cpt_template_id=best_cpt_template_id
-                )
-                
-                # Get error cases for this iteration
-                cpt_errors = get_error_cases(
-                    predictions_path=results_csv_path,
-                    ground_truth_path=ground_truth_path,
-                    error_type='cpt',
-                    pdf_mapping=pdf_mapping,
-                    limit=10
-                )
-                
-                # Determine status
-                if cpt_accuracy >= target_cpt_accuracy:
-                    status = "target_reached"
-                    logger.info(f"[Refinement {job_id}] CPT target accuracy reached: {cpt_accuracy:.2%} >= {target_cpt_accuracy:.2%}")
-                elif cpt_iteration >= max_iterations:
-                    status = "max_iterations"
-                    logger.info(f"[Refinement {job_id}] CPT max iterations reached")
+                # Update best accuracy (only if CPT was calculated)
+                if enable_cpt and cpt_accuracy is not None:
+                    if cpt_accuracy > best_cpt_accuracy:
+                        best_cpt_accuracy = cpt_accuracy
+                        best_cpt_template_id = current_cpt_template_id
+                    
+                    logger.info(f"[Refinement {job_id}] CPT Accuracy: {cpt_accuracy:.2%}")
+                    
+                    # Update job status
+                    update_refinement_job(
+                        job_id,
+                        iteration=cpt_iteration,
+                        cpt_accuracy=cpt_accuracy,
+                        best_cpt_accuracy=best_cpt_accuracy,
+                        current_cpt_template_id=current_cpt_template_id,
+                        best_cpt_template_id=best_cpt_template_id
+                    )
+                    
+                    # Get error cases for this iteration
+                    cpt_errors = get_error_cases(
+                        predictions_path=results_csv_path,
+                        ground_truth_path=ground_truth_path,
+                        error_type='cpt',
+                        pdf_mapping=pdf_mapping,
+                        limit=10
+                    )
+                    
+                    # Determine status
+                    if cpt_accuracy >= target_cpt_accuracy:
+                        status = "target_reached"
+                        logger.info(f"[Refinement {job_id}] CPT target accuracy reached: {cpt_accuracy:.2%} >= {target_cpt_accuracy:.2%}")
+                    elif cpt_iteration >= max_iterations:
+                        status = "max_iterations"
+                        logger.info(f"[Refinement {job_id}] CPT max iterations reached")
+                    else:
+                        status = "continuing"
+                    
+                    # Send email report
+                    send_iteration_report(
+                        to_email=notification_email,
+                        iteration=cpt_iteration,
+                        phase="cpt",
+                        previous_accuracy=previous_cpt_accuracy,
+                        current_accuracy=cpt_accuracy,
+                        best_accuracy=best_cpt_accuracy,
+                        old_instructions=cpt_instructions,
+                        new_instructions=cpt_instructions,  # Will be updated below if refining
+                        error_cases=cpt_errors,
+                        status=status
+                    )
+                    
+                    # Check if we should continue
+                    if cpt_accuracy >= target_cpt_accuracy or cpt_iteration >= max_iterations:
+                        break
+                    
+                    # Refine instructions using Gemini
+                    logger.info(f"[Refinement {job_id}] Refining CPT instructions with Gemini...")
+                    improved_instructions, reasoning = refine_cpt_instructions(
+                        current_instructions=cpt_instructions,
+                        error_cases=cpt_errors,
+                        pdf_mapping=pdf_mapping
+                    )
+                    
+                    if not improved_instructions:
+                        logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions: {reasoning}")
+                        update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
+                        return
+                    
+                    # Create new template version
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    new_template_name = f"{original_cpt_template['name']}_iteration_{cpt_iteration}_{timestamp}"
+                    new_template_id = create_prediction_instruction(
+                        name=new_template_name,
+                        instruction_type="cpt",
+                        instructions_text=improved_instructions,
+                        description=f"Auto-refined iteration {cpt_iteration} of {original_cpt_template['name']}"
+                    )
+                    
+                    if not new_template_id:
+                        raise Exception("Failed to create new CPT template")
+                    
+                    logger.info(f"[Refinement {job_id}] Created new CPT template: {new_template_name} (ID: {new_template_id})")
+                    
+                    # Update current template
+                    current_cpt_template_id = new_template_id
+                    previous_cpt_accuracy = cpt_accuracy
+                    
+                    # Send updated email with new instructions
+                    send_iteration_report(
+                        to_email=notification_email,
+                        iteration=cpt_iteration,
+                        phase="cpt",
+                        previous_accuracy=previous_cpt_accuracy,
+                        current_accuracy=cpt_accuracy,
+                        best_accuracy=best_cpt_accuracy,
+                        old_instructions=cpt_instructions,
+                        new_instructions=improved_instructions,
+                        error_cases=cpt_errors,
+                        status=status,
+                        gemini_reasoning=reasoning
+                    )
                 else:
-                    status = "continuing"
-                
-                # Send email report
-                send_iteration_report(
-                    to_email=notification_email,
-                    iteration=cpt_iteration,
-                    phase="cpt",
-                    previous_accuracy=previous_cpt_accuracy,
-                    current_accuracy=cpt_accuracy,
-                    best_accuracy=best_cpt_accuracy,
-                    old_instructions=cpt_instructions,
-                    new_instructions=cpt_instructions,  # Will be updated below if refining
-                    error_cases=cpt_errors,
-                    status=status
-                )
-                
-                # Check if we should continue
-                if cpt_accuracy >= target_cpt_accuracy or cpt_iteration >= max_iterations:
+                    # If CPT is disabled, just break after first iteration
+                    logger.info(f"[Refinement {job_id}] CPT refinement disabled, skipping CPT phase")
                     break
-                
-                # Refine instructions using Gemini
-                logger.info(f"[Refinement {job_id}] Refining CPT instructions with Gemini...")
-                improved_instructions, reasoning = refine_cpt_instructions(
-                    current_instructions=cpt_instructions,
-                    error_cases=cpt_errors,
-                    pdf_mapping=pdf_mapping
-                )
-                
-                if not improved_instructions:
-                    logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions: {reasoning}")
-                    update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
-                    return
-                
-                # Create new template version
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                new_template_name = f"{original_cpt_template['name']}_iteration_{cpt_iteration}_{timestamp}"
-                new_template_id = create_prediction_instruction(
-                    name=new_template_name,
-                    instruction_type="cpt",
-                    instructions_text=improved_instructions,
-                    description=f"Auto-refined iteration {cpt_iteration} of {original_cpt_template['name']}"
-                )
-                
-                if not new_template_id:
-                    raise Exception("Failed to create new CPT template")
-                
-                logger.info(f"[Refinement {job_id}] Created new CPT template: {new_template_name} (ID: {new_template_id})")
-                
-                # Update current template
-                current_cpt_template_id = new_template_id
-                previous_cpt_accuracy = cpt_accuracy
-                
-                # Send updated email with new instructions
-                send_iteration_report(
-                    to_email=notification_email,
-                    iteration=cpt_iteration,
-                    phase="cpt",
-                    previous_accuracy=previous_cpt_accuracy,
-                    current_accuracy=cpt_accuracy,
-                    best_accuracy=best_cpt_accuracy,
-                    old_instructions=cpt_instructions,
-                    new_instructions=improved_instructions,
-                    error_cases=cpt_errors,
-                    status=status,
-                    gemini_reasoning=reasoning
-                )
                 
             except Exception as e:
                 logger.error(f"[Refinement {job_id}] Error in CPT iteration {cpt_iteration}: {e}")
@@ -413,58 +418,63 @@ def run_refinement_job(
                         pdf_mapping=pdf_mapping
                     )
                     
-                    # Update best accuracy
-                    if icd1_accuracy > best_icd1_accuracy:
-                        best_icd1_accuracy = icd1_accuracy
-                        best_icd_template_id = current_icd_template_id
-                    
-                    logger.info(f"[Refinement {job_id}] ICD1 Accuracy: {icd1_accuracy:.2%}")
-                    
-                    # Update job status
-                    update_refinement_job(
-                        job_id,
-                        iteration=icd_iteration,
-                        icd1_accuracy=icd1_accuracy,
-                        best_icd1_accuracy=best_icd1_accuracy,
-                        current_icd_template_id=current_icd_template_id,
-                        best_icd_template_id=best_icd_template_id
-                    )
-                    
-                    # Get error cases for this iteration
-                    icd_errors = get_error_cases(
-                        predictions_path=results_csv_path,
-                        ground_truth_path=ground_truth_path,
-                        error_type='icd1',
-                        pdf_mapping=pdf_mapping,
-                        limit=10
-                    )
-                    
-                    # Determine status
-                    if icd1_accuracy >= target_icd_accuracy:
-                        status = "target_reached"
-                        logger.info(f"[Refinement {job_id}] ICD target accuracy reached: {icd1_accuracy:.2%} >= {target_icd_accuracy:.2%}")
-                    elif icd_iteration >= max_iterations:
-                        status = "max_iterations"
-                        logger.info(f"[Refinement {job_id}] ICD max iterations reached")
+                    # Update best accuracy (only if ICD was calculated)
+                    if enable_icd and icd1_accuracy is not None:
+                        if icd1_accuracy > best_icd1_accuracy:
+                            best_icd1_accuracy = icd1_accuracy
+                            best_icd_template_id = current_icd_template_id
+                        
+                        logger.info(f"[Refinement {job_id}] ICD1 Accuracy: {icd1_accuracy:.2%}")
+                        
+                        # Update job status
+                        update_refinement_job(
+                            job_id,
+                            iteration=icd_iteration,
+                            icd1_accuracy=icd1_accuracy,
+                            best_icd1_accuracy=best_icd1_accuracy,
+                            current_icd_template_id=current_icd_template_id,
+                            best_icd_template_id=best_icd_template_id
+                        )
+                        
+                        # Get error cases for this iteration
+                        icd_errors = get_error_cases(
+                            predictions_path=results_csv_path,
+                            ground_truth_path=ground_truth_path,
+                            error_type='icd1',
+                            pdf_mapping=pdf_mapping,
+                            limit=10
+                        )
+                        
+                        # Determine status
+                        if icd1_accuracy >= target_icd_accuracy:
+                            status = "target_reached"
+                            logger.info(f"[Refinement {job_id}] ICD target accuracy reached: {icd1_accuracy:.2%} >= {target_icd_accuracy:.2%}")
+                        elif icd_iteration >= max_iterations:
+                            status = "max_iterations"
+                            logger.info(f"[Refinement {job_id}] ICD max iterations reached")
+                        else:
+                            status = "continuing"
+                        
+                        # Send email report
+                        send_iteration_report(
+                            to_email=notification_email,
+                            iteration=icd_iteration,
+                            phase="icd",
+                            previous_accuracy=previous_icd_accuracy,
+                            current_accuracy=icd1_accuracy,
+                            best_accuracy=best_icd1_accuracy,
+                            old_instructions=icd_instructions,
+                            new_instructions=icd_instructions,  # Will be updated below if refining
+                            error_cases=icd_errors,
+                            status=status
+                        )
+                        
+                        # Check if we should continue
+                        if icd1_accuracy >= target_icd_accuracy or icd_iteration >= max_iterations:
+                            break
                     else:
-                        status = "continuing"
-                    
-                    # Send email report
-                    send_iteration_report(
-                        to_email=notification_email,
-                        iteration=icd_iteration,
-                        phase="icd",
-                        previous_accuracy=previous_icd_accuracy,
-                        current_accuracy=icd1_accuracy,
-                        best_accuracy=best_icd1_accuracy,
-                        old_instructions=icd_instructions,
-                        new_instructions=icd_instructions,  # Will be updated below if refining
-                        error_cases=icd_errors,
-                        status=status
-                    )
-                    
-                    # Check if we should continue
-                    if icd1_accuracy >= target_icd_accuracy or icd_iteration >= max_iterations:
+                        # If ICD is disabled, just break after first iteration
+                        logger.info(f"[Refinement {job_id}] ICD refinement disabled, skipping ICD phase")
                         break
                     
                     # Refine instructions using Gemini
