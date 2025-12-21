@@ -567,7 +567,9 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                     with open(progress_file, 'w') as f:
                         f.write(f"{completed_count}\n{total_count}\n")
                         f.flush()  # Ensure it's written immediately
-                    print(f"  📊 Progress: {completed_count}/{total_count} (written to {progress_file})")
+                        os.fsync(f.fileno())  # Force write to disk
+                    if completed_count % 10 == 0 or completed_count == total_count:  # Log every 10 or on completion
+                        print(f"  📊 Progress: {completed_count}/{total_count} (written to {progress_file})")
                 except Exception as e:
                     print(f"  ⚠️  Warning: Could not write progress file {progress_file}: {e}")
                     import traceback

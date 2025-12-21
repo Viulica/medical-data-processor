@@ -5131,10 +5131,20 @@ def process_unified_background(
                     with lock:
                         extraction_total[0] = pdf_count
                     
-                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=temp_dir, env=env, bufsize=1)
                     logger.info(f"[Unified {job_id}] Extraction subprocess started with PID {process.pid}")
                     
+                    # Start a thread to stream stdout/stderr in real-time
+                    def stream_output():
+                        for line in iter(process.stdout.readline, ''):
+                            if line:
+                                logger.info(f"[Unified {job_id}] Extraction: {line.strip()}")
+                    
+                    output_thread = threading.Thread(target=stream_output, daemon=True)
+                    output_thread.start()
+                    
                     # Monitor process and update progress from progress file
+                    last_progress = -1
                     while process.poll() is None:
                         time.sleep(2)
                         # Read progress from file written by extraction script
@@ -5145,19 +5155,39 @@ def process_unified_background(
                                     if len(lines) >= 2:
                                         completed = int(lines[0].strip())
                                         total = int(lines[1].strip())
+                                        if completed != last_progress:
+                                            logger.info(f"[Unified {job_id}] Extraction progress: {completed}/{total}")
+                                            last_progress = completed
                                         with lock:
                                             extraction_completed[0] = completed
                                             if total > 0:
                                                 extraction_total[0] = total
                             except (ValueError, IOError) as e:
                                 logger.debug(f"[Unified {job_id}] Could not read progress file: {e}")
+                        else:
+                            logger.debug(f"[Unified {job_id}] Progress file does not exist yet: {progress_file_path}")
                         update_progress()
                     
-                    stdout, stderr = process.communicate()
+                    # Wait for output thread to finish collecting stdout
+                    output_thread.join(timeout=5)
                     
-                    logger.info(f"[Unified {job_id}] Extraction stdout: {stdout}")
-                    if stderr:
-                        logger.info(f"[Unified {job_id}] Extraction stderr: {stderr}")
+                    # Final progress update
+                    if progress_file_path.exists():
+                        try:
+                            with open(progress_file_path, 'r') as f:
+                                lines = f.readlines()
+                                if len(lines) >= 2:
+                                    completed = int(lines[0].strip())
+                                    total = int(lines[1].strip())
+                                    logger.info(f"[Unified {job_id}] Final extraction progress: {completed}/{total}")
+                                    with lock:
+                                        extraction_completed[0] = completed
+                                        if total > 0:
+                                            extraction_total[0] = total
+                        except (ValueError, IOError) as e:
+                            logger.debug(f"[Unified {job_id}] Could not read final progress file: {e}")
+                    
+                    logger.info(f"[Unified {job_id}] Extraction process completed with return code: {process.returncode}")
                     
                     if process.returncode != 0:
                         raise Exception(f"Extraction failed: {stderr}")
@@ -5339,6 +5369,7 @@ def process_unified_background(
                     
                     cmd = [
                         sys.executable,
+                        "-u",  # Unbuffered output for real-time logging
                         str(script_path),
                         str(temp_dir / "input"),
                         str(excel_dest),
