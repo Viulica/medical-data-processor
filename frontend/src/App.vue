@@ -8727,13 +8727,8 @@ export default {
           "cpt_instruction_template_id",
           this.refinementSelectedCptInstructionId
         );
-      } else {
-        // Still need to provide defaults even if disabled
-        formData.append(
-          "cpt_instruction_template_id",
-          this.refinementSelectedCptInstructionId || 0
-        );
       }
+      // Don't send cpt_instruction_template_id if CPT is disabled
 
       // ICD parameters
       formData.append("enable_icd", this.refinementEnableIcd);
@@ -8745,13 +8740,8 @@ export default {
           "icd_instruction_template_id",
           this.refinementSelectedIcdInstructionId
         );
-      } else {
-        // Still need to provide defaults even if disabled
-        formData.append(
-          "icd_instruction_template_id",
-          this.refinementSelectedIcdInstructionId || 0
-        );
       }
+      // Don't send icd_instruction_template_id if ICD is disabled
 
       // Refinement parameters (only send if enabled)
       if (this.refinementEnableCpt) {

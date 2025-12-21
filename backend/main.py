@@ -6511,13 +6511,13 @@ async def process_unified_with_refinement(
     cpt_vision_model: str = Form(default="openai/gpt-5.2:online"),
     cpt_include_code_list: bool = Form(default=True),
     cpt_max_workers: int = Form(default=50),
-    cpt_instruction_template_id: int = Form(...),  # Required
+    cpt_instruction_template_id: Optional[int] = Form(default=None),  # Required if enable_cpt is True
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
     icd_vision_model: str = Form(default="openai/gpt-5.2:online"),
     icd_max_workers: int = Form(default=50),
-    icd_instruction_template_id: int = Form(...),  # Required
+    icd_instruction_template_id: Optional[int] = Form(default=None),  # Required if enable_icd is True
     # Refinement parameters
     target_cpt_accuracy: float = Form(default=0.95),
     target_icd_accuracy: float = Form(default=0.95),
@@ -6545,15 +6545,34 @@ async def process_unified_with_refinement(
         if not excel_file and not template_id:
             raise HTTPException(status_code=400, detail="Either an Excel file or a template ID must be provided")
         
-        # Validate instruction templates exist
+        # Validate instruction templates exist (only if the corresponding refinement is enabled)
         from db_utils import get_prediction_instruction
-        cpt_template = get_prediction_instruction(instruction_id=cpt_instruction_template_id)
-        icd_template = get_prediction_instruction(instruction_id=icd_instruction_template_id)
         
-        if not cpt_template:
-            raise HTTPException(status_code=404, detail=f"CPT instruction template {cpt_instruction_template_id} not found")
-        if not icd_template:
-            raise HTTPException(status_code=404, detail=f"ICD instruction template {icd_instruction_template_id} not found")
+        # Validate CPT template if CPT refinement is enabled
+        if enable_cpt:
+            if not cpt_instruction_template_id:
+                raise HTTPException(status_code=400, detail="CPT instruction template ID is required when CPT refinement is enabled")
+            cpt_template = get_prediction_instruction(instruction_id=cpt_instruction_template_id)
+            if not cpt_template:
+                raise HTTPException(status_code=404, detail=f"CPT instruction template {cpt_instruction_template_id} not found")
+        else:
+            cpt_template = None
+            cpt_instruction_template_id = None  # Set to None if disabled
+        
+        # Validate ICD template if ICD refinement is enabled
+        if enable_icd:
+            if not icd_instruction_template_id:
+                raise HTTPException(status_code=400, detail="ICD instruction template ID is required when ICD refinement is enabled")
+            icd_template = get_prediction_instruction(instruction_id=icd_instruction_template_id)
+            if not icd_template:
+                raise HTTPException(status_code=404, detail=f"ICD instruction template {icd_instruction_template_id} not found")
+        else:
+            icd_template = None
+            icd_instruction_template_id = None  # Set to None if disabled
+        
+        # Ensure at least one refinement type is enabled
+        if not enable_cpt and not enable_icd:
+            raise HTTPException(status_code=400, detail="At least one refinement type (CPT or ICD) must be enabled")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
