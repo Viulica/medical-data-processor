@@ -104,6 +104,7 @@ try:
     from pathlib import Path
     import subprocess
     import json
+    import time
     from typing import List, Optional
     logger.info("✅ Standard library modules imported successfully")
 except ImportError as e:
@@ -4958,8 +4959,434 @@ def process_unified_background(
         cpt_csv_path = None
         icd_csv_path = None
         
-        # ==================== STEP 1: Data Extraction ====================
-        if enable_extraction:
+        # ==================== PARALLEL EXECUTION STRATEGY ====================
+        # Determine which operations can run in parallel:
+        # 1. All three (Extraction + CPT Vision + ICD) can run in parallel
+        # 2. Extraction + ICD can run in parallel, then CPT non-vision after extraction
+        # 3. Fall back to sequential processing for other cases
+        
+        run_all_three_parallel = (
+            enable_extraction and 
+            enable_cpt and cpt_vision_mode and 
+            enable_icd
+        )
+        
+        run_extraction_icd_parallel = (
+            enable_extraction and 
+            enable_cpt and not cpt_vision_mode and 
+            enable_icd
+        )
+        
+        if run_all_three_parallel:
+            # ==================== MAXIMUM PARALLELIZATION ====================
+            # Run Extraction + CPT Vision + ICD Vision all at the same time!
+            job.message = "Running all three operations in parallel..."
+            job.progress = 10
+            logger.info(f"[Unified {job_id}] 🚀 MAXIMUM SPEED: Running Extraction + CPT Vision + ICD Vision in parallel!")
+            
+            # Unzip files once
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir / "input")
+            
+            # Prepare extraction
+            excel_dest = temp_dir / "instructions" / excel_filename
+            excel_dest.parent.mkdir(exist_ok=True)
+            shutil.copy2(excel_path, excel_dest)
+            
+            # Import prediction functions
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api
+            
+            # Thread-safe progress tracking for all three operations
+            import threading
+            extraction_completed = [0]
+            cpt_completed = [0]
+            icd_completed = [0]
+            extraction_total = [0]
+            cpt_total = [0]
+            icd_total = [0]
+            lock = threading.Lock()
+            
+            def update_progress():
+                with lock:
+                    total_completed = extraction_completed[0] + cpt_completed[0] + icd_completed[0]
+                    total_tasks = extraction_total[0] + cpt_total[0] + icd_total[0]
+                    if total_tasks > 0:
+                        progress_pct = 10 + int((total_completed / total_tasks) * 75)
+                        job.progress = min(progress_pct, 85)
+                        job.message = f"Extraction: {extraction_completed[0]}/{extraction_total[0]}, CPT: {cpt_completed[0]}/{cpt_total[0]}, ICD: {icd_completed[0]}/{icd_total[0]}"
+            
+            # Results storage
+            extraction_result = [None]
+            cpt_result = [None]
+            icd_result = [None]
+            extraction_error = [None]
+            cpt_error = [None]
+            icd_error = [None]
+            
+            # Thread 1: Extraction
+            def run_extraction():
+                try:
+                    env = os.environ.copy()
+                    env['PYTHONPATH'] = str(Path(__file__).parent / "current")
+                    env['OPENBLAS_NUM_THREADS'] = '12'
+                    env['OMP_NUM_THREADS'] = '12'
+                    env['MKL_NUM_THREADS'] = '12'
+                    
+                    script_path = Path(__file__).parent / "current" / "2-extract_info.py"
+                    
+                    cmd = [
+                        sys.executable,
+                        str(script_path),
+                        str(temp_dir / "input"),
+                        str(excel_dest),
+                        str(extraction_n_pages),
+                        str(extraction_max_workers),
+                        extraction_model
+                    ]
+                    
+                    if worktracker_group:
+                        cmd.append(worktracker_group)
+                    else:
+                        cmd.append("")
+                        
+                    if worktracker_batch:
+                        cmd.append(worktracker_batch)
+                    else:
+                        cmd.append("")
+                    
+                    if extract_csn:
+                        cmd.append("true")
+                    else:
+                        cmd.append("false")
+                    
+                    # Estimate total (rough guess based on number of PDFs)
+                    pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
+                    with lock:
+                        extraction_total[0] = pdf_count
+                    
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+                    
+                    # Monitor process and update progress
+                    while process.poll() is None:
+                        time.sleep(2)
+                        # Estimate progress from temp files
+                        extracted_files = list((temp_dir / "extracted").glob("*.csv")) if (temp_dir / "extracted").exists() else []
+                        with lock:
+                            extraction_completed[0] = min(len(extracted_files), extraction_total[0] - 1)
+                        update_progress()
+                    
+                    stdout, stderr = process.communicate()
+                    
+                    logger.info(f"[Unified {job_id}] Extraction stdout: {stdout}")
+                    if stderr:
+                        logger.info(f"[Unified {job_id}] Extraction stderr: {stderr}")
+                    
+                    if process.returncode != 0:
+                        raise Exception(f"Extraction failed: {stderr}")
+                    
+                    # Find the output CSV
+                    extracted_files = list(temp_dir.glob("extracted/combined_patient_data_*.csv"))
+                    if extracted_files:
+                        extraction_result[0] = str(extracted_files[0])
+                        with lock:
+                            extraction_completed[0] = extraction_total[0]
+                        update_progress()
+                        logger.info(f"[Unified {job_id}] Extraction completed: {extraction_result[0]}")
+                    else:
+                        raise Exception("Extraction completed but no output CSV found")
+                        
+                except Exception as e:
+                    extraction_error[0] = str(e)
+                    logger.error(f"[Unified {job_id}] Extraction error: {e}")
+            
+            # Thread 2: CPT Vision
+            def run_cpt():
+                try:
+                    cpt_csv_path_local = str(temp_dir / "cpt_predictions.csv")
+                    Path(cpt_csv_path_local).parent.mkdir(exist_ok=True)
+                    
+                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    
+                    def cpt_progress(completed, total, message):
+                        with lock:
+                            cpt_completed[0] = completed
+                            cpt_total[0] = total
+                        update_progress()
+                    
+                    result = predict_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=cpt_csv_path_local,
+                        n_pages=cpt_vision_pages,
+                        model=cpt_vision_model,
+                        api_key=api_key,
+                        max_workers=cpt_max_workers,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions,
+                        include_code_list=cpt_include_code_list
+                    )
+                    cpt_result[0] = cpt_csv_path_local if result else None
+                    if not result:
+                        raise Exception("CPT prediction returned False")
+                except Exception as e:
+                    cpt_error[0] = str(e)
+                    logger.error(f"[Unified {job_id}] CPT error: {e}")
+            
+            # Thread 3: ICD Vision
+            def run_icd():
+                try:
+                    icd_csv_path_local = str(temp_dir / "icd_predictions.csv")
+                    Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
+                    
+                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    
+                    def icd_progress(completed, total, message):
+                        with lock:
+                            icd_completed[0] = completed
+                            icd_total[0] = total
+                        update_progress()
+                    
+                    result = predict_icd_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=icd_csv_path_local,
+                        n_pages=icd_n_pages,
+                        model=icd_vision_model,
+                        api_key=api_key,
+                        max_workers=icd_max_workers,
+                        progress_callback=icd_progress,
+                        custom_instructions=icd_custom_instructions
+                    )
+                    icd_result[0] = icd_csv_path_local if result else None
+                    if not result:
+                        raise Exception("ICD prediction returned False")
+                except Exception as e:
+                    icd_error[0] = str(e)
+                    logger.error(f"[Unified {job_id}] ICD error: {e}")
+            
+            # Start all three threads
+            extraction_thread = threading.Thread(target=run_extraction)
+            cpt_thread = threading.Thread(target=run_cpt)
+            icd_thread = threading.Thread(target=run_icd)
+            
+            extraction_thread.start()
+            cpt_thread.start()
+            icd_thread.start()
+            
+            # Wait for all three to complete
+            extraction_thread.join()
+            cpt_thread.join()
+            icd_thread.join()
+            
+            # Check results
+            if extraction_error[0]:
+                raise Exception(f"Extraction failed: {extraction_error[0]}")
+            if cpt_error[0]:
+                raise Exception(f"CPT prediction failed: {cpt_error[0]}")
+            if icd_error[0]:
+                raise Exception(f"ICD prediction failed: {icd_error[0]}")
+            
+            # Set paths for merging
+            extraction_csv_path = extraction_result[0]
+            cpt_csv_path = cpt_result[0]
+            icd_csv_path = icd_result[0]
+            
+            # Verify files were created
+            if extraction_csv_path and not os.path.exists(extraction_csv_path):
+                raise Exception(f"Extraction reported success but file not found: {extraction_csv_path}")
+            if cpt_csv_path and not os.path.exists(cpt_csv_path):
+                raise Exception(f"CPT prediction reported success but file not found: {cpt_csv_path}")
+            if icd_csv_path and not os.path.exists(icd_csv_path):
+                raise Exception(f"ICD prediction reported success but file not found: {icd_csv_path}")
+            
+            logger.info(f"[Unified {job_id}] ✨ All three operations completed in parallel!")
+            job.message = "All operations completed in parallel"
+            job.progress = 85
+            gc.collect()
+        
+        elif run_extraction_icd_parallel:
+            # ==================== EXTRACTION + ICD IN PARALLEL ====================
+            # Run Extraction + ICD in parallel, then CPT non-vision after
+            job.message = "Running extraction and ICD in parallel..."
+            job.progress = 10
+            logger.info(f"[Unified {job_id}] Running Extraction + ICD in parallel, then CPT")
+            
+            # Unzip files once
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir / "input")
+            
+            # Prepare extraction
+            excel_dest = temp_dir / "instructions" / excel_filename
+            excel_dest.parent.mkdir(exist_ok=True)
+            shutil.copy2(excel_path, excel_dest)
+            
+            # Import ICD prediction function
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_icd_codes_from_pdfs_api
+            
+            # Thread-safe progress tracking
+            import threading
+            extraction_completed = [0]
+            icd_completed = [0]
+            extraction_total = [0]
+            icd_total = [0]
+            lock = threading.Lock()
+            
+            def update_progress():
+                with lock:
+                    total_completed = extraction_completed[0] + icd_completed[0]
+                    total_tasks = extraction_total[0] + icd_total[0]
+                    if total_tasks > 0:
+                        progress_pct = 10 + int((total_completed / total_tasks) * 50)
+                        job.progress = min(progress_pct, 60)
+                        job.message = f"Extraction: {extraction_completed[0]}/{extraction_total[0]}, ICD: {icd_completed[0]}/{icd_total[0]}"
+            
+            # Results storage
+            extraction_result = [None]
+            icd_result = [None]
+            extraction_error = [None]
+            icd_error = [None]
+            
+            # Thread 1: Extraction
+            def run_extraction():
+                try:
+                    env = os.environ.copy()
+                    env['PYTHONPATH'] = str(Path(__file__).parent / "current")
+                    env['OPENBLAS_NUM_THREADS'] = '12'
+                    env['OMP_NUM_THREADS'] = '12'
+                    env['MKL_NUM_THREADS'] = '12'
+                    
+                    script_path = Path(__file__).parent / "current" / "2-extract_info.py"
+                    
+                    cmd = [
+                        sys.executable,
+                        str(script_path),
+                        str(temp_dir / "input"),
+                        str(excel_dest),
+                        str(extraction_n_pages),
+                        str(extraction_max_workers),
+                        extraction_model
+                    ]
+                    
+                    if worktracker_group:
+                        cmd.append(worktracker_group)
+                    else:
+                        cmd.append("")
+                        
+                    if worktracker_batch:
+                        cmd.append(worktracker_batch)
+                    else:
+                        cmd.append("")
+                    
+                    if extract_csn:
+                        cmd.append("true")
+                    else:
+                        cmd.append("false")
+                    
+                    # Estimate total
+                    pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
+                    with lock:
+                        extraction_total[0] = pdf_count
+                    
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+                    
+                    # Monitor process
+                    while process.poll() is None:
+                        time.sleep(2)
+                        extracted_files = list((temp_dir / "extracted").glob("*.csv")) if (temp_dir / "extracted").exists() else []
+                        with lock:
+                            extraction_completed[0] = min(len(extracted_files), extraction_total[0] - 1)
+                        update_progress()
+                    
+                    stdout, stderr = process.communicate()
+                    
+                    logger.info(f"[Unified {job_id}] Extraction stdout: {stdout}")
+                    if stderr:
+                        logger.info(f"[Unified {job_id}] Extraction stderr: {stderr}")
+                    
+                    if process.returncode != 0:
+                        raise Exception(f"Extraction failed: {stderr}")
+                    
+                    extracted_files = list(temp_dir.glob("extracted/combined_patient_data_*.csv"))
+                    if extracted_files:
+                        extraction_result[0] = str(extracted_files[0])
+                        with lock:
+                            extraction_completed[0] = extraction_total[0]
+                        update_progress()
+                        logger.info(f"[Unified {job_id}] Extraction completed: {extraction_result[0]}")
+                    else:
+                        raise Exception("Extraction completed but no output CSV found")
+                        
+                except Exception as e:
+                    extraction_error[0] = str(e)
+                    logger.error(f"[Unified {job_id}] Extraction error: {e}")
+            
+            # Thread 2: ICD Vision
+            def run_icd():
+                try:
+                    icd_csv_path_local = str(temp_dir / "icd_predictions.csv")
+                    Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
+                    
+                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    
+                    def icd_progress(completed, total, message):
+                        with lock:
+                            icd_completed[0] = completed
+                            icd_total[0] = total
+                        update_progress()
+                    
+                    result = predict_icd_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=icd_csv_path_local,
+                        n_pages=icd_n_pages,
+                        model=icd_vision_model,
+                        api_key=api_key,
+                        max_workers=icd_max_workers,
+                        progress_callback=icd_progress,
+                        custom_instructions=icd_custom_instructions
+                    )
+                    icd_result[0] = icd_csv_path_local if result else None
+                    if not result:
+                        raise Exception("ICD prediction returned False")
+                except Exception as e:
+                    icd_error[0] = str(e)
+                    logger.error(f"[Unified {job_id}] ICD error: {e}")
+            
+            # Start both threads
+            extraction_thread = threading.Thread(target=run_extraction)
+            icd_thread = threading.Thread(target=run_icd)
+            
+            extraction_thread.start()
+            icd_thread.start()
+            
+            # Wait for both to complete
+            extraction_thread.join()
+            icd_thread.join()
+            
+            # Check results
+            if extraction_error[0]:
+                raise Exception(f"Extraction failed: {extraction_error[0]}")
+            if icd_error[0]:
+                raise Exception(f"ICD prediction failed: {icd_error[0]}")
+            
+            extraction_csv_path = extraction_result[0]
+            icd_csv_path = icd_result[0]
+            
+            if extraction_csv_path and not os.path.exists(extraction_csv_path):
+                raise Exception(f"Extraction reported success but file not found: {extraction_csv_path}")
+            if icd_csv_path and not os.path.exists(icd_csv_path):
+                raise Exception(f"ICD prediction reported success but file not found: {icd_csv_path}")
+            
+            logger.info(f"[Unified {job_id}] Extraction + ICD completed in parallel")
+            job.message = "Running CPT prediction on extracted data..."
+            job.progress = 60
+            gc.collect()
+            
+            # Now run CPT non-vision on the extraction results
+            # (Keep the existing CPT non-vision logic here - it will execute after this block)
+        
+        elif enable_extraction:
             job.message = "Step 1/3: Extracting data from PDFs..."
             job.progress = 10
             logger.info(f"[Unified {job_id}] Starting data extraction")
@@ -5177,10 +5604,17 @@ def process_unified_background(
             job.progress = 85
             gc.collect()
         
-        elif enable_cpt:
-            # ==================== STEP 2: CPT Code Prediction ====================
-            job.message = "Step 2/3: Predicting CPT codes..."
-            job.progress = 35
+        # ==================== STEP 2: CPT Code Prediction (if not already done) ====================
+        if enable_cpt and not cpt_csv_path:
+            # CPT wasn't handled in parallel, so run it now
+            if run_extraction_icd_parallel:
+                # CPT non-vision runs after extraction+ICD parallel
+                job.message = "Step 2/2: Predicting CPT codes from extracted data..."
+                job.progress = 60
+            else:
+                # Sequential CPT processing
+                job.message = "Step 2/3: Predicting CPT codes..."
+                job.progress = 35
             logger.info(f"[Unified {job_id}] Starting CPT prediction (vision_mode={cpt_vision_mode}, client={cpt_client})")
             
             if cpt_vision_mode:
@@ -5263,9 +5697,14 @@ def process_unified_background(
                     cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
                     api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
                     
+                    # Dynamic progress based on whether we ran parallel extraction+ICD
+                    progress_start = 60 if run_extraction_icd_parallel else 35
+                    progress_range = 25 if run_extraction_icd_parallel else 20
+                    progress_end = 85 if run_extraction_icd_parallel else 55
+                    
                     def cpt_progress(completed, total, message):
-                        progress_pct = 35 + int((completed / total) * 20)
-                        job.progress = min(progress_pct, 55)
+                        progress_pct = progress_start + int((completed / total) * progress_range)
+                        job.progress = min(progress_pct, progress_end)
                         job.message = f"CPT prediction: {message}"
                     
                     success = predict_codes_general_api(
@@ -5286,10 +5725,15 @@ def process_unified_background(
                     
                     cpt_csv_path = str(temp_dir / "with_cpt_codes.csv")
                     
+                    # Dynamic progress based on whether we ran parallel extraction+ICD
+                    progress_start = 60 if run_extraction_icd_parallel else 35
+                    progress_range = 25 if run_extraction_icd_parallel else 20
+                    progress_end = 85 if run_extraction_icd_parallel else 55
+                    
                     # Progress callback for custom model
                     def cpt_progress(completed, total, message):
-                        progress_pct = 35 + int((completed / total) * 20)
-                        job.progress = min(progress_pct, 55)
+                        progress_pct = progress_start + int((completed / total) * progress_range)
+                        job.progress = min(progress_pct, progress_end)
                         job.message = f"CPT prediction: {message}"
                     
                     success = predict_codes_api(
@@ -5309,11 +5753,16 @@ def process_unified_background(
                 logger.info(f"[Unified {job_id}] CPT prediction completed: {cpt_csv_path}")
             
             job.message = "CPT prediction completed"
-            job.progress = 55
+            # Set final progress based on what was run in parallel
+            if run_extraction_icd_parallel:
+                job.progress = 85  # After extraction+ICD parallel
+            else:
+                job.progress = 55  # Sequential mode
             gc.collect()
         
-        # ==================== STEP 3: ICD Code Prediction ====================
-        if enable_icd and not run_cpt_icd_parallel:
+        # ==================== STEP 3: ICD Code Prediction (if not already done) ====================
+        if enable_icd and not icd_csv_path:
+            # ICD wasn't handled in parallel, so run it now
             job.message = "Step 3/3: Predicting ICD codes..."
             job.progress = 60
             logger.info(f"[Unified {job_id}] Starting ICD prediction")
