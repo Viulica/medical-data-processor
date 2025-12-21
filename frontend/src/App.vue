@@ -3747,10 +3747,34 @@
               </div>
             </div>
 
-            <!-- Step 4: CPT Instruction Template (Required) -->
+            <!-- Step 4: Enable CPT Refinement -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">4</div>
+                <h3>CPT Refinement</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label class="toggle-label">
+                    <input
+                      v-model="refinementEnableCpt"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Enable CPT code refinement</span>
+                  </label>
+                  <small class="help-text"
+                    >Refine CPT instruction templates based on prediction
+                    errors</small
+                  >
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 5: CPT Instruction Template (Required if CPT enabled) -->
+            <div v-if="refinementEnableCpt" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">5</div>
                 <h3>CPT Instruction Template (Required)</h3>
               </div>
               <div class="settings-content">
@@ -3773,10 +3797,10 @@
               </div>
             </div>
 
-            <!-- Step 5: CPT Vision Model Selection -->
-            <div class="upload-card">
+            <!-- Step 6: CPT Vision Model Selection -->
+            <div v-if="refinementEnableCpt" class="upload-card">
               <div class="card-header">
-                <div class="step-number">5</div>
+                <div class="step-number">6</div>
                 <h3>CPT Vision Model</h3>
               </div>
               <div class="settings-content">
@@ -3892,10 +3916,34 @@
               </div>
             </div>
 
-            <!-- Step 6: ICD Instruction Template (Required) -->
+            <!-- Step 7: Enable ICD Refinement -->
             <div class="upload-card">
               <div class="card-header">
-                <div class="step-number">6</div>
+                <div class="step-number">7</div>
+                <h3>ICD Refinement</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label class="toggle-label">
+                    <input
+                      v-model="refinementEnableIcd"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Enable ICD code refinement</span>
+                  </label>
+                  <small class="help-text"
+                    >Refine ICD instruction templates based on prediction
+                    errors</small
+                  >
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 8: ICD Instruction Template (Required if ICD enabled) -->
+            <div v-if="refinementEnableIcd" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">8</div>
                 <h3>ICD Instruction Template (Required)</h3>
               </div>
               <div class="settings-content">
@@ -3918,10 +3966,10 @@
               </div>
             </div>
 
-            <!-- Step 7: ICD Vision Model Selection -->
-            <div class="upload-card">
+            <!-- Step 9: ICD Vision Model Selection -->
+            <div v-if="refinementEnableIcd" class="upload-card">
               <div class="card-header">
-                <div class="step-number">7</div>
+                <div class="step-number">9</div>
                 <h3>ICD Vision Model</h3>
               </div>
               <div class="settings-content">
@@ -4040,11 +4088,11 @@
             <!-- Refinement Parameters -->
             <div class="upload-card">
               <div class="card-header">
-                <div class="step-number">8</div>
+                <div class="step-number">10</div>
                 <h3>Refinement Parameters</h3>
               </div>
               <div class="settings-content">
-                <div class="setting-group">
+                <div v-if="refinementEnableCpt" class="setting-group">
                   <label for="refinement-target-cpt">Target CPT Accuracy</label>
                   <input
                     id="refinement-target-cpt"
@@ -4057,7 +4105,11 @@
                   />
                   <small class="help-text">Default: 0.95 (95%)</small>
                 </div>
-                <div class="setting-group" style="margin-top: 15px">
+                <div
+                  v-if="refinementEnableIcd"
+                  class="setting-group"
+                  style="margin-top: 15px"
+                >
                   <label for="refinement-target-icd">Target ICD Accuracy</label>
                   <input
                     id="refinement-target-icd"
@@ -7100,6 +7152,8 @@ export default {
       refinementGroundTruthFile: null,
       refinementUseExtractionTemplate: false,
       refinementSelectedExtractionTemplateId: null,
+      refinementEnableCpt: true, // Enable CPT refinement
+      refinementEnableIcd: true, // Enable ICD refinement
       refinementSelectedCptInstructionId: null,
       refinementSelectedIcdInstructionId: null,
       refinementCptVisionModel: "openai/gpt-5.2:online", // CPT vision model selection
@@ -7331,10 +7385,22 @@ export default {
       if (!hasTemplate) {
         return false;
       }
-      if (!this.refinementSelectedCptInstructionId) {
+      // At least one refinement type must be enabled
+      if (!this.refinementEnableCpt && !this.refinementEnableIcd) {
         return false;
       }
-      if (!this.refinementSelectedIcdInstructionId) {
+      // If CPT is enabled, CPT template is required
+      if (
+        this.refinementEnableCpt &&
+        !this.refinementSelectedCptInstructionId
+      ) {
+        return false;
+      }
+      // If ICD is enabled, ICD template is required
+      if (
+        this.refinementEnableIcd &&
+        !this.refinementSelectedIcdInstructionId
+      ) {
         return false;
       }
       if (!this.refinementEmail || !this.refinementEmail.includes("@")) {
@@ -8649,31 +8715,57 @@ export default {
       formData.append("extract_csn", false);
 
       // CPT parameters (use vision mode since we're working with PDFs)
-      formData.append("enable_cpt", true);
-      formData.append("cpt_vision_mode", true); // Use vision mode for PDF-based prediction
-      formData.append("cpt_client", "uni");
-      formData.append("cpt_vision_pages", 1);
-      formData.append("cpt_vision_model", this.refinementCptVisionModel);
-      formData.append("cpt_include_code_list", true);
-      formData.append("cpt_max_workers", 50);
-      formData.append(
-        "cpt_instruction_template_id",
-        this.refinementSelectedCptInstructionId
-      );
+      formData.append("enable_cpt", this.refinementEnableCpt);
+      if (this.refinementEnableCpt) {
+        formData.append("cpt_vision_mode", true); // Use vision mode for PDF-based prediction
+        formData.append("cpt_client", "uni");
+        formData.append("cpt_vision_pages", 1);
+        formData.append("cpt_vision_model", this.refinementCptVisionModel);
+        formData.append("cpt_include_code_list", true);
+        formData.append("cpt_max_workers", 50);
+        formData.append(
+          "cpt_instruction_template_id",
+          this.refinementSelectedCptInstructionId
+        );
+      } else {
+        // Still need to provide defaults even if disabled
+        formData.append(
+          "cpt_instruction_template_id",
+          this.refinementSelectedCptInstructionId || 0
+        );
+      }
 
       // ICD parameters
-      formData.append("enable_icd", true);
-      formData.append("icd_n_pages", 1);
-      formData.append("icd_vision_model", this.refinementIcdVisionModel);
-      formData.append("icd_max_workers", 50);
-      formData.append(
-        "icd_instruction_template_id",
-        this.refinementSelectedIcdInstructionId
-      );
+      formData.append("enable_icd", this.refinementEnableIcd);
+      if (this.refinementEnableIcd) {
+        formData.append("icd_n_pages", 1);
+        formData.append("icd_vision_model", this.refinementIcdVisionModel);
+        formData.append("icd_max_workers", 50);
+        formData.append(
+          "icd_instruction_template_id",
+          this.refinementSelectedIcdInstructionId
+        );
+      } else {
+        // Still need to provide defaults even if disabled
+        formData.append(
+          "icd_instruction_template_id",
+          this.refinementSelectedIcdInstructionId || 0
+        );
+      }
 
-      // Refinement parameters
-      formData.append("target_cpt_accuracy", this.refinementTargetCptAccuracy);
-      formData.append("target_icd_accuracy", this.refinementTargetIcdAccuracy);
+      // Refinement parameters (only send if enabled)
+      if (this.refinementEnableCpt) {
+        formData.append(
+          "target_cpt_accuracy",
+          this.refinementTargetCptAccuracy
+        );
+      }
+      if (this.refinementEnableIcd) {
+        formData.append(
+          "target_icd_accuracy",
+          this.refinementTargetIcdAccuracy
+        );
+      }
       formData.append("max_iterations", this.refinementMaxIterations);
       formData.append("notification_email", this.refinementEmail);
 
