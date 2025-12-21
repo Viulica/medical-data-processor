@@ -85,12 +85,21 @@ def run_refinement_job(
         temp_dir = Path(f"/tmp/refinement_{job_id}")
         temp_dir.mkdir(exist_ok=True)
         
-        # Build PDF mapping from extraction results (will be populated after first extraction)
-        pdf_mapping = {}  # account_id -> pdf_path
-        
         # Extract ZIP for processing
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir / "input")
+        
+        # Build PDF mapping from extracted PDFs
+        pdf_mapping = {}  # account_id -> pdf_path
+        pdf_folder = temp_dir / "input"
+        
+        # Find all PDF files recursively
+        for pdf_file in pdf_folder.rglob("*.pdf"):
+            # Extract account ID from filename (usually the PDF filename without extension)
+            account_id = pdf_file.stem
+            pdf_mapping[account_id] = str(pdf_file)
+        
+        logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} PDFs")
         
         # Import unified processing function (lazy import to avoid circular dependencies)
         # We'll import it when needed inside the loop
