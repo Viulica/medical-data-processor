@@ -210,13 +210,14 @@ def calculate_accuracy(
                         'error_type': 'CPT'
                     })
             
-            # Compare ICD1
+            # Compare ICD1 (only if both predicted and ground truth have codes)
             if icd_col_gt:
                 gt_icd_list = parse_icd_codes(gt_data['icd'])
-                if len(predicted_icd_list) > 0 or len(gt_icd_list) > 0:
+                # Only count cases where BOTH predicted and ground truth have ICD1 codes
+                if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
                     icd1_total += 1
-                    predicted_icd1 = predicted_icd_list[0] if len(predicted_icd_list) > 0 else ''
-                    gt_icd1 = gt_icd_list[0] if len(gt_icd_list) > 0 else ''
+                    predicted_icd1 = predicted_icd_list[0] if predicted_icd_list[0] else ''
+                    gt_icd1 = gt_icd_list[0] if gt_icd_list[0] else ''
                     icd1_match = predicted_icd1 == gt_icd1
                     if icd1_match:
                         icd1_matches += 1
