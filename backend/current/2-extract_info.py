@@ -18,6 +18,7 @@ import base64
 import requests
 from io import BytesIO
 from PIL import Image
+from pathlib import Path
 
 # Thread-local storage for temporary files cleanup
 thread_local = threading.local()
@@ -443,8 +444,10 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
+    
+    print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}")
     
     # Check if Excel file exists
     if not os.path.exists(excel_file_path):
@@ -550,6 +553,30 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
+        # Initialize progress tracking
+        completed_count = 0
+        total_count = len(tasks)
+        
+        def write_progress():
+            """Write progress to file if provided"""
+            if progress_file:
+                try:
+                    # Ensure parent directory exists
+                    progress_path = Path(progress_file)
+                    progress_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(progress_file, 'w') as f:
+                        f.write(f"{completed_count}\n{total_count}\n")
+                        f.flush()  # Ensure it's written immediately
+                    print(f"  📊 Progress: {completed_count}/{total_count} (written to {progress_file})")
+                except Exception as e:
+                    print(f"  ⚠️  Warning: Could not write progress file {progress_file}: {e}")
+                    import traceback
+                    print(f"  ⚠️  Traceback: {traceback.format_exc()}")
+        
+        # Write initial progress
+        print(f"  📝 Initializing progress tracking (file: {progress_file})")
+        write_progress()
+        
         with ThreadPoolExecutor(max_workers=min(max_workers, len(pdf_files))) as executor:
             # Submit all tasks
             future_to_task = {executor.submit(process_single_patient_pdf_task, task): task for task in tasks}
@@ -619,10 +646,17 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                     else:
                         print(f"  ❌ All retries failed for {pdf_filename}")
                         failed_pdfs.append(pdf_filename)
+                    
+                    # Update progress after each PDF is processed (success or failure)
+                    completed_count += 1
+                    write_progress()
                         
                 except Exception as e:
                     print(f"  ❌ Exception processing {pdf_filename}: {str(e)}")
                     failed_pdfs.append(pdf_filename)
+                    # Update progress even on exception
+                    completed_count += 1
+                    write_progress()
             
             # Sort results by original order to preserve PDF order
             results_with_order.sort(key=lambda x: x[0])
@@ -767,6 +801,9 @@ if __name__ == "__main__":
         worktracker_batch = sys.argv[7] if sys.argv[7].strip() else None
     if len(sys.argv) > 8:
         extract_csn = sys.argv[8].lower() == "true" if sys.argv[8].strip() else False
+    progress_file = None  # Optional progress file path
+    if len(sys.argv) > 9:
+        progress_file = sys.argv[9] if sys.argv[9].strip() else None
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
@@ -781,6 +818,8 @@ if __name__ == "__main__":
         print(f"   Worktracker Batch #: {worktracker_batch}")
     if extract_csn:
         print(f"   Extract CSN: Enabled")
+    if progress_file:
+        print(f"   Progress file: {progress_file}")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file) 

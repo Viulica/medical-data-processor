@@ -233,6 +233,9 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             else:
                 cmd.append("false")
             
+            # Add empty progress_file (not needed for sequential processing)
+            cmd.append("")
+            
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
             
             # Wait for process with timeout (30 minutes max)
@@ -5079,6 +5082,7 @@ def process_unified_background(
             # Thread 1: Extraction
             def run_extraction():
                 try:
+                    logger.info(f"[Unified {job_id}] Starting extraction thread...")
                     env = os.environ.copy()
                     env['PYTHONPATH'] = str(Path(__file__).parent / "current")
                     env['OPENBLAS_NUM_THREADS'] = '12'
@@ -5086,6 +5090,9 @@ def process_unified_background(
                     env['MKL_NUM_THREADS'] = '12'
                     
                     script_path = Path(__file__).parent / "current" / "2-extract_info.py"
+                    
+                    if not script_path.exists():
+                        raise Exception(f"Extraction script not found: {script_path}")
                     
                     cmd = [
                         sys.executable,
@@ -5112,20 +5119,38 @@ def process_unified_background(
                     else:
                         cmd.append("false")
                     
+                    # Create progress file for extraction script to write to
+                    progress_file_path = temp_dir / "extraction_progress.txt"
+                    cmd.append(str(progress_file_path))
+                    
+                    logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
+                    
                     # Estimate total (rough guess based on number of PDFs)
                     pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
+                    logger.info(f"[Unified {job_id}] Found {pdf_count} PDFs to extract")
                     with lock:
                         extraction_total[0] = pdf_count
                     
                     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
+                    logger.info(f"[Unified {job_id}] Extraction subprocess started with PID {process.pid}")
                     
-                    # Monitor process and update progress
+                    # Monitor process and update progress from progress file
                     while process.poll() is None:
                         time.sleep(2)
-                        # Estimate progress from temp files
-                        extracted_files = list((temp_dir / "extracted").glob("*.csv")) if (temp_dir / "extracted").exists() else []
-                        with lock:
-                            extraction_completed[0] = min(len(extracted_files), extraction_total[0] - 1)
+                        # Read progress from file written by extraction script
+                        if progress_file_path.exists():
+                            try:
+                                with open(progress_file_path, 'r') as f:
+                                    lines = f.readlines()
+                                    if len(lines) >= 2:
+                                        completed = int(lines[0].strip())
+                                        total = int(lines[1].strip())
+                                        with lock:
+                                            extraction_completed[0] = completed
+                                            if total > 0:
+                                                extraction_total[0] = total
+                            except (ValueError, IOError) as e:
+                                logger.debug(f"[Unified {job_id}] Could not read progress file: {e}")
                         update_progress()
                     
                     stdout, stderr = process.communicate()
@@ -5220,9 +5245,11 @@ def process_unified_background(
             cpt_thread = threading.Thread(target=run_cpt)
             icd_thread = threading.Thread(target=run_icd)
             
+            logger.info(f"[Unified {job_id}] Starting extraction, CPT, and ICD threads...")
             extraction_thread.start()
             cpt_thread.start()
             icd_thread.start()
+            logger.info(f"[Unified {job_id}] All threads started")
             
             # Wait for all three to complete
             extraction_thread.join()
@@ -5335,6 +5362,10 @@ def process_unified_background(
                     else:
                         cmd.append("false")
                     
+                    # Create progress file for extraction script to write to
+                    progress_file_path = temp_dir / "extraction_progress.txt"
+                    cmd.append(str(progress_file_path))
+                    
                     # Estimate total
                     pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
                     with lock:
@@ -5342,12 +5373,23 @@ def process_unified_background(
                     
                     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
                     
-                    # Monitor process
+                    # Monitor process and update progress from progress file
                     while process.poll() is None:
                         time.sleep(2)
-                        extracted_files = list((temp_dir / "extracted").glob("*.csv")) if (temp_dir / "extracted").exists() else []
-                        with lock:
-                            extraction_completed[0] = min(len(extracted_files), extraction_total[0] - 1)
+                        # Read progress from file written by extraction script
+                        if progress_file_path.exists():
+                            try:
+                                with open(progress_file_path, 'r') as f:
+                                    lines = f.readlines()
+                                    if len(lines) >= 2:
+                                        completed = int(lines[0].strip())
+                                        total = int(lines[1].strip())
+                                        with lock:
+                                            extraction_completed[0] = completed
+                                            if total > 0:
+                                                extraction_total[0] = total
+                            except (ValueError, IOError) as e:
+                                logger.debug(f"[Unified {job_id}] Could not read progress file: {e}")
                         update_progress()
                     
                     stdout, stderr = process.communicate()
@@ -5489,6 +5531,9 @@ def process_unified_background(
                     cmd.append("true")
                 else:
                     cmd.append("false")
+                
+                # Add empty progress_file (not needed for sequential processing)
+                cmd.append("")
                 
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
                 stdout, stderr = process.communicate(timeout=1800)
