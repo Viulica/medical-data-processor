@@ -349,57 +349,57 @@ def run_refinement_job(
                 logger.info(f"[Refinement {job_id}] Running unified processing for ICD iteration {icd_iteration}")
                 
                 try:
-                # Get best CPT instructions if CPT is enabled
-                best_cpt_instructions = ""
-                best_cpt_template_id_for_icd = None
-                if enable_cpt and best_cpt_template_id:
-                    best_cpt_template = get_prediction_instruction(instruction_id=best_cpt_template_id)
-                    if best_cpt_template:
-                        best_cpt_instructions = best_cpt_template['instructions_text']
-                        best_cpt_template_id_for_icd = best_cpt_template_id
-                
-                process_unified_background(
-                    job_id=iteration_job_id,
-                    zip_path=iteration_zip_path,
-                    excel_path=excel_path,
-                    excel_filename=excel_filename,
-                    enable_extraction=enable_extraction,
-                    extraction_n_pages=extraction_n_pages,
-                    extraction_model=extraction_model,
-                    extraction_max_workers=extraction_max_workers,
-                    worktracker_group=worktracker_group,
-                    worktracker_batch=worktracker_batch,
-                    extract_csn=extract_csn,
-                    enable_cpt=enable_cpt,  # Use enable_cpt flag
-                    cpt_vision_mode=cpt_vision_mode,
-                    cpt_client=cpt_client,
-                    cpt_vision_pages=cpt_vision_pages,
-                    cpt_vision_model=cpt_vision_model,
-                    cpt_include_code_list=cpt_include_code_list,
-                    cpt_max_workers=cpt_max_workers,
-                    cpt_custom_instructions=best_cpt_instructions,
-                    cpt_instruction_template_id=best_cpt_template_id_for_icd,
-                    enable_icd=True,  # Always enable ICD during ICD phase
-                    icd_n_pages=icd_n_pages,
-                    icd_vision_model=icd_vision_model,
-                    icd_max_workers=icd_max_workers,
-                    icd_custom_instructions=icd_instructions,
-                    icd_instruction_template_id=current_icd_template_id
-                )
-                
-                # Wait for job to complete
-                import time
-                while iteration_job.status == "processing":
-                    time.sleep(2)
-                
-                if iteration_job.status == "failed":
-                    raise Exception(f"Unified processing failed: {iteration_job.error}")
-                
-                # Get results CSV path
-                results_csv_path = iteration_job.result_file
-                if not results_csv_path or not os.path.exists(results_csv_path):
-                    raise Exception("Results CSV not found")
-                
+                    # Get best CPT instructions if CPT is enabled
+                    best_cpt_instructions = ""
+                    best_cpt_template_id_for_icd = None
+                    if enable_cpt and best_cpt_template_id:
+                        best_cpt_template = get_prediction_instruction(instruction_id=best_cpt_template_id)
+                        if best_cpt_template:
+                            best_cpt_instructions = best_cpt_template['instructions_text']
+                            best_cpt_template_id_for_icd = best_cpt_template_id
+                    
+                    process_unified_background(
+                        job_id=iteration_job_id,
+                        zip_path=iteration_zip_path,
+                        excel_path=excel_path,
+                        excel_filename=excel_filename,
+                        enable_extraction=enable_extraction,
+                        extraction_n_pages=extraction_n_pages,
+                        extraction_model=extraction_model,
+                        extraction_max_workers=extraction_max_workers,
+                        worktracker_group=worktracker_group,
+                        worktracker_batch=worktracker_batch,
+                        extract_csn=extract_csn,
+                        enable_cpt=enable_cpt,  # Use enable_cpt flag
+                        cpt_vision_mode=cpt_vision_mode,
+                        cpt_client=cpt_client,
+                        cpt_vision_pages=cpt_vision_pages,
+                        cpt_vision_model=cpt_vision_model,
+                        cpt_include_code_list=cpt_include_code_list,
+                        cpt_max_workers=cpt_max_workers,
+                        cpt_custom_instructions=best_cpt_instructions,
+                        cpt_instruction_template_id=best_cpt_template_id_for_icd,
+                        enable_icd=True,  # Always enable ICD during ICD phase
+                        icd_n_pages=icd_n_pages,
+                        icd_vision_model=icd_vision_model,
+                        icd_max_workers=icd_max_workers,
+                        icd_custom_instructions=icd_instructions,
+                        icd_instruction_template_id=current_icd_template_id
+                    )
+                    
+                    # Wait for job to complete
+                    import time
+                    while iteration_job.status == "processing":
+                        time.sleep(2)
+                    
+                    if iteration_job.status == "failed":
+                        raise Exception(f"Unified processing failed: {iteration_job.error}")
+                    
+                    # Get results CSV path
+                    results_csv_path = iteration_job.result_file
+                    if not results_csv_path or not os.path.exists(results_csv_path):
+                        raise Exception("Results CSV not found")
+                    
                 except Exception as e:
                     logger.error(f"[Refinement {job_id}] Unified processing failed: {e}")
                     update_refinement_job(job_id, status="failed", error_message=str(e))
