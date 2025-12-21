@@ -6198,7 +6198,7 @@ export default {
       activeTab: "process-fast",
       zipFile: null,
       excelFile: null,
-      pageCount: 2,
+      pageCount: 49,
       worktrackerGroup: "",
       worktrackerBatch: "",
       jobId: null,
@@ -6214,7 +6214,7 @@ export default {
       // Fast processing functionality
       zipFileFast: null,
       excelFileFast: null,
-      pageCountFast: 2,
+      pageCountFast: 49,
       worktrackerGroupFast: "",
       worktrackerBatchFast: "",
       jobIdFast: null,
@@ -6244,13 +6244,13 @@ export default {
       // Vision-based CPT prediction from PDFs
       useVisionPrediction: false,
       visionZipFile: null,
-      visionPageCount: 1,
+      visionPageCount: 49,
       isVisionZipDragActive: false,
       cptVisionModel: "openai/gpt-5.2:online",
       cptVisionCustomInstructions: "",
       // ICD prediction functionality
       icdZipFile: null,
-      icdPageCount: 1,
+      icdPageCount: 49,
       icdVisionModel: "openai/gpt-5.2:online",
       icdJobId: null,
       icdJobStatus: null,
@@ -6322,7 +6322,7 @@ export default {
       unifiedEnableCpt: true,
       unifiedEnableIcd: true,
       // Unified - Extraction settings
-      unifiedExtractionPages: 2,
+      unifiedExtractionPages: 49,
       unifiedExtractionModel: "gemini-3-flash-preview",
       unifiedExtractionMaxWorkers: 50,
       unifiedWorktrackerGroup: "",
@@ -6334,13 +6334,13 @@ export default {
       unifiedCptSelectedClient: "uni", // For non-vision mode
       unifiedCptMaxWorkers: 50,
       unifiedCptCustomInstructions: "",
-      unifiedCptVisionPages: 1, // For vision mode
+      unifiedCptVisionPages: 49, // For vision mode
       unifiedCptVisionModel: "openai/gpt-5.2:online", // Vision model selection
       unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
-      unifiedIcdPages: 1,
+      unifiedIcdPages: 49,
       unifiedIcdMaxWorkers: 50,
       unifiedIcdVisionModel: "openai/gpt-5.2:online", // Vision model selection
       unifiedIcdCustomInstructions: "",
@@ -7250,7 +7250,7 @@ export default {
     resetForm() {
       this.zipFile = null;
       this.excelFile = null;
-      this.pageCount = 2;
+      this.pageCount = 49;
       this.worktrackerGroup = "";
       this.worktrackerBatch = "";
       this.extractCSN = false;
@@ -7454,7 +7454,7 @@ export default {
     resetFormFast() {
       this.zipFileFast = null;
       this.excelFileFast = null;
-      this.pageCountFast = 2;
+      this.pageCountFast = 49;
       this.worktrackerGroupFast = "";
       this.worktrackerBatchFast = "";
       this.jobIdFast = null;
@@ -7741,7 +7741,7 @@ export default {
       this.unifiedEnableCpt = true;
       this.unifiedEnableIcd = true;
       // Extraction settings
-      this.unifiedExtractionPages = 2;
+      this.unifiedExtractionPages = 49;
       this.unifiedExtractionModel = "gemini-3-flash-preview";
       this.unifiedExtractionMaxWorkers = 50;
       this.unifiedWorktrackerGroup = "";
@@ -7751,7 +7751,7 @@ export default {
       // CPT settings
       this.unifiedCptVisionMode = false;
       this.unifiedCptSelectedClient = "uni";
-      this.unifiedCptVisionPages = 1;
+      this.unifiedCptVisionPages = 49;
       this.unifiedCptVisionModel = "openai/gpt-5.2:online";
       this.unifiedCptIncludeCodeList = true;
       this.unifiedCptMaxWorkers = 50;
@@ -7759,7 +7759,7 @@ export default {
       this.unifiedUseCptTemplate = false;
       this.unifiedSelectedCptInstructionId = null;
       // ICD settings
-      this.unifiedIcdPages = 1;
+      this.unifiedIcdPages = 49;
       this.unifiedIcdVisionModel = "openai/gpt-5.2:online";
       this.unifiedIcdMaxWorkers = 50;
       this.unifiedIcdCustomInstructions = "";
@@ -8054,7 +8054,7 @@ export default {
       this.csvFile = null;
       this.visionZipFile = null;
       this.useVisionPrediction = false;
-      this.visionPageCount = 1;
+      this.visionPageCount = 49;
       this.cptVisionModel = "openai/gpt-5.2:online";
       this.cptVisionCustomInstructions = "";
       this.useCptTemplateInsteadOfText = false;
@@ -8290,7 +8290,7 @@ export default {
 
     resetIcdForm() {
       this.icdZipFile = null;
-      this.icdPageCount = 1;
+      this.icdPageCount = 49;
       this.icdVisionModel = "openai/gpt-5.2:online";
       this.icdCustomInstructions = "";
       this.icdJobId = null;
