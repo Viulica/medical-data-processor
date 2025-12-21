@@ -43,6 +43,18 @@
             🔮 Extract + CPT + ICD
           </button>
           <button
+            @click="activeTab = 'ai-refinement'"
+            :class="{ active: activeTab === 'ai-refinement' }"
+            class="tab-btn"
+            style="
+              background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+              color: white;
+              font-weight: 600;
+            "
+          >
+            🤖 AI Refinement
+          </button>
+          <button
             @click="activeTab = 'split'"
             :class="{ active: activeTab === 'split' }"
             class="tab-btn"
@@ -3548,6 +3560,383 @@
           </div>
         </div>
 
+        <!-- AI Refinement Tab -->
+        <div v-if="activeTab === 'ai-refinement'" class="upload-section">
+          <div
+            class="section-header"
+            style="
+              background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+              padding: 30px;
+              border-radius: 12px;
+              color: white;
+              margin-bottom: 30px;
+            "
+          >
+            <h2 style="color: white; margin-bottom: 10px">
+              🤖 AI-Powered Instruction Refinement
+            </h2>
+            <p style="color: #f0f0f0; font-size: 16px">
+              Automatically improve CPT and ICD instruction templates using
+              Gemini 3 Flash. The system will iteratively refine instructions
+              until 95%+ accuracy is achieved. You'll receive email reports
+              after each iteration.
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Step 1: ZIP File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Patient Documents (ZIP)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isRefinementZipDragActive,
+                  'has-file': refinementZipFile,
+                }"
+                @drop="onRefinementZipDrop"
+                @dragover.prevent
+                @dragenter.prevent="isRefinementZipDragActive = true"
+                @dragleave.prevent="isRefinementZipDragActive = false"
+                @click="triggerRefinementZipUpload"
+              >
+                <input
+                  ref="refinementZipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onRefinementZipFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📁</div>
+                  <div v-if="refinementZipFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ refinementZipFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(refinementZipFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP archive here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2: Excel Instructions or Template Selection -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Processing Template</h3>
+              </div>
+              <div class="template-selection-toggle">
+                <label class="toggle-label">
+                  <input
+                    v-model="refinementUseExtractionTemplate"
+                    type="checkbox"
+                    class="toggle-checkbox"
+                  />
+                  <span class="toggle-text">Use saved template instead</span>
+                </label>
+              </div>
+              <div
+                v-if="refinementUseExtractionTemplate"
+                class="template-dropdown-section"
+              >
+                <select
+                  v-model="refinementSelectedExtractionTemplateId"
+                  class="template-select"
+                  @focus="ensureTemplatesLoaded"
+                >
+                  <option :value="null" disabled>Select a template...</option>
+                  <option
+                    v-for="template in allTemplatesForDropdown"
+                    :key="template.id"
+                    :value="template.id"
+                  >
+                    {{ template.name }}
+                  </option>
+                </select>
+              </div>
+              <div
+                v-else
+                class="dropzone"
+                :class="{
+                  active: isRefinementExcelDragActive,
+                  'has-file': refinementExcelFile,
+                }"
+                @drop="onRefinementExcelDrop"
+                @dragover.prevent
+                @dragenter.prevent="isRefinementExcelDragActive = true"
+                @dragleave.prevent="isRefinementExcelDragActive = false"
+                @click="triggerRefinementExcelUpload"
+              >
+                <input
+                  ref="refinementExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onRefinementExcelFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="refinementExcelFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      refinementExcelFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(refinementExcelFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Ground Truth File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>Ground Truth File (Required)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isRefinementGroundTruthDragActive,
+                  'has-file': refinementGroundTruthFile,
+                }"
+                @drop="onRefinementGroundTruthDrop"
+                @dragover.prevent
+                @dragenter.prevent="isRefinementGroundTruthDragActive = true"
+                @dragleave.prevent="isRefinementGroundTruthDragActive = false"
+                @click="triggerRefinementGroundTruthUpload"
+              >
+                <input
+                  ref="refinementGroundTruthInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onRefinementGroundTruthFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">✅</div>
+                  <div v-if="refinementGroundTruthFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      refinementGroundTruthFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(refinementGroundTruthFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV/XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p>
+                  <strong>Required columns:</strong> AccountId (or Account ID),
+                  CPT, ICD
+                </p>
+              </div>
+            </div>
+
+            <!-- Step 4: CPT Instruction Template (Required) -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
+                <h3>CPT Instruction Template (Required)</h3>
+              </div>
+              <div class="settings-content">
+                <select
+                  v-model="refinementSelectedCptInstructionId"
+                  class="template-select"
+                  @focus="ensurePredictionInstructionsLoaded"
+                >
+                  <option :value="null" disabled>Select CPT template...</option>
+                  <option
+                    v-for="instruction in predictionInstructions.filter(
+                      (i) => i.instruction_type === 'cpt'
+                    )"
+                    :key="instruction.id"
+                    :value="instruction.id"
+                  >
+                    {{ instruction.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Step 5: ICD Instruction Template (Required) -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">5</div>
+                <h3>ICD Instruction Template (Required)</h3>
+              </div>
+              <div class="settings-content">
+                <select
+                  v-model="refinementSelectedIcdInstructionId"
+                  class="template-select"
+                  @focus="ensurePredictionInstructionsLoaded"
+                >
+                  <option :value="null" disabled>Select ICD template...</option>
+                  <option
+                    v-for="instruction in predictionInstructions.filter(
+                      (i) => i.instruction_type === 'icd'
+                    )"
+                    :key="instruction.id"
+                    :value="instruction.id"
+                  >
+                    {{ instruction.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Refinement Parameters -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">6</div>
+                <h3>Refinement Parameters</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="refinement-target-cpt">Target CPT Accuracy</label>
+                  <input
+                    id="refinement-target-cpt"
+                    v-model.number="refinementTargetCptAccuracy"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="form-input"
+                  />
+                  <small class="help-text">Default: 0.95 (95%)</small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-target-icd">Target ICD Accuracy</label>
+                  <input
+                    id="refinement-target-icd"
+                    v-model.number="refinementTargetIcdAccuracy"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="form-input"
+                  />
+                  <small class="help-text">Default: 0.95 (95%)</small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-max-iterations">Max Iterations</label>
+                  <input
+                    id="refinement-max-iterations"
+                    v-model.number="refinementMaxIterations"
+                    type="number"
+                    min="1"
+                    max="20"
+                    class="form-input"
+                  />
+                  <small class="help-text">Default: 10</small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-email">Notification Email</label>
+                  <input
+                    id="refinement-email"
+                    v-model="refinementEmail"
+                    type="email"
+                    class="form-input"
+                  />
+                  <small class="help-text"
+                    >Email address for iteration reports</small
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Refinement Progress -->
+          <div
+            v-if="refinementJobId"
+            class="upload-card"
+            style="margin-top: 20px"
+          >
+            <div class="card-header">
+              <h3>Refinement Progress</h3>
+            </div>
+            <div class="settings-content">
+              <div class="refinement-progress">
+                <div class="progress-metric">
+                  <strong>Phase:</strong>
+                  {{
+                    refinementStatus.phase === "cpt"
+                      ? "CPT Refinement"
+                      : refinementStatus.phase === "icd"
+                      ? "ICD Refinement"
+                      : "Complete"
+                  }}
+                </div>
+                <div class="progress-metric">
+                  <strong>Iteration:</strong>
+                  {{ refinementStatus.iteration || 0 }}
+                </div>
+                <div class="progress-metric">
+                  <strong>CPT Accuracy:</strong>
+                  {{
+                    refinementStatus.cpt_accuracy
+                      ? (refinementStatus.cpt_accuracy * 100).toFixed(1) + "%"
+                      : "N/A"
+                  }}
+                </div>
+                <div class="progress-metric">
+                  <strong>ICD1 Accuracy:</strong>
+                  {{
+                    refinementStatus.icd1_accuracy
+                      ? (refinementStatus.icd1_accuracy * 100).toFixed(1) + "%"
+                      : "N/A"
+                  }}
+                </div>
+                <div class="progress-metric">
+                  <strong>Status:</strong>
+                  {{ refinementStatus.status || "running" }}
+                </div>
+                <div v-if="refinementStatus.message" class="progress-message">
+                  {{ refinementStatus.message }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="processRefinement"
+              :disabled="!canProcessRefinement || isProcessingRefinement"
+              class="process-btn"
+            >
+              <span v-if="isProcessingRefinement" class="spinner"></span>
+              <span v-else class="btn-icon">🤖</span>
+              {{
+                isProcessingRefinement
+                  ? "Refining Instructions..."
+                  : "Start AI Refinement"
+              }}
+            </button>
+            <button
+              v-if="refinementZipFile || refinementJobId"
+              @click="resetRefinementForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
         <!-- Check CPT Codes Tab -->
         <div v-if="activeTab === 'check-cpt'" class="upload-section">
           <div class="section-header">
@@ -6467,6 +6856,25 @@ export default {
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
+      // AI Refinement functionality
+      refinementZipFile: null,
+      refinementExcelFile: null,
+      refinementGroundTruthFile: null,
+      refinementUseExtractionTemplate: false,
+      refinementSelectedExtractionTemplateId: null,
+      refinementSelectedCptInstructionId: null,
+      refinementSelectedIcdInstructionId: null,
+      refinementTargetCptAccuracy: 0.95,
+      refinementTargetIcdAccuracy: 0.95,
+      refinementMaxIterations: 10,
+      refinementEmail: "cvetkovskileon@gmail.com",
+      refinementJobId: null,
+      refinementStatus: {},
+      isProcessingRefinement: false,
+      isRefinementZipDragActive: false,
+      isRefinementExcelDragActive: false,
+      isRefinementGroundTruthDragActive: false,
+      refinementPollingInterval: null,
       // Modifiers Config functionality
       modifiers: [],
       modifiersLoading: false,
@@ -6667,6 +7075,30 @@ export default {
         if (this.unifiedIcdPages < 1 || this.unifiedIcdPages > 50) {
           return false;
         }
+      }
+      return true;
+    },
+    canProcessRefinement() {
+      if (!this.refinementZipFile) {
+        return false;
+      }
+      if (!this.refinementGroundTruthFile) {
+        return false;
+      }
+      const hasTemplate = this.refinementUseExtractionTemplate
+        ? this.refinementSelectedExtractionTemplateId !== null
+        : this.refinementExcelFile;
+      if (!hasTemplate) {
+        return false;
+      }
+      if (!this.refinementSelectedCptInstructionId) {
+        return false;
+      }
+      if (!this.refinementSelectedIcdInstructionId) {
+        return false;
+      }
+      if (!this.refinementEmail || !this.refinementEmail.includes("@")) {
+        return false;
       }
       return true;
     },
@@ -6904,6 +7336,14 @@ export default {
           console.error("Failed to load ICD instructions:", error);
         }
       }
+    },
+
+    async ensurePredictionInstructionsLoaded() {
+      // Load both CPT and ICD instruction templates if not already loaded
+      await Promise.all([
+        this.ensureCptInstructionsLoaded(),
+        this.ensureIcdInstructionsLoaded(),
+      ]);
     },
 
     getStatusTitle() {
@@ -7881,6 +8321,207 @@ export default {
       };
 
       checkStatus();
+    },
+
+    // AI Refinement methods
+    triggerRefinementZipUpload() {
+      this.$refs.refinementZipInput?.click();
+    },
+    onRefinementZipDrop(e) {
+      e.preventDefault();
+      this.isRefinementZipDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        this.refinementZipFile = files[0];
+      }
+    },
+    onRefinementZipFileSelect(e) {
+      if (e.target.files.length > 0) {
+        this.refinementZipFile = e.target.files[0];
+      }
+    },
+    triggerRefinementExcelUpload() {
+      this.$refs.refinementExcelInput?.click();
+    },
+    onRefinementExcelDrop(e) {
+      e.preventDefault();
+      this.isRefinementExcelDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        this.refinementExcelFile = files[0];
+      }
+    },
+    onRefinementExcelFileSelect(e) {
+      if (e.target.files.length > 0) {
+        this.refinementExcelFile = e.target.files[0];
+      }
+    },
+    triggerRefinementGroundTruthUpload() {
+      this.$refs.refinementGroundTruthInput?.click();
+    },
+    onRefinementGroundTruthDrop(e) {
+      e.preventDefault();
+      this.isRefinementGroundTruthDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        this.refinementGroundTruthFile = files[0];
+      }
+    },
+    onRefinementGroundTruthFileSelect(e) {
+      if (e.target.files.length > 0) {
+        this.refinementGroundTruthFile = e.target.files[0];
+      }
+    },
+    async processRefinement() {
+      if (!this.canProcessRefinement) {
+        this.toast.error(
+          "Please upload all required files and select instruction templates"
+        );
+        return;
+      }
+
+      this.isProcessingRefinement = true;
+      this.refinementStatus = {};
+
+      const formData = new FormData();
+      formData.append("zip_file", this.refinementZipFile);
+      formData.append("ground_truth_file", this.refinementGroundTruthFile);
+
+      if (
+        this.refinementUseExtractionTemplate &&
+        this.refinementSelectedExtractionTemplateId
+      ) {
+        formData.append(
+          "template_id",
+          this.refinementSelectedExtractionTemplateId
+        );
+      } else {
+        formData.append("excel_file", this.refinementExcelFile);
+      }
+
+      // Extraction parameters (use defaults from unified)
+      formData.append("enable_extraction", true);
+      formData.append("extraction_n_pages", 2);
+      formData.append("extraction_model", "gemini-2.5-flash");
+      formData.append("extraction_max_workers", 50);
+      formData.append("worktracker_group", "");
+      formData.append("worktracker_batch", "");
+      formData.append("extract_csn", false);
+
+      // CPT parameters (use vision mode defaults)
+      formData.append("enable_cpt", true);
+      formData.append("cpt_vision_mode", false);
+      formData.append("cpt_client", "uni");
+      formData.append("cpt_vision_pages", 1);
+      formData.append("cpt_vision_model", "openai/gpt-5.2:online");
+      formData.append("cpt_include_code_list", true);
+      formData.append("cpt_max_workers", 50);
+      formData.append(
+        "cpt_instruction_template_id",
+        this.refinementSelectedCptInstructionId
+      );
+
+      // ICD parameters
+      formData.append("enable_icd", true);
+      formData.append("icd_n_pages", 1);
+      formData.append("icd_vision_model", "openai/gpt-5.2:online");
+      formData.append("icd_max_workers", 50);
+      formData.append(
+        "icd_instruction_template_id",
+        this.refinementSelectedIcdInstructionId
+      );
+
+      // Refinement parameters
+      formData.append("target_cpt_accuracy", this.refinementTargetCptAccuracy);
+      formData.append("target_icd_accuracy", this.refinementTargetIcdAccuracy);
+      formData.append("max_iterations", this.refinementMaxIterations);
+      formData.append("notification_email", this.refinementEmail);
+
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await fetch(
+          `${backendUrl}/api/process-unified-with-refinement`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Upload failed");
+        }
+
+        const data = await response.json();
+        this.refinementJobId = data.job_id;
+
+        this.toast.success(
+          "AI refinement started! Check your email for updates."
+        );
+
+        // Start polling for status
+        this.pollRefinementStatus();
+      } catch (error) {
+        console.error("Error starting refinement:", error);
+        this.toast.error(`Failed to start refinement: ${error.message}`);
+        this.isProcessingRefinement = false;
+      }
+    },
+    async pollRefinementStatus() {
+      if (!this.refinementJobId) return;
+
+      const checkStatus = async () => {
+        try {
+          const backendUrl = this.getBackendUrl();
+          const response = await fetch(
+            `${backendUrl}/api/refinement-status/${this.refinementJobId}`
+          );
+
+          if (!response.ok) {
+            throw new Error("Failed to fetch status");
+          }
+
+          const data = await response.json();
+          this.refinementStatus = data;
+
+          if (data.status === "completed" || data.status === "failed") {
+            this.isProcessingRefinement = false;
+            if (this.refinementPollingInterval) {
+              clearInterval(this.refinementPollingInterval);
+              this.refinementPollingInterval = null;
+            }
+            if (data.status === "completed") {
+              this.toast.success("AI refinement completed!");
+            } else {
+              this.toast.error(`Refinement failed: ${data.message}`);
+            }
+          } else {
+            // Continue polling
+            this.refinementPollingInterval = setTimeout(checkStatus, 3000);
+          }
+        } catch (error) {
+          console.error("Error checking refinement status:", error);
+          this.refinementPollingInterval = setTimeout(checkStatus, 3000);
+        }
+      };
+
+      checkStatus();
+    },
+    resetRefinementForm() {
+      this.refinementZipFile = null;
+      this.refinementExcelFile = null;
+      this.refinementGroundTruthFile = null;
+      this.refinementUseExtractionTemplate = false;
+      this.refinementSelectedExtractionTemplateId = null;
+      this.refinementSelectedCptInstructionId = null;
+      this.refinementSelectedIcdInstructionId = null;
+      this.refinementJobId = null;
+      this.refinementStatus = {};
+      this.isProcessingRefinement = false;
+      if (this.refinementPollingInterval) {
+        clearInterval(this.refinementPollingInterval);
+        this.refinementPollingInterval = null;
+      }
     },
 
     async checkUnifiedJobStatus() {

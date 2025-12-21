@@ -1429,10 +1429,9 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         general_coding_path = Path(__file__).parent / "general-coding"
         sys.path.insert(0, str(general_coding_path))
         
-        from predict_general import predict_codes_from_pdfs_api
+        from predict_general import predict_codes_from_pdfs_api, is_gemini_model
         
         # Check if using Gemini model
-        from general-coding.predict_general import is_gemini_model
         using_gemini = is_gemini_model(model)
         
         if using_gemini:
@@ -1543,10 +1542,9 @@ def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         general_coding_path = Path(__file__).parent / "general-coding"
         sys.path.insert(0, str(general_coding_path))
         
-        from predict_general import predict_icd_codes_from_pdfs_api
+        from predict_general import predict_icd_codes_from_pdfs_api, is_gemini_model
         
         # Check if using Gemini model
-        from general-coding.predict_general import is_gemini_model
         using_gemini = is_gemini_model(model)
         
         if using_gemini:
@@ -5240,7 +5238,9 @@ def process_unified_background(
                     Path(cpt_csv_path_local).parent.mkdir(exist_ok=True)
                     
                     # Check if using Gemini model
-                    from backend.general-coding.predict_general import is_gemini_model
+                    general_coding_path = Path(__file__).parent / "general-coding"
+                    sys.path.insert(0, str(general_coding_path))
+                    from predict_general import is_gemini_model
                     using_gemini = is_gemini_model(cpt_vision_model)
                     
                     # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
@@ -5280,7 +5280,9 @@ def process_unified_background(
                     Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
                     
                     # Check if using Gemini model
-                    from backend.general-coding.predict_general import is_gemini_model
+                    general_coding_path = Path(__file__).parent / "general-coding"
+                    sys.path.insert(0, str(general_coding_path))
+                    from predict_general import is_gemini_model
                     using_gemini = is_gemini_model(icd_vision_model)
                     
                     # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
@@ -6455,6 +6457,280 @@ async def process_unified(
     except Exception as e:
         logger.error(f"Unified processing upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.post("/api/process-unified-with-refinement")
+async def process_unified_with_refinement(
+    background_tasks: BackgroundTasks,
+    zip_file: UploadFile = File(...),
+    excel_file: UploadFile = File(None),
+    template_id: Optional[int] = Form(default=None),
+    ground_truth_file: UploadFile = File(...),
+    # Extraction parameters
+    enable_extraction: bool = Form(default=True),
+    extraction_n_pages: int = Form(default=2),
+    extraction_model: str = Form(default="gemini-2.5-flash"),
+    extraction_max_workers: int = Form(default=50),
+    worktracker_group: str = Form(default=""),
+    worktracker_batch: str = Form(default=""),
+    extract_csn: bool = Form(default=False),
+    # CPT parameters
+    enable_cpt: bool = Form(default=True),
+    cpt_vision_mode: bool = Form(default=False),
+    cpt_client: str = Form(default="uni"),
+    cpt_vision_pages: int = Form(default=1),
+    cpt_vision_model: str = Form(default="openai/gpt-5.2:online"),
+    cpt_include_code_list: bool = Form(default=True),
+    cpt_max_workers: int = Form(default=50),
+    cpt_instruction_template_id: int = Form(...),  # Required
+    # ICD parameters
+    enable_icd: bool = Form(default=True),
+    icd_n_pages: int = Form(default=1),
+    icd_vision_model: str = Form(default="openai/gpt-5.2:online"),
+    icd_max_workers: int = Form(default=50),
+    icd_instruction_template_id: int = Form(...),  # Required
+    # Refinement parameters
+    target_cpt_accuracy: float = Form(default=0.95),
+    target_icd_accuracy: float = Form(default=0.95),
+    max_iterations: int = Form(default=10),
+    notification_email: str = Form(default="cvetkovskileon@gmail.com")
+):
+    """
+    Unified processing with AI-powered iterative instruction refinement.
+    Refines CPT instructions first, then ICD instructions, until target accuracy is reached.
+    """
+    try:
+        logger.info(f"Received refinement request - CPT template: {cpt_instruction_template_id}, ICD template: {icd_instruction_template_id}")
+        
+        # Validate inputs
+        if not zip_file or not zip_file.filename:
+            raise HTTPException(status_code=400, detail="ZIP file is required")
+        if not zip_file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Patient documents must be in a ZIP file")
+        
+        if not ground_truth_file or not ground_truth_file.filename:
+            raise HTTPException(status_code=400, detail="Ground truth file is required")
+        if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Ground truth file must be CSV or Excel")
+        
+        if not excel_file and not template_id:
+            raise HTTPException(status_code=400, detail="Either an Excel file or a template ID must be provided")
+        
+        # Validate instruction templates exist
+        from db_utils import get_prediction_instruction
+        cpt_template = get_prediction_instruction(instruction_id=cpt_instruction_template_id)
+        icd_template = get_prediction_instruction(instruction_id=icd_instruction_template_id)
+        
+        if not cpt_template:
+            raise HTTPException(status_code=404, detail=f"CPT instruction template {cpt_instruction_template_id} not found")
+        if not icd_template:
+            raise HTTPException(status_code=404, detail=f"ICD instruction template {icd_instruction_template_id} not found")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        
+        logger.info(f"Created refinement job {job_id}")
+        
+        # Save files
+        zip_path = f"/tmp/{job_id}_input.zip"
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        
+        ground_truth_path = f"/tmp/{job_id}_ground_truth{Path(ground_truth_file.filename).suffix}"
+        with open(ground_truth_path, "wb") as f:
+            shutil.copyfileobj(ground_truth_file.file, f)
+        
+        # Handle excel file or template
+        excel_path = None
+        excel_filename = None
+        
+        if template_id:
+            from db_utils import get_template
+            template = get_template(template_id)
+            if not template:
+                raise HTTPException(status_code=404, detail=f"Template with ID {template_id} not found")
+            
+            import pandas as pd
+            excel_path = f"/tmp/{job_id}_instructions.xlsx"
+            excel_filename = f"{template['name']}.xlsx"
+            
+            fields = template['template_data'].get('fields', [])
+            if not fields:
+                raise HTTPException(status_code=400, detail="Template has no field definitions")
+            
+            data = {}
+            for field in fields:
+                data[field['name']] = [
+                    field.get('description', ''),
+                    field.get('location', ''),
+                    field.get('output_format', ''),
+                    'YES' if field.get('priority', False) else 'NO'
+                ]
+            
+            df = pd.DataFrame(data)
+            df.to_excel(excel_path, index=False, engine='openpyxl')
+        else:
+            if not excel_file or not excel_file.filename:
+                raise HTTPException(status_code=400, detail="Excel file is required when template_id is not provided")
+            excel_path = f"/tmp/{job_id}_instructions{Path(excel_file.filename).suffix}"
+            excel_filename = excel_file.filename
+            with open(excel_path, "wb") as f:
+                shutil.copyfileobj(excel_file.file, f)
+        
+        # Start background refinement task
+        from refinement_orchestrator import run_refinement_job
+        
+        background_tasks.add_task(
+            run_refinement_job,
+            job_id=job_id,
+            zip_path=zip_path,
+            excel_path=excel_path,
+            excel_filename=excel_filename,
+            ground_truth_path=ground_truth_path,
+            enable_extraction=enable_extraction,
+            extraction_n_pages=extraction_n_pages,
+            extraction_model=extraction_model,
+            extraction_max_workers=extraction_max_workers,
+            worktracker_group=worktracker_group,
+            worktracker_batch=worktracker_batch,
+            extract_csn=extract_csn,
+            enable_cpt=enable_cpt,
+            cpt_vision_mode=cpt_vision_mode,
+            cpt_client=cpt_client,
+            cpt_vision_pages=cpt_vision_pages,
+            cpt_vision_model=cpt_vision_model,
+            cpt_include_code_list=cpt_include_code_list,
+            cpt_max_workers=cpt_max_workers,
+            original_cpt_template_id=cpt_instruction_template_id,
+            enable_icd=enable_icd,
+            icd_n_pages=icd_n_pages,
+            icd_vision_model=icd_vision_model,
+            icd_max_workers=icd_max_workers,
+            original_icd_template_id=icd_instruction_template_id,
+            target_cpt_accuracy=target_cpt_accuracy,
+            target_icd_accuracy=target_icd_accuracy,
+            max_iterations=max_iterations,
+            notification_email=notification_email
+        )
+        
+        logger.info(f"Background refinement task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "AI refinement started"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Refinement request error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+
+@app.get("/api/refinement-status/{job_id}")
+async def get_refinement_status(job_id: str):
+    """
+    Get current status of a refinement job.
+    """
+    try:
+        from db_utils import get_refinement_job
+        
+        job = get_refinement_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Refinement job {job_id} not found")
+        
+        # Build status message
+        phase = job.get('phase', 'cpt')
+        phase_name = "CPT Refinement" if phase == "cpt" else "ICD Refinement" if phase == "icd" else "Complete"
+        iteration = job.get('iteration', 0)
+        status = job.get('status', 'running')
+        
+        if status == "running":
+            message = f"Running {phase_name} iteration {iteration}..."
+        elif status == "completed":
+            message = "Refinement complete"
+        elif status == "failed":
+            message = f"Failed: {job.get('error_message', 'Unknown error')}"
+        else:
+            message = f"Status: {status}"
+        
+        return {
+            "job_id": job_id,
+            "status": status,
+            "phase": phase,
+            "iteration": iteration,
+            "cpt_accuracy": job.get('cpt_accuracy'),
+            "icd1_accuracy": job.get('icd1_accuracy'),
+            "best_cpt_accuracy": job.get('best_cpt_accuracy'),
+            "best_icd1_accuracy": job.get('best_icd1_accuracy'),
+            "message": message
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get refinement status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+@app.get("/api/refinement-history/{job_id}")
+async def get_refinement_history(job_id: str):
+    """
+    Get full history of a refinement job including all iterations.
+    Note: This currently returns the current state. Full history tracking
+    would require additional database schema changes.
+    """
+    try:
+        from db_utils import get_refinement_job, get_prediction_instruction
+        
+        job = get_refinement_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Refinement job {job_id} not found")
+        
+        # Get template details
+        current_cpt_template = None
+        current_icd_template = None
+        best_cpt_template = None
+        best_icd_template = None
+        
+        if job.get('current_cpt_template_id'):
+            current_cpt_template = get_prediction_instruction(instruction_id=job['current_cpt_template_id'])
+        if job.get('current_icd_template_id'):
+            current_icd_template = get_prediction_instruction(instruction_id=job['current_icd_template_id'])
+        if job.get('best_cpt_template_id'):
+            best_cpt_template = get_prediction_instruction(instruction_id=job['best_cpt_template_id'])
+        if job.get('best_icd_template_id'):
+            best_icd_template = get_prediction_instruction(instruction_id=job['best_icd_template_id'])
+        
+        return {
+            "job_id": job_id,
+            "status": job.get('status'),
+            "phase": job.get('phase'),
+            "iteration": job.get('iteration'),
+            "cpt_accuracy": job.get('cpt_accuracy'),
+            "icd1_accuracy": job.get('icd1_accuracy'),
+            "best_cpt_accuracy": job.get('best_cpt_accuracy'),
+            "best_icd1_accuracy": job.get('best_icd1_accuracy'),
+            "current_cpt_template": {
+                "id": current_cpt_template['id'] if current_cpt_template else None,
+                "name": current_cpt_template['name'] if current_cpt_template else None
+            },
+            "current_icd_template": {
+                "id": current_icd_template['id'] if current_icd_template else None,
+                "name": current_icd_template['name'] if current_icd_template else None
+            },
+            "best_cpt_template": {
+                "id": best_cpt_template['id'] if best_cpt_template else None,
+                "name": best_cpt_template['name'] if best_cpt_template else None
+            },
+            "best_icd_template": {
+                "id": best_icd_template['id'] if best_icd_template else None,
+                "name": best_icd_template['name'] if best_icd_template else None
+            },
+            "created_at": job.get('created_at').isoformat() if job.get('created_at') else None,
+            "updated_at": job.get('updated_at').isoformat() if job.get('updated_at') else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get refinement history: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
 
 
 if __name__ == "__main__":

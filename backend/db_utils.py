@@ -114,6 +114,31 @@ def init_database():
     );
     
     CREATE INDEX IF NOT EXISTS idx_instruction_additions_templates_name ON instruction_additions_templates(name);
+    
+    CREATE TABLE IF NOT EXISTS refinement_jobs (
+        id SERIAL PRIMARY KEY,
+        job_id VARCHAR(255) UNIQUE NOT NULL,
+        user_email VARCHAR(255) NOT NULL,
+        original_cpt_template_id INT,
+        original_icd_template_id INT,
+        current_cpt_template_id INT,
+        current_icd_template_id INT,
+        best_cpt_template_id INT,
+        best_icd_template_id INT,
+        phase VARCHAR(20) NOT NULL,
+        iteration INT NOT NULL DEFAULT 0,
+        cpt_accuracy FLOAT,
+        icd1_accuracy FLOAT,
+        best_cpt_accuracy FLOAT,
+        best_icd1_accuracy FLOAT,
+        status VARCHAR(50) NOT NULL,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_refinement_jobs_job_id ON refinement_jobs(job_id);
+    CREATE INDEX IF NOT EXISTS idx_refinement_jobs_status ON refinement_jobs(status);
     """
     
     try:
@@ -1100,6 +1125,191 @@ def delete_special_cases_template(template_id):
     except Exception as e:
         logger.error(f"Failed to delete special cases template {template_id}: {e}")
         return False
+
+
+# ============================================================
+# Refinement Jobs Management
+# ============================================================
+
+def create_refinement_job(
+    job_id: str,
+    user_email: str,
+    original_cpt_template_id: Optional[int] = None,
+    original_icd_template_id: Optional[int] = None,
+    current_cpt_template_id: Optional[int] = None,
+    current_icd_template_id: Optional[int] = None,
+    phase: str = "cpt",
+    status: str = "running"
+) -> bool:
+    """
+    Create a new refinement job record.
+    
+    Args:
+        job_id: Unique job identifier
+        user_email: User email for notifications
+        original_cpt_template_id: Original CPT template ID
+        original_icd_template_id: Original ICD template ID
+        current_cpt_template_id: Current CPT template ID
+        current_icd_template_id: Current ICD template ID
+        phase: Current phase ('cpt' or 'icd')
+        status: Job status ('running', 'completed', 'failed')
+    
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO refinement_jobs (
+                        job_id, user_email, original_cpt_template_id, original_icd_template_id,
+                        current_cpt_template_id, current_icd_template_id,
+                        best_cpt_template_id, best_icd_template_id,
+                        phase, iteration, status, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    job_id, user_email, original_cpt_template_id, original_icd_template_id,
+                    current_cpt_template_id, current_icd_template_id,
+                    original_cpt_template_id, original_icd_template_id,  # Best starts as original
+                    phase, status
+                ))
+                return True
+    except Exception as e:
+        logger.error(f"Failed to create refinement job {job_id}: {e}")
+        return False
+
+
+def update_refinement_job(
+    job_id: str,
+    phase: Optional[str] = None,
+    iteration: Optional[int] = None,
+    cpt_accuracy: Optional[float] = None,
+    icd1_accuracy: Optional[float] = None,
+    best_cpt_accuracy: Optional[float] = None,
+    best_icd1_accuracy: Optional[float] = None,
+    current_cpt_template_id: Optional[int] = None,
+    current_icd_template_id: Optional[int] = None,
+    best_cpt_template_id: Optional[int] = None,
+    best_icd_template_id: Optional[int] = None,
+    status: Optional[str] = None,
+    error_message: Optional[str] = None
+) -> bool:
+    """
+    Update a refinement job record.
+    
+    Args:
+        job_id: Job identifier
+        phase: Current phase
+        iteration: Current iteration number
+        cpt_accuracy: Current CPT accuracy
+        icd1_accuracy: Current ICD1 accuracy
+        best_cpt_accuracy: Best CPT accuracy achieved
+        best_icd1_accuracy: Best ICD1 accuracy achieved
+        current_cpt_template_id: Current CPT template ID
+        current_icd_template_id: Current ICD template ID
+        best_cpt_template_id: Best CPT template ID
+        best_icd_template_id: Best ICD template ID
+        status: Job status
+        error_message: Error message if failed
+    
+    Returns:
+        True on success, False on failure
+    """
+    updates = []
+    params = []
+    
+    if phase is not None:
+        updates.append("phase = %s")
+        params.append(phase)
+    
+    if iteration is not None:
+        updates.append("iteration = %s")
+        params.append(iteration)
+    
+    if cpt_accuracy is not None:
+        updates.append("cpt_accuracy = %s")
+        params.append(cpt_accuracy)
+    
+    if icd1_accuracy is not None:
+        updates.append("icd1_accuracy = %s")
+        params.append(icd1_accuracy)
+    
+    if best_cpt_accuracy is not None:
+        updates.append("best_cpt_accuracy = %s")
+        params.append(best_cpt_accuracy)
+    
+    if best_icd1_accuracy is not None:
+        updates.append("best_icd1_accuracy = %s")
+        params.append(best_icd1_accuracy)
+    
+    if current_cpt_template_id is not None:
+        updates.append("current_cpt_template_id = %s")
+        params.append(current_cpt_template_id)
+    
+    if current_icd_template_id is not None:
+        updates.append("current_icd_template_id = %s")
+        params.append(current_icd_template_id)
+    
+    if best_cpt_template_id is not None:
+        updates.append("best_cpt_template_id = %s")
+        params.append(best_cpt_template_id)
+    
+    if best_icd_template_id is not None:
+        updates.append("best_icd_template_id = %s")
+        params.append(best_icd_template_id)
+    
+    if status is not None:
+        updates.append("status = %s")
+        params.append(status)
+    
+    if error_message is not None:
+        updates.append("error_message = %s")
+        params.append(error_message)
+    
+    if not updates:
+        return True  # Nothing to update
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(job_id)
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                query = f"""
+                    UPDATE refinement_jobs
+                    SET {', '.join(updates)}
+                    WHERE job_id = %s
+                """
+                cur.execute(query, params)
+                return True
+    except Exception as e:
+        logger.error(f"Failed to update refinement job {job_id}: {e}")
+        return False
+
+
+def get_refinement_job(job_id: str):
+    """
+    Get a refinement job by job_id.
+    
+    Args:
+        job_id: Job identifier
+    
+    Returns:
+        Dictionary with job data or None if not found
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM refinement_jobs
+                    WHERE job_id = %s
+                """, (job_id,))
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get refinement job {job_id}: {e}")
+        return None
 
 
 
