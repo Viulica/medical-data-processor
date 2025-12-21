@@ -1859,7 +1859,7 @@
                 class="dropzone"
                 :class="{
                   active: isPdfDragActive,
-                  'has-file': pdfFile,
+                  'has-file': pdfFiles.length > 0,
                 }"
                 @drop="onPdfDrop"
                 @dragover.prevent
@@ -1870,20 +1870,35 @@
                   ref="pdfInput"
                   type="file"
                   accept=".pdf"
+                  multiple
                   @change="onPdfFileSelect"
                   style="display: none"
                 />
                 <div class="upload-content">
                   <div class="upload-icon">📄</div>
-                  <div v-if="pdfFile" class="file-info">
-                    <div class="file-icon">📄</div>
-                    <span class="file-name">{{ pdfFile.name }}</span>
-                    <span class="file-size">{{
-                      formatFileSize(pdfFile.size)
-                    }}</span>
+                  <div v-if="pdfFiles.length > 0" class="file-list">
+                    <div
+                      v-for="(file, index) in pdfFiles"
+                      :key="index"
+                      class="file-info"
+                    >
+                      <div class="file-icon">📄</div>
+                      <span class="file-name">{{ file.name }}</span>
+                      <span class="file-size">{{
+                        formatFileSize(file.size)
+                      }}</span>
+                      <button
+                        @click.stop="removePdfFile(index)"
+                        class="remove-file-btn"
+                        title="Remove file"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop PDF file here<br />or click to browse
+                    Drag & drop PDF files here<br />or click to browse<br />
+                    <small>(Multiple files supported)</small>
                   </p>
                 </div>
               </div>
@@ -1930,7 +1945,7 @@
             </button>
 
             <button
-              v-if="pdfFile || splitJobId"
+              v-if="pdfFiles.length > 0 || splitJobId"
               @click="resetSplitForm"
               class="reset-btn"
             >
@@ -6223,7 +6238,7 @@ export default {
       isZipDragActiveFast: false,
       isExcelDragActiveFast: false,
       // Split PDF functionality
-      pdfFile: null,
+      pdfFiles: [],
       filterString: "",
       splitJobId: null,
       splitJobStatus: null,
@@ -6487,7 +6502,7 @@ export default {
       );
     },
     canSplit() {
-      return this.pdfFile && this.filterString.trim();
+      return this.pdfFiles.length > 0 && this.filterString.trim();
     },
     canPredictCpt() {
       if (this.useVisionPrediction) {
@@ -6848,12 +6863,25 @@ export default {
     onPdfDrop(e) {
       e.preventDefault();
       this.isPdfDragActive = false;
-      const files = e.dataTransfer.files;
-      if (files.length > 0 && files[0].name.endsWith(".pdf")) {
-        this.pdfFile = files[0];
-        this.toast.success("PDF file uploaded successfully!");
+      const files = Array.from(e.dataTransfer.files).filter((file) =>
+        file.name.endsWith(".pdf")
+      );
+      if (files.length > 0) {
+        // Add new files to the array, avoiding duplicates
+        files.forEach((file) => {
+          if (
+            !this.pdfFiles.some(
+              (f) => f.name === file.name && f.size === file.size
+            )
+          ) {
+            this.pdfFiles.push(file);
+          }
+        });
+        this.toast.success(
+          `${files.length} PDF file(s) uploaded successfully!`
+        );
       } else {
-        this.toast.error("Please upload a valid PDF file");
+        this.toast.error("Please upload valid PDF files");
       }
     },
 
@@ -6862,13 +6890,33 @@ export default {
     },
 
     onPdfFileSelect(e) {
-      const file = e.target.files[0];
-      if (file && file.name.endsWith(".pdf")) {
-        this.pdfFile = file;
-        this.toast.success("PDF file uploaded successfully!");
+      const files = Array.from(e.target.files).filter((file) =>
+        file.name.endsWith(".pdf")
+      );
+      if (files.length > 0) {
+        // Add new files to the array, avoiding duplicates
+        files.forEach((file) => {
+          if (
+            !this.pdfFiles.some(
+              (f) => f.name === file.name && f.size === file.size
+            )
+          ) {
+            this.pdfFiles.push(file);
+          }
+        });
+        this.toast.success(
+          `${files.length} PDF file(s) selected successfully!`
+        );
       } else {
-        this.toast.error("Please select a valid PDF file");
+        this.toast.error("Please select valid PDF files");
       }
+      // Reset the input so the same files can be selected again if needed
+      e.target.value = "";
+    },
+
+    removePdfFile(index) {
+      this.pdfFiles.splice(index, 1);
+      this.toast.info("PDF file removed");
     },
 
     async startSplitting() {
@@ -6879,20 +6927,20 @@ export default {
       const method = methodNames[this.splitMethod] || this.splitMethod;
       console.log(`🚀 Starting PDF splitting process (${method} method)...`);
       console.log(
-        "📄 PDF File:",
-        this.pdfFile
-          ? {
-              name: this.pdfFile.name,
-              size: this.pdfFile.size,
-              type: this.pdfFile.type,
-            }
-          : "No file"
+        "📄 PDF Files:",
+        this.pdfFiles.length > 0
+          ? this.pdfFiles.map((f) => ({
+              name: f.name,
+              size: f.size,
+              type: f.type,
+            }))
+          : "No files"
       );
       console.log("🔍 Filter String:", this.filterString);
 
-      if (!this.pdfFile) {
-        console.error("❌ No PDF file selected");
-        this.toast.error("Please upload a PDF file");
+      if (this.pdfFiles.length === 0) {
+        console.error("❌ No PDF files selected");
+        this.toast.error("Please upload at least one PDF file");
         return;
       }
 
@@ -6905,7 +6953,10 @@ export default {
       this.isSplitting = true;
 
       const formData = new FormData();
-      formData.append("pdf_file", this.pdfFile);
+      // Append all PDF files
+      this.pdfFiles.forEach((file, index) => {
+        formData.append("pdf_files", file);
+      });
       formData.append("filter_string", this.filterString.trim());
 
       // Choose endpoint based on method
@@ -7052,7 +7103,7 @@ export default {
     },
 
     resetSplitForm() {
-      this.pdfFile = null;
+      this.pdfFiles = [];
       this.filterString = "";
       this.splitJobId = null;
       this.splitJobStatus = null;
@@ -10996,6 +11047,27 @@ body {
   gap: 0.5rem;
 }
 
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-list .file-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  gap: 1rem;
+}
+
 .file-icon {
   font-size: 2rem;
   color: #10b981;
@@ -11005,11 +11077,37 @@ body {
   font-weight: 500;
   color: #1e293b;
   font-size: 0.875rem;
+  flex: 1;
+  text-align: left;
+  word-break: break-word;
 }
 
 .file-size {
   color: #64748b;
   font-size: 0.75rem;
+}
+
+.remove-file-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.remove-file-btn:hover {
+  background: #dc2626;
+  transform: scale(1.1);
 }
 
 /* Settings */

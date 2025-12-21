@@ -102,6 +102,7 @@ try:
     import shutil
     import uuid
     from pathlib import Path
+    from typing import List
     import subprocess
     import json
     import time
@@ -324,13 +325,13 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
-    """Background task to split PDF using the existing detection script"""
+def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str):
+    """Background task to split multiple PDFs using the existing detection script"""
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = "Starting PDF splitting..."
+        job.message = f"Starting PDF splitting for {len(pdf_paths)} file(s)..."
         job.progress = 10
         
         # Use existing input and output folders
@@ -347,19 +348,23 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
             for file in output_dir.glob("*.pdf"):
                 file.unlink()
         
-        # Copy PDF to input folder
-        pdf_filename = Path(pdf_path).name
-        input_pdf_path = input_dir / pdf_filename
-        shutil.copy2(pdf_path, input_pdf_path)
+        # Copy all PDFs to input folder
+        input_pdf_paths = []
+        for idx, pdf_path in enumerate(pdf_paths):
+            pdf_filename = f"{Path(pdf_path).stem}_{idx}{Path(pdf_path).suffix}"
+            input_pdf_path = input_dir / pdf_filename
+            shutil.copy2(pdf_path, input_pdf_path)
+            
+            # Verify the file was copied
+            if not input_pdf_path.exists():
+                raise Exception(f"Failed to copy PDF to input folder: {input_pdf_path}")
+            
+            input_pdf_paths.append(input_pdf_path)
+            logger.info(f"PDF {idx+1}/{len(pdf_paths)} copied to input folder: {input_pdf_path}")
         
-        # Verify the file was copied
-        if not input_pdf_path.exists():
-            raise Exception(f"Failed to copy PDF to input folder: {input_pdf_path}")
-        
-        logger.info(f"PDF copied to input folder: {input_pdf_path}")
         logger.info(f"Input folder now contains: {[f.name for f in input_dir.glob('*.pdf')]}")
         
-        job.message = "PDF copied, running split script..."
+        job.message = f"PDFs copied ({len(pdf_paths)} file(s)), running split script..."
         job.progress = 30
         
         # Set up environment for the splitting script
@@ -456,13 +461,18 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         job.result_file = str(zip_path)
         job.status = "completed"
         job.progress = 100
-        job.message = f"PDF splitting completed successfully! Created {len(pdf_files)} sections."
+        job.message = f"PDF splitting completed successfully! Created {len(pdf_files)} sections from {len(pdf_paths)} PDF(s)."
         
-        # Clean up uploaded file, input folder, and temp script
-        os.unlink(pdf_path)
-        if input_pdf_path.exists():
-            input_pdf_path.unlink()
-            logger.info(f"Cleaned up input file: {input_pdf_path}")
+        # Clean up uploaded files, input folder, and temp script
+        for pdf_path in pdf_paths:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+                logger.info(f"Cleaned up uploaded file: {pdf_path}")
+        
+        for input_pdf_path in input_pdf_paths:
+            if input_pdf_path.exists():
+                input_pdf_path.unlink()
+                logger.info(f"Cleaned up input file: {input_pdf_path}")
         
         # Clean up temp script
         if temp_script_path.exists():
@@ -481,9 +491,15 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         
         # Clean up on error
         try:
-            if 'input_pdf_path' in locals() and input_pdf_path.exists():
-                input_pdf_path.unlink()
-                logger.info(f"Cleaned up input file on error: {input_pdf_path}")
+            for pdf_path in pdf_paths:
+                if os.path.exists(pdf_path):
+                    os.unlink(pdf_path)
+                    logger.info(f"Cleaned up uploaded file on error: {pdf_path}")
+            if 'input_pdf_paths' in locals():
+                for input_pdf_path in input_pdf_paths:
+                    if input_pdf_path.exists():
+                        input_pdf_path.unlink()
+                        logger.info(f"Cleaned up input file on error: {input_pdf_path}")
             if 'temp_script_path' in locals() and temp_script_path.exists():
                 temp_script_path.unlink()
                 logger.info(f"Cleaned up temp script on error: {temp_script_path}")
@@ -493,13 +509,13 @@ def split_pdf_background(job_id: str, pdf_path: str, filter_string: str):
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12):
-    """Background task to split PDF using new splitting method"""
+def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12):
+    """Background task to split multiple PDFs using new splitting method"""
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = "Starting PDF splitting..."
+        job.message = f"Starting PDF splitting for {len(pdf_paths)} file(s)..."
         job.progress = 10
         
         # Use existing output folder
@@ -514,7 +530,7 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
             for file in output_dir.glob("*.pdf"):
                 file.unlink()
         
-        job.message = f"Analyzing PDF with Gemini (filter: '{filter_string}')..."
+        job.message = f"Analyzing {len(pdf_paths)} PDF(s) with Gemini (filter: '{filter_string}')..."
         job.progress = 30
         
         # Set up environment for the script
@@ -548,23 +564,33 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         split_pdf_with_gemini = split_module.split_pdf_with_gemini
         
         logger.info(f"Running Gemini split function with filter: {filter_string}")
-        logger.info(f"Input PDF: {pdf_path}")
+        logger.info(f"Input PDFs: {len(pdf_paths)} file(s)")
         logger.info(f"Output folder: {output_dir}")
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
         logger.info(f"Max workers: {max_workers}")
         
-        job.message = "Gemini processing PDF pages..."
-        job.progress = 60
-        
-        # Call the function directly
+        # Process each PDF
+        total_created = 0
         filter_strings = [filter_string]
-        created_count = split_pdf_with_gemini(
-            pdf_path, str(output_dir), filter_strings, batch_size, model, max_workers
-        )
         
-        if created_count is None:
-            raise Exception("Gemini splitting failed - no sections created")
+        for idx, pdf_path in enumerate(pdf_paths):
+            job.message = f"Gemini processing PDF {idx+1}/{len(pdf_paths)}..."
+            job.progress = 30 + int((idx / len(pdf_paths)) * 50)  # 30-80% for processing
+            
+            logger.info(f"Processing PDF {idx+1}/{len(pdf_paths)}: {pdf_path}")
+            created_count = split_pdf_with_gemini(
+                pdf_path, str(output_dir), filter_strings, batch_size, model, max_workers
+            )
+            
+            if created_count is None:
+                logger.warning(f"Gemini splitting returned None for PDF {idx+1}, continuing...")
+            else:
+                total_created += created_count or 0
+                logger.info(f"PDF {idx+1} created {created_count} sections")
+        
+        if total_created == 0:
+            raise Exception("Gemini splitting failed - no sections created from any PDF")
         
         job.message = "Creating ZIP archive of split PDFs..."
         job.progress = 85
@@ -586,11 +612,13 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         job.result_file = str(zip_path)
         job.status = "completed"
         job.progress = 100
-        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections."
+        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections from {len(pdf_paths)} PDF(s)."
         
-        # Clean up uploaded file
-        os.unlink(pdf_path)
-        logger.info(f"Cleaned up input file: {pdf_path}")
+        # Clean up uploaded files
+        for pdf_path in pdf_paths:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+                logger.info(f"Cleaned up input file: {pdf_path}")
         
         # Force garbage collection to free memory
         gc.collect()
@@ -604,22 +632,23 @@ def split_pdf_gemini_background(job_id: str, pdf_path: str, filter_string: str, 
         
         # Clean up on error
         try:
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-                logger.info(f"Cleaned up input file on error: {pdf_path}")
+            for pdf_path in pdf_paths:
+                if os.path.exists(pdf_path):
+                    os.unlink(pdf_path)
+                    logger.info(f"Cleaned up input file on error: {pdf_path}")
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
         
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str, max_workers: int = 7):
-    """Background task to split PDF using OCR.space API"""
+def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_string: str, max_workers: int = 7):
+    """Background task to split multiple PDFs using OCR.space API"""
     job = job_status[job_id]
     
     try:
         job.status = "processing"
-        job.message = "Starting PDF splitting with OCR.space..."
+        job.message = f"Starting PDF splitting with OCR.space for {len(pdf_paths)} file(s)..."
         job.progress = 10
         
         # Use job-specific output folder (prevents conflicts with concurrent users)
@@ -629,7 +658,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         # Create output folder if it doesn't exist
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        job.message = f"Analyzing PDF with OCR.space API (filter: '{filter_string}')..."
+        job.message = f"Analyzing {len(pdf_paths)} PDF(s) with OCR.space API (filter: '{filter_string}')..."
         job.progress = 10
         
         # Path to OCR.space splitting script
@@ -651,27 +680,42 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         split_pdf_with_ocrspace = split_module.split_pdf_with_ocrspace
         
         logger.info(f"Running OCR.space split function with filter: {filter_string}")
-        logger.info(f"Input PDF: {pdf_path}")
+        logger.info(f"Input PDFs: {len(pdf_paths)} file(s)")
         logger.info(f"Output folder: {output_dir} (job-specific)")
         logger.info(f"Max workers: {max_workers}")
         
-        # Progress callback function - maps OCR progress (0-100%) to job progress (20-90%)
-        # OCR processing: 20-90% (70% range)
-        # ZIP creation: 90-100% (10% range)
-        def progress_callback(completed, total, message):
-            if total > 0:
-                ocr_progress_pct = int((completed / total) * 70)  # 0-70% for OCR
-                job.progress = 20 + ocr_progress_pct  # Map to 20-90% range
-                job.message = f"OCR.space: {message} ({completed}/{total} pages)"
-        
-        # Call the function directly with progress callback
+        # Process each PDF
+        total_created = 0
         filter_strings = [filter_string]
-        created_count = split_pdf_with_ocrspace(
-            pdf_path, str(output_dir), filter_strings, max_workers, False, progress_callback
-        )
         
-        if created_count is None:
-            raise Exception("OCR.space splitting failed - no sections created")
+        for idx, pdf_path in enumerate(pdf_paths):
+            # Progress callback function - maps OCR progress (0-100%) to job progress (20-90%)
+            # OCR processing: 20-90% (70% range)
+            # ZIP creation: 90-100% (10% range)
+            # Use a lambda with default argument to capture idx correctly
+            def make_progress_callback(pdf_idx, total_pdfs):
+                def progress_callback(completed, total, message):
+                    if total > 0:
+                        # Calculate progress within this PDF's portion
+                        pdf_progress = (pdf_idx / total_pdfs) * 70  # Progress through all PDFs
+                        ocr_progress_pct = int((completed / total) * (70 / total_pdfs))  # Progress for this PDF
+                        job.progress = 20 + int(pdf_progress) + ocr_progress_pct  # Map to 20-90% range
+                        job.message = f"OCR.space: PDF {pdf_idx+1}/{total_pdfs} - {message} ({completed}/{total} pages)"
+                return progress_callback
+            
+            logger.info(f"Processing PDF {idx+1}/{len(pdf_paths)}: {pdf_path}")
+            created_count = split_pdf_with_ocrspace(
+                pdf_path, str(output_dir), filter_strings, max_workers, False, make_progress_callback(idx, len(pdf_paths))
+            )
+            
+            if created_count is None:
+                logger.warning(f"OCR.space splitting returned None for PDF {idx+1}, continuing...")
+            else:
+                total_created += created_count or 0
+                logger.info(f"PDF {idx+1} created {created_count} sections")
+        
+        if total_created == 0:
+            raise Exception("OCR.space splitting failed - no sections created from any PDF")
         
         job.message = "Creating ZIP archive of split PDFs..."
         job.progress = 90
@@ -693,11 +737,13 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         job.result_file = str(zip_path)
         job.status = "completed"
         job.progress = 100
-        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections."
+        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections from {len(pdf_paths)} PDF(s)."
         
-        # Clean up uploaded file
-        os.unlink(pdf_path)
-        logger.info(f"Cleaned up input file: {pdf_path}")
+        # Clean up uploaded files
+        for pdf_path in pdf_paths:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+                logger.info(f"Cleaned up input file: {pdf_path}")
         
         # Force garbage collection to free memory
         gc.collect()
@@ -711,9 +757,10 @@ def split_pdf_ocrspace_background(job_id: str, pdf_path: str, filter_string: str
         
         # Clean up on error
         try:
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-                logger.info(f"Cleaned up input file on error: {pdf_path}")
+            for pdf_path in pdf_paths:
+                if os.path.exists(pdf_path):
+                    os.unlink(pdf_path)
+                    logger.info(f"Cleaned up input file on error: {pdf_path}")
         except Exception as cleanup_error:
             logger.error(f"Cleanup error: {cleanup_error}")
         
@@ -2068,39 +2115,39 @@ async def predict_icd_from_pdfs(
 @app.post("/split-pdf")
 async def split_pdf(
     background_tasks: BackgroundTasks,
-    pdf_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
     filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
 ):
-    """Upload a single PDF file to split into sections (OCR-based method)"""
+    """Upload one or more PDF files to split into sections (OCR-based method)"""
     
     try:
-        logger.info(f"Received PDF split request - pdf: {pdf_file.filename}")
+        logger.info(f"Received PDF split request - {len(pdf_files)} PDF file(s)")
         
-        # Validate file type
-        if not pdf_file.filename.endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="File must be a PDF")
-        
-        # Generate job ID
+        # Validate all files are PDFs
+        pdf_paths = []
         job_id = str(uuid.uuid4())
         job = ProcessingJob(job_id)
         job_status[job_id] = job
         
         logger.info(f"Created split job {job_id}")
         
-        # Save uploaded PDF
-        pdf_path = f"/tmp/{job_id}_input.pdf"
+        # Save all uploaded PDFs
+        for idx, pdf_file in enumerate(pdf_files):
+            if not pdf_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"File {pdf_file.filename} must be a PDF")
+            
+            pdf_path = f"/tmp/{job_id}_input_{idx}.pdf"
+            with open(pdf_path, "wb") as f:
+                shutil.copyfileobj(pdf_file.file, f)
+            pdf_paths.append(pdf_path)
+            logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
         
-        with open(pdf_path, "wb") as f:
-            shutil.copyfileobj(pdf_file.file, f)
+        # Start background processing with all PDFs
+        background_tasks.add_task(split_pdf_background, job_id, pdf_paths, filter_string)
         
-        logger.info(f"PDF saved - path: {pdf_path}")
+        logger.info(f"Background split task started for job {job_id} with {len(pdf_files)} PDF(s)")
         
-        # Start background processing
-        background_tasks.add_task(split_pdf_background, job_id, pdf_path, filter_string)
-        
-        logger.info(f"Background split task started for job {job_id}")
-        
-        return {"job_id": job_id, "message": "PDF uploaded and splitting started"}
+        return {"job_id": job_id, "message": f"{len(pdf_files)} PDF(s) uploaded and splitting started"}
         
     except Exception as e:
         logger.error(f"PDF split upload error: {str(e)}")
@@ -2109,19 +2156,20 @@ async def split_pdf(
 @app.post("/split-pdf-gemini")
 async def split_pdf_gemini(
     background_tasks: BackgroundTasks,
-    pdf_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
     filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
     batch_size: int = Form(default=5, description="Number of pages to process per API call (1-50)"),
     model: str = Form(default="gemini-2.5-pro", description="Gemini model to use")
 ):
-    """Upload a single PDF file to split into sections using new splitting method"""
+    """Upload one or more PDF files to split into sections using new splitting method"""
     
     try:
-        logger.info(f"Received new PDF split request - pdf: {pdf_file.filename}")
+        logger.info(f"Received new PDF split request - {len(pdf_files)} PDF file(s)")
         
-        # Validate file type
-        if not pdf_file.filename.endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="File must be a PDF")
+        # Validate all files are PDFs
+        for pdf_file in pdf_files:
+            if not pdf_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"File {pdf_file.filename} must be a PDF")
         
         # Validate batch size
         if batch_size < 1 or batch_size > 50:
@@ -2144,20 +2192,21 @@ async def split_pdf_gemini(
         
         logger.info(f"Created Gemini split job {job_id}")
         
-        # Save uploaded PDF
-        pdf_path = f"/tmp/{job_id}_input.pdf"
-        
-        with open(pdf_path, "wb") as f:
-            shutil.copyfileobj(pdf_file.file, f)
-        
-        logger.info(f"PDF saved - path: {pdf_path}")
+        # Save all uploaded PDFs
+        pdf_paths = []
+        for idx, pdf_file in enumerate(pdf_files):
+            pdf_path = f"/tmp/{job_id}_input_{idx}.pdf"
+            with open(pdf_path, "wb") as f:
+                shutil.copyfileobj(pdf_file.file, f)
+            pdf_paths.append(pdf_path)
+            logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
         
         # Start background processing with new splitting method
-        background_tasks.add_task(split_pdf_gemini_background, job_id, pdf_path, filter_string, batch_size, model, max_workers)
+        background_tasks.add_task(split_pdf_gemini_background, job_id, pdf_paths, filter_string, batch_size, model, max_workers)
         
-        logger.info(f"Background split task started for job {job_id}")
+        logger.info(f"Background split task started for job {job_id} with {len(pdf_files)} PDF(s)")
         
-        return {"job_id": job_id, "message": "PDF uploaded and splitting started"}
+        return {"job_id": job_id, "message": f"{len(pdf_files)} PDF(s) uploaded and splitting started"}
         
     except Exception as e:
         logger.error(f"Gemini PDF split upload error: {str(e)}")
@@ -2166,17 +2215,18 @@ async def split_pdf_gemini(
 @app.post("/split-pdf-ocrspace")
 async def split_pdf_ocrspace(
     background_tasks: BackgroundTasks,
-    pdf_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
     filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
 ):
-    """Upload a PDF file to split using OCR.space API - fastest and most reliable method"""
+    """Upload one or more PDF files to split using OCR.space API - fastest and most reliable method"""
     
     try:
-        logger.info(f"Received OCR.space PDF split request - pdf: {pdf_file.filename}, filter: {filter_string}")
+        logger.info(f"Received OCR.space PDF split request - {len(pdf_files)} PDF file(s), filter: {filter_string}")
         
-        # Validate file type
-        if not pdf_file.filename.endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="File must be a PDF")
+        # Validate all files are PDFs
+        for pdf_file in pdf_files:
+            if not pdf_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"File {pdf_file.filename} must be a PDF")
         
         # Fixed configuration
         max_workers = 7  # Optimal speed while staying under API limit (7 concurrent requests)
@@ -2188,20 +2238,21 @@ async def split_pdf_ocrspace(
         
         logger.info(f"Created OCR.space split job {job_id}")
         
-        # Save uploaded PDF
-        pdf_path = f"/tmp/{job_id}_input.pdf"
-        
-        with open(pdf_path, "wb") as f:
-            shutil.copyfileobj(pdf_file.file, f)
-        
-        logger.info(f"PDF saved - path: {pdf_path}")
+        # Save all uploaded PDFs
+        pdf_paths = []
+        for idx, pdf_file in enumerate(pdf_files):
+            pdf_path = f"/tmp/{job_id}_input_{idx}.pdf"
+            with open(pdf_path, "wb") as f:
+                shutil.copyfileobj(pdf_file.file, f)
+            pdf_paths.append(pdf_path)
+            logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
         
         # Start background processing with OCR.space method
-        background_tasks.add_task(split_pdf_ocrspace_background, job_id, pdf_path, filter_string, max_workers)
+        background_tasks.add_task(split_pdf_ocrspace_background, job_id, pdf_paths, filter_string, max_workers)
         
-        logger.info(f"Background OCR.space split task started for job {job_id}")
+        logger.info(f"Background OCR.space split task started for job {job_id} with {len(pdf_files)} PDF(s)")
         
-        return {"job_id": job_id, "message": "PDF uploaded and OCR.space splitting started"}
+        return {"job_id": job_id, "message": f"{len(pdf_files)} PDF(s) uploaded and OCR.space splitting started"}
         
     except Exception as e:
         logger.error(f"OCR.space PDF split upload error: {str(e)}")
