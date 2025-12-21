@@ -3773,10 +3773,129 @@
               </div>
             </div>
 
-            <!-- Step 5: ICD Instruction Template (Required) -->
+            <!-- Step 5: CPT Vision Model Selection -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">5</div>
+                <h3>CPT Vision Model</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-cpt-vision-model" class="form-label"
+                    >Vision Model:</label
+                  >
+                  <p
+                    class="form-hint"
+                    style="
+                      margin-bottom: 1rem;
+                      color: #64748b;
+                      font-size: 0.875rem;
+                    "
+                  >
+                    Choose the AI vision model to analyze PDF pages for CPT
+                    codes.
+                  </p>
+                  <div class="model-selection-grid">
+                    <!-- GPT-5.2 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementCptVisionModel === 'openai/gpt-5.2:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="openai/gpt-5.2:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5.2</span>
+                            <span class="model-badge badge-recommended"
+                              >Recommended</span
+                            >
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⭐ Highest Accuracy</span>
+                          <span class="feature-tag">📄 Complex Documents</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- GPT-5 Nano Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementCptVisionModel ===
+                          'openai/gpt-5-nano:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="openai/gpt-5-nano:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5 Nano</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Faster Processing</span>
+                          <span class="feature-tag">💰 Cost-Effective</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini 3 Flash Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementCptVisionModel === 'gemini-3-flash-preview',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="gemini-3-flash-preview"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini 3 Flash</span>
+                            <span class="model-badge badge-preview"
+                              >Preview</span
+                            >
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🚀 Very Fast</span>
+                          <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 6: ICD Instruction Template (Required) -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">6</div>
                 <h3>ICD Instruction Template (Required)</h3>
               </div>
               <div class="settings-content">
@@ -3799,10 +3918,129 @@
               </div>
             </div>
 
+            <!-- Step 7: ICD Vision Model Selection -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">7</div>
+                <h3>ICD Vision Model</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-icd-vision-model" class="form-label"
+                    >Vision Model:</label
+                  >
+                  <p
+                    class="form-hint"
+                    style="
+                      margin-bottom: 1rem;
+                      color: #64748b;
+                      font-size: 0.875rem;
+                    "
+                  >
+                    Choose the AI vision model to analyze PDF pages for ICD
+                    codes.
+                  </p>
+                  <div class="model-selection-grid">
+                    <!-- GPT-5.2 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementIcdVisionModel === 'openai/gpt-5.2:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="openai/gpt-5.2:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5.2</span>
+                            <span class="model-badge badge-recommended"
+                              >Recommended</span
+                            >
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⭐ Highest Accuracy</span>
+                          <span class="feature-tag">📄 Complex Documents</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- GPT-5 Nano Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementIcdVisionModel ===
+                          'openai/gpt-5-nano:online',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="openai/gpt-5-nano:online"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">GPT-5 Nano</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">OpenAI</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Faster Processing</span>
+                          <span class="feature-tag">💰 Cost-Effective</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini 3 Flash Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementIcdVisionModel === 'gemini-3-flash-preview',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="gemini-3-flash-preview"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini 3 Flash</span>
+                            <span class="model-badge badge-preview"
+                              >Preview</span
+                            >
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🚀 Very Fast</span>
+                          <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Refinement Parameters -->
             <div class="upload-card">
               <div class="card-header">
-                <div class="step-number">6</div>
+                <div class="step-number">8</div>
                 <h3>Refinement Parameters</h3>
               </div>
               <div class="settings-content">
@@ -6864,6 +7102,8 @@ export default {
       refinementSelectedExtractionTemplateId: null,
       refinementSelectedCptInstructionId: null,
       refinementSelectedIcdInstructionId: null,
+      refinementCptVisionModel: "openai/gpt-5.2:online", // CPT vision model selection
+      refinementIcdVisionModel: "openai/gpt-5.2:online", // ICD vision model selection
       refinementTargetCptAccuracy: 0.95,
       refinementTargetIcdAccuracy: 0.95,
       refinementMaxIterations: 10,
@@ -8408,12 +8648,12 @@ export default {
       formData.append("worktracker_batch", "");
       formData.append("extract_csn", false);
 
-      // CPT parameters (use vision mode defaults)
+      // CPT parameters (use vision mode since we're working with PDFs)
       formData.append("enable_cpt", true);
-      formData.append("cpt_vision_mode", false);
+      formData.append("cpt_vision_mode", true); // Use vision mode for PDF-based prediction
       formData.append("cpt_client", "uni");
       formData.append("cpt_vision_pages", 1);
-      formData.append("cpt_vision_model", "openai/gpt-5.2:online");
+      formData.append("cpt_vision_model", this.refinementCptVisionModel);
       formData.append("cpt_include_code_list", true);
       formData.append("cpt_max_workers", 50);
       formData.append(
@@ -8424,7 +8664,7 @@ export default {
       // ICD parameters
       formData.append("enable_icd", true);
       formData.append("icd_n_pages", 1);
-      formData.append("icd_vision_model", "openai/gpt-5.2:online");
+      formData.append("icd_vision_model", this.refinementIcdVisionModel);
       formData.append("icd_max_workers", 50);
       formData.append(
         "icd_instruction_template_id",

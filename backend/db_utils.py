@@ -9,6 +9,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
