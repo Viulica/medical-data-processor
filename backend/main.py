@@ -5800,14 +5800,18 @@ def process_unified_background(
                 # Import prediction function
                 general_coding_path = Path(__file__).parent / "general-coding"
                 sys.path.insert(0, str(general_coding_path))
-                from predict_general import predict_codes_from_pdfs_api
+                from predict_general import predict_codes_from_pdfs_api, is_gemini_model
                 
                 # Create output path with .csv extension
                 cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
                 Path(cpt_csv_path).parent.mkdir(exist_ok=True)
                 
-                # Get OpenRouter API key
-                api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                # Check if using Gemini model and select appropriate API key
+                using_gemini = is_gemini_model(cpt_vision_model)
+                if using_gemini:
+                    api_key = os.environ.get('GOOGLE_API_KEY')
+                else:
+                    api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                 
                 # Progress callback
                 def cpt_progress(completed, total, message):
@@ -5952,8 +5956,15 @@ def process_unified_background(
             icd_csv_path = str(temp_dir / "icd_predictions.csv")
             Path(icd_csv_path).parent.mkdir(exist_ok=True)
             
-            # Get OpenRouter API key
-            api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+            # Check if using Gemini model and select appropriate API key
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import is_gemini_model
+            using_gemini = is_gemini_model(icd_vision_model)
+            if using_gemini:
+                api_key = os.environ.get('GOOGLE_API_KEY')
+            else:
+                api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
             
             # Progress callback
             def icd_progress(completed, total, message):
