@@ -306,14 +306,32 @@ def refine_icd_instructions(
     for idx, error in enumerate(selected_errors):
         account_id = error.get('account_id', 'N/A')
         pdf_path = pdf_mapping.get(account_id, '')
-        predicted = error.get('predicted', 'N/A')
-        expected = error.get('expected', 'N/A')
+        predicted_icd1 = error.get('predicted_icd1', error.get('predicted', 'N/A'))
+        predicted_icd2 = error.get('predicted_icd2', '')
+        predicted_icd3 = error.get('predicted_icd3', '')
+        predicted_icd4 = error.get('predicted_icd4', '')
+        expected_icd1 = error.get('expected_icd1', error.get('expected', 'N/A'))
+        expected_icd2 = error.get('expected_icd2', '')
+        expected_icd3 = error.get('expected_icd3', '')
+        expected_icd4 = error.get('expected_icd4', '')
+        
+        # Build predicted ICD codes string
+        predicted_icds = [predicted_icd1, predicted_icd2, predicted_icd3, predicted_icd4]
+        predicted_icds = [icd for icd in predicted_icds if icd]  # Remove empty
+        predicted_str = ', '.join(predicted_icds) if predicted_icds else '(none)'
+        
+        # Build expected ICD codes string
+        expected_icds = [expected_icd1, expected_icd2, expected_icd3, expected_icd4]
+        expected_icds = [icd for icd in expected_icds if icd]  # Remove empty
+        expected_str = ', '.join(expected_icds) if expected_icds else '(none)'
         
         error_examples.append(f"""
 Error Case {idx + 1}:
 - Account ID: {account_id}
-- Predicted ICD1: {predicted}
-- Expected ICD1: {expected}
+- Predicted ICD codes: {predicted_str}
+  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})
+- Expected ICD codes: {expected_str}
+  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})
 - PDF: {Path(pdf_path).name if pdf_path else 'N/A'}
 """)
         
@@ -339,6 +357,14 @@ The AI made the following mistakes when predicting ICD1 (primary diagnosis) code
 
 {error_examples_text}
 
+CRITICAL FOCUS - ICD1 IS PRIMARY:
+- ICD1 (PRIMARY diagnosis) is THE MOST IMPORTANT code for medical billing - this is what determines payment
+- Accuracy is ONLY tested on ICD1 - this is the ONLY code that matters for success metrics
+- ICD2, ICD3, and ICD4 are provided ONLY for context - they are less important and NOT tested
+- Your PRIMARY goal is to fix ICD1 prediction errors - focus ALL improvements on getting ICD1 correct
+- The secondary codes (ICD2-4) may help you understand context, but DO NOT prioritize fixing them
+- If ICD1 is wrong but ICD2-4 are correct, that's still a FAILURE - focus on fixing ICD1
+
 IMPORTANT - PDF MATCHING:
 Below are the COMPLETE PDF documents (all pages) for each error case. Each PDF contains a patient record.
 - The Account ID is displayed as a RED NUMBER at the start of each patient document
@@ -346,14 +372,15 @@ Below are the COMPLETE PDF documents (all pages) for each error case. Each PDF c
 - Use the Account ID to determine which mistake corresponds to which PDF document
 
 REQUIREMENTS:
-1. Analyze the patterns in these errors - what common mistakes is the AI making?
-2. Improve the instructions to prevent these specific errors
-3. Make instructions GENERALIZABLE - focus on pattern recognition, not hardcoded rules
-4. Use if-else logic ONLY when absolutely necessary for specific edge cases
-5. Build upon the existing instructions - don't start from scratch
-6. Keep instructions clear, concise, and actionable
-7. Prioritize rules that will generalize to similar cases
-8. Remember: ICD1 is the PRIMARY diagnosis - the main reason for the procedure
+1. FOCUS ON ICD1: Analyze patterns in ICD1 errors specifically - what mistakes is the AI making with PRIMARY diagnosis?
+2. Improve instructions to prevent ICD1 errors - this is your PRIMARY objective
+3. Use ICD2-4 only as context clues - they may help understand why ICD1 was wrong, but don't optimize for them
+4. Make instructions GENERALIZABLE - focus on pattern recognition for PRIMARY diagnosis, not hardcoded rules
+5. Use if-else logic ONLY when absolutely necessary for specific edge cases
+6. Build upon the existing instructions - don't start from scratch
+7. Keep instructions clear, concise, and actionable
+8. Prioritize rules that will generalize to similar cases and improve ICD1 accuracy
+9. Remember: For anesthesia medical billing, ICD1 is CRITICAL - getting it wrong means NO PAYMENT
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON object in this exact format:

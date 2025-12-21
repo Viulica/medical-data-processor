@@ -185,6 +185,12 @@ def calculate_accuracy(
     icd1_total = 0
     error_cases = []
     
+    # Diagnostic counters
+    predictions_total = len(predictions_df)
+    accounts_not_found = 0
+    icd_skipped_no_predicted = 0
+    icd_skipped_no_ground_truth = 0
+    
     for idx, row in predictions_df.iterrows():
         account_id = str(row[account_id_col_pred]).strip()
         predicted_cpt = str(row[cpt_col_pred]).strip() if calculate_cpt and cpt_col_pred and pd.notna(row[cpt_col_pred]) else ''
@@ -228,8 +234,22 @@ def calculate_accuracy(
                             'pdf_path': pdf_path,
                             'predicted': predicted_icd1,
                             'expected': gt_icd1,
+                            'predicted_icd1': predicted_icd_list[0] if len(predicted_icd_list) > 0 else '',
+                            'predicted_icd2': predicted_icd_list[1] if len(predicted_icd_list) > 1 else '',
+                            'predicted_icd3': predicted_icd_list[2] if len(predicted_icd_list) > 2 else '',
+                            'predicted_icd4': predicted_icd_list[3] if len(predicted_icd_list) > 3 else '',
+                            'expected_icd1': gt_icd_list[0] if len(gt_icd_list) > 0 else '',
+                            'expected_icd2': gt_icd_list[1] if len(gt_icd_list) > 1 else '',
+                            'expected_icd3': gt_icd_list[2] if len(gt_icd_list) > 2 else '',
+                            'expected_icd4': gt_icd_list[3] if len(gt_icd_list) > 3 else '',
                             'error_type': 'ICD1'
                         })
+                elif len(predicted_icd_list) == 0:
+                    icd_skipped_no_predicted += 1
+                elif len(gt_icd_list) == 0:
+                    icd_skipped_no_ground_truth += 1
+        else:
+            accounts_not_found += 1
     
     # Calculate accuracies (CPT is optional)
     if calculate_cpt:
@@ -241,6 +261,14 @@ def calculate_accuracy(
     
     icd1_accuracy = icd1_matches / icd1_total if icd1_total > 0 else 0.0
     logger.info(f"ICD1 Accuracy: {icd1_accuracy:.2%} ({icd1_matches}/{icd1_total})")
+    
+    # Diagnostic logging
+    logger.info(f"Accuracy Diagnostics:")
+    logger.info(f"  - Total predictions: {predictions_total}")
+    logger.info(f"  - Accounts not found in ground truth: {accounts_not_found}")
+    logger.info(f"  - ICD skipped (no predicted code): {icd_skipped_no_predicted}")
+    logger.info(f"  - ICD skipped (no ground truth code): {icd_skipped_no_ground_truth}")
+    logger.info(f"  - ICD1 total compared: {icd1_total}")
     
     return cpt_accuracy, icd1_accuracy, error_cases
 

@@ -89,17 +89,12 @@ def run_refinement_job(
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir / "input")
         
-        # Build PDF mapping from extracted PDFs
+        # PDF mapping will be built from extraction results CSV (after first iteration)
+        # This ensures account IDs match between predictions CSV and PDF mapping
         pdf_mapping = {}  # account_id -> pdf_path
         pdf_folder = temp_dir / "input"
         
-        # Find all PDF files recursively
-        for pdf_file in pdf_folder.rglob("*.pdf"):
-            # Extract account ID from filename (usually the PDF filename without extension)
-            account_id = pdf_file.stem
-            pdf_mapping[account_id] = str(pdf_file)
-        
-        logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} PDFs")
+        logger.info(f"[Refinement {job_id}] PDF mapping will be built from extraction results")
         
         # Import unified processing function (lazy import to avoid circular dependencies)
         # We'll import it when needed inside the loop
@@ -200,6 +195,40 @@ def run_refinement_job(
                 results_csv_path = iteration_job.result_file
                 if not results_csv_path or not os.path.exists(results_csv_path):
                     raise Exception("Results CSV not found")
+                
+                # Build PDF mapping from results CSV (if not already built)
+                if not pdf_mapping:
+                    logger.info(f"[Refinement {job_id}] Building PDF mapping from extraction results CSV")
+                    import pandas as pd
+                    try:
+                        results_df = pd.read_csv(results_csv_path, dtype=str)
+                        
+                        # Find account ID and source file columns
+                        account_id_col = None
+                        source_file_col = None
+                        
+                        for col in results_df.columns:
+                            col_upper = col.upper().strip()
+                            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
+                                account_id_col = col
+                            elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
+                                source_file_col = col
+                        
+                        if account_id_col and source_file_col:
+                            for idx, row in results_df.iterrows():
+                                account_id = str(row[account_id_col]).strip()
+                                source_file = str(row[source_file_col]).strip()
+                                
+                                # Build full PDF path
+                                pdf_path = pdf_folder / source_file
+                                if pdf_path.exists():
+                                    pdf_mapping[account_id] = str(pdf_path)
+                            
+                            logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs from extraction CSV")
+                        else:
+                            logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns in results CSV")
+                    except Exception as e:
+                        logger.error(f"[Refinement {job_id}] Error building PDF mapping from CSV: {e}")
                 
             except Exception as e:
                 logger.error(f"[Refinement {job_id}] Unified processing failed: {e}")
@@ -413,6 +442,40 @@ def run_refinement_job(
                     results_csv_path = iteration_job.result_file
                     if not results_csv_path or not os.path.exists(results_csv_path):
                         raise Exception("Results CSV not found")
+                    
+                    # Update PDF mapping from results CSV (if needed for ICD phase)
+                    if not pdf_mapping:
+                        logger.info(f"[Refinement {job_id}] Building PDF mapping from ICD iteration results CSV")
+                        import pandas as pd
+                        try:
+                            results_df = pd.read_csv(results_csv_path, dtype=str)
+                            
+                            # Find account ID and source file columns
+                            account_id_col = None
+                            source_file_col = None
+                            
+                            for col in results_df.columns:
+                                col_upper = col.upper().strip()
+                                if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
+                                    account_id_col = col
+                                elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
+                                    source_file_col = col
+                            
+                            if account_id_col and source_file_col:
+                                for idx, row in results_df.iterrows():
+                                    account_id = str(row[account_id_col]).strip()
+                                    source_file = str(row[source_file_col]).strip()
+                                    
+                                    # Build full PDF path
+                                    pdf_path = pdf_folder / source_file
+                                    if pdf_path.exists():
+                                        pdf_mapping[account_id] = str(pdf_path)
+                                
+                                logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs from ICD iteration CSV")
+                            else:
+                                logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns in ICD results CSV")
+                        except Exception as e:
+                            logger.error(f"[Refinement {job_id}] Error building PDF mapping from ICD CSV: {e}")
                     
                 except Exception as e:
                     logger.error(f"[Refinement {job_id}] Unified processing failed: {e}")
