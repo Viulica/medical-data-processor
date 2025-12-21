@@ -6510,13 +6510,13 @@ async def process_unified_with_refinement(
     cpt_vision_pages: int = Form(default=1),
     cpt_vision_model: str = Form(default="openai/gpt-5.2:online"),
     cpt_include_code_list: bool = Form(default=True),
-    cpt_max_workers: int = Form(default=50),
+    cpt_max_workers: int = Form(default=100),
     cpt_instruction_template_id: Optional[int] = Form(default=None),  # Required if enable_cpt is True
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
     icd_vision_model: str = Form(default="openai/gpt-5.2:online"),
-    icd_max_workers: int = Form(default=50),
+    icd_max_workers: int = Form(default=100),
     icd_instruction_template_id: Optional[int] = Form(default=None),  # Required if enable_icd is True
     # Refinement parameters
     target_cpt_accuracy: float = Form(default=0.95),
