@@ -845,6 +845,22 @@
                 <label class="checkbox-label">
                   <input
                     type="checkbox"
+                    v-model="unifiedEnableSplit"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">
+                    ✂️ Enable PDF Splitting (Step 0)
+                  </span>
+                </label>
+                <p class="form-hint" style="margin-top: 8px; color: #6b7280">
+                  Split a single large PDF into individual patient documents. If
+                  disabled, upload a ZIP of pre-split PDFs.
+                </p>
+              </div>
+              <div class="form-group" style="margin-top: 15px">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
                     v-model="unifiedEnableExtraction"
                     class="checkbox-input"
                   />
@@ -890,8 +906,95 @@
           </div>
 
           <div class="upload-grid">
-            <!-- Step 1: ZIP File Upload -->
-            <div class="upload-card">
+            <!-- Step 0: PDF Upload (for splitting) - Only shown when split is enabled -->
+            <div v-if="unifiedEnableSplit" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">0</div>
+                <h3>Single PDF to Split</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isUnifiedPdfDragActive,
+                  'has-file': unifiedSplitPdfFile,
+                }"
+                @drop="onUnifiedPdfDrop"
+                @dragover.prevent
+                @dragenter.prevent
+                @click="triggerUnifiedPdfUpload"
+              >
+                <input
+                  ref="unifiedPdfInput"
+                  type="file"
+                  accept=".pdf"
+                  @change="onUnifiedPdfFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📄</div>
+                  <div v-if="unifiedSplitPdfFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      unifiedSplitPdfFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(unifiedSplitPdfFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop single PDF here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 0 (continued): Split Settings - Only shown when split is enabled -->
+            <div v-if="unifiedEnableSplit" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">0</div>
+                <h3>✂️ Split Configuration</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="unified-split-method">Splitting Method</label>
+                  <select
+                    id="unified-split-method"
+                    v-model="unifiedSplitMethod"
+                    class="form-select"
+                  >
+                    <option value="ocrspace">
+                      New Splitting Method (Fast)
+                    </option>
+                    <option value="legacy">Old Splitting Method (Slow)</option>
+                  </select>
+                  <small class="help-text">
+                    <span v-if="unifiedSplitMethod === 'ocrspace'">
+                      ⚡ Uses enhanced OCR API - fast, reliable, and accurate
+                    </span>
+                    <span v-else>
+                      🐌 Legacy local OCR - slowest option, not recommended
+                    </span>
+                  </small>
+                </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-split-filter">Split Filter Text</label>
+                  <input
+                    id="unified-split-filter"
+                    v-model="unifiedSplitFilterString"
+                    type="text"
+                    class="page-input"
+                    placeholder="e.g., Patient Address, Patient Information"
+                  />
+                  <small class="help-text">
+                    Enter the text that appears on pages where you want to split
+                    the PDF. Case insensitive search.
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 1: ZIP File Upload - Only shown when split is disabled -->
+            <div v-if="!unifiedEnableSplit" class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
                 <h3>Patient Documents (ZIP)</h3>
@@ -930,10 +1033,10 @@
               </div>
             </div>
 
-            <!-- Step 2: Excel Instructions or Template Selection -->
+            <!-- Step 1 or 2: Excel Instructions or Template Selection -->
             <div class="upload-card">
               <div class="card-header">
-                <div class="step-number">2</div>
+                <div class="step-number">{{ unifiedEnableSplit ? 1 : 2 }}</div>
                 <h3>Processing Template</h3>
               </div>
 
@@ -1015,10 +1118,10 @@
               </div>
             </div>
 
-            <!-- Step 3: Extraction Settings (if enabled) -->
+            <!-- Step 2 or 3: Extraction Settings (if enabled) -->
             <div v-if="unifiedEnableExtraction" class="upload-card">
               <div class="card-header">
-                <div class="step-number">3</div>
+                <div class="step-number">{{ unifiedEnableSplit ? 2 : 3 }}</div>
                 <h3>📊 Extraction Settings</h3>
               </div>
               <div class="settings-content">
@@ -1050,6 +1153,9 @@
                   >
                     <option value="gemini-3-flash-preview">
                       Gemini 3 Flash Preview (Recommended)
+                    </option>
+                    <option value="models/gemini-flash-lite-latest">
+                      Gemini Flash Lite (Fastest & Cheapest)
                     </option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
@@ -1099,10 +1205,10 @@
               </div>
             </div>
 
-            <!-- Step 4: CPT Settings (if enabled) -->
+            <!-- Step 3 or 4: CPT Settings (if enabled) -->
             <div v-if="unifiedEnableCpt" class="upload-card">
               <div class="card-header">
-                <div class="step-number">4</div>
+                <div class="step-number">{{ unifiedEnableSplit ? 3 : 4 }}</div>
                 <h3>🏥 CPT Prediction Settings</h3>
               </div>
               <div class="settings-content">
@@ -1488,10 +1594,10 @@
               </div>
             </div>
 
-            <!-- Step 5: ICD Settings (if enabled) -->
+            <!-- Step 4 or 5: ICD Settings (if enabled) -->
             <div v-if="unifiedEnableIcd" class="upload-card">
               <div class="card-header">
-                <div class="step-number">5</div>
+                <div class="step-number">{{ unifiedEnableSplit ? 4 : 5 }}</div>
                 <h3>📋 ICD Prediction Settings</h3>
               </div>
               <div class="settings-content">
@@ -6333,9 +6439,15 @@ export default {
       isUnifiedZipDragActive: false,
       isUnifiedExcelDragActive: false,
       // Unified - Step toggles
+      unifiedEnableSplit: false, // Enable PDF splitting as Step 0
       unifiedEnableExtraction: true,
       unifiedEnableCpt: true,
       unifiedEnableIcd: true,
+      // Unified - Split settings (Step 0)
+      unifiedSplitPdfFile: null, // Single PDF when splitting enabled
+      unifiedSplitFilterString: "", // Text to search for splitting
+      unifiedSplitMethod: "ocrspace", // Split method: "ocrspace" or "legacy"
+      isUnifiedPdfDragActive: false,
       // Unified - Extraction settings
       unifiedExtractionPages: 49,
       unifiedExtractionModel: "gemini-3-flash-preview",
@@ -6516,18 +6628,30 @@ export default {
       }
     },
     canProcessUnified() {
-      // Must have at least one step enabled
+      // Must have at least one step enabled (including split)
       if (
+        !this.unifiedEnableSplit &&
         !this.unifiedEnableExtraction &&
         !this.unifiedEnableCpt &&
         !this.unifiedEnableIcd
       ) {
         return false;
       }
-      // Must have ZIP file uploaded
-      if (!this.unifiedZipFile) {
-        return false;
+
+      // File upload validation: PDF if split enabled, ZIP if not
+      if (this.unifiedEnableSplit) {
+        if (!this.unifiedSplitPdfFile) {
+          return false;
+        }
+        if (!this.unifiedSplitFilterString.trim()) {
+          return false;
+        }
+      } else {
+        if (!this.unifiedZipFile) {
+          return false;
+        }
       }
+
       // Must have either excel file OR template selected
       const hasTemplate = this.unifiedUseExtractionTemplate
         ? this.unifiedSelectedExtractionTemplateId !== null
@@ -7557,6 +7681,30 @@ export default {
       }
     },
 
+    triggerUnifiedPdfUpload() {
+      this.$refs.unifiedPdfInput.click();
+    },
+
+    onUnifiedPdfFileSelect(event) {
+      const file = event.target.files[0];
+      if (file && file.name.endsWith(".pdf")) {
+        this.unifiedSplitPdfFile = file;
+        this.toast.success("PDF uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid PDF file");
+      }
+    },
+
+    onUnifiedPdfDrop(event) {
+      event.preventDefault();
+      this.isUnifiedPdfDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && file.name.endsWith(".pdf")) {
+        this.unifiedSplitPdfFile = file;
+        this.toast.success("PDF uploaded successfully!");
+      }
+    },
+
     async startUnifiedProcessing() {
       if (!this.canProcessUnified) {
         this.toast.error(
@@ -7574,11 +7722,32 @@ export default {
         return;
       }
 
+      // Validate split step if enabled
+      if (this.unifiedEnableSplit) {
+        if (!this.unifiedSplitPdfFile) {
+          this.toast.error("Please upload a PDF file for splitting");
+          return;
+        }
+        if (!this.unifiedSplitFilterString.trim()) {
+          this.toast.error("Please enter a filter string for splitting");
+          return;
+        }
+      }
+
       this.isProcessingUnified = true;
       this.unifiedJobStatus = null;
 
       const formData = new FormData();
-      formData.append("zip_file", this.unifiedZipFile);
+
+      // Add split parameters if enabled
+      formData.append("enable_split", this.unifiedEnableSplit);
+      if (this.unifiedEnableSplit) {
+        formData.append("pdf_file", this.unifiedSplitPdfFile);
+        formData.append("split_filter_string", this.unifiedSplitFilterString);
+        formData.append("split_method", this.unifiedSplitMethod);
+      } else {
+        formData.append("zip_file", this.unifiedZipFile);
+      }
 
       // Add either excel file or template ID for extraction
       if (
@@ -7788,9 +7957,14 @@ export default {
       this.unifiedJobStatus = null;
       this.isProcessingUnified = false;
       // Reset settings to defaults
+      this.unifiedEnableSplit = false;
       this.unifiedEnableExtraction = true;
       this.unifiedEnableCpt = true;
       this.unifiedEnableIcd = true;
+      // Split settings
+      this.unifiedSplitPdfFile = null;
+      this.unifiedSplitFilterString = "";
+      this.unifiedSplitMethod = "ocrspace";
       // Extraction settings
       this.unifiedExtractionPages = 49;
       this.unifiedExtractionModel = "gemini-3-flash-preview";

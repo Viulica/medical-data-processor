@@ -6080,9 +6080,14 @@ def process_unified_background(
 @app.post("/process-unified")
 async def process_unified(
     background_tasks: BackgroundTasks,
-    zip_file: UploadFile = File(...),
+    zip_file: UploadFile = File(None),  # Optional - used when split is disabled
+    pdf_file: UploadFile = File(None),  # Optional - used when split is enabled
     excel_file: UploadFile = File(None),  # Optional - can use template instead
     template_id: Optional[int] = Form(default=None),  # Use saved template instead of excel file
+    # Split parameters (Step 0)
+    enable_split: bool = Form(default=False),
+    split_filter_string: str = Form(default=""),
+    split_method: str = Form(default="ocrspace"),  # "ocrspace" or "legacy"
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
@@ -6110,7 +6115,7 @@ async def process_unified(
     icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
 ):
     """
-    Unified endpoint to run data extraction + CPT prediction + ICD prediction
+    Unified endpoint to run PDF splitting (optional) + data extraction + CPT prediction + ICD prediction
     Results are intelligently merged into a single output file
     """
     try:
@@ -6118,16 +6123,27 @@ async def process_unified(
             excel_filename_log = excel_file.filename
         else:
             excel_filename_log = f"template_id={template_id}" if template_id else "None"
-        logger.info(f"Received unified processing request - zip: {zip_file.filename}, excel: {excel_filename_log}")
-        logger.info(f"Enabled: extraction={enable_extraction}, CPT={enable_cpt}, ICD={enable_icd}")
+        
+        logger.info(f"Received unified processing request - split: {enable_split}, extraction={enable_extraction}, CPT={enable_cpt}, ICD={enable_icd}")
+        logger.info(f"Files - PDF: {pdf_file.filename if pdf_file and pdf_file.filename else 'None'}, ZIP: {zip_file.filename if zip_file and zip_file.filename else 'None'}, Excel: {excel_filename_log}")
         
         # Validate at least one step is enabled
-        if not (enable_extraction or enable_cpt or enable_icd):
+        if not (enable_split or enable_extraction or enable_cpt or enable_icd):
             raise HTTPException(status_code=400, detail="At least one processing step must be enabled")
         
-        # Validate file types
-        if not zip_file.filename.endswith('.zip'):
-            raise HTTPException(status_code=400, detail="Patient documents must be in a ZIP file")
+        # Validate file inputs based on split mode
+        if enable_split:
+            if not pdf_file or not pdf_file.filename:
+                raise HTTPException(status_code=400, detail="PDF file is required when split is enabled")
+            if not pdf_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail="File must be a PDF when split is enabled")
+            if not split_filter_string.strip():
+                raise HTTPException(status_code=400, detail="Split filter string is required when split is enabled")
+        else:
+            if not zip_file or not zip_file.filename:
+                raise HTTPException(status_code=400, detail="ZIP file is required when split is disabled")
+            if not zip_file.filename.endswith('.zip'):
+                raise HTTPException(status_code=400, detail="Patient documents must be in a ZIP file when split is disabled")
         
         # Validate that either excel_file or template_id is provided
         if not excel_file and not template_id:
@@ -6143,10 +6159,82 @@ async def process_unified(
         
         logger.info(f"Created unified processing job {job_id}")
         
-        # Save uploaded ZIP file
-        zip_path = f"/tmp/{job_id}_input.zip"
-        with open(zip_path, "wb") as f:
-            shutil.copyfileobj(zip_file.file, f)
+        # Handle PDF splitting if enabled
+        zip_path = None
+        if enable_split:
+            logger.info(f"Step 0: PDF Splitting enabled (method: {split_method})")
+            job.status = "processing"
+            job.message = f"Step 0: Splitting PDF with filter '{split_filter_string}'..."
+            job.progress = 5
+            
+            # Save the PDF file
+            pdf_path = f"/tmp/{job_id}_input.pdf"
+            with open(pdf_path, "wb") as f:
+                shutil.copyfileobj(pdf_file.file, f)
+            logger.info(f"PDF saved to {pdf_path}")
+            
+            # Run the splitting synchronously (as part of the upload request)
+            # This ensures we have the split PDFs before continuing
+            try:
+                current_dir = Path(__file__).parent / "current"
+                output_dir = current_dir / "output" / job_id
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                job.message = f"Splitting PDF using {split_method} method..."
+                job.progress = 10
+                
+                if split_method == "ocrspace":
+                    # Use OCR.space splitting method
+                    script_path = current_dir / "1-split_pdf_ocrspace.py"
+                    if not script_path.exists():
+                        raise Exception(f"OCR.space splitting script not found: {script_path}")
+                    
+                    import sys
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("split_pdf_ocrspace", script_path)
+                    split_module = importlib.util.module_from_spec(spec)
+                    sys.modules["split_pdf_ocrspace"] = split_module
+                    spec.loader.exec_module(split_module)
+                    split_pdf_with_ocrspace = split_module.split_pdf_with_ocrspace
+                    
+                    created_count = split_pdf_with_ocrspace(
+                        pdf_path,
+                        str(output_dir),
+                        [split_filter_string],
+                        max_workers=7,
+                        case_sensitive=False
+                    )
+                else:
+                    # Use legacy splitting method
+                    raise HTTPException(status_code=400, detail="Legacy split method not yet supported in unified processing")
+                
+                logger.info(f"PDF split complete - created {created_count} files")
+                job.message = f"Split complete - {created_count} PDFs created. Proceeding with processing..."
+                job.progress = 20
+                
+                # Create a ZIP file from the split PDFs
+                zip_path = f"/tmp/{job_id}_split.zip"
+                import zipfile
+                with zipfile.ZipFile(zip_path, 'w') as zipf:
+                    for pdf_file_path in output_dir.glob("*.pdf"):
+                        zipf.write(pdf_file_path, pdf_file_path.name)
+                
+                logger.info(f"Created ZIP from split PDFs: {zip_path}")
+                
+                # Clean up the PDF and split directory
+                Path(pdf_path).unlink(missing_ok=True)
+                
+            except Exception as e:
+                logger.error(f"PDF splitting failed: {str(e)}")
+                job.status = "failed"
+                job.error = f"PDF splitting failed: {str(e)}"
+                raise HTTPException(status_code=500, detail=f"PDF splitting failed: {str(e)}")
+        else:
+            # Save uploaded ZIP file directly
+            zip_path = f"/tmp/{job_id}_input.zip"
+            with open(zip_path, "wb") as f:
+                shutil.copyfileobj(zip_file.file, f)
+            logger.info(f"ZIP file saved to {zip_path}")
         
         # Handle excel file or template
         excel_path = None
