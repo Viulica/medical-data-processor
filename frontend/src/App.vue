@@ -3440,10 +3440,10 @@
             <p>
               Upload predictions and ground truth CSV/XLSX files to compare CPT
               codes, ICD codes, and Anesthesia Type. Predictions file should
-              have columns: AccountId, Cpt, ICD1, ICD2, ICD3, ICD4 (and
-              optionally Anesthesia Type). Ground truth file should have
-              columns: AccountId, Cpt, Icd (comma-separated), and optionally
-              Anesthesia Type.
+              have columns: AccountId, Cpt (or ASA Code), ICD1, ICD2, ICD3, ICD4
+              (and optionally Anesthesia Type). Ground truth file should have
+              columns: Account # (or AccountId/Account ID), Cpt, Icd
+              (comma-separated), and optionally Anesthesia Type.
             </p>
           </div>
 

@@ -3064,11 +3064,11 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 account_id_col_pred = col
                 break
         
-        # Find Cpt column in predictions (case-insensitive)
+        # Find Cpt column in predictions (case-insensitive) - accepts "CPT" or "ASA Code"
         cpt_col_pred = None
         for col in predictions_df.columns:
             col_upper = col.upper().strip()
-            if col_upper == 'CPT':
+            if col_upper in ['CPT', 'ASA CODE']:
                 cpt_col_pred = col
                 break
         
@@ -3091,7 +3091,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         account_id_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
-            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #', 'ACCOUNT #']:
                 account_id_col_gt = col
                 break
         
@@ -3123,9 +3123,9 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         if account_id_col_pred is None:
             raise Exception("Predictions file must have an 'AccountId' or 'Account ID' column")
         if cpt_col_pred is None:
-            raise Exception("Predictions file must have a 'Cpt' column")
+            raise Exception("Predictions file must have a 'Cpt' or 'ASA Code' column")
         if account_id_col_gt is None:
-            raise Exception("Ground truth file must have an 'AccountId' or 'Account ID' column")
+            raise Exception("Ground truth file must have an 'AccountId', 'Account ID', or 'Account #' column")
         if cpt_col_gt is None:
             raise Exception("Ground truth file must have a 'Cpt' column")
         
