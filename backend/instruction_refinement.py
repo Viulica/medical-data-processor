@@ -29,13 +29,13 @@ def normalize_gemini_model(model_name: str) -> str:
     return clean_model
 
 
-def load_pdf_as_images(pdf_path: str, max_pages: int = 2) -> List[str]:
+def load_pdf_as_images(pdf_path: str, max_pages: Optional[int] = None) -> List[str]:
     """
     Load PDF pages as base64-encoded PNG images.
     
     Args:
         pdf_path: Path to PDF file
-        max_pages: Maximum number of pages to load
+        max_pages: Maximum number of pages to load (None = all pages)
     
     Returns:
         List of base64-encoded image strings
@@ -45,7 +45,10 @@ def load_pdf_as_images(pdf_path: str, max_pages: int = 2) -> List[str]:
         doc = fitz.open(pdf_path)
         images = []
         
-        for page_num in range(min(len(doc), max_pages)):
+        # Load all pages if max_pages is None, otherwise limit
+        page_range = len(doc) if max_pages is None else min(len(doc), max_pages)
+        
+        for page_num in range(page_range):
             page = doc[page_num]
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
             img_bytes = pix.tobytes("png")
@@ -99,7 +102,7 @@ def refine_cpt_instructions(
     except Exception as e:
         return None, f"Failed to initialize Google GenAI client: {str(e)}"
     
-    # Select up to 5-10 diverse error cases with PDF context
+    # Select up to 10 diverse error cases with PDF context
     selected_errors = error_cases[:10]
     
     # Build error examples text
@@ -120,10 +123,11 @@ Error Case {idx + 1}:
 - PDF: {Path(pdf_path).name if pdf_path else 'N/A'}
 """)
         
-        # Load PDF images for this error case (if available)
+        # Load COMPLETE PDF images for this error case (all pages)
         if pdf_path and os.path.exists(pdf_path):
-            images = load_pdf_as_images(pdf_path, max_pages=2)
+            images = load_pdf_as_images(pdf_path, max_pages=None)  # Load all pages
             pdf_images.extend(images)
+            logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name}")
     
     error_examples_text = "\n".join(error_examples)
     
@@ -140,6 +144,12 @@ ERROR ANALYSIS:
 The AI made the following mistakes when predicting CPT codes:
 
 {error_examples_text}
+
+IMPORTANT - PDF MATCHING:
+Below are the COMPLETE PDF documents (all pages) for each error case. Each PDF contains a patient record.
+- The Account ID is displayed as a RED NUMBER at the start of each patient document
+- You can match each error case to its corresponding PDF by finding the Account ID (red number) in the PDF
+- Use the Account ID to determine which mistake corresponds to which PDF document
 
 REQUIREMENTS:
 1. Analyze the patterns in these errors - what common mistakes is the AI making?
@@ -165,8 +175,9 @@ Respond with ONLY the JSON object, nothing else."""
     # Build content with images if available
     parts = [types.Part.from_text(text=prompt)]
     
-    # Add PDF images (limit to avoid token limits)
-    for img_data in pdf_images[:10]:  # Max 10 images
+    # Add ALL PDF images (complete PDFs for all error cases)
+    logger.info(f"Adding {len(pdf_images)} PDF page images to refinement request")
+    for img_data in pdf_images:
         try:
             img_bytes = base64.b64decode(img_data)
             parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
@@ -285,7 +296,7 @@ def refine_icd_instructions(
     except Exception as e:
         return None, f"Failed to initialize Google GenAI client: {str(e)}"
     
-    # Select up to 5-10 diverse error cases with PDF context
+    # Select up to 10 diverse error cases with PDF context
     selected_errors = error_cases[:10]
     
     # Build error examples text
@@ -306,10 +317,11 @@ Error Case {idx + 1}:
 - PDF: {Path(pdf_path).name if pdf_path else 'N/A'}
 """)
         
-        # Load PDF images for this error case (if available)
+        # Load COMPLETE PDF images for this error case (all pages)
         if pdf_path and os.path.exists(pdf_path):
-            images = load_pdf_as_images(pdf_path, max_pages=2)
+            images = load_pdf_as_images(pdf_path, max_pages=None)  # Load all pages
             pdf_images.extend(images)
+            logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name}")
     
     error_examples_text = "\n".join(error_examples)
     
@@ -326,6 +338,12 @@ ERROR ANALYSIS:
 The AI made the following mistakes when predicting ICD1 (primary diagnosis) codes:
 
 {error_examples_text}
+
+IMPORTANT - PDF MATCHING:
+Below are the COMPLETE PDF documents (all pages) for each error case. Each PDF contains a patient record.
+- The Account ID is displayed as a RED NUMBER at the start of each patient document
+- You can match each error case to its corresponding PDF by finding the Account ID (red number) in the PDF
+- Use the Account ID to determine which mistake corresponds to which PDF document
 
 REQUIREMENTS:
 1. Analyze the patterns in these errors - what common mistakes is the AI making?
@@ -352,8 +370,9 @@ Respond with ONLY the JSON object, nothing else."""
     # Build content with images if available
     parts = [types.Part.from_text(text=prompt)]
     
-    # Add PDF images (limit to avoid token limits)
-    for img_data in pdf_images[:10]:  # Max 10 images
+    # Add ALL PDF images (complete PDFs for all error cases)
+    logger.info(f"Adding {len(pdf_images)} PDF page images to refinement request")
+    for img_data in pdf_images:
         try:
             img_bytes = base64.b64decode(img_data)
             parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
