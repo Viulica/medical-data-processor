@@ -6324,7 +6324,7 @@ export default {
       // Unified - Extraction settings
       unifiedExtractionPages: 2,
       unifiedExtractionModel: "gemini-3-flash-preview",
-      unifiedExtractionMaxWorkers: 20,
+      unifiedExtractionMaxWorkers: 50,
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
       unifiedUseExtractionTemplate: false,
@@ -6332,7 +6332,7 @@ export default {
       // Unified - CPT settings
       unifiedCptVisionMode: false,
       unifiedCptSelectedClient: "uni", // For non-vision mode
-      unifiedCptMaxWorkers: 20,
+      unifiedCptMaxWorkers: 50,
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 1, // For vision mode
       unifiedCptVisionModel: "openai/gpt-5.2:online", // Vision model selection
@@ -6341,7 +6341,7 @@ export default {
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
       // Unified - ICD settings
       unifiedIcdPages: 1,
-      unifiedIcdMaxWorkers: 20,
+      unifiedIcdMaxWorkers: 50,
       unifiedIcdVisionModel: "openai/gpt-5.2:online", // Vision model selection
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
@@ -7743,7 +7743,7 @@ export default {
       // Extraction settings
       this.unifiedExtractionPages = 2;
       this.unifiedExtractionModel = "gemini-3-flash-preview";
-      this.unifiedExtractionMaxWorkers = 20;
+      this.unifiedExtractionMaxWorkers = 50;
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
       this.unifiedUseExtractionTemplate = false;
@@ -7754,14 +7754,14 @@ export default {
       this.unifiedCptVisionPages = 1;
       this.unifiedCptVisionModel = "openai/gpt-5.2:online";
       this.unifiedCptIncludeCodeList = true;
-      this.unifiedCptMaxWorkers = 20;
+      this.unifiedCptMaxWorkers = 50;
       this.unifiedCptCustomInstructions = "";
       this.unifiedUseCptTemplate = false;
       this.unifiedSelectedCptInstructionId = null;
       // ICD settings
       this.unifiedIcdPages = 1;
       this.unifiedIcdVisionModel = "openai/gpt-5.2:online";
-      this.unifiedIcdMaxWorkers = 20;
+      this.unifiedIcdMaxWorkers = 50;
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
       this.unifiedSelectedIcdInstructionId = null;

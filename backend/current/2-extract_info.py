@@ -443,7 +443,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -738,7 +738,7 @@ if __name__ == "__main__":
     input_folder = "input"  # Default input folder
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
-    max_workers = 5  # Default thread pool size
+    max_workers = 50  # Default thread pool size
     model = "gemini-3-pro-preview"  # Default model for normal fields
     priority_model = "gemini-3-pro-preview"  # Default model for priority fields (always use best model)
     worktracker_group = None  # Optional worktracker group
@@ -758,7 +758,7 @@ if __name__ == "__main__":
         try:
             max_workers = int(sys.argv[4])
         except ValueError:
-            print("⚠️  Warning: Invalid max_workers value, using default of 5")
+            print("⚠️  Warning: Invalid max_workers value, using default of 50")
     if len(sys.argv) > 5:
         model = sys.argv[5]
     if len(sys.argv) > 6:

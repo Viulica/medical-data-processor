@@ -1268,7 +1268,7 @@ def predict_cpt_custom_background(job_id: str, csv_path: str, confidence_thresho
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt5", max_workers: int = 5, custom_instructions: str = None):
+def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt5", max_workers: int = 50, custom_instructions: str = None):
     """Background task to predict CPT codes using OpenAI general model"""
     job = job_status[job_id]
     
@@ -1345,7 +1345,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 5, custom_instructions: str = None):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 50, custom_instructions: str = None):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1446,7 +1446,7 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
         # Clean up memory even on failure
         gc.collect()
 
-def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 5, custom_instructions: str = None):
+def predict_icd_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 50, custom_instructions: str = None):
     """Background task to predict ICD codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1896,7 +1896,7 @@ async def predict_cpt_general(
     background_tasks: BackgroundTasks,
     csv_file: UploadFile = File(...),
     model: str = Form(default="gpt5"),
-    max_workers: int = Form(default=5),
+    max_workers: int = Form(default=50),
     custom_instructions: Optional[str] = Form(default=None),
     instruction_template_id: Optional[int] = Form(default=None)
 ):
@@ -1960,7 +1960,7 @@ async def predict_cpt_from_pdfs(
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5.2:online"),
-    max_workers: int = Form(default=5),
+    max_workers: int = Form(default=50),
     custom_instructions: Optional[str] = Form(default=None),
     instruction_template_id: Optional[int] = Form(default=None)
 ):
@@ -2015,7 +2015,7 @@ async def predict_icd_from_pdfs(
     zip_file: UploadFile = File(...),
     n_pages: int = Form(default=1, ge=1, le=50),
     model: str = Form(default="openai/gpt-5"),
-    max_workers: int = Form(default=5),
+    max_workers: int = Form(default=50),
     custom_instructions: Optional[str] = Form(default=None),
     instruction_template_id: Optional[int] = Form(default=None)
 ):
@@ -5587,7 +5587,7 @@ async def process_unified(
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
     extraction_model: str = Form(default="gemini-2.5-flash"),
-    extraction_max_workers: int = Form(default=20),  # Configurable extraction parallelism
+    extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     extract_csn: bool = Form(default=False),
@@ -5598,14 +5598,14 @@ async def process_unified(
     cpt_vision_pages: int = Form(default=1),  # For vision mode
     cpt_vision_model: str = Form(default="openai/gpt-5.2:online"),  # Vision model selection
     cpt_include_code_list: bool = Form(default=True),  # Include CPT code list in prompt
-    cpt_max_workers: int = Form(default=20),  # Increased for better parallelism
+    cpt_max_workers: int = Form(default=50),  # Increased for better parallelism
     cpt_custom_instructions: str = Form(default=""),
     cpt_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
     # ICD parameters
     enable_icd: bool = Form(default=True),
     icd_n_pages: int = Form(default=1),
     icd_vision_model: str = Form(default="openai/gpt-5.2:online"),  # Vision model selection
-    icd_max_workers: int = Form(default=20),  # Increased for better parallelism
+    icd_max_workers: int = Form(default=50),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
 ):
