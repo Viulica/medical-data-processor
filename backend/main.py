@@ -5705,6 +5705,10 @@ def process_unified_background(
             
             # Run both predictions in parallel using threads
             import threading
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import is_gemini_model
+            
             cpt_result = [None]
             icd_result = [None]
             cpt_error = [None]
@@ -5712,12 +5716,19 @@ def process_unified_background(
             
             def run_cpt():
                 try:
+                    # Check if using Gemini model and select appropriate API key
+                    using_gemini_cpt = is_gemini_model(cpt_vision_model)
+                    if using_gemini_cpt:
+                        cpt_api_key = os.environ.get('GOOGLE_API_KEY')
+                    else:
+                        cpt_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    
                     result = predict_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path,
                         n_pages=cpt_vision_pages,
-                        model="openai/gpt-5.2:online",
-                        api_key=api_key,
+                        model=cpt_vision_model,  # Use selected vision model
+                        api_key=cpt_api_key,
                         max_workers=cpt_max_workers,
                         progress_callback=cpt_progress,
                         custom_instructions=cpt_custom_instructions,
@@ -5729,12 +5740,19 @@ def process_unified_background(
             
             def run_icd():
                 try:
+                    # Check if using Gemini model and select appropriate API key
+                    using_gemini_icd = is_gemini_model(icd_vision_model)
+                    if using_gemini_icd:
+                        icd_api_key = os.environ.get('GOOGLE_API_KEY')
+                    else:
+                        icd_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    
                     result = predict_icd_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path,
                         n_pages=icd_n_pages,
-                        model="openai/gpt-5.2:online",
-                        api_key=api_key,
+                        model=icd_vision_model,  # Use selected vision model
+                        api_key=icd_api_key,
                         max_workers=icd_max_workers,
                         progress_callback=icd_progress,
                         custom_instructions=icd_custom_instructions
