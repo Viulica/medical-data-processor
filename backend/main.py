@@ -3358,10 +3358,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 else:
                     cpt_mismatches += 1
                 
-                # Compare ICD codes position-by-position
+                # Compare ICD codes - only check ICD1 (slot 1) for accuracy
                 gt_icd_list = parse_icd_codes(gt_data['icd']) if gt_data['icd'] else []
                 
-                # Compare each position
+                # Compare each position (for display purposes only)
                 icd1_match = False
                 icd2_match = False
                 icd3_match = False
@@ -3387,20 +3387,20 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     if icd4_match:
                         icd4_matches += 1
                 
-                # Overall ICD match: all positions that exist in both must match
-                max_len = max(len(predicted_icd_list), len(gt_icd_list))
-                icd_match = True
-                for i in range(max_len):
-                    pred_code = predicted_icd_list[i] if i < len(predicted_icd_list) else ''
-                    gt_code = gt_icd_list[i] if i < len(gt_icd_list) else ''
-                    if pred_code != gt_code:
-                        icd_match = False
-                        break
-                
-                if icd_match:
-                    icd_matches += 1
+                # Overall ICD match: only check ICD1 (slot 1) for accuracy calculation
+                # Only count cases where BOTH predicted and ground truth have ICD1 codes
+                if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
+                    predicted_icd1 = predicted_icd_list[0] if predicted_icd_list[0] else ''
+                    gt_icd1 = gt_icd_list[0] if gt_icd_list[0] else ''
+                    icd_match = predicted_icd1 == gt_icd1
+                    
+                    if icd_match:
+                        icd_matches += 1
+                    else:
+                        icd_mismatches += 1
                 else:
-                    icd_mismatches += 1
+                    # If either side is missing ICD1, don't count it in accuracy
+                    icd_match = False
                 
                 # Compare Anesthesia Type (if present in both)
                 anesthesia_match = None
