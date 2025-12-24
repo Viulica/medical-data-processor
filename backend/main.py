@@ -5642,13 +5642,16 @@ def process_unified_background(
         # ==================== STEP 2 & 3: CPT and ICD Code Predictions ====================
         # Check if we can run CPT and ICD vision predictions in parallel
         # Both must be enabled, CPT must be in vision mode, and extraction must be completed or disabled
+        # AND we haven't already processed them in the parallel paths above
         run_cpt_icd_parallel = (
             enable_cpt and cpt_vision_mode and 
             enable_icd and
-            (not enable_extraction or (enable_extraction and extraction_csv_path is not None))
+            (not enable_extraction or (enable_extraction and extraction_csv_path is not None)) and
+            not run_all_three_parallel and
+            not run_extraction_icd_parallel
         )
         
-        elif run_cpt_icd_parallel:
+        if run_cpt_icd_parallel:
             # Run CPT and ICD vision predictions in parallel for maximum speed
             job.message = "Step 2/2: Predicting CPT and ICD codes in parallel..."
             job.progress = 35
