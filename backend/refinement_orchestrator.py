@@ -60,7 +60,8 @@ def run_refinement_job(
     target_cpt_accuracy: float,
     target_icd_accuracy: float,
     max_iterations: int,
-    notification_email: str
+    notification_email: str,
+    refinement_guidance: Optional[str] = None
 ):
     """
     Main refinement job orchestrator.
@@ -303,7 +304,8 @@ def run_refinement_job(
                     improved_instructions, reasoning = refine_cpt_instructions(
                         current_instructions=cpt_instructions,
                         error_cases=cpt_errors,
-                        pdf_mapping=pdf_mapping
+                        pdf_mapping=pdf_mapping,
+                        user_guidance=refinement_guidance
                     )
                     
                     if not improved_instructions:
@@ -554,7 +556,8 @@ def run_refinement_job(
                     improved_instructions, reasoning = refine_icd_instructions(
                         current_instructions=icd_instructions,
                         error_cases=icd_errors,
-                        pdf_mapping=pdf_mapping
+                        pdf_mapping=pdf_mapping,
+                        user_guidance=refinement_guidance
                     )
                     
                     if not improved_instructions:

@@ -4146,6 +4146,22 @@
                     >Email address for iteration reports</small
                   >
                 </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-guidance"
+                    >Refinement Guidance (Optional)</label
+                  >
+                  <textarea
+                    id="refinement-guidance"
+                    v-model="refinementGuidance"
+                    rows="4"
+                    class="form-input"
+                    placeholder="Provide custom guidance or instructions for the AI refinement agent. This will be included in the prompt sent to Gemini when refining instructions."
+                  ></textarea>
+                  <small class="help-text"
+                    >Optional: Provide specific guidance, priorities, or
+                    constraints for the refinement process</small
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -7162,6 +7178,7 @@ export default {
       refinementTargetIcdAccuracy: 0.95,
       refinementMaxIterations: 10,
       refinementEmail: "cvetkovskileon@gmail.com",
+      refinementGuidance: "",
       refinementJobId: null,
       refinementStatus: {},
       isProcessingRefinement: false,
@@ -8758,6 +8775,9 @@ export default {
       }
       formData.append("max_iterations", this.refinementMaxIterations);
       formData.append("notification_email", this.refinementEmail);
+      if (this.refinementGuidance && this.refinementGuidance.trim()) {
+        formData.append("refinement_guidance", this.refinementGuidance.trim());
+      }
 
       try {
         const backendUrl = this.getBackendUrl();

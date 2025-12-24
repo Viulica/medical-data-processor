@@ -305,9 +305,6 @@ CRITICAL RULES:
                 response_mime_type="application/json",
                 temperature=0.3,  # Lower temperature for more consistent output
                 tools=tools,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="HIGH",
-                ),
             )
 
             # Get AI response
@@ -471,9 +468,6 @@ CRITICAL RULES:
                 response_mime_type="application/json",
                 temperature=0.2,  # Lower temperature for more consistent/accurate code updates
                 tools=tools,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="HIGH",
-                ),
             )
 
             # Get AI response using gemini-3-flash-preview with web search
@@ -792,24 +786,33 @@ def time_to_minutes(time_str):
 
 def parse_date_intelligently(date_str):
     """
-    Parse date string in MM/DD/YYYY format (the standard format used by this system).
+    Parse date string in various formats.
     Returns a datetime object or None if parsing fails.
+    Supports: MM/DD/YYYY, MM/DD/YY, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS
     """
     from datetime import datetime
     
     if not date_str:
         return None
     
-    try:
-        # Handle MM/DD/YYYY format (standard for this system)
-        return datetime.strptime(date_str.strip(), '%m/%d/%Y')
-    except ValueError:
-        # Try MM/DD/YY format (2-digit year)
+    date_str = str(date_str).strip()
+    
+    # List of formats to try, in order of preference
+    formats = [
+        '%m/%d/%Y',           # MM/DD/YYYY
+        '%m/%d/%y',           # MM/DD/YY
+        '%Y-%m-%d',           # YYYY-MM-DD
+        '%Y-%m-%d %H:%M:%S',  # YYYY-MM-DD HH:MM:SS
+    ]
+    
+    for fmt in formats:
         try:
-            return datetime.strptime(date_str.strip(), '%m/%d/%y')
+            return datetime.strptime(date_str, fmt)
         except ValueError:
-            # If all parsing fails, return None
-            return None
+            continue
+    
+    # If all parsing fails, return None
+    return None
 
 
 def add_one_day(date_obj):
@@ -1164,25 +1167,36 @@ def convert_data(input_file, output_file=None):
         except Exception as e:
             print(f"Warning: Could not initialize AI client: {e}. ICD codes will not be reordered.")
         
-        # Read the CSV file with dtype=str to preserve leading zeros in codes
-        # Try multiple encodings to handle different file formats
-        encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        # Read the file (CSV or Excel) with dtype=str to preserve leading zeros in codes
         df = None
         last_error = None
         
-        for encoding in encodings_to_try:
+        # Check if file is Excel or CSV
+        if input_file.endswith('.xlsx') or input_file.endswith('.xls'):
             try:
-                print(f"Attempting to read file with encoding: {encoding}")
-                df = pd.read_csv(input_file, dtype=str, encoding=encoding)
-                print(f"Successfully read file with encoding: {encoding}")
-                break
-            except UnicodeDecodeError as e:
-                print(f"Failed to read with {encoding}: {e}")
+                print(f"Reading Excel file: {input_file}")
+                df = pd.read_excel(input_file, dtype=str)
+                print(f"Successfully read Excel file")
+            except Exception as e:
+                print(f"Error reading Excel file: {e}")
                 last_error = e
-                continue
+        else:
+            # Try multiple encodings for CSV files
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            
+            for encoding in encodings_to_try:
+                try:
+                    print(f"Attempting to read CSV file with encoding: {encoding}")
+                    df = pd.read_csv(input_file, dtype=str, encoding=encoding)
+                    print(f"Successfully read CSV file with encoding: {encoding}")
+                    break
+                except UnicodeDecodeError as e:
+                    print(f"Failed to read with {encoding}: {e}")
+                    last_error = e
+                    continue
         
         if df is None:
-            print(f"Error: Could not read file with any standard encoding. Last error: {last_error}")
+            print(f"Error: Could not read file. Last error: {last_error}")
             return False
         
         if len(df) < 1:

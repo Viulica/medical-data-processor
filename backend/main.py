@@ -5648,7 +5648,7 @@ def process_unified_background(
             (not enable_extraction or (enable_extraction and extraction_csv_path is not None))
         )
         
-        if run_cpt_icd_parallel:
+        elif run_cpt_icd_parallel:
             # Run CPT and ICD vision predictions in parallel for maximum speed
             job.message = "Step 2/2: Predicting CPT and ICD codes in parallel..."
             job.progress = 35
@@ -6522,7 +6522,8 @@ async def process_unified_with_refinement(
     target_cpt_accuracy: float = Form(default=0.95),
     target_icd_accuracy: float = Form(default=0.95),
     max_iterations: int = Form(default=10),
-    notification_email: str = Form(default="cvetkovskileon@gmail.com")
+    notification_email: str = Form(default="cvetkovskileon@gmail.com"),
+    refinement_guidance: Optional[str] = Form(default=None)
 ):
     """
     Unified processing with AI-powered iterative instruction refinement.
@@ -6658,7 +6659,8 @@ async def process_unified_with_refinement(
             target_cpt_accuracy=target_cpt_accuracy,
             target_icd_accuracy=target_icd_accuracy,
             max_iterations=max_iterations,
-            notification_email=notification_email
+            notification_email=notification_email,
+            refinement_guidance=refinement_guidance
         )
         
         logger.info(f"Background refinement task started for job {job_id}")

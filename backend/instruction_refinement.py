@@ -67,7 +67,8 @@ def refine_cpt_instructions(
     error_cases: List[Dict[str, Any]],
     pdf_mapping: Dict[str, str],
     model: str = "gemini-3-flash-preview",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    user_guidance: Optional[str] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine CPT instructions based on error cases.
@@ -78,6 +79,7 @@ def refine_cpt_instructions(
         pdf_mapping: Dictionary mapping account_id to PDF file path
         model: Gemini model to use
         api_key: Google API key (optional, uses env var if not provided)
+        user_guidance: Optional user-provided guidance/prompt for the refinement agent
     
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
@@ -132,6 +134,16 @@ Error Case {idx + 1}:
     error_examples_text = "\n".join(error_examples)
     
     # Build prompt
+    user_guidance_section = ""
+    if user_guidance and user_guidance.strip():
+        user_guidance_section = f"""
+
+USER GUIDANCE:
+The user has provided the following guidance for this refinement process. Please incorporate these instructions and priorities into your refinement:
+{user_guidance}
+
+"""
+    
     prompt = f"""You are an expert medical coding instruction optimizer.
 
 TASK:
@@ -145,7 +157,7 @@ The AI made the following mistakes when predicting CPT codes:
 
 {error_examples_text}
 
-IMPORTANT - PDF MATCHING:
+{user_guidance_section}IMPORTANT - PDF MATCHING:
 Below are the COMPLETE PDF documents (all pages) for each error case. Each PDF contains a patient record.
 - The Account ID is displayed as a RED NUMBER at the start of each patient document
 - You can match each error case to its corresponding PDF by finding the Account ID (red number) in the PDF
@@ -159,6 +171,7 @@ REQUIREMENTS:
 5. Build upon the existing instructions - don't start from scratch
 6. Keep instructions clear, concise, and actionable
 7. Prioritize rules that will generalize to similar cases
+{("8. Follow the user guidance provided above" if user_guidance_section else "")}
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON object in this exact format:
@@ -261,7 +274,8 @@ def refine_icd_instructions(
     error_cases: List[Dict[str, Any]],
     pdf_mapping: Dict[str, str],
     model: str = "gemini-3-flash-preview",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    user_guidance: Optional[str] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine ICD instructions based on error cases.
@@ -272,6 +286,7 @@ def refine_icd_instructions(
         pdf_mapping: Dictionary mapping account_id to PDF file path
         model: Gemini model to use
         api_key: Google API key (optional, uses env var if not provided)
+        user_guidance: Optional user-provided guidance/prompt for the refinement agent
     
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
@@ -344,6 +359,16 @@ Error Case {idx + 1}:
     error_examples_text = "\n".join(error_examples)
     
     # Build prompt
+    user_guidance_section = ""
+    if user_guidance and user_guidance.strip():
+        user_guidance_section = f"""
+
+USER GUIDANCE:
+The user has provided the following guidance for this refinement process. Please incorporate these instructions and priorities into your refinement:
+{user_guidance}
+
+"""
+    
     prompt = f"""You are an expert medical coding instruction optimizer.
 
 TASK:
@@ -357,7 +382,7 @@ The AI made the following mistakes when predicting ICD1 (primary diagnosis) code
 
 {error_examples_text}
 
-CRITICAL FOCUS - ICD1 IS PRIMARY:
+{user_guidance_section}CRITICAL FOCUS - ICD1 IS PRIMARY:
 - ICD1 (PRIMARY diagnosis) is THE MOST IMPORTANT code for medical billing - this is what determines payment
 - Accuracy is ONLY tested on ICD1 - this is the ONLY code that matters for success metrics
 - ICD2, ICD3, and ICD4 are provided ONLY for context - they are less important and NOT tested
@@ -381,6 +406,7 @@ REQUIREMENTS:
 7. Keep instructions clear, concise, and actionable
 8. Prioritize rules that will generalize to similar cases and improve ICD1 accuracy
 9. Remember: For anesthesia medical billing, ICD1 is CRITICAL - getting it wrong means NO PAYMENT
+{("10. Follow the user guidance provided above" if user_guidance_section else "")}
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON object in this exact format:
