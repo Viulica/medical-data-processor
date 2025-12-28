@@ -143,9 +143,15 @@ async def startup_event():
         logger.error(f"❌ Failed to initialize database: {e}")
 
 # Add CORS middleware
+# Get allowed origins from environment or use defaults
+allowed_origins = os.environ.get(
+    "CORS_ORIGINS",
+    "https://medical-data-processor.vercel.app,http://localhost:8080,http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origins=[origin.strip() for origin in allowed_origins],  # Explicitly allow frontend origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
