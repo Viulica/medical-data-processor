@@ -6305,7 +6305,7 @@ def process_unified_background(
                     logger.info(f"[Unified {job_id}] Extraction process completed with return code: {process.returncode}")
                     
                     if process.returncode != 0:
-                        raise Exception(f"Extraction failed: {stderr}")
+                        raise Exception(f"Extraction failed with return code {process.returncode}. Check logs for details.")
                     
                     # Find the output CSV
                     extracted_files = list(temp_dir.glob("extracted/combined_patient_data_*.csv"))

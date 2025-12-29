@@ -132,6 +132,20 @@ def is_openrouter_model(model_name):
     """Check if model name indicates OpenRouter (contains '/' or starts with 'google/')"""
     return '/' in model_name or model_name.startswith('google/')
 
+def is_gemini_model(model_name):
+    """Check if model name indicates a Gemini model (not OpenRouter format)"""
+    # Remove OpenRouter prefixes/suffixes if present
+    clean_model = model_name.replace('google/', '').replace(':online', '')
+    return clean_model.startswith('gemini') or 'gemini' in clean_model.lower()
+
+def normalize_gemini_model(model_name):
+    """Normalize Gemini model name by removing OpenRouter prefixes/suffixes and normalizing spaces"""
+    # Remove OpenRouter format prefixes/suffixes
+    clean_model = model_name.replace('google/', '').replace(':online', '')
+    # Replace spaces with hyphens for consistency (e.g., "gemini flash lite latest" -> "gemini-flash-lite-latest")
+    clean_model = clean_model.replace(' ', '-').lower()
+    return clean_model
+
 def pdf_to_images_base64(pdf_path, max_pages=10):
     """Convert PDF pages to base64 encoded images for OpenRouter"""
     try:
@@ -254,9 +268,13 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
     
-    # Check if using OpenRouter
-    if is_openrouter_model(model):
+    # Check if using OpenRouter (only if not a Gemini model)
+    if not is_gemini_model(model) and is_openrouter_model(model):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
+    
+    # Normalize Gemini model name if needed
+    if is_gemini_model(model):
+        model = normalize_gemini_model(model)
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
@@ -498,10 +516,17 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         fieldnames.append('source_file')
     
     # Initialize Google AI client (only needed if not using OpenRouter)
-    # Check if we're using OpenRouter by checking if model contains '/'
-    using_openrouter = is_openrouter_model(model) or is_openrouter_model(priority_model)
+    # Check if we're using Gemini models (use Gemini API) or OpenRouter models
+    using_gemini = is_gemini_model(model) or is_gemini_model(priority_model)
+    using_openrouter = (not using_gemini) and (is_openrouter_model(model) or is_openrouter_model(priority_model))
     
     client = None
+    if using_gemini:
+        # Normalize Gemini model names
+        model = normalize_gemini_model(model)
+        if priority_model:
+            priority_model = normalize_gemini_model(priority_model)
+    
     if not using_openrouter:
         api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
         if not api_key:
