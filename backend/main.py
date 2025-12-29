@@ -2619,10 +2619,33 @@ def provider_mapping_background(job_id: str, excel_path: str):
         job.message = "Reading Excel file..."
         job.progress = 10
         
+        import pandas as pd
         import openpyxl
         
+        # Try to read Excel file - handle both .xlsx and .xls formats
+        excel_path_obj = Path(excel_path)
+        
+        # If it's an old .xls file, convert to .xlsx first using pandas
+        if excel_path_obj.suffix.lower() == '.xls':
+            try:
+                # Read .xls file with pandas
+                df_temp = pd.read_excel(excel_path, engine='xlrd')
+                # Save as .xlsx
+                temp_xlsx_path = excel_path_obj.with_suffix('.xlsx')
+                df_temp.to_excel(temp_xlsx_path, index=False, engine='openpyxl')
+                excel_path = str(temp_xlsx_path)
+                logger.info(f"Converted .xls to .xlsx: {excel_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert .xls file: {e}")
+                raise Exception(f"Could not read .xls file. Please save as .xlsx format: {str(e)}")
+        
         # Read Excel file with openpyxl to access raw cell values
-        workbook = openpyxl.load_workbook(excel_path, data_only=True)
+        try:
+            workbook = openpyxl.load_workbook(excel_path, data_only=True)
+        except Exception as e:
+            logger.error(f"Failed to read Excel file with openpyxl: {e}")
+            raise Exception(f"Could not read Excel file. Please ensure it's a valid .xlsx file: {str(e)}")
+        
         sheet = workbook.active
         
         job.message = "Searching for CRNA section..."
@@ -4402,9 +4425,18 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Provider Matches',
                 'Provider Mismatches',
                 'Provider Accuracy (%)',
+                'Surgeon Matches',
+                'Surgeon Mismatches',
+                'Surgeon Accuracy (%)',
                 'Location Matches',
                 'Location Mismatches',
                 'Location Accuracy (%)',
+                'Start Time Matches',
+                'Start Time Mismatches',
+                'Start Time Accuracy (%)',
+                'Stop Time Matches',
+                'Stop Time Mismatches',
+                'Stop Time Accuracy (%)',
                 'ICD1 Mismatches (Total)',
                 'ICD1 Mismatches Found in ICD2-4',
                 'ICD1 Mismatch Recovery Rate (%)',
