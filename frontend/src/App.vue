@@ -98,6 +98,7 @@
                   'instructions',
                   'merge-csn',
                   'check-cpt',
+                  'provider-mapping',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -119,6 +120,9 @@
               </button>
               <button @click="selectTab('check-cpt')" class="dropdown-item">
                 ✅ Check CPT & ICD Codes
+              </button>
+              <button @click="selectTab('provider-mapping')" class="dropdown-item">
+                👥 Provider Mapping List Creation
               </button>
             </div>
           </div>
@@ -4258,6 +4262,8 @@
               <br/><br/>
               <strong>Charge Detail Report</strong> (optional): Upload this report to compare 
               Start Time and Stop Time. Should have columns: Account # (or AccountId), Start Time, Stop Time.
+              Times in this report should be in HH:MM format (24-hour clock, e.g., "15:41").
+              Predictions file times (An Start, An Stop) will be compared with ground truth times, ignoring dates.
             </p>
           </div>
 
@@ -4507,6 +4513,185 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ cptCheckJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Provider Mapping List Creation Tab -->
+        <div v-if="activeTab === 'provider-mapping'" class="upload-section">
+          <div class="section-header">
+            <h2>Provider Mapping List Creation</h2>
+            <p>
+              Upload a doctor list Excel file to extract CRNA and MD providers.
+              The file should contain a "CRNA" cell followed by CRNA provider names,
+              and optionally an "MD" cell followed by MD provider names.
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Excel File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Provider List Excel File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isProviderMappingExcelDragActive,
+                  'has-file': providerMappingExcelFile,
+                }"
+                @drop="onProviderMappingExcelDrop"
+                @dragover.prevent
+                @dragenter.prevent="isProviderMappingExcelDragActive = true"
+                @dragleave.prevent="isProviderMappingExcelDragActive = false"
+                @click="triggerProviderMappingExcelUpload"
+              >
+                <input
+                  ref="providerMappingExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onProviderMappingExcelFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="providerMappingExcelFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      providerMappingExcelFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(providerMappingExcelFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Expected format:</strong> Excel file with "CRNA" cell followed by provider names</p>
+                <p class="optional-note">Provider names should be in format: Last Name, First Name, Middle Name (optional)</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>How it works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔍</span>
+                    <span>Finds the "CRNA" cell in the Excel file</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span>Extracts all CRNA providers listed below</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">👨‍⚕️</span>
+                    <span>Finds "MD" cell and extracts MD providers (if present)</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📝</span>
+                    <span>Formats output as: Last Name, First Name Middle Name, Title</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startProviderMapping"
+              :disabled="!canProcessProviderMapping || isProcessingProviderMapping"
+              class="process-btn"
+            >
+              <span v-if="isProcessingProviderMapping" class="spinner"></span>
+              <span v-else class="btn-icon">👥</span>
+              {{
+                isProcessingProviderMapping
+                  ? "Processing Provider Mapping..."
+                  : "Process Provider Mapping"
+              }}
+            </button>
+
+            <button
+              v-if="providerMappingExcelFile || providerMappingJobId"
+              @click="resetProviderMappingForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Provider Mapping Status -->
+        <div v-if="providerMappingJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="providerMappingJobStatus.status">
+                <span class="status-icon">{{ getProviderMappingStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getProviderMappingStatusTitle() }}</h3>
+                <p class="status-message">{{ providerMappingJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="providerMappingJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${providerMappingJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ providerMappingJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkProviderMappingJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="providerMappingJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadProviderMappingResults"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download Provider List
+                </button>
+              </div>
+              <div v-if="providerMappingOutput" class="output-preview">
+                <h4>Preview:</h4>
+                <pre class="output-text">{{ providerMappingOutput }}</pre>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                providerMappingJobStatus.status === 'failed' && providerMappingJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ providerMappingJobStatus.error }}</span>
               </div>
             </div>
           </div>
@@ -7147,6 +7332,13 @@ export default {
       isCheckingCptCodes: false,
       isCptPredictionsDragActive: false,
       isCptGroundTruthDragActive: false,
+      // Provider Mapping functionality
+      providerMappingExcelFile: null,
+      providerMappingJobId: null,
+      providerMappingJobStatus: null,
+      providerMappingOutput: null,
+      isProcessingProviderMapping: false,
+      isProviderMappingExcelDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
@@ -7491,6 +7683,9 @@ export default {
         this.cptPredictionsFile !== null && this.cptGroundTruthFile !== null
       );
     },
+    canProcessProviderMapping() {
+      return this.providerMappingExcelFile !== null;
+    },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
     },
@@ -7572,6 +7767,11 @@ export default {
         lower.endsWith(".xlsx") ||
         lower.endsWith(".xls")
       );
+    },
+    isValidExcelFile(filename) {
+      if (!filename) return false;
+      const lower = filename.toLowerCase();
+      return lower.endsWith(".xlsx") || lower.endsWith(".xls");
     },
     formatFileSize(bytes) {
       if (bytes === 0) return "0 Bytes";
@@ -10306,6 +10506,174 @@ export default {
       this.isCptPredictionsDragActive = false;
       this.isCptGroundTruthDragActive = false;
       this.isCptChargeDetailDragActive = false;
+    },
+
+    // Provider Mapping methods
+    onProviderMappingExcelDrop(e) {
+      e.preventDefault();
+      this.isProviderMappingExcelDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidExcelFile(files[0].name)) {
+        this.providerMappingExcelFile = files[0];
+        this.toast.success("Provider mapping Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid Excel file (.xlsx or .xls)");
+      }
+    },
+
+    triggerProviderMappingExcelUpload() {
+      this.$refs.providerMappingExcelInput.click();
+    },
+
+    onProviderMappingExcelFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidExcelFile(file.name)) {
+        this.providerMappingExcelFile = file;
+        this.toast.success("Provider mapping Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid Excel file (.xlsx or .xls)");
+      }
+    },
+
+    async startProviderMapping() {
+      if (!this.providerMappingExcelFile) {
+        this.toast.error("Please upload an Excel file first");
+        return;
+      }
+
+      this.isProcessingProviderMapping = true;
+
+      const formData = new FormData();
+      formData.append("excel_file", this.providerMappingExcelFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "provider-mapping");
+      console.log("🔧 Provider Mapping Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.providerMappingJobId = response.data.job_id;
+        this.toast.success(
+          "Provider mapping started! Check the status section below."
+        );
+
+        // Set initial status
+        this.providerMappingJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Processing provider mapping...",
+        };
+
+        // Start polling for status
+        this.checkProviderMappingJobStatus();
+      } catch (error) {
+        console.error("Provider mapping error:", error);
+        this.toast.error(
+          "Failed to start provider mapping. Please try again."
+        );
+        this.isProcessingProviderMapping = false;
+      }
+    },
+
+    async checkProviderMappingJobStatus() {
+      if (!this.providerMappingJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `job-status/${this.providerMappingJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.providerMappingJobStatus = response.data;
+
+        if (response.data.status === "processing") {
+          // Continue polling
+          setTimeout(() => {
+            this.checkProviderMappingJobStatus();
+          }, 2000);
+        } else if (response.data.status === "completed") {
+          this.isProcessingProviderMapping = false;
+          // Get the output text
+          if (response.data.result && response.data.result.output) {
+            this.providerMappingOutput = response.data.result.output;
+          }
+        } else if (response.data.status === "failed") {
+          this.isProcessingProviderMapping = false;
+        }
+      } catch (error) {
+        console.error("Error checking provider mapping status:", error);
+        this.toast.error("Failed to check status. Please try again.");
+        this.isProcessingProviderMapping = false;
+      }
+    },
+
+    downloadProviderMappingResults() {
+      if (!this.providerMappingOutput) {
+        this.toast.error("No output available to download");
+        return;
+      }
+
+      // Create a blob with the output text
+      const blob = new Blob([this.providerMappingOutput], {
+        type: "text/plain",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `provider_mapping_list_${new Date().getTime()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      this.toast.success("Provider mapping list downloaded!");
+    },
+
+    resetProviderMappingForm() {
+      this.providerMappingExcelFile = null;
+      this.providerMappingJobId = null;
+      this.providerMappingJobStatus = null;
+      this.providerMappingOutput = null;
+      this.isProcessingProviderMapping = false;
+      this.isProviderMappingExcelDragActive = false;
+    },
+
+    getProviderMappingStatusTitle() {
+      if (!this.providerMappingJobStatus) return "";
+
+      switch (this.providerMappingJobStatus.status) {
+        case "completed":
+          return "Provider Mapping Complete";
+        case "failed":
+          return "Provider Mapping Failed";
+        case "processing":
+          return "Processing Provider Mapping";
+        default:
+          return "Provider Mapping Status";
+      }
+    },
+
+    getProviderMappingStatusIcon() {
+      if (!this.providerMappingJobStatus) return "";
+
+      switch (this.providerMappingJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
+        default:
+          return "👥";
+      }
     },
 
     getCptCheckStatusTitle() {

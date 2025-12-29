@@ -2610,6 +2610,185 @@ def convert_instructions_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
+def provider_mapping_background(job_id: str, excel_path: str):
+    """Background task to process provider mapping Excel file"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading Excel file..."
+        job.progress = 10
+        
+        import openpyxl
+        
+        # Read Excel file with openpyxl to access raw cell values
+        workbook = openpyxl.load_workbook(excel_path, data_only=True)
+        sheet = workbook.active
+        
+        job.message = "Searching for CRNA section..."
+        job.progress = 30
+        
+        # Find the CRNA cell
+        crna_row = None
+        crna_col = None
+        
+        for row_idx, row in enumerate(sheet.iter_rows(), start=1):
+            for col_idx, cell in enumerate(row, start=1):
+                cell_value = cell.value
+                if cell_value and str(cell_value).strip().upper() == "CRNA":
+                    crna_row = row_idx
+                    crna_col = col_idx
+                    break
+            if crna_row:
+                break
+        
+        if not crna_row:
+            raise Exception("Could not find 'CRNA' cell in the Excel file")
+        
+        logger.info(f"Found CRNA at row {crna_row}, col {crna_col}")
+        
+        job.message = "Extracting CRNA providers..."
+        job.progress = 50
+        
+        # Extract CRNA providers (assuming names are in the same column, below CRNA)
+        crna_providers = []
+        current_row = crna_row + 1
+        
+        while current_row <= sheet.max_row:
+            cell = sheet.cell(row=current_row, column=crna_col)
+            cell_value = cell.value
+            
+            # Check if we've reached the MD section or an empty cell
+            if cell_value:
+                cell_str = str(cell_value).strip().upper()
+                if cell_str == "MD":
+                    # Found MD section, stop collecting CRNA providers
+                    break
+                elif cell_str:  # Non-empty, non-MD value
+                    # Parse provider name: "LASTNAME, FIRSTNAME, MIDDLENAME" or "LASTNAME, FIRSTNAME"
+                    provider_name = str(cell_value).strip()
+                    crna_providers.append(provider_name)
+            else:
+                # Empty cell - end of CRNA section if we've found some providers
+                if crna_providers:
+                    break
+            
+            current_row += 1
+        
+        logger.info(f"Found {len(crna_providers)} CRNA providers")
+        
+        job.message = "Searching for MD section..."
+        job.progress = 70
+        
+        # Find MD section (if exists)
+        md_providers = []
+        md_row = None
+        md_col = crna_col  # Default to same column as CRNA
+        
+        # Check if we found MD while scanning CRNA section
+        if current_row <= sheet.max_row:
+            cell = sheet.cell(row=current_row, column=crna_col)
+            if cell.value and str(cell.value).strip().upper() == "MD":
+                md_row = current_row
+                md_col = crna_col
+            else:
+                # Search for MD cell from the beginning
+                for row_idx, row in enumerate(sheet.iter_rows(), start=1):
+                    for col_idx, cell in enumerate(row, start=1):
+                        cell_value = cell.value
+                        if cell_value and str(cell_value).strip().upper() == "MD":
+                            md_row = row_idx
+                            md_col = col_idx
+                            break
+                    if md_row:
+                        break
+        
+        if md_row:
+            logger.info(f"Found MD at row {md_row}, col {md_col}")
+            # Extract MD providers
+            current_row = md_row + 1
+            
+            while current_row <= sheet.max_row:
+                cell = sheet.cell(row=current_row, column=md_col)
+                cell_value = cell.value
+                
+                if cell_value:
+                    provider_name = str(cell_value).strip()
+                    if provider_name:  # Non-empty value
+                        md_providers.append(provider_name)
+                else:
+                    # Empty cell - end of MD section
+                    break
+                
+                current_row += 1
+            
+            logger.info(f"Found {len(md_providers)} MD providers")
+        
+        job.message = "Formatting output..."
+        job.progress = 90
+        
+        # Format providers: {last name}, {first name} {middle name}, {title}
+        def format_provider(name_str, title):
+            """Parse provider name and format it"""
+            # Split by comma
+            parts = [p.strip() for p in name_str.split(',')]
+            
+            if len(parts) >= 2:
+                last_name = parts[0]
+                first_name = parts[1]
+                middle_name = parts[2] if len(parts) > 2 else ""
+                
+                # Format: {last name}, {first name} {middle name}, {title}
+                if middle_name:
+                    return f"{last_name}, {first_name} {middle_name}, {title}"
+                else:
+                    return f"{last_name}, {first_name}, {title}"
+            else:
+                # Fallback: if format is unexpected, just add title
+                return f"{name_str}, {title}"
+        
+        # Format CRNA providers
+        formatted_crna = [format_provider(p, "CRNA") for p in crna_providers]
+        
+        # Format MD providers
+        formatted_md = [format_provider(p, "MD") for p in md_providers]
+        
+        # Build output string
+        output_lines = []
+        output_lines.append("Billable CRNA providers:")
+        output_lines.extend(formatted_crna)
+        output_lines.append("")  # Empty line between sections
+        output_lines.append("Billable MD providers:")
+        output_lines.extend(formatted_md)
+        
+        output_text = "\n".join(output_lines)
+        
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Provider mapping completed! Found {len(crna_providers)} CRNA and {len(md_providers)} MD providers."
+        job.result = {"output": output_text}
+        
+        # Clean up Excel file
+        if os.path.exists(excel_path):
+            os.unlink(excel_path)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after provider mapping")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Provider mapping failed: {str(e)}"
+        logger.error(f"Provider mapping job {job_id} failed: {str(e)}")
+        
+        # Clean up Excel file
+        if os.path.exists(excel_path):
+            os.unlink(excel_path)
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
     """Background task to merge two CSV files by CSN column"""
     job = job_status[job_id]
@@ -2985,6 +3164,50 @@ async def convert_instructions(
         logger.error(f"Instructions conversion upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+@app.post("/provider-mapping")
+async def provider_mapping(
+    background_tasks: BackgroundTasks,
+    excel_file: UploadFile = File(...)
+):
+    """
+    Upload an Excel file containing provider list to extract CRNA and MD providers.
+    The file should contain a "CRNA" cell followed by CRNA provider names,
+    and optionally an "MD" cell followed by MD provider names.
+    """
+    
+    try:
+        logger.info(f"Received provider mapping request - excel: {excel_file.filename}")
+        
+        # Validate file type
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created provider mapping job {job_id}")
+        
+        # Save uploaded Excel file
+        excel_path = f"/tmp/{job_id}_provider_mapping_input.xlsx"
+        
+        with open(excel_path, "wb") as f:
+            shutil.copyfileobj(excel_file.file, f)
+        
+        logger.info(f"Provider mapping Excel saved - path: {excel_path}")
+        
+        # Start background processing
+        background_tasks.add_task(provider_mapping_background, job_id, excel_path)
+        
+        logger.info(f"Background provider mapping task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Excel file uploaded and provider mapping started"}
+        
+    except Exception as e:
+        logger.error(f"Provider mapping upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 @app.post("/merge-by-csn")
 async def merge_by_csn(
     background_tasks: BackgroundTasks,
@@ -3256,12 +3479,28 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 responsible_provider_col_pred = col
                 break
         
+        # Find Surgeon column in predictions (if exists)
+        surgeon_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'SURGEON':
+                surgeon_col_pred = col
+                break
+        
         # Find Provider column in ground truth (if exists)
         provider_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
             if col_upper == 'PROVIDER':
                 provider_col_gt = col
+                break
+        
+        # Find Surgeon column in ground truth (if exists)
+        surgeon_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'SURGEON':
+                surgeon_col_gt = col
                 break
         
         # Find Location column in predictions (if exists)
@@ -3321,6 +3560,47 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 return []
             codes = [code.strip().upper() for code in str(icd_string).split(',')]
             return [c for c in codes if c]  # Remove empty strings
+        
+        # Helper function to parse predicted time strings (from predictions file)
+        def parse_predicted_time(time_string):
+            """Parse time string from predictions file into a comparable format.
+            
+            Expected format: "9/30/2025  9:53:00 AM" (date + time with AM/PM, double spaces)
+            Returns time object (ignoring date) for comparison.
+            """
+            if pd.isna(time_string) or not str(time_string).strip():
+                return None
+            try:
+                time_str = str(time_string).strip()
+                # Normalize multiple spaces to single space for parsing
+                time_str = ' '.join(time_str.split())
+                
+                from datetime import datetime
+                # Parse the exact format: "9/30/2025 9:53:00 AM"
+                dt = datetime.strptime(time_str, '%m/%d/%Y %I:%M:%S %p')
+                return dt.time()  # Return time object (ignoring date) for comparison
+            except Exception as e:
+                logger.warning(f"Error parsing predicted time '{time_string}': {e}")
+                return None
+        
+        # Helper function to parse ground truth time strings (from charge detail report)
+        def parse_ground_truth_time(time_string):
+            """Parse time string from ground truth charge detail report.
+            
+            Expected format: "15:41" (HH:MM, 24-hour format)
+            Returns time object for comparison.
+            """
+            if pd.isna(time_string) or not str(time_string).strip():
+                return None
+            try:
+                time_str = str(time_string).strip()
+                from datetime import datetime
+                # Parse the exact format: "15:41" (HH:MM)
+                dt = datetime.strptime(time_str, '%H:%M')
+                return dt.time()  # Return time object for comparison
+            except Exception as e:
+                logger.warning(f"Error parsing ground truth time '{time_string}': {e}")
+                return None
         
         # Helper function to normalize provider names for comparison
         def normalize_provider_name(provider_string, is_ground_truth=False):
@@ -3456,6 +3736,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         surgeon_mismatches = 0
         location_matches = 0
         location_mismatches = 0
+        start_time_matches = 0
+        start_time_mismatches = 0
+        stop_time_matches = 0
+        stop_time_mismatches = 0
         # ICD1 mismatch analysis
         icd1_mismatches_total = 0
         icd1_mismatch_but_found_in_other_slots = 0
@@ -3742,6 +4026,55 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                         # One is empty, one is not - mismatch
                         location_match = False
                         location_mismatches += 1
+                
+                # Compare Start Time and Stop Time (if charge detail report is provided)
+                start_time_match = None
+                stop_time_match = None
+                gt_start_time = None
+                gt_stop_time = None
+                
+                if charge_detail_dict and account_id in charge_detail_dict:
+                    charge_data = charge_detail_dict[account_id]
+                    gt_start_time_str = charge_data.get('start_time', '')
+                    gt_stop_time_str = charge_data.get('stop_time', '')
+                    
+                    # Parse ground truth times using the ground truth parser (HH:MM format)
+                    if gt_start_time_str:
+                        gt_start_time = parse_ground_truth_time(gt_start_time_str)
+                    if gt_stop_time_str:
+                        gt_stop_time = parse_ground_truth_time(gt_stop_time_str)
+                    
+                    # Compare start times
+                    if predicted_start_time is not None and gt_start_time is not None:
+                        start_time_match = predicted_start_time == gt_start_time
+                        if start_time_match:
+                            start_time_matches += 1
+                        else:
+                            start_time_mismatches += 1
+                    elif predicted_start_time is None and gt_start_time is None:
+                        # Both empty - consider as match
+                        start_time_match = True
+                        start_time_matches += 1
+                    elif predicted_start_time is not None or gt_start_time is not None:
+                        # One is empty, one is not - mismatch
+                        start_time_match = False
+                        start_time_mismatches += 1
+                    
+                    # Compare stop times
+                    if predicted_stop_time is not None and gt_stop_time is not None:
+                        stop_time_match = predicted_stop_time == gt_stop_time
+                        if stop_time_match:
+                            stop_time_matches += 1
+                        else:
+                            stop_time_mismatches += 1
+                    elif predicted_stop_time is None and gt_stop_time is None:
+                        # Both empty - consider as match
+                        stop_time_match = True
+                        stop_time_matches += 1
+                    elif predicted_stop_time is not None or gt_stop_time is not None:
+                        # One is empty, one is not - mismatch
+                        stop_time_match = False
+                        stop_time_mismatches += 1
                 
                 # Determine overall status
                 all_match = cpt_match and icd_match
@@ -4197,18 +4530,27 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
 async def check_cpt_codes(
     background_tasks: BackgroundTasks,
     predictions_file: UploadFile = File(...),
-    ground_truth_file: UploadFile = File(...)
+    ground_truth_file: UploadFile = File(...),
+    charge_detail_file: UploadFile = File(None)
 ):
-    """Upload two CSV/XLSX files (predictions and ground truth) to compare CPT codes, ICD codes, and Anesthesia Type and calculate accuracy"""
+    """Upload CSV/XLSX files to compare CPT codes, ICD codes, and other fields.
+    
+    Args:
+        predictions_file: Predictions file (Demo Detail Report) - required
+        ground_truth_file: Ground truth file (Demo Detail Report) - required
+        charge_detail_file: Charge Detail Report with Start Time and Stop Time - optional
+    """
     
     try:
-        logger.info(f"Received CPT codes check request - predictions: {predictions_file.filename}, ground_truth: {ground_truth_file.filename}")
+        logger.info(f"Received CPT codes check request - predictions: {predictions_file.filename}, ground_truth: {ground_truth_file.filename}, charge_detail: {charge_detail_file.filename if charge_detail_file else 'None'}")
         
         # Validate file types
         if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Predictions file must be a CSV or XLSX")
         if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Ground truth file must be a CSV or XLSX")
+        if charge_detail_file and not charge_detail_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Charge detail file must be a CSV or XLSX")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -4226,10 +4568,17 @@ async def check_cpt_codes(
         with open(ground_truth_path, "wb") as f:
             shutil.copyfileobj(ground_truth_file.file, f)
         
-        logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}")
+        charge_detail_path = None
+        if charge_detail_file:
+            charge_detail_path = f"/tmp/{job_id}_charge_detail{Path(charge_detail_file.filename).suffix}"
+            with open(charge_detail_path, "wb") as f:
+                shutil.copyfileobj(charge_detail_file.file, f)
+            logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}, charge_detail: {charge_detail_path}")
+        else:
+            logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}")
         
         # Start background processing
-        background_tasks.add_task(check_cpt_codes_background, job_id, predictions_path, ground_truth_path)
+        background_tasks.add_task(check_cpt_codes_background, job_id, predictions_path, ground_truth_path, charge_detail_path)
         
         logger.info(f"Background CPT codes check task started for job {job_id}")
         
