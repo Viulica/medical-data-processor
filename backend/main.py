@@ -2815,6 +2815,188 @@ def provider_mapping_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
+def surgeon_mapping_background(job_id: str, excel_path: str):
+    """Background task to process surgeon mapping Excel file"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading Excel file..."
+        job.progress = 10
+        
+        import pandas as pd
+        import openpyxl
+        
+        # Try to read Excel file - handle both .xlsx and .xls formats
+        excel_path_obj = Path(excel_path)
+        
+        # If it's an old .xls file, convert to .xlsx first using pandas
+        if excel_path_obj.suffix.lower() == '.xls':
+            try:
+                # Read .xls file with pandas
+                df_temp = pd.read_excel(excel_path, engine='xlrd')
+                # Save as .xlsx
+                temp_xlsx_path = excel_path_obj.with_suffix('.xlsx')
+                df_temp.to_excel(temp_xlsx_path, index=False, engine='openpyxl')
+                excel_path = str(temp_xlsx_path)
+                logger.info(f"Converted .xls to .xlsx: {excel_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert .xls file: {e}")
+                raise Exception(f"Could not read .xls file. Please save as .xlsx format: {str(e)}")
+        
+        # Read Excel file with openpyxl to access raw cell values
+        try:
+            workbook = openpyxl.load_workbook(excel_path, data_only=True)
+        except Exception as e:
+            logger.error(f"Failed to read Excel file with openpyxl: {e}")
+            raise Exception(f"Could not read Excel file. Please ensure it's a valid .xlsx file: {str(e)}")
+        
+        sheet = workbook.active
+        
+        job.message = "Searching for Last Name column..."
+        job.progress = 30
+        
+        # Find the "Last Name" header cell
+        last_name_row = None
+        last_name_col = None
+        
+        for row_idx, row in enumerate(sheet.iter_rows(), start=1):
+            for col_idx, cell in enumerate(row, start=1):
+                cell_value = cell.value
+                if cell_value and str(cell_value).strip() == "Last Name":
+                    last_name_row = row_idx
+                    last_name_col = col_idx
+                    break
+            if last_name_row:
+                break
+        
+        if not last_name_row:
+            raise Exception("Could not find 'Last Name' column header in the Excel file")
+        
+        logger.info(f"Found Last Name at row {last_name_row}, col {last_name_col}")
+        
+        # Find Middle Name and First Name columns (should be adjacent)
+        middle_name_col = None
+        first_name_col = None
+        
+        # Check adjacent columns for Middle Name and First Name
+        for col_offset in [-2, -1, 1, 2]:
+            check_col = last_name_col + col_offset
+            if check_col < 1:
+                continue
+            try:
+                header_cell = sheet.cell(row=last_name_row, column=check_col)
+                header_value = str(header_cell.value).strip() if header_cell.value else ""
+                if header_value == "Middle Name":
+                    middle_name_col = check_col
+                elif header_value == "First Name":
+                    first_name_col = check_col
+            except:
+                continue
+        
+        # If not found adjacent, search the entire header row
+        if not middle_name_col or not first_name_col:
+            for col_idx in range(1, sheet.max_column + 1):
+                header_cell = sheet.cell(row=last_name_row, column=col_idx)
+                header_value = str(header_cell.value).strip() if header_cell.value else ""
+                if header_value == "Middle Name" and not middle_name_col:
+                    middle_name_col = col_idx
+                elif header_value == "First Name" and not first_name_col:
+                    first_name_col = col_idx
+        
+        if not first_name_col:
+            raise Exception("Could not find 'First Name' column header in the Excel file")
+        
+        logger.info(f"Found First Name at col {first_name_col}")
+        if middle_name_col:
+            logger.info(f"Found Middle Name at col {middle_name_col}")
+        
+        job.message = "Extracting surgeon data..."
+        job.progress = 50
+        
+        # Extract surgeons (data starts from row after header)
+        surgeons = []
+        data_start_row = last_name_row + 1
+        
+        while data_start_row <= sheet.max_row:
+            last_name_cell = sheet.cell(row=data_start_row, column=last_name_col)
+            first_name_cell = sheet.cell(row=data_start_row, column=first_name_col)
+            
+            last_name = str(last_name_cell.value).strip() if last_name_cell.value else ""
+            first_name = str(first_name_cell.value).strip() if first_name_cell.value else ""
+            
+            # Stop if both are empty (end of data)
+            if not last_name and not first_name:
+                break
+            
+            # Get middle name if column exists
+            middle_name = ""
+            if middle_name_col:
+                middle_name_cell = sheet.cell(row=data_start_row, column=middle_name_col)
+                middle_name = str(middle_name_cell.value).strip() if middle_name_cell.value else ""
+            
+            # Only add if we have at least last name and first name
+            if last_name and first_name:
+                surgeons.append({
+                    "last_name": last_name,
+                    "first_name": first_name,
+                    "middle_name": middle_name
+                })
+            
+            data_start_row += 1
+        
+        logger.info(f"Found {len(surgeons)} surgeons")
+        
+        job.message = "Formatting output..."
+        job.progress = 90
+        
+        # Format surgeons: {last name}, {first name} {middle name}, MD
+        formatted_surgeons = []
+        for surgeon in surgeons:
+            last_name = surgeon["last_name"]
+            first_name = surgeon["first_name"]
+            middle_name = surgeon["middle_name"]
+            
+            if middle_name:
+                formatted_name = f"{last_name}, {first_name} {middle_name}, MD"
+            else:
+                formatted_name = f"{last_name}, {first_name}, MD"
+            
+            formatted_surgeons.append(formatted_name)
+        
+        # Build output string
+        output_lines = []
+        output_lines.append("Billable MD providers:")
+        output_lines.extend(formatted_surgeons)
+        
+        output_text = "\n".join(output_lines)
+        
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Surgeon mapping completed! Found {len(surgeons)} surgeons."
+        job.result = {"output": output_text}
+        
+        # Clean up Excel file
+        if os.path.exists(excel_path):
+            os.unlink(excel_path)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        logger.info(f"Job {job_id}: Memory cleaned up after surgeon mapping")
+        
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Surgeon mapping failed: {str(e)}"
+        logger.error(f"Surgeon mapping job {job_id} failed: {str(e)}")
+        
+        # Clean up Excel file
+        if os.path.exists(excel_path):
+            os.unlink(excel_path)
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
     """Background task to merge two CSV files by CSN column"""
     job = job_status[job_id]
@@ -3232,6 +3414,50 @@ async def provider_mapping(
         
     except Exception as e:
         logger.error(f"Provider mapping upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/surgeon-mapping")
+async def surgeon_mapping(
+    background_tasks: BackgroundTasks,
+    excel_file: UploadFile = File(...)
+):
+    """
+    Upload an Excel file containing surgeon list to extract surgeons.
+    The file should contain columns: Last Name, First Name, and optionally Middle Name.
+    All surgeons will be formatted with title "MD".
+    """
+    
+    try:
+        logger.info(f"Received surgeon mapping request - excel: {excel_file.filename}")
+        
+        # Validate file type
+        if not excel_file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created surgeon mapping job {job_id}")
+        
+        # Save uploaded Excel file
+        excel_path = f"/tmp/{job_id}_surgeon_mapping_input.xlsx"
+        
+        with open(excel_path, "wb") as f:
+            shutil.copyfileobj(excel_file.file, f)
+        
+        logger.info(f"Surgeon mapping Excel saved - path: {excel_path}")
+        
+        # Start background processing
+        background_tasks.add_task(surgeon_mapping_background, job_id, excel_path)
+        
+        logger.info(f"Background surgeon mapping task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Excel file uploaded and surgeon mapping started"}
+        
+    except Exception as e:
+        logger.error(f"Surgeon mapping upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/merge-by-csn")

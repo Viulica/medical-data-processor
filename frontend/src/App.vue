@@ -124,6 +124,9 @@
               <button @click="selectTab('provider-mapping')" class="dropdown-item">
                 👥 Provider Mapping List Creation
               </button>
+              <button @click="selectTab('surgeon-mapping')" class="dropdown-item">
+                🏥 Surgeon Mapping List Creation
+              </button>
             </div>
           </div>
           <div class="dropdown-container">
@@ -4755,6 +4758,185 @@
           </div>
         </div>
 
+        <!-- Surgeon Mapping List Creation Tab -->
+        <div v-if="activeTab === 'surgeon-mapping'" class="upload-section">
+          <div class="section-header">
+            <h2>Surgeon Mapping List Creation</h2>
+            <p>
+              Upload a surgeon list Excel file to extract surgeons.
+              The file should contain columns: Last Name, First Name, and optionally Middle Name.
+              All surgeons will be formatted with title "MD".
+            </p>
+          </div>
+
+          <div class="upload-grid">
+<!-- Excel File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Surgeon List Excel File</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isSurgeonMappingExcelDragActive,
+                  'has-file': surgeonMappingExcelFile,
+                }"
+                @drop="onSurgeonMappingExcelDrop"
+                @dragover.prevent
+                @dragenter.prevent="isSurgeonMappingExcelDragActive = true"
+                @dragleave.prevent="isSurgeonMappingExcelDragActive = false"
+                @click="triggerSurgeonMappingExcelUpload"
+              >
+                <input
+                  ref="surgeonMappingExcelInput"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  @change="onSurgeonMappingExcelFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="surgeonMappingExcelFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      surgeonMappingExcelFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(surgeonMappingExcelFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop Excel file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Expected format:</strong> Excel file with "Last Name" column header followed by surgeon data</p>
+                <p class="optional-note">Surgeon names should be in columns: Last Name, First Name, Middle Name (optional)</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>How it works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔍</span>
+                    <span>Finds the "Last Name" column header in the Excel file</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📋</span>
+                    <span>Extracts data from Last Name, First Name, and Middle Name columns</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">👨‍⚕️</span>
+                    <span>All surgeons are formatted with title "MD"</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📝</span>
+                    <span>Formats output as: Last Name, First Name Middle Name, MD</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startSurgeonMapping"
+              :disabled="!canProcessSurgeonMapping || isProcessingSurgeonMapping"
+              class="process-btn"
+            >
+              <span v-if="isProcessingSurgeonMapping" class="spinner"></span>
+              <span v-else class="btn-icon">🏥</span>
+              {{
+                isProcessingSurgeonMapping
+                  ? "Processing Surgeon Mapping..."
+                  : "Process Surgeon Mapping"
+              }}
+            </button>
+
+            <button
+              v-if="surgeonMappingExcelFile || surgeonMappingJobId"
+              @click="resetSurgeonMappingForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Surgeon Mapping Status -->
+        <div v-if="surgeonMappingJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="surgeonMappingJobStatus.status">
+                <span class="status-icon">{{ getSurgeonMappingStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getSurgeonMappingStatusTitle() }}</h3>
+                <p class="status-message">{{ surgeonMappingJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="surgeonMappingJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${surgeonMappingJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ surgeonMappingJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkSurgeonMappingJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="surgeonMappingJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadSurgeonMappingResults"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download Surgeon List
+                </button>
+              </div>
+              <div v-if="surgeonMappingOutput" class="output-preview">
+                <h4>Preview:</h4>
+                <pre class="output-text">{{ surgeonMappingOutput }}</pre>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                surgeonMappingJobStatus.status === 'failed' && surgeonMappingJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ surgeonMappingJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Instructions Conversion Status -->
         <div v-if="instructionsJobStatus" class="status-section">
           <div class="status-card">
@@ -7397,6 +7579,20 @@ export default {
       providerMappingOutput: null,
       isProcessingProviderMapping: false,
       isProviderMappingExcelDragActive: false,
+      // Surgeon Mapping functionality
+      surgeonMappingExcelFile: null,
+      surgeonMappingJobId: null,
+      surgeonMappingJobStatus: null,
+      surgeonMappingOutput: null,
+      isProcessingSurgeonMapping: false,
+      isSurgeonMappingExcelDragActive: false,
+      // Surgeon Mapping functionality
+      surgeonMappingExcelFile: null,
+      surgeonMappingJobId: null,
+      surgeonMappingJobStatus: null,
+      surgeonMappingOutput: null,
+      isProcessingSurgeonMapping: false,
+      isSurgeonMappingExcelDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
@@ -10731,6 +10927,174 @@ export default {
           return "⏳";
         default:
           return "👥";
+      }
+    },
+
+    // Surgeon Mapping methods
+    onSurgeonMappingExcelDrop(e) {
+      e.preventDefault();
+      this.isSurgeonMappingExcelDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidExcelFile(files[0].name)) {
+        this.surgeonMappingExcelFile = files[0];
+        this.toast.success("Surgeon mapping Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid Excel file (.xlsx or .xls)");
+      }
+    },
+
+    triggerSurgeonMappingExcelUpload() {
+      this.$refs.surgeonMappingExcelInput.click();
+    },
+
+    onSurgeonMappingExcelFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidExcelFile(file.name)) {
+        this.surgeonMappingExcelFile = file;
+        this.toast.success("Surgeon mapping Excel file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid Excel file (.xlsx or .xls)");
+      }
+    },
+
+    async startSurgeonMapping() {
+      if (!this.surgeonMappingExcelFile) {
+        this.toast.error("Please upload an Excel file first");
+        return;
+      }
+
+      this.isProcessingSurgeonMapping = true;
+
+      const formData = new FormData();
+      formData.append("excel_file", this.surgeonMappingExcelFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "surgeon-mapping");
+      console.log("🔧 Surgeon Mapping Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.surgeonMappingJobId = response.data.job_id;
+        this.toast.success(
+          "Surgeon mapping started! Check the status section below."
+        );
+
+        // Set initial status
+        this.surgeonMappingJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Processing surgeon mapping...",
+        };
+
+        // Start polling for status
+        this.checkSurgeonMappingJobStatus();
+      } catch (error) {
+        console.error("Surgeon mapping error:", error);
+        this.toast.error(
+          "Failed to start surgeon mapping. Please try again."
+        );
+        this.isProcessingSurgeonMapping = false;
+      }
+    },
+
+    async checkSurgeonMappingJobStatus() {
+      if (!this.surgeonMappingJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `status/${this.surgeonMappingJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.surgeonMappingJobStatus = response.data;
+
+        if (response.data.status === "processing") {
+          // Continue polling
+          setTimeout(() => {
+            this.checkSurgeonMappingJobStatus();
+          }, 2000);
+        } else if (response.data.status === "completed") {
+          this.isProcessingSurgeonMapping = false;
+          // Get the output text
+          if (response.data.result && response.data.result.output) {
+            this.surgeonMappingOutput = response.data.result.output;
+          }
+        } else if (response.data.status === "failed") {
+          this.isProcessingSurgeonMapping = false;
+        }
+      } catch (error) {
+        console.error("Error checking surgeon mapping status:", error);
+        this.toast.error("Failed to check status. Please try again.");
+        this.isProcessingSurgeonMapping = false;
+      }
+    },
+
+    downloadSurgeonMappingResults() {
+      if (!this.surgeonMappingOutput) {
+        this.toast.error("No output available to download");
+        return;
+      }
+
+      // Create a blob with the output text
+      const blob = new Blob([this.surgeonMappingOutput], {
+        type: "text/plain",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `surgeon_mapping_list_${new Date().getTime()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      this.toast.success("Surgeon mapping list downloaded!");
+    },
+
+    resetSurgeonMappingForm() {
+      this.surgeonMappingExcelFile = null;
+      this.surgeonMappingJobId = null;
+      this.surgeonMappingJobStatus = null;
+      this.surgeonMappingOutput = null;
+      this.isProcessingSurgeonMapping = false;
+      this.isSurgeonMappingExcelDragActive = false;
+    },
+
+    getSurgeonMappingStatusTitle() {
+      if (!this.surgeonMappingJobStatus) return "";
+
+      switch (this.surgeonMappingJobStatus.status) {
+        case "completed":
+          return "Surgeon Mapping Complete";
+        case "failed":
+          return "Surgeon Mapping Failed";
+        case "processing":
+          return "Processing Surgeon Mapping";
+        default:
+          return "Surgeon Mapping Status";
+      }
+    },
+
+    getSurgeonMappingStatusIcon() {
+      if (!this.surgeonMappingJobStatus) return "";
+
+      switch (this.surgeonMappingJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
+        default:
+          return "🏥";
       }
     },
 
