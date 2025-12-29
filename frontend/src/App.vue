@@ -7933,6 +7933,9 @@ export default {
     canProcessProviderMapping() {
       return this.providerMappingExcelFile !== null;
     },
+    canProcessSurgeonMapping() {
+      return this.surgeonMappingExcelFile !== null;
+    },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
     },
