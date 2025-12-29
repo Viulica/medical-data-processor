@@ -3397,8 +3397,9 @@ async def provider_mapping(
         
         logger.info(f"Created provider mapping job {job_id}")
         
-        # Save uploaded Excel file
-        excel_path = f"/tmp/{job_id}_provider_mapping_input.xlsx"
+        # Save uploaded Excel file (preserve original extension)
+        file_ext = Path(excel_file.filename).suffix.lower()
+        excel_path = f"/tmp/{job_id}_provider_mapping_input{file_ext}"
         
         with open(excel_path, "wb") as f:
             shutil.copyfileobj(excel_file.file, f)
@@ -3441,8 +3442,9 @@ async def surgeon_mapping(
         
         logger.info(f"Created surgeon mapping job {job_id}")
         
-        # Save uploaded Excel file
-        excel_path = f"/tmp/{job_id}_surgeon_mapping_input.xlsx"
+        # Save uploaded Excel file (preserve original extension)
+        file_ext = Path(excel_file.filename).suffix.lower()
+        excel_path = f"/tmp/{job_id}_surgeon_mapping_input{file_ext}"
         
         with open(excel_path, "wb") as f:
             shutil.copyfileobj(excel_file.file, f)
