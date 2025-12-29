@@ -1425,6 +1425,35 @@
                           </div>
                         </div>
                       </label>
+
+                      <!-- Gemini Flash Lite Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected:
+                            unifiedCptVisionModel === 'gemini-flash-lite-latest',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="gemini-flash-lite-latest"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">Gemini Flash Lite</span>
+                              <span class="model-badge badge-fast">Lite</span>
+                            </div>
+                            <div class="model-provider">Google</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag">⚡ Ultra Fast</span>
+                            <span class="feature-tag">💰 Most Cost-Effective</span>
+                          </div>
+                        </div>
+                      </label>
                     </div>
                   </div>
 
@@ -1753,6 +1782,35 @@
                         <div class="model-features">
                           <span class="feature-tag">🚀 Very Fast</span>
                           <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini Flash Lite Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          unifiedIcdVisionModel === 'gemini-flash-lite-latest',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="gemini-flash-lite-latest"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini Flash Lite</span>
+                            <span class="model-badge badge-fast">Lite</span>
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Ultra Fast</span>
+                          <span class="feature-tag">💰 Most Cost-Effective</span>
                         </div>
                       </div>
                     </label>

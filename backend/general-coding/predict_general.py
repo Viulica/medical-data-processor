@@ -235,7 +235,9 @@ Respond with ONLY the JSON object, nothing else."""
             total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
             
             # Cost estimation for Gemini models (rough estimates)
-            if "gemini-3-flash" in model:
+            if "gemini-flash-lite" in model:
+                cost = total_tokens_estimate * 0.00005 / 1000  # Rough estimate - cheapest option
+            elif "gemini-3-flash" in model:
                 cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
             elif "gemini-3-pro" in model:
                 cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
@@ -907,7 +909,9 @@ Respond with ONLY the JSON object, nothing else."""
             total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
             
             # Cost estimation for Gemini models (rough estimates)
-            if "gemini-3-flash" in model:
+            if "gemini-flash-lite" in model:
+                cost = total_tokens_estimate * 0.00005 / 1000  # Rough estimate - cheapest option
+            elif "gemini-3-flash" in model:
                 cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
             elif "gemini-3-pro" in model:
                 cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
