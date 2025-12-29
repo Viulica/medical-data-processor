@@ -4249,20 +4249,24 @@
             <h2>Check CPT & ICD Codes</h2>
             <p>
               Upload predictions and ground truth CSV/XLSX files to compare CPT
-              codes, ICD codes, and Anesthesia Type. Predictions file should
+              codes, ICD codes, and other fields. 
+              <strong>Demo Detail Report</strong> (required): Predictions file should
               have columns: AccountId, Cpt (or ASA Code), ICD1, ICD2, ICD3, ICD4
-              (and optionally Anesthesia Type). Ground truth file should have
-              columns: Account # (or AccountId/Account ID), Cpt, Icd
-              (comma-separated), and optionally Anesthesia Type.
+              (and optionally Anesthesia Type, Responsible Provider, Location, An Start, An Stop). 
+              Ground truth file should have columns: Account # (or AccountId/Account ID), Cpt, Icd
+              (comma-separated), and optionally Anesthesia Type, Provider, Location.
+              <br/><br/>
+              <strong>Charge Detail Report</strong> (optional): Upload this report to compare 
+              Start Time and Stop Time. Should have columns: Account # (or AccountId), Start Time, Stop Time.
             </p>
           </div>
 
           <div class="upload-grid">
-            <!-- Predictions File Upload -->
+            <!-- Predictions File Upload (Demo Detail Report) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
-                <h3>Predictions File</h3>
+                <h3>Predictions File (Demo Detail Report)</h3>
               </div>
               <div
                 class="dropzone"
@@ -4302,11 +4306,11 @@
               </div>
             </div>
 
-            <!-- Ground Truth File Upload -->
+            <!-- Ground Truth File Upload (Demo Detail Report) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
-                <h3>Ground Truth File</h3>
+                <h3>Ground Truth File (Demo Detail Report)</h3>
               </div>
               <div
                 class="dropzone"
@@ -4346,10 +4350,56 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Charge Detail Report Upload (Optional) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Charge Detail Report (Optional)</h3>
+                <span class="optional-badge">Optional</span>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isCptChargeDetailDragActive,
+                  'has-file': cptChargeDetailFile,
+                }"
+                @drop="onCptChargeDetailDrop"
+                @dragover.prevent
+                @dragenter.prevent="isCptChargeDetailDragActive = true"
+                @dragleave.prevent="isCptChargeDetailDragActive = false"
+                @click="triggerCptChargeDetailUpload"
+              >
+                <input
+                  ref="cptChargeDetailInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onCptChargeDetailFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">⏰</div>
+                  <div v-if="cptChargeDetailFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ cptChargeDetailFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(cptChargeDetailFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop XLSX file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required columns:</strong> Account #, Start Time, Stop Time</p>
+                <p class="optional-note">Upload this file to compare anesthesia start and stop times</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>How it works</h3>
               </div>
               <div class="settings-content">
@@ -7090,6 +7140,8 @@ export default {
       // CPT Codes Check functionality
       cptPredictionsFile: null,
       cptGroundTruthFile: null,
+      cptChargeDetailFile: null,
+      isCptChargeDetailDragActive: false,
       cptCheckJobId: null,
       cptCheckJobStatus: null,
       isCheckingCptCodes: false,
@@ -10109,6 +10161,32 @@ export default {
       }
     },
 
+    onCptChargeDetailDrop(e) {
+      e.preventDefault();
+      this.isCptChargeDetailDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
+        this.cptChargeDetailFile = files[0];
+        this.toast.success("Charge detail report uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV or XLSX file");
+      }
+    },
+
+    triggerCptChargeDetailUpload() {
+      this.$refs.cptChargeDetailInput.click();
+    },
+
+    onCptChargeDetailFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
+        this.cptChargeDetailFile = file;
+        this.toast.success("Charge detail report uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV or XLSX file");
+      }
+    },
+
     async startCptCodesCheck() {
       if (!this.canCheckCptCodes) {
         this.toast.error("Please upload both files");
@@ -10121,6 +10199,9 @@ export default {
       const formData = new FormData();
       formData.append("predictions_file", this.cptPredictionsFile);
       formData.append("ground_truth_file", this.cptGroundTruthFile);
+      if (this.cptChargeDetailFile) {
+        formData.append("charge_detail_file", this.cptChargeDetailFile);
+      }
 
       const uploadUrl = joinUrl(API_BASE_URL, "check-cpt-codes");
       console.log("🔧 CPT Check Upload URL:", uploadUrl);
@@ -10218,11 +10299,13 @@ export default {
     resetCptCheckForm() {
       this.cptPredictionsFile = null;
       this.cptGroundTruthFile = null;
+      this.cptChargeDetailFile = null;
       this.cptCheckJobId = null;
       this.cptCheckJobStatus = null;
       this.isCheckingCptCodes = false;
       this.isCptPredictionsDragActive = false;
       this.isCptGroundTruthDragActive = false;
+      this.isCptChargeDetailDragActive = false;
     },
 
     getCptCheckStatusTitle() {
