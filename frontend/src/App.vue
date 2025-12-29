@@ -7586,13 +7586,6 @@ export default {
       surgeonMappingOutput: null,
       isProcessingSurgeonMapping: false,
       isSurgeonMappingExcelDragActive: false,
-      // Surgeon Mapping functionality
-      surgeonMappingExcelFile: null,
-      surgeonMappingJobId: null,
-      surgeonMappingJobStatus: null,
-      surgeonMappingOutput: null,
-      isProcessingSurgeonMapping: false,
-      isSurgeonMappingExcelDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
