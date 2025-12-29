@@ -1759,6 +1759,9 @@ async def get_job_status(job_id: str):
     # Include metadata if present (e.g., reasoning for PDF splitting)
     if hasattr(job, 'metadata') and job.metadata:
         response["metadata"] = job.metadata
+    # Include result if present (e.g., provider mapping output)
+    if hasattr(job, 'result') and job.result:
+        response["result"] = job.result
     return response
 
 @app.delete("/cleanup/{job_id}")
