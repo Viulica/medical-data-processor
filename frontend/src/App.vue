@@ -10646,7 +10646,7 @@ export default {
       try {
         const statusUrl = joinUrl(
           API_BASE_URL,
-          `job-status/${this.providerMappingJobId}`
+          `status/${this.providerMappingJobId}`
         );
         const response = await axios.get(statusUrl);
 
