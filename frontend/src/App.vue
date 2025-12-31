@@ -3812,6 +3812,36 @@
               </div>
             </div>
 
+            <!-- Step 3.5: Extraction Settings -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3.5</div>
+                <h3>📊 Extraction Settings</h3>
+              </div>
+              <div class="settings-content">
+                <div class="setting-group">
+                  <label for="refinement-extraction-model">AI Model</label>
+                  <select
+                    id="refinement-extraction-model"
+                    v-model="refinementExtractionModel"
+                    class="form-select"
+                  >
+                    <option value="gemini-3-flash-preview">
+                      Gemini 3 Flash Preview (Recommended)
+                    </option>
+                    <option value="models/gemini-flash-lite-latest">
+                      Gemini Flash Lite (Fastest & Cheapest)
+                    </option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                    <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
+                  </select>
+                  <small class="help-text">
+                    Model used for extracting patient information from PDFs
+                  </small>
+                </div>
+              </div>
+            </div>
+
             <!-- Step 4: Enable CPT Refinement -->
             <div class="upload-card">
               <div class="card-header">
@@ -3973,6 +4003,35 @@
                         <div class="model-features">
                           <span class="feature-tag">🚀 Very Fast</span>
                           <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini Flash Lite Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementCptVisionModel === 'gemini-flash-lite-latest',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="gemini-flash-lite-latest"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini Flash Lite</span>
+                            <span class="model-badge badge-fast">Fastest</span>
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Fastest & Cheapest</span>
+                          <span class="feature-tag">💰 Cost-Effective</span>
                         </div>
                       </div>
                     </label>
@@ -4142,6 +4201,35 @@
                         <div class="model-features">
                           <span class="feature-tag">🚀 Very Fast</span>
                           <span class="feature-tag">🔬 Preview Model</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Gemini Flash Lite Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementIcdVisionModel === 'gemini-flash-lite-latest',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="gemini-flash-lite-latest"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Gemini Flash Lite</span>
+                            <span class="model-badge badge-fast">Fastest</span>
+                          </div>
+                          <div class="model-provider">Google</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Fastest & Cheapest</span>
+                          <span class="feature-tag">💰 Cost-Effective</span>
                         </div>
                       </div>
                     </label>
@@ -7659,6 +7747,7 @@ export default {
       refinementGroundTruthFile: null,
       refinementUseExtractionTemplate: false,
       refinementSelectedExtractionTemplateId: null,
+      refinementExtractionModel: "gemini-3-flash-preview", // Extraction model selection
       refinementEnableCpt: true, // Enable CPT refinement
       refinementEnableIcd: true, // Enable ICD refinement
       refinementSelectedCptInstructionId: null,
@@ -9224,10 +9313,10 @@ export default {
         formData.append("excel_file", this.refinementExcelFile);
       }
 
-      // Extraction parameters (use defaults from unified)
+      // Extraction parameters
       formData.append("enable_extraction", true);
       formData.append("extraction_n_pages", 2);
-      formData.append("extraction_model", "gemini-2.5-flash");
+      formData.append("extraction_model", this.refinementExtractionModel);
       formData.append("extraction_max_workers", 50);
       formData.append("worktracker_group", "");
       formData.append("worktracker_batch", "");

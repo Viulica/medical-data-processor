@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def normalize_gemini_model(model_name: str) -> str:
     """Normalize Gemini model name by removing OpenRouter prefixes/suffixes."""
-    clean_model = model_name.replace('google/', '').replace(':online', '')
+    clean_model = model_name.replace('google/', '').replace(':online', '').replace('models/', '')
     return clean_model
 
 

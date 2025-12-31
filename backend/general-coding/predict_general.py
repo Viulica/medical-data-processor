@@ -37,8 +37,8 @@ def is_gemini_model(model_name):
 
 def normalize_gemini_model(model_name):
     """Normalize Gemini model name by removing OpenRouter prefixes/suffixes"""
-    # Remove OpenRouter format prefixes/suffixes
-    clean_model = model_name.replace('google/', '').replace(':online', '')
+    # Remove OpenRouter format prefixes/suffixes and models/ prefix
+    clean_model = model_name.replace('google/', '').replace(':online', '').replace('models/', '')
     return clean_model
 
 

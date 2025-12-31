@@ -140,8 +140,8 @@ def is_gemini_model(model_name):
 
 def normalize_gemini_model(model_name):
     """Normalize Gemini model name by removing OpenRouter prefixes/suffixes and normalizing spaces"""
-    # Remove OpenRouter format prefixes/suffixes
-    clean_model = model_name.replace('google/', '').replace(':online', '')
+    # Remove OpenRouter format prefixes/suffixes and models/ prefix
+    clean_model = model_name.replace('google/', '').replace(':online', '').replace('models/', '')
     # Replace spaces with hyphens for consistency (e.g., "gemini flash lite latest" -> "gemini-flash-lite-latest")
     clean_model = clean_model.replace(' ', '-').lower()
     return clean_model
