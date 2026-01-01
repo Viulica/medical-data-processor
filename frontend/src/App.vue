@@ -9420,7 +9420,7 @@ export default {
       if (this.refinementEnableCpt) {
         formData.append("cpt_vision_mode", true); // Use vision mode for PDF-based prediction
         formData.append("cpt_client", "uni");
-        formData.append("cpt_vision_pages", 1);
+        formData.append("cpt_vision_pages", 49); // Analyze 49 pages for better accuracy
         formData.append("cpt_vision_model", this.refinementCptVisionModel);
         formData.append("cpt_include_code_list", true);
         formData.append("cpt_max_workers", 50);
