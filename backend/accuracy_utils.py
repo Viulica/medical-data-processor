@@ -314,33 +314,10 @@ def get_error_cases(
     else:
         filtered_errors = all_errors
     
-    # Group by error pattern and prioritize diverse errors
-    error_patterns = {}
-    for error in filtered_errors:
-        pattern_key = f"{error['predicted']} -> {error['expected']}"
-        if pattern_key not in error_patterns:
-            error_patterns[pattern_key] = []
-        error_patterns[pattern_key].append(error)
-    
-    # Select diverse errors (one from each pattern, up to limit)
-    selected_errors = []
-    
     # If limit is None, return all errors
     if limit is None:
         return filtered_errors
     
-    for pattern_errors in error_patterns.values():
-        if len(selected_errors) >= limit:
-            break
-        selected_errors.append(pattern_errors[0])  # Take first from each pattern
-    
-    # Fill remaining slots with any errors
-    remaining = limit - len(selected_errors)
-    for error in filtered_errors:
-        if len(selected_errors) >= limit:
-            break
-        if error not in selected_errors:
-            selected_errors.append(error)
-    
-    return selected_errors[:limit]
+    # Return first N errors (no grouping by pattern)
+    return filtered_errors[:limit]
 

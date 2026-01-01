@@ -7620,7 +7620,8 @@ async def process_unified_with_refinement(
     max_iterations: int = Form(default=10),
     notification_email: str = Form(default="cvetkovskileon@gmail.com"),
     refinement_guidance: Optional[str] = Form(default=None),
-    refinement_mode: str = Form(default="batch")  # "batch" or "focused"
+    refinement_mode: str = Form(default="batch"),  # "batch" or "focused"
+    batch_size: int = Form(default=10)  # Number of errors per batch in batch mode
 ):
     """
     Unified processing with AI-powered iterative instruction refinement.
@@ -7758,10 +7759,11 @@ async def process_unified_with_refinement(
             max_iterations=max_iterations,
             notification_email=notification_email,
             refinement_guidance=refinement_guidance,
-            refinement_mode=refinement_mode
+            refinement_mode=refinement_mode,
+            batch_size=batch_size
         )
         
-        logger.info(f"Background refinement task started for job {job_id} (mode: {refinement_mode})")
+        logger.info(f"Background refinement task started for job {job_id} (mode: {refinement_mode}, batch_size: {batch_size})")
         
         return {"job_id": job_id, "message": "AI refinement started"}
         

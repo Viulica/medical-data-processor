@@ -63,7 +63,8 @@ def run_refinement_job(
     max_iterations: int,
     notification_email: str,
     refinement_guidance: Optional[str] = None,
-    refinement_mode: str = "batch"  # "batch" or "focused"
+    refinement_mode: str = "batch",  # "batch" or "focused"
+    batch_size: int = 10  # Number of errors per batch in batch mode
 ):
     """
     Main refinement job orchestrator.
@@ -359,17 +360,55 @@ def run_refinement_job(
                             update_refinement_job(job_id, status="failed", error_message="Instruction refinement failed in focused mode")
                             return
                     else:
-                        # BATCH MODE: Process all errors at once (original behavior)
-                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in BATCH MODE...")
-                        improved_instructions, reasoning = refine_cpt_instructions(
-                            current_instructions=cpt_instructions,
-                            error_cases=cpt_errors,
+                        # BATCH MODE: Process all errors in batches, refining after each batch
+                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in BATCH MODE (processing all errors in batches)...")
+                        
+                        # Get ALL error cases
+                        all_cpt_errors = get_error_cases(
+                            predictions_path=results_csv_path,
+                            ground_truth_path=ground_truth_path,
+                            error_type='cpt',
                             pdf_mapping=pdf_mapping,
-                            user_guidance=refinement_guidance
+                            limit=None  # Get all errors
                         )
                         
+                        logger.info(f"[Refinement {job_id}] Processing {len(all_cpt_errors)} CPT errors in batches of {batch_size}...")
+                        
+                        # Start with current instructions
+                        working_instructions = cpt_instructions
+                        all_reasonings = []
+                        
+                        # Process errors in batches
+                        for batch_start in range(0, len(all_cpt_errors), batch_size):
+                            batch_end = min(batch_start + batch_size, len(all_cpt_errors))
+                            batch_errors = all_cpt_errors[batch_start:batch_end]
+                            batch_num = (batch_start // batch_size) + 1
+                            total_batches = (len(all_cpt_errors) + batch_size - 1) // batch_size
+                            
+                            logger.info(f"[Refinement {job_id}] Processing batch {batch_num}/{total_batches} (errors {batch_start+1}-{batch_end} of {len(all_cpt_errors)})...")
+                            
+                            # Refine with this batch of errors
+                            improved_instructions, reasoning = refine_cpt_instructions(
+                                current_instructions=working_instructions,
+                                error_cases=batch_errors,
+                                pdf_mapping=pdf_mapping,
+                                user_guidance=refinement_guidance
+                            )
+                            
+                            if not improved_instructions:
+                                logger.warning(f"[Refinement {job_id}] Failed to refine batch {batch_num}: {reasoning}")
+                                continue
+                            
+                            # Update working instructions for next batch
+                            working_instructions = improved_instructions
+                            all_reasonings.append(f"Batch {batch_num}: {reasoning}")
+                        
+                        # Final improved instructions after processing all batches
+                        improved_instructions = working_instructions
+                        reasoning = f"Processed {len(all_cpt_errors)} errors in {total_batches} batches.\n\n" + "\n".join(all_reasonings)
+                        
                         if not improved_instructions:
-                            logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions: {reasoning}")
+                            logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions in batch mode")
                             update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
                             return
                     
@@ -671,17 +710,55 @@ def run_refinement_job(
                             update_refinement_job(job_id, status="failed", error_message="Instruction refinement failed in focused mode")
                             return
                     else:
-                        # BATCH MODE: Process all errors at once (original behavior)
-                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in BATCH MODE...")
-                        improved_instructions, reasoning = refine_icd_instructions(
-                            current_instructions=icd_instructions,
-                            error_cases=icd_errors,
+                        # BATCH MODE: Process all errors in batches, refining after each batch
+                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in BATCH MODE (processing all errors in batches)...")
+                        
+                        # Get ALL error cases
+                        all_icd_errors = get_error_cases(
+                            predictions_path=results_csv_path,
+                            ground_truth_path=ground_truth_path,
+                            error_type='icd1',
                             pdf_mapping=pdf_mapping,
-                            user_guidance=refinement_guidance
+                            limit=None  # Get all errors
                         )
                         
+                        logger.info(f"[Refinement {job_id}] Processing {len(all_icd_errors)} ICD errors in batches of {batch_size}...")
+                        
+                        # Start with current instructions
+                        working_instructions = icd_instructions
+                        all_reasonings = []
+                        
+                        # Process errors in batches
+                        for batch_start in range(0, len(all_icd_errors), batch_size):
+                            batch_end = min(batch_start + batch_size, len(all_icd_errors))
+                            batch_errors = all_icd_errors[batch_start:batch_end]
+                            batch_num = (batch_start // batch_size) + 1
+                            total_batches = (len(all_icd_errors) + batch_size - 1) // batch_size
+                            
+                            logger.info(f"[Refinement {job_id}] Processing batch {batch_num}/{total_batches} (errors {batch_start+1}-{batch_end} of {len(all_icd_errors)})...")
+                            
+                            # Refine with this batch of errors
+                            improved_instructions, reasoning = refine_icd_instructions(
+                                current_instructions=working_instructions,
+                                error_cases=batch_errors,
+                                pdf_mapping=pdf_mapping,
+                                user_guidance=refinement_guidance
+                            )
+                            
+                            if not improved_instructions:
+                                logger.warning(f"[Refinement {job_id}] Failed to refine batch {batch_num}: {reasoning}")
+                                continue
+                            
+                            # Update working instructions for next batch
+                            working_instructions = improved_instructions
+                            all_reasonings.append(f"Batch {batch_num}: {reasoning}")
+                        
+                        # Final improved instructions after processing all batches
+                        improved_instructions = working_instructions
+                        reasoning = f"Processed {len(all_icd_errors)} errors in {total_batches} batches.\n\n" + "\n".join(all_reasonings)
+                        
                         if not improved_instructions:
-                            logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions: {reasoning}")
+                            logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions in batch mode")
                             update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
                             return
                     

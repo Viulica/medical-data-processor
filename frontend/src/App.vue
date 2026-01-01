@@ -4365,6 +4365,38 @@
                     constraints for the refinement process</small
                   >
                 </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-mode">Refinement Mode</label>
+                  <select
+                    id="refinement-mode"
+                    v-model="refinementMode"
+                    class="form-input"
+                  >
+                    <option value="batch">Batch Mode</option>
+                    <option value="focused">Focused Mode</option>
+                  </select>
+                  <small class="help-text"
+                    >Batch: Process errors in groups. Focused: Process one error at a time</small
+                  >
+                </div>
+                <div
+                  v-if="refinementMode === 'batch'"
+                  class="setting-group"
+                  style="margin-top: 15px"
+                >
+                  <label for="refinement-batch-size">Batch Size</label>
+                  <input
+                    id="refinement-batch-size"
+                    v-model.number="refinementBatchSize"
+                    type="number"
+                    min="1"
+                    max="50"
+                    class="form-input"
+                  />
+                  <small class="help-text"
+                    >Number of errors to process per batch (default: 10)</small
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -7811,6 +7843,8 @@ export default {
       refinementMaxIterations: 10,
       refinementEmail: "cvetkovskileon@gmail.com",
       refinementGuidance: "",
+      refinementMode: "batch", // "batch" or "focused"
+      refinementBatchSize: 10, // Number of errors per batch in batch mode
       refinementJobId: null,
       refinementStatus: {},
       isProcessingRefinement: false,
@@ -9428,6 +9462,8 @@ export default {
       if (this.refinementGuidance && this.refinementGuidance.trim()) {
         formData.append("refinement_guidance", this.refinementGuidance.trim());
       }
+      formData.append("refinement_mode", this.refinementMode);
+      formData.append("batch_size", this.refinementBatchSize);
 
       try {
         const backendUrl = this.getBackendUrl();
