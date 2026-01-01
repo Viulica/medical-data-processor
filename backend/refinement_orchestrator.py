@@ -9,6 +9,7 @@ import uuid
 import logging
 import zipfile
 import shutil
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -313,9 +314,12 @@ def run_refinement_job(
                         update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
                         return
                     
-                    # Create new template version
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    new_template_name = f"{original_cpt_template['name']}_iteration_{cpt_iteration}_{timestamp}"
+                    # Create new template version with naming pattern: base_name (iteration)
+                    # Extract base name (remove any existing iteration suffix like " (1)", " (2)", etc.)
+                    base_name = original_cpt_template['name']
+                    # Remove pattern like " (1)", " (2)" if it exists
+                    base_name = re.sub(r'\s*\(\d+\)\s*$', '', base_name)
+                    new_template_name = f"{base_name} ({cpt_iteration})"
                     new_template_id = create_prediction_instruction(
                         name=new_template_name,
                         instruction_type="cpt",
@@ -565,9 +569,12 @@ def run_refinement_job(
                         update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
                         return
                     
-                    # Create new template version
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    new_template_name = f"{original_icd_template['name']}_iteration_{icd_iteration}_{timestamp}"
+                    # Create new template version with naming pattern: base_name (iteration)
+                    # Extract base name (remove any existing iteration suffix like " (1)", " (2)", etc.)
+                    base_name = original_icd_template['name']
+                    # Remove pattern like " (1)", " (2)" if it exists
+                    base_name = re.sub(r'\s*\(\d+\)\s*$', '', base_name)
+                    new_template_name = f"{base_name} ({icd_iteration})"
                     new_template_id = create_prediction_instruction(
                         name=new_template_name,
                         instruction_type="icd",

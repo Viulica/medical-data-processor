@@ -1897,6 +1897,31 @@
             </div>
           </div>
 
+          <!-- Output File Name -->
+          <div class="upload-card" style="margin-bottom: 20px">
+            <div class="card-header">
+              <h3>📝 Output File Name</h3>
+            </div>
+            <div class="settings-content">
+              <div class="setting-group">
+                <label for="unified-output-filename"
+                  >Custom file name (optional)</label
+                >
+                <input
+                  id="unified-output-filename"
+                  v-model="unifiedOutputFileName"
+                  type="text"
+                  class="page-input"
+                  placeholder="e.g., patient_data_2024"
+                />
+                <small class="help-text">
+                  Enter a custom name for the downloaded file. If left empty, the
+                  default name will be used.
+                </small>
+              </div>
+            </div>
+          </div>
+
           <!-- Action Buttons -->
           <div class="action-section">
             <button
@@ -2109,6 +2134,31 @@
                   each page containing this text.
                   <strong>Case insensitive search.</strong>
                 </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Output File Name -->
+          <div class="upload-card" style="margin-bottom: 20px">
+            <div class="card-header">
+              <h3>📝 Output File Name</h3>
+            </div>
+            <div class="settings-content">
+              <div class="setting-group">
+                <label for="split-output-filename"
+                  >Custom file name (optional)</label
+                >
+                <input
+                  id="split-output-filename"
+                  v-model="splitOutputFileName"
+                  type="text"
+                  class="page-input"
+                  placeholder="e.g., split_pdfs_2024"
+                />
+                <small class="help-text">
+                  Enter a custom name for the downloaded ZIP file. If left empty, the
+                  default name will be used.
+                </small>
               </div>
             </div>
           </div>
@@ -7602,6 +7652,7 @@ export default {
       splitJobStatus: null,
       isSplitting: false,
       isPdfDragActive: false,
+      splitOutputFileName: "", // Custom output filename for downloads
       statusPollingInterval: null,
       splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
       // CPT prediction functionality
@@ -7741,6 +7792,7 @@ export default {
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
+      unifiedOutputFileName: "", // Custom output filename for downloads
       // AI Refinement functionality
       refinementZipFile: null,
       refinementExcelFile: null,
@@ -8561,7 +8613,13 @@ export default {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `split_pdfs_${this.splitJobId}.zip`);
+        
+        // Use custom filename if provided, otherwise use default
+        const filename = this.splitOutputFileName.trim()
+          ? `${this.splitOutputFileName}.zip`
+          : `split_pdfs_${this.splitJobId}.zip`;
+        link.setAttribute("download", filename);
+        
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -8581,6 +8639,7 @@ export default {
       this.splitJobStatus = null;
       this.isSplitting = false;
       this.isPdfDragActive = false;
+      this.splitOutputFileName = "";
 
       // Clear polling interval
       if (this.statusPollingInterval) {
@@ -9503,7 +9562,13 @@ export default {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `unified_results_${this.unifiedJobId}.${format}`;
+        
+        // Use custom filename if provided, otherwise use default
+        const filename = this.unifiedOutputFileName.trim()
+          ? `${this.unifiedOutputFileName}.${format}`
+          : `unified_results_${this.unifiedJobId}.${format}`;
+        a.download = filename;
+        
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -9556,6 +9621,7 @@ export default {
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
       this.unifiedSelectedIcdInstructionId = null;
+      this.unifiedOutputFileName = "";
     },
 
     getUnifiedStatusTitle() {

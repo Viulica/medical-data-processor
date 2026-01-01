@@ -288,6 +288,22 @@ def send_completion_report(
         logger.error("Failed to initialize Resend")
         return False
     
+    # Fetch template names from database
+    best_cpt_template_name = "N/A"
+    best_icd_template_name = "N/A"
+    
+    if best_cpt_template_id:
+        from db_utils import get_prediction_instruction
+        cpt_template = get_prediction_instruction(instruction_id=best_cpt_template_id)
+        if cpt_template:
+            best_cpt_template_name = cpt_template['name']
+    
+    if best_icd_template_id:
+        from db_utils import get_prediction_instruction
+        icd_template = get_prediction_instruction(instruction_id=best_icd_template_id)
+        if icd_template:
+            best_icd_template_name = icd_template['name']
+    
     def fmt_pct(val):
         return f"{val * 100:.2f}%" if val is not None else "N/A"
     
@@ -332,8 +348,8 @@ def send_completion_report(
             
             <div class="section">
                 <h3>Best Templates</h3>
-                <p><strong>Best CPT Template ID:</strong> {best_cpt_template_id or 'N/A'}</p>
-                <p><strong>Best ICD Template ID:</strong> {best_icd_template_id or 'N/A'}</p>
+                <p><strong>Best CPT Template:</strong> {best_cpt_template_name}</p>
+                <p><strong>Best ICD Template:</strong> {best_icd_template_name}</p>
             </div>
             
             <p style="text-align: center; color: #666; margin-top: 30px;">
