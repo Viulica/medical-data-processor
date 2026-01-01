@@ -211,6 +211,9 @@ def calculate_accuracy(
                 if cpt_match:
                     cpt_matches += 1
                 else:
+                    # Log first 5 CPT mismatches for debugging
+                    if len(error_cases) < 5:
+                        logger.info(f"CPT Mismatch - Account: {account_id}, Predicted: '{predicted_cpt}', Ground Truth: '{gt_cpt}'")
                     pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
                     error_cases.append({
                         'account_id': account_id,
@@ -259,6 +262,10 @@ def calculate_accuracy(
     if calculate_cpt:
         cpt_accuracy = cpt_matches / cpt_total if cpt_total > 0 else 0.0
         logger.info(f"CPT Accuracy: {cpt_accuracy:.2%} ({cpt_matches}/{cpt_total})")
+        logger.info(f"CPT Diagnostics:")
+        logger.info(f"  - CPT total compared: {cpt_total}")
+        logger.info(f"  - CPT matches: {cpt_matches}")
+        logger.info(f"  - CPT mismatches: {cpt_total - cpt_matches}")
     else:
         cpt_accuracy = None
         logger.info("CPT Accuracy: Not calculated (CPT predictions not present)")
@@ -317,6 +324,11 @@ def get_error_cases(
     
     # Select diverse errors (one from each pattern, up to limit)
     selected_errors = []
+    
+    # If limit is None, return all errors
+    if limit is None:
+        return filtered_errors
+    
     for pattern_errors in error_patterns.values():
         if len(selected_errors) >= limit:
             break

@@ -22,7 +22,7 @@ from db_utils import (
     create_prediction_instruction
 )
 from accuracy_utils import calculate_accuracy, get_error_cases
-from instruction_refinement import refine_cpt_instructions, refine_icd_instructions
+from instruction_refinement import refine_cpt_instructions, refine_icd_instructions, refine_instructions_focused_mode
 from email_utils import send_iteration_report, send_completion_report
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,8 @@ def run_refinement_job(
     target_icd_accuracy: float,
     max_iterations: int,
     notification_email: str,
-    refinement_guidance: Optional[str] = None
+    refinement_guidance: Optional[str] = None,
+    refinement_mode: str = "batch"  # "batch" or "focused"
 ):
     """
     Main refinement job orchestrator.
@@ -302,18 +303,75 @@ def run_refinement_job(
                         break
                     
                     # Refine instructions using Gemini
-                    logger.info(f"[Refinement {job_id}] Refining CPT instructions with Gemini...")
-                    improved_instructions, reasoning = refine_cpt_instructions(
-                        current_instructions=cpt_instructions,
-                        error_cases=cpt_errors,
-                        pdf_mapping=pdf_mapping,
-                        user_guidance=refinement_guidance
-                    )
-                    
-                    if not improved_instructions:
-                        logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions: {reasoning}")
-                        update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
-                        return
+                    if refinement_mode == "focused":
+                        # FOCUSED MODE: Process one error at a time
+                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in FOCUSED MODE (one error at a time)...")
+                        
+                        # Get ALL error cases (not just 10) for focused mode
+                        all_cpt_errors = get_error_cases(
+                            predictions_path=results_csv_path,
+                            ground_truth_path=ground_truth_path,
+                            error_type='cpt',
+                            pdf_mapping=pdf_mapping,
+                            limit=None  # Get all errors
+                        )
+                        
+                        logger.info(f"[Refinement {job_id}] Processing {len(all_cpt_errors)} CPT errors one by one...")
+                        
+                        # Start with current instructions
+                        working_instructions = cpt_instructions
+                        all_reasonings = []
+                        rule_type_counts = {"general": 0, "hardcoded": 0}
+                        
+                        # Process each error one at a time
+                        for error_idx, error_case in enumerate(all_cpt_errors, 1):
+                            account_id = error_case.get('account_id', 'N/A')
+                            pdf_path = pdf_mapping.get(account_id, error_case.get('pdf_path', ''))
+                            
+                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_cpt_errors)}: Predicted '{error_case.get('predicted', 'N/A')}' -> Expected '{error_case.get('expected', 'N/A')}'")
+                            
+                            # Refine with this single error
+                            improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
+                                current_instructions=working_instructions,
+                                single_error_case=error_case,
+                                pdf_path=pdf_path,
+                                instruction_type="cpt",
+                                user_guidance=refinement_guidance
+                            )
+                            
+                            if not improved_instructions:
+                                logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}: {reasoning}")
+                                continue
+                            
+                            # Update working instructions for next iteration
+                            working_instructions = improved_instructions
+                            all_reasonings.append(f"Error {error_idx} (Account {account_id}): {reasoning}")
+                            
+                            if rule_type:
+                                rule_type_counts[rule_type] = rule_type_counts.get(rule_type, 0) + 1
+                        
+                        # Final improved instructions after processing all errors
+                        improved_instructions = working_instructions
+                        reasoning = f"Processed {len(all_cpt_errors)} errors. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
+                        
+                        if not improved_instructions:
+                            logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions in focused mode")
+                            update_refinement_job(job_id, status="failed", error_message="Instruction refinement failed in focused mode")
+                            return
+                    else:
+                        # BATCH MODE: Process all errors at once (original behavior)
+                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in BATCH MODE...")
+                        improved_instructions, reasoning = refine_cpt_instructions(
+                            current_instructions=cpt_instructions,
+                            error_cases=cpt_errors,
+                            pdf_mapping=pdf_mapping,
+                            user_guidance=refinement_guidance
+                        )
+                        
+                        if not improved_instructions:
+                            logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions: {reasoning}")
+                            update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
+                            return
                     
                     # Create new template version with naming pattern: base_name (iteration)
                     # Extract base name (remove any existing iteration suffix like " (1)", " (2)", etc.)
@@ -557,18 +615,75 @@ def run_refinement_job(
                         break
                     
                     # Refine instructions using Gemini
-                    logger.info(f"[Refinement {job_id}] Refining ICD instructions with Gemini...")
-                    improved_instructions, reasoning = refine_icd_instructions(
-                        current_instructions=icd_instructions,
-                        error_cases=icd_errors,
-                        pdf_mapping=pdf_mapping,
-                        user_guidance=refinement_guidance
-                    )
-                    
-                    if not improved_instructions:
-                        logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions: {reasoning}")
-                        update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
-                        return
+                    if refinement_mode == "focused":
+                        # FOCUSED MODE: Process one error at a time
+                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in FOCUSED MODE (one error at a time)...")
+                        
+                        # Get ALL error cases (not just 10) for focused mode
+                        all_icd_errors = get_error_cases(
+                            predictions_path=results_csv_path,
+                            ground_truth_path=ground_truth_path,
+                            error_type='icd1',
+                            pdf_mapping=pdf_mapping,
+                            limit=None  # Get all errors
+                        )
+                        
+                        logger.info(f"[Refinement {job_id}] Processing {len(all_icd_errors)} ICD errors one by one...")
+                        
+                        # Start with current instructions
+                        working_instructions = icd_instructions
+                        all_reasonings = []
+                        rule_type_counts = {"general": 0, "hardcoded": 0}
+                        
+                        # Process each error one at a time
+                        for error_idx, error_case in enumerate(all_icd_errors, 1):
+                            account_id = error_case.get('account_id', 'N/A')
+                            pdf_path = pdf_mapping.get(account_id, error_case.get('pdf_path', ''))
+                            
+                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_icd_errors)}: Predicted '{error_case.get('predicted', 'N/A')}' -> Expected '{error_case.get('expected', 'N/A')}'")
+                            
+                            # Refine with this single error
+                            improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
+                                current_instructions=working_instructions,
+                                single_error_case=error_case,
+                                pdf_path=pdf_path,
+                                instruction_type="icd",
+                                user_guidance=refinement_guidance
+                            )
+                            
+                            if not improved_instructions:
+                                logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}: {reasoning}")
+                                continue
+                            
+                            # Update working instructions for next iteration
+                            working_instructions = improved_instructions
+                            all_reasonings.append(f"Error {error_idx} (Account {account_id}): {reasoning}")
+                            
+                            if rule_type:
+                                rule_type_counts[rule_type] = rule_type_counts.get(rule_type, 0) + 1
+                        
+                        # Final improved instructions after processing all errors
+                        improved_instructions = working_instructions
+                        reasoning = f"Processed {len(all_icd_errors)} errors. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
+                        
+                        if not improved_instructions:
+                            logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions in focused mode")
+                            update_refinement_job(job_id, status="failed", error_message="Instruction refinement failed in focused mode")
+                            return
+                    else:
+                        # BATCH MODE: Process all errors at once (original behavior)
+                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in BATCH MODE...")
+                        improved_instructions, reasoning = refine_icd_instructions(
+                            current_instructions=icd_instructions,
+                            error_cases=icd_errors,
+                            pdf_mapping=pdf_mapping,
+                            user_guidance=refinement_guidance
+                        )
+                        
+                        if not improved_instructions:
+                            logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions: {reasoning}")
+                            update_refinement_job(job_id, status="failed", error_message=f"Instruction refinement failed: {reasoning}")
+                            return
                     
                     # Create new template version with naming pattern: base_name (iteration)
                     # Extract base name (remove any existing iteration suffix like " (1)", " (2)", etc.)

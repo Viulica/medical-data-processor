@@ -3662,15 +3662,15 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.message = "Finding required columns..."
         job.progress = 20
         
-        # Find AccountId column in predictions (case-insensitive) - try multiple variations
+        # Find AccountId column in predictions (case-insensitive) - prioritize "Account #" format
         account_id_col_pred = None
         for col in predictions_df.columns:
             col_upper = col.upper().strip()
-            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
+            if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
                 account_id_col_pred = col
                 break
         
-        # Find Cpt column in predictions (case-insensitive) - accepts "CPT" or "ASA Code"
+        # Find Cpt column in predictions (case-insensitive) - accepts "CPT", "Cpt", or "ASA Code"
         cpt_col_pred = None
         for col in predictions_df.columns:
             col_upper = col.upper().strip()
@@ -3693,27 +3693,27 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 anesthesia_type_col_pred = col
                 break
         
-        # Find AccountId column in ground truth (case-insensitive) - try multiple variations
+        # Find AccountId column in ground truth (case-insensitive) - prioritize "Account #" format
         account_id_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
-            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #', 'ACCOUNT #']:
+            if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
                 account_id_col_gt = col
                 break
         
-        # Find Cpt column in ground truth (case-insensitive)
+        # Find Cpt column in ground truth (case-insensitive) - supports "CPT" or "Cpt"
         cpt_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
-            if col_upper == 'CPT':
+            if col_upper in ['CPT']:
                 cpt_col_gt = col
                 break
         
-        # Find Icd column in ground truth (case-insensitive) - comma-separated
+        # Find Icd column in ground truth (case-insensitive) - comma-separated, supports "ICD" or "Icd"
         icd_col_gt = None
         for col in ground_truth_df.columns:
             col_upper = col.upper().strip()
-            if col_upper == 'ICD':
+            if col_upper in ['ICD']:
                 icd_col_gt = col
                 break
         
@@ -4622,10 +4622,11 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         # Create case overview DataFrame
         case_overview_df = pd.DataFrame(case_overview_data)
         
-        # Calculate accuracy metrics
-        total_comparable = cpt_matches + cpt_mismatches
-        cpt_accuracy = (cpt_matches / total_comparable * 100) if total_comparable > 0 else 0
-        icd_accuracy = (icd_matches / total_comparable * 100) if total_comparable > 0 else 0
+        # Calculate accuracy metrics (use separate denominators for CPT and ICD like AI refinement)
+        cpt_total = cpt_matches + cpt_mismatches
+        cpt_accuracy = (cpt_matches / cpt_total * 100) if cpt_total > 0 else 0
+        icd_total = icd_matches + icd_mismatches
+        icd_accuracy = (icd_matches / icd_total * 100) if icd_total > 0 else 0
         
         # Calculate ICD1 mismatch analysis metrics
         icd1_mismatch_percentage_found_in_other_slots = 0
@@ -4634,9 +4635,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         
         # Calculate theoretical ICD accuracy if "found in other slots" were counted as correct
         theoretical_icd_matches = icd_matches + icd1_mismatch_but_found_in_other_slots
-        theoretical_icd_accuracy = (theoretical_icd_matches / total_comparable * 100) if total_comparable > 0 else 0
+        theoretical_icd_accuracy = (theoretical_icd_matches / icd_total * 100) if icd_total > 0 else 0
         
         overall_matches = sum(1 for entry in comparison_data if entry.get('Overall Match') == 'Yes' and entry.get('Status') != 'Account Not Found')
+        total_comparable = cpt_total  # Use CPT total for overall
         overall_accuracy = (overall_matches / total_comparable * 100) if total_comparable > 0 else 0
         
         # Create summary sheet with more detailed metrics
@@ -7617,7 +7619,8 @@ async def process_unified_with_refinement(
     target_icd_accuracy: float = Form(default=0.95),
     max_iterations: int = Form(default=10),
     notification_email: str = Form(default="cvetkovskileon@gmail.com"),
-    refinement_guidance: Optional[str] = Form(default=None)
+    refinement_guidance: Optional[str] = Form(default=None),
+    refinement_mode: str = Form(default="batch")  # "batch" or "focused"
 ):
     """
     Unified processing with AI-powered iterative instruction refinement.
@@ -7754,10 +7757,11 @@ async def process_unified_with_refinement(
             target_icd_accuracy=target_icd_accuracy,
             max_iterations=max_iterations,
             notification_email=notification_email,
-            refinement_guidance=refinement_guidance
+            refinement_guidance=refinement_guidance,
+            refinement_mode=refinement_mode
         )
         
-        logger.info(f"Background refinement task started for job {job_id}")
+        logger.info(f"Background refinement task started for job {job_id} (mode: {refinement_mode})")
         
         return {"job_id": job_id, "message": "AI refinement started"}
         
