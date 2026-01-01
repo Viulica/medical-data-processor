@@ -144,8 +144,9 @@ def calculate_accuracy(
     ground_truth_df = read_dataframe(ground_truth_path)
     
     # Find columns
-    account_id_col_pred = find_column(predictions_df, ['AccountId', 'Account ID', 'Account', 'ID'])
-    cpt_col_pred = find_column(predictions_df, ['CPT', 'ASA Code'])
+    # Account ID: prioritize "Account #" format (matches "gos demo.csv" format)
+    account_id_col_pred = find_column(predictions_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID', 'Acc. #', 'ACC #', 'ACCOUNT #'])
+    cpt_col_pred = find_column(predictions_df, ['CPT', 'Cpt', 'ASA Code'])
     
     icd_cols_pred = {}
     for col in predictions_df.columns:
@@ -153,13 +154,16 @@ def calculate_accuracy(
         if col_upper in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
             icd_cols_pred[col_upper] = col
     
-    account_id_col_gt = find_column(ground_truth_df, ['AccountId', 'Account ID', 'Account', 'ID', 'Acc. #', 'ACC #', 'ACCOUNT #'])
-    cpt_col_gt = find_column(ground_truth_df, ['CPT'])
-    icd_col_gt = find_column(ground_truth_df, ['ICD'])
+    # Ground truth: prioritize "Account #" format (matches "gos demo.csv" format)
+    account_id_col_gt = find_column(ground_truth_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID', 'Acc. #', 'ACC #', 'ACCOUNT #'])
+    # CPT: support both "CPT" and "Cpt" (case-insensitive matching handles this)
+    cpt_col_gt = find_column(ground_truth_df, ['CPT', 'Cpt'])
+    # ICD: support both "ICD" and "Icd" (case-insensitive matching handles this)
+    icd_col_gt = find_column(ground_truth_df, ['ICD', 'Icd'])
     
     # Validate required columns
     if account_id_col_pred is None:
-        raise Exception("Predictions file must have an 'AccountId' or 'Account ID' column")
+        raise Exception("Predictions file must have an 'AccountId', 'Account ID', or 'Account #' column")
     if account_id_col_gt is None:
         raise Exception("Ground truth file must have an 'AccountId', 'Account ID', or 'Account #' column")
     

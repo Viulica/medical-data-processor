@@ -206,12 +206,13 @@ def run_refinement_job(
                         results_df = pd.read_csv(results_csv_path, dtype=str)
                         
                         # Find account ID and source file columns
+                        # Support "Account #" format (matches "gos demo.csv" format)
                         account_id_col = None
                         source_file_col = None
                         
                         for col in results_df.columns:
                             col_upper = col.upper().strip()
-                            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
+                            if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
                                 account_id_col = col
                             elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
                                 source_file_col = col
@@ -462,7 +463,7 @@ def run_refinement_job(
                             
                             for col in results_df.columns:
                                 col_upper = col.upper().strip()
-                                if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID']:
+                                if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
                                     account_id_col = col
                                 elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
                                     source_file_col = col
