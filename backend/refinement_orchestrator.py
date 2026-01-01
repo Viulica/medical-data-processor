@@ -22,10 +22,140 @@ from db_utils import (
     create_prediction_instruction
 )
 from accuracy_utils import calculate_accuracy, get_error_cases
-from instruction_refinement import refine_cpt_instructions, refine_icd_instructions, refine_instructions_focused_mode
+from instruction_refinement import refine_cpt_instructions, refine_icd_instructions, refine_instructions_focused_mode, preload_pdf_images, clear_pdf_image_cache
 from email_utils import send_iteration_report, send_completion_report
 
 logger = logging.getLogger(__name__)
+
+
+def run_cpt_prediction_only(
+    job_id: str,
+    extraction_csv_path: str,
+    pdf_folder: str,
+    cpt_instructions: str,
+    cpt_vision_mode: bool,
+    cpt_client: str,
+    cpt_vision_pages: int,
+    cpt_vision_model: str,
+    cpt_include_code_list: bool,
+    cpt_max_workers: int,
+    temp_dir: Path
+) -> str:
+    """
+    Run only CPT prediction (no extraction) using extraction CSV or PDFs.
+    Returns path to results CSV.
+    """
+    import sys
+    import os
+    
+    if cpt_vision_mode:
+        # Vision mode: predict from PDFs
+        logger.info(f"[Refinement {job_id}] Running CPT vision prediction...")
+        general_coding_path = Path(__file__).parent / "general-coding"
+        sys.path.insert(0, str(general_coding_path))
+        from predict_general import predict_codes_from_pdfs_api, is_gemini_model
+        
+        using_gemini = is_gemini_model(cpt_vision_model)
+        api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else os.getenv("OPENROUTER_API_KEY")
+        
+        cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
+        success = predict_codes_from_pdfs_api(
+            pdf_folder=pdf_folder,
+            output_file=cpt_csv_path,
+            n_pages=cpt_vision_pages,
+            model=cpt_vision_model,
+            api_key=api_key,
+            max_workers=cpt_max_workers,
+            progress_callback=None,
+            custom_instructions=cpt_instructions,
+            include_code_list=cpt_include_code_list
+        )
+        
+        if not success or not os.path.exists(cpt_csv_path):
+            raise Exception("CPT vision prediction failed")
+        
+        return cpt_csv_path
+    else:
+        # Non-vision mode: predict from extraction CSV
+        logger.info(f"[Refinement {job_id}] Running CPT CSV-based prediction...")
+        
+        if cpt_client == "general":
+            general_coding_path = Path(__file__).parent / "general-coding"
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_codes_general_api
+            
+            cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
+            api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+            
+            success = predict_codes_general_api(
+                input_file=extraction_csv_path,
+                output_file=cpt_csv_path,
+                model="gpt5",
+                api_key=api_key,
+                max_workers=cpt_max_workers,
+                progress_callback=None,
+                custom_instructions=cpt_instructions
+            )
+        else:
+            # Custom model (tan-esc, uni, etc.)
+            custom_coding_path = Path(__file__).parent / "custom-coding"
+            sys.path.insert(0, str(custom_coding_path))
+            from predict import predict_codes_api
+            
+            cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
+            success = predict_codes_api(
+                input_file=extraction_csv_path,
+                output_file=cpt_csv_path,
+                model_dir=str(custom_coding_path),
+                confidence_threshold=0.5
+            )
+        
+        if not success or not os.path.exists(cpt_csv_path):
+            raise Exception("CPT CSV prediction failed")
+        
+        return cpt_csv_path
+
+
+def run_icd_prediction_only(
+    job_id: str,
+    pdf_folder: str,
+    icd_instructions: str,
+    icd_n_pages: int,
+    icd_vision_model: str,
+    icd_max_workers: int,
+    temp_dir: Path
+) -> str:
+    """
+    Run only ICD prediction (no extraction) using PDFs.
+    Returns path to results CSV.
+    """
+    import sys
+    import os
+    
+    logger.info(f"[Refinement {job_id}] Running ICD prediction...")
+    general_coding_path = Path(__file__).parent / "general-coding"
+    sys.path.insert(0, str(general_coding_path))
+    from predict_general import predict_icd_codes_from_pdfs_api, is_gemini_model
+    
+    using_gemini = is_gemini_model(icd_vision_model)
+    api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else (os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
+    
+    icd_csv_path = str(temp_dir / "icd_predictions.csv")
+    success = predict_icd_codes_from_pdfs_api(
+        pdf_folder=pdf_folder,
+        output_file=icd_csv_path,
+        n_pages=icd_n_pages,
+        model=icd_vision_model,
+        api_key=api_key,
+        max_workers=icd_max_workers,
+        progress_callback=None,
+        custom_instructions=icd_instructions
+    )
+    
+    if not success or not os.path.exists(icd_csv_path):
+        raise Exception("ICD prediction failed")
+    
+    return icd_csv_path
 
 
 def run_refinement_job(
@@ -127,6 +257,103 @@ def run_refinement_job(
         best_cpt_accuracy = 0.0
         best_icd1_accuracy = 0.0
         
+        # ==================== STEP 0: Run extraction ONCE and cache PDF images ====================
+        extraction_csv_path = None
+        pdf_image_cache = {}  # account_id -> list of base64 images
+        
+        if enable_extraction:
+            logger.info(f"[Refinement {job_id}] Running extraction once at the start...")
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent))
+            from main import ProcessingJob, job_status, process_unified_background
+            
+            extraction_job_id = f"{job_id}_extraction"
+            extraction_zip_path = f"/tmp/{extraction_job_id}_input.zip"
+            shutil.copy2(zip_path, extraction_zip_path)
+            
+            extraction_job = ProcessingJob(extraction_job_id)
+            job_status[extraction_job_id] = extraction_job
+            
+            # Run only extraction (no CPT/ICD)
+            process_unified_background(
+                job_id=extraction_job_id,
+                zip_path=extraction_zip_path,
+                excel_path=excel_path,
+                excel_filename=excel_filename,
+                enable_extraction=True,
+                extraction_n_pages=extraction_n_pages,
+                extraction_model=extraction_model,
+                extraction_max_workers=extraction_max_workers,
+                worktracker_group=worktracker_group,
+                worktracker_batch=worktracker_batch,
+                extract_csn=extract_csn,
+                enable_cpt=False,
+                cpt_vision_mode=False,
+                cpt_client=cpt_client,
+                cpt_vision_pages=cpt_vision_pages,
+                cpt_vision_model=cpt_vision_model,
+                cpt_include_code_list=cpt_include_code_list,
+                cpt_max_workers=cpt_max_workers,
+                cpt_custom_instructions="",
+                cpt_instruction_template_id=None,
+                enable_icd=False,
+                icd_n_pages=icd_n_pages,
+                icd_vision_model=icd_vision_model,
+                icd_max_workers=icd_max_workers,
+                icd_custom_instructions="",
+                icd_instruction_template_id=None
+            )
+            
+            # Wait for extraction to complete
+            import time
+            while extraction_job.status == "processing":
+                time.sleep(2)
+            
+            if extraction_job.status == "failed":
+                raise Exception(f"Extraction failed: {extraction_job.error}")
+            
+            extraction_csv_path = extraction_job.result_file
+            if not extraction_csv_path or not os.path.exists(extraction_csv_path):
+                raise Exception("Extraction CSV not found")
+            
+            logger.info(f"[Refinement {job_id}] Extraction completed: {extraction_csv_path}")
+            
+            # Build PDF mapping from extraction CSV
+            logger.info(f"[Refinement {job_id}] Building PDF mapping from extraction results CSV")
+            import pandas as pd
+            try:
+                results_df = pd.read_csv(extraction_csv_path, dtype=str)
+                
+                account_id_col = None
+                source_file_col = None
+                
+                for col in results_df.columns:
+                    col_upper = col.upper().strip()
+                    if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+                        account_id_col = col
+                    elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
+                        source_file_col = col
+                
+                if account_id_col and source_file_col:
+                    for idx, row in results_df.iterrows():
+                        account_id = str(row[account_id_col]).strip()
+                        source_file = str(row[source_file_col]).strip()
+                        
+                        pdf_path = pdf_folder / source_file
+                        if pdf_path.exists():
+                            pdf_mapping[account_id] = str(pdf_path)
+                    
+                    logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs")
+                else:
+                    logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns")
+            except Exception as e:
+                logger.error(f"[Refinement {job_id}] Error building PDF mapping: {e}")
+            
+            # Pre-load PDF images into cache
+            logger.info(f"[Refinement {job_id}] Pre-loading PDF images into cache...")
+            pdf_image_cache = preload_pdf_images(pdf_mapping, max_pages=None)
+            logger.info(f"[Refinement {job_id}] Cached images for {len(pdf_image_cache)} PDFs")
+        
         # ==================== PHASE 1: CPT REFINEMENT ====================
         if enable_cpt:
             logger.info(f"[Refinement {job_id}] Starting CPT refinement phase")
@@ -143,100 +370,116 @@ def run_refinement_job(
             current_cpt_template = get_prediction_instruction(instruction_id=current_cpt_template_id)
             cpt_instructions = current_cpt_template['instructions_text']
             
-            # Run unified processing with current instructions
-            iteration_job_id = f"{job_id}_cpt_iter_{cpt_iteration}"
-            iteration_zip_path = f"/tmp/{iteration_job_id}_input.zip"
-            shutil.copy2(zip_path, iteration_zip_path)
-            
-            # Create a temporary job status for this iteration
-            import sys
-            sys.path.insert(0, str(Path(__file__).parent))
-            from main import ProcessingJob, job_status, process_unified_background
-            iteration_job = ProcessingJob(iteration_job_id)
-            job_status[iteration_job_id] = iteration_job
-            
-            logger.info(f"[Refinement {job_id}] Running unified processing for CPT iteration {cpt_iteration}")
+            # Run ONLY CPT prediction (reuse extraction CSV and cached PDFs)
+            logger.info(f"[Refinement {job_id}] Running CPT prediction only (iteration {cpt_iteration})...")
             
             try:
-                process_unified_background(
-                    job_id=iteration_job_id,
-                    zip_path=iteration_zip_path,
-                    excel_path=excel_path,
-                    excel_filename=excel_filename,
-                    enable_extraction=enable_extraction,
-                    extraction_n_pages=extraction_n_pages,
-                    extraction_model=extraction_model,
-                    extraction_max_workers=extraction_max_workers,
-                    worktracker_group=worktracker_group,
-                    worktracker_batch=worktracker_batch,
-                    extract_csn=extract_csn,
-                    enable_cpt=True,
+                if not extraction_csv_path:
+                    raise Exception("Extraction CSV not available - extraction must run first")
+                
+                # Run CPT prediction only
+                cpt_csv_path = run_cpt_prediction_only(
+                    job_id=job_id,
+                    extraction_csv_path=extraction_csv_path,
+                    pdf_folder=str(pdf_folder),
+                    cpt_instructions=cpt_instructions,
                     cpt_vision_mode=cpt_vision_mode,
                     cpt_client=cpt_client,
                     cpt_vision_pages=cpt_vision_pages,
                     cpt_vision_model=cpt_vision_model,
                     cpt_include_code_list=cpt_include_code_list,
                     cpt_max_workers=cpt_max_workers,
-                    cpt_custom_instructions=cpt_instructions,
-                    cpt_instruction_template_id=current_cpt_template_id,
-                    enable_icd=False,  # Disable ICD for CPT phase
-                    icd_n_pages=icd_n_pages,
-                    icd_vision_model=icd_vision_model,
-                    icd_max_workers=icd_max_workers,
-                    icd_custom_instructions="",
-                    icd_instruction_template_id=None
+                    temp_dir=temp_dir
                 )
                 
-                # Wait for job to complete
-                import time
-                while iteration_job.status == "processing":
-                    time.sleep(2)
+                # Merge CPT predictions with extraction CSV to create final results
+                import pandas as pd
+                extraction_df = pd.read_csv(extraction_csv_path, dtype=str)
+                cpt_df = pd.read_csv(cpt_csv_path, dtype=str)
                 
-                if iteration_job.status == "failed":
-                    raise Exception(f"Unified processing failed: {iteration_job.error}")
+                # Handle merging based on vision mode vs CSV mode
+                if cpt_vision_mode:
+                    # Vision mode: CPT CSV has 'Patient Filename', extraction has 'source_file'
+                    # Match by filename (same logic as unified processing)
+                    filename_col_cpt = None
+                    if 'Patient Filename' in cpt_df.columns:
+                        filename_col_cpt = 'Patient Filename'
+                    elif 'Filename' in cpt_df.columns:
+                        filename_col_cpt = 'Filename'
+                    
+                    source_file_col_ext = None
+                    if 'source_file' in extraction_df.columns:
+                        source_file_col_ext = 'source_file'
+                    else:
+                        for col in extraction_df.columns:
+                            if col.upper().strip() in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
+                                source_file_col_ext = col
+                                break
+                    
+                    if filename_col_cpt and source_file_col_ext:
+                        # Extract CPT columns to merge
+                        cpt_cols_to_merge = ['ASA Code', 'Procedure Code', 'Model Source', 'Error Message']
+                        if 'CPT' in cpt_df.columns:
+                            cpt_cols_to_merge.append('CPT')
+                        cpt_cols_available = [col for col in cpt_cols_to_merge if col in cpt_df.columns]
+                        
+                        # Include filename column for merging
+                        merge_cols = [filename_col_cpt] + cpt_cols_available
+                        cpt_df_merge = cpt_df[merge_cols]
+                        
+                        # Rename filename column to match for merge
+                        cpt_df_merge = cpt_df_merge.rename(columns={filename_col_cpt: source_file_col_ext})
+                        
+                        results_df = extraction_df.merge(cpt_df_merge, on=source_file_col_ext, how='left')
+                        logger.info(f"[Refinement {job_id}] Merged CPT vision results with columns: {cpt_cols_available}")
+                    else:
+                        # Fallback: assume same order
+                        logger.warning(f"[Refinement {job_id}] Cannot merge CPT properly, using fallback")
+                        results_df = extraction_df.copy()
+                        if 'ASA Code' in cpt_df.columns:
+                            results_df['ASA Code'] = cpt_df['ASA Code'].values[:len(results_df)]
+                        if 'CPT' in cpt_df.columns:
+                            results_df['CPT'] = cpt_df['CPT'].values[:len(results_df)]
+                else:
+                    # CSV mode: Both have Account ID, merge on that
+                    account_id_col_ext = None
+                    account_id_col_cpt = None
+                    
+                    for col in extraction_df.columns:
+                        if col.upper().strip() in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+                            account_id_col_ext = col
+                            break
+                    
+                    for col in cpt_df.columns:
+                        if col.upper().strip() in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+                            account_id_col_cpt = col
+                            break
+                    
+                    if account_id_col_ext and account_id_col_cpt:
+                        # Merge CPT predictions into extraction CSV
+                        cpt_cols_to_merge = ['CPT', 'ASA Code']
+                        cpt_cols_available = [col for col in cpt_cols_to_merge if col in cpt_df.columns]
+                        
+                        results_df = extraction_df.merge(
+                            cpt_df[[account_id_col_cpt] + cpt_cols_available].rename(columns={account_id_col_cpt: account_id_col_ext}),
+                            on=account_id_col_ext,
+                            how='left'
+                        )
+                    else:
+                        # Fallback: assume same order
+                        results_df = extraction_df.copy()
+                        if 'CPT' in cpt_df.columns:
+                            results_df['CPT'] = cpt_df['CPT'].values[:len(results_df)]
+                        if 'ASA Code' in cpt_df.columns:
+                            results_df['ASA Code'] = cpt_df['ASA Code'].values[:len(results_df)]
                 
-                # Get results CSV path
-                results_csv_path = iteration_job.result_file
-                if not results_csv_path or not os.path.exists(results_csv_path):
-                    raise Exception("Results CSV not found")
-                
-                # Build PDF mapping from results CSV (if not already built)
-                if not pdf_mapping:
-                    logger.info(f"[Refinement {job_id}] Building PDF mapping from extraction results CSV")
-                    import pandas as pd
-                    try:
-                        results_df = pd.read_csv(results_csv_path, dtype=str)
-                        
-                        # Find account ID and source file columns
-                        # Support "Account #" format (matches "gos demo.csv" format)
-                        account_id_col = None
-                        source_file_col = None
-                        
-                        for col in results_df.columns:
-                            col_upper = col.upper().strip()
-                            if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
-                                account_id_col = col
-                            elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
-                                source_file_col = col
-                        
-                        if account_id_col and source_file_col:
-                            for idx, row in results_df.iterrows():
-                                account_id = str(row[account_id_col]).strip()
-                                source_file = str(row[source_file_col]).strip()
-                                
-                                # Build full PDF path
-                                pdf_path = pdf_folder / source_file
-                                if pdf_path.exists():
-                                    pdf_mapping[account_id] = str(pdf_path)
-                            
-                            logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs from extraction CSV")
-                        else:
-                            logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns in results CSV")
-                    except Exception as e:
-                        logger.error(f"[Refinement {job_id}] Error building PDF mapping from CSV: {e}")
+                # Save merged results
+                results_csv_path = str(temp_dir / f"cpt_iter_{cpt_iteration}_results.csv")
+                results_df.to_csv(results_csv_path, index=False)
+                logger.info(f"[Refinement {job_id}] CPT prediction completed: {results_csv_path}")
                 
             except Exception as e:
-                logger.error(f"[Refinement {job_id}] Unified processing failed: {e}")
+                logger.error(f"[Refinement {job_id}] CPT prediction failed: {e}")
                 update_refinement_job(job_id, status="failed", error_message=str(e))
                 return
             
@@ -332,12 +575,14 @@ def run_refinement_job(
                             logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_cpt_errors)}: Predicted '{error_case.get('predicted', 'N/A')}' -> Expected '{error_case.get('expected', 'N/A')}'")
                             
                             # Refine with this single error
+                            cached_images = pdf_image_cache.get(account_id) if pdf_image_cache else None
                             improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
                                 current_instructions=working_instructions,
                                 single_error_case=error_case,
                                 pdf_path=pdf_path,
                                 instruction_type="cpt",
-                                user_guidance=refinement_guidance
+                                user_guidance=refinement_guidance,
+                                cached_images=cached_images
                             )
                             
                             if not improved_instructions:
@@ -392,7 +637,8 @@ def run_refinement_job(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
-                                user_guidance=refinement_guidance
+                                user_guidance=refinement_guidance,
+                                pdf_image_cache=pdf_image_cache
                             )
                             
                             if not improved_instructions:
@@ -481,108 +727,117 @@ def run_refinement_job(
                 current_icd_template = get_prediction_instruction(instruction_id=current_icd_template_id)
                 icd_instructions = current_icd_template['instructions_text']
                 
-                # Run unified processing with best CPT + current ICD
-                iteration_job_id = f"{job_id}_icd_iter_{icd_iteration}"
-                iteration_zip_path = f"/tmp/{iteration_job_id}_input.zip"
-                shutil.copy2(zip_path, iteration_zip_path)
-                
-                # Create a temporary job status for this iteration
-                import sys
-                sys.path.insert(0, str(Path(__file__).parent))
-                from main import ProcessingJob, job_status, process_unified_background
-                iteration_job = ProcessingJob(iteration_job_id)
-                job_status[iteration_job_id] = iteration_job
-                
-                logger.info(f"[Refinement {job_id}] Running unified processing for ICD iteration {icd_iteration}")
+                # Run ONLY ICD prediction (reuse extraction CSV and cached PDFs)
+                logger.info(f"[Refinement {job_id}] Running ICD prediction only (iteration {icd_iteration})...")
                 
                 try:
-                    # Get best CPT instructions if CPT is enabled
-                    best_cpt_instructions = ""
-                    best_cpt_template_id_for_icd = None
-                    if enable_cpt and best_cpt_template_id:
-                        best_cpt_template = get_prediction_instruction(instruction_id=best_cpt_template_id)
-                        if best_cpt_template:
-                            best_cpt_instructions = best_cpt_template['instructions_text']
-                            best_cpt_template_id_for_icd = best_cpt_template_id
+                    if not extraction_csv_path:
+                        raise Exception("Extraction CSV not available - extraction must run first")
                     
-                    process_unified_background(
-                        job_id=iteration_job_id,
-                        zip_path=iteration_zip_path,
-                        excel_path=excel_path,
-                        excel_filename=excel_filename,
-                        enable_extraction=enable_extraction,
-                        extraction_n_pages=extraction_n_pages,
-                        extraction_model=extraction_model,
-                        extraction_max_workers=extraction_max_workers,
-                        worktracker_group=worktracker_group,
-                        worktracker_batch=worktracker_batch,
-                        extract_csn=extract_csn,
-                        enable_cpt=enable_cpt,  # Use enable_cpt flag
-                        cpt_vision_mode=cpt_vision_mode,
-                        cpt_client=cpt_client,
-                        cpt_vision_pages=cpt_vision_pages,
-                        cpt_vision_model=cpt_vision_model,
-                        cpt_include_code_list=cpt_include_code_list,
-                        cpt_max_workers=cpt_max_workers,
-                        cpt_custom_instructions=best_cpt_instructions,
-                        cpt_instruction_template_id=best_cpt_template_id_for_icd,
-                        enable_icd=True,  # Always enable ICD during ICD phase
+                    # Run ICD prediction only
+                    icd_csv_path = run_icd_prediction_only(
+                        job_id=job_id,
+                        pdf_folder=str(pdf_folder),
+                        icd_instructions=icd_instructions,
                         icd_n_pages=icd_n_pages,
                         icd_vision_model=icd_vision_model,
                         icd_max_workers=icd_max_workers,
-                        icd_custom_instructions=icd_instructions,
-                        icd_instruction_template_id=current_icd_template_id
+                        temp_dir=temp_dir
                     )
                     
-                    # Wait for job to complete
-                    import time
-                    while iteration_job.status == "processing":
-                        time.sleep(2)
+                    # Merge ICD predictions with extraction CSV (and best CPT if available)
+                    import pandas as pd
+                    extraction_df = pd.read_csv(extraction_csv_path, dtype=str)
+                    icd_df = pd.read_csv(icd_csv_path, dtype=str)
                     
-                    if iteration_job.status == "failed":
-                        raise Exception(f"Unified processing failed: {iteration_job.error}")
+                    # Start with extraction CSV
+                    results_df = extraction_df.copy()
                     
-                    # Get results CSV path
-                    results_csv_path = iteration_job.result_file
-                    if not results_csv_path or not os.path.exists(results_csv_path):
-                        raise Exception("Results CSV not found")
-                    
-                    # Update PDF mapping from results CSV (if needed for ICD phase)
-                    if not pdf_mapping:
-                        logger.info(f"[Refinement {job_id}] Building PDF mapping from ICD iteration results CSV")
-                        import pandas as pd
-                        try:
-                            results_df = pd.read_csv(results_csv_path, dtype=str)
-                            
-                            # Find account ID and source file columns
-                            account_id_col = None
-                            source_file_col = None
-                            
+                    # Add best CPT predictions if available
+                    if enable_cpt and best_cpt_template_id:
+                        # Get best CPT predictions from previous iteration
+                        best_cpt_csv = str(temp_dir / f"cpt_iter_best_results.csv")
+                        if os.path.exists(best_cpt_csv):
+                            best_cpt_df = pd.read_csv(best_cpt_csv, dtype=str)
+                            # Find account ID columns
+                            account_id_col_ext = None
+                            account_id_col_cpt = None
                             for col in results_df.columns:
-                                col_upper = col.upper().strip()
-                                if col_upper in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
-                                    account_id_col = col
-                                elif col_upper in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
-                                    source_file_col = col
+                                if col.upper().strip() in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+                                    account_id_col_ext = col
+                                    break
+                            for col in best_cpt_df.columns:
+                                if col.upper().strip() in ['ACCOUNT #', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT', 'ID', 'ACC. #', 'ACC #']:
+                                    account_id_col_cpt = col
+                                    break
                             
-                            if account_id_col and source_file_col:
-                                for idx, row in results_df.iterrows():
-                                    account_id = str(row[account_id_col]).strip()
-                                    source_file = str(row[source_file_col]).strip()
-                                    
-                                    # Build full PDF path
-                                    pdf_path = pdf_folder / source_file
-                                    if pdf_path.exists():
-                                        pdf_mapping[account_id] = str(pdf_path)
-                                
-                                logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs from ICD iteration CSV")
-                            else:
-                                logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns in ICD results CSV")
-                        except Exception as e:
-                            logger.error(f"[Refinement {job_id}] Error building PDF mapping from ICD CSV: {e}")
+                            if account_id_col_ext and account_id_col_cpt:
+                                cpt_cols = ['CPT', 'ASA Code'] if 'CPT' in best_cpt_df.columns else []
+                                if cpt_cols:
+                                    results_df = results_df.merge(
+                                        best_cpt_df[[account_id_col_cpt] + cpt_cols].rename(columns={account_id_col_cpt: account_id_col_ext}),
+                                        on=account_id_col_ext,
+                                        how='left'
+                                    )
+                    
+                    # Merge ICD predictions (ICD uses 'Patient Filename', same logic as unified processing)
+                    filename_col_icd = None
+                    if 'Patient Filename' in icd_df.columns:
+                        filename_col_icd = 'Patient Filename'
+                    elif 'Filename' in icd_df.columns:
+                        filename_col_icd = 'Filename'
+                    
+                    source_file_col_ext = None
+                    if 'source_file' in results_df.columns:
+                        source_file_col_ext = 'source_file'
+                    else:
+                        for col in results_df.columns:
+                            if col.upper().strip() in ['SOURCE_FILE', 'SOURCE FILE', 'PATIENT FILENAME', 'FILENAME']:
+                                source_file_col_ext = col
+                                break
+                    
+                    # Remove existing ICD columns before merging
+                    icd_columns_to_remove = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
+                    existing_icd_cols = [col for col in icd_columns_to_remove if col in results_df.columns]
+                    if existing_icd_cols:
+                        results_df = results_df.drop(columns=existing_icd_cols, errors='ignore')
+                    
+                    # Extract ICD columns to merge
+                    icd_cols_to_merge = ['ICD1', 'ICD2', 'ICD3', 'ICD4', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+                    icd_cols_available = [col for col in icd_cols_to_merge if col in icd_df.columns]
+                    
+                    if filename_col_icd and source_file_col_ext:
+                        # Merge on source_file (same logic as unified processing)
+                        merge_cols = [filename_col_icd] + icd_cols_available
+                        icd_df_merge = icd_df[merge_cols]
+                        # Rename filename column to match for merge
+                        icd_df_merge = icd_df_merge.rename(columns={filename_col_icd: source_file_col_ext})
+                        results_df = results_df.merge(icd_df_merge, on=source_file_col_ext, how='left', suffixes=('', '_drop'))
+                        # Drop any columns with _drop suffix
+                        results_df = results_df.drop(columns=[col for col in results_df.columns if col.endswith('_drop')], errors='ignore')
+                        logger.info(f"[Refinement {job_id}] Merged ICD results with columns: {icd_cols_available}")
+                    elif filename_col_icd and filename_col_icd in results_df.columns:
+                        # Both have Filename column
+                        merge_cols = [filename_col_icd] + icd_cols_available
+                        icd_df_merge = icd_df[merge_cols]
+                        results_df = results_df.merge(icd_df_merge, on=filename_col_icd, how='left', suffixes=('', '_drop'))
+                        results_df = results_df.drop(columns=[col for col in results_df.columns if col.endswith('_drop')], errors='ignore')
+                        logger.info(f"[Refinement {job_id}] Merged ICD results on {filename_col_icd}")
+                    else:
+                        # Fallback: assume same order
+                        logger.warning(f"[Refinement {job_id}] Cannot merge ICD properly, using fallback")
+                        icd_cols = [col for col in icd_df.columns if col.startswith('ICD')]
+                        for col in icd_cols:
+                            if col in icd_df.columns:
+                                results_df[col] = icd_df[col].values[:len(results_df)]
+                    
+                    # Save merged results
+                    results_csv_path = str(temp_dir / f"icd_iter_{icd_iteration}_results.csv")
+                    results_df.to_csv(results_csv_path, index=False)
+                    logger.info(f"[Refinement {job_id}] ICD prediction completed: {results_csv_path}")
                     
                 except Exception as e:
-                    logger.error(f"[Refinement {job_id}] Unified processing failed: {e}")
+                    logger.error(f"[Refinement {job_id}] ICD prediction failed: {e}")
                     update_refinement_job(job_id, status="failed", error_message=str(e))
                     return
                 
@@ -742,7 +997,8 @@ def run_refinement_job(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
-                                user_guidance=refinement_guidance
+                                user_guidance=refinement_guidance,
+                                pdf_image_cache=pdf_image_cache
                             )
                             
                             if not improved_instructions:
@@ -820,6 +1076,7 @@ def run_refinement_job(
         )
         
         # Cleanup
+        clear_pdf_image_cache()  # Free memory
         shutil.rmtree(temp_dir, ignore_errors=True)
         
     except Exception as e:

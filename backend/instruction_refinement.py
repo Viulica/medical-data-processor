@@ -38,17 +38,28 @@ def normalize_gemini_model(model_name: str) -> str:
     return clean_model
 
 
-def load_pdf_as_images(pdf_path: str, max_pages: Optional[int] = None) -> List[str]:
+# Global PDF image cache
+_pdf_image_cache: Dict[str, List[str]] = {}
+
+def load_pdf_as_images(pdf_path: str, max_pages: Optional[int] = None, use_cache: bool = True) -> List[str]:
     """
     Load PDF pages as base64-encoded PNG images.
+    Uses caching to avoid reloading the same PDF multiple times.
     
     Args:
         pdf_path: Path to PDF file
         max_pages: Maximum number of pages to load (None = all pages)
+        use_cache: Whether to use cached images if available
     
     Returns:
         List of base64-encoded image strings
     """
+    # Check cache first
+    cache_key = f"{pdf_path}:{max_pages}"
+    if use_cache and cache_key in _pdf_image_cache:
+        logger.debug(f"Using cached images for {Path(pdf_path).name}")
+        return _pdf_image_cache[cache_key]
+    
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(pdf_path)
@@ -65,10 +76,46 @@ def load_pdf_as_images(pdf_path: str, max_pages: Optional[int] = None) -> List[s
             images.append(img_base64)
         
         doc.close()
+        
+        # Cache the result
+        if use_cache:
+            _pdf_image_cache[cache_key] = images
+        
         return images
     except Exception as e:
         logger.error(f"Failed to load PDF as images: {e}")
         return []
+
+
+def preload_pdf_images(pdf_mapping: Dict[str, str], max_pages: Optional[int] = None) -> Dict[str, List[str]]:
+    """
+    Pre-load all PDF images into cache for faster access during refinement.
+    
+    Args:
+        pdf_mapping: Dictionary mapping account_id to PDF file path
+        max_pages: Maximum number of pages to load per PDF (None = all pages)
+    
+    Returns:
+        Dictionary mapping account_id to list of base64-encoded images
+    """
+    logger.info(f"Pre-loading PDF images for {len(pdf_mapping)} PDFs...")
+    cached_images = {}
+    
+    for account_id, pdf_path in pdf_mapping.items():
+        if pdf_path and os.path.exists(pdf_path):
+            images = load_pdf_as_images(pdf_path, max_pages=max_pages, use_cache=True)
+            cached_images[account_id] = images
+            logger.debug(f"Pre-loaded {len(images)} pages from {Path(pdf_path).name}")
+    
+    logger.info(f"Pre-loaded images for {len(cached_images)} PDFs")
+    return cached_images
+
+
+def clear_pdf_image_cache():
+    """Clear the PDF image cache to free memory."""
+    global _pdf_image_cache
+    _pdf_image_cache.clear()
+    logger.info("PDF image cache cleared")
 
 
 def refine_cpt_instructions(
@@ -77,7 +124,8 @@ def refine_cpt_instructions(
     pdf_mapping: Dict[str, str],
     model: str = "gemini-3-flash-preview",
     api_key: Optional[str] = None,
-    user_guidance: Optional[str] = None
+    user_guidance: Optional[str] = None,
+    pdf_image_cache: Optional[Dict[str, List[str]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine CPT instructions based on error cases.
@@ -173,13 +221,24 @@ Respond with ONLY the JSON object, nothing else."""
         error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
         parts.append(types.Part.from_text(text=error_text))
         
-        # Load and add PDF images for this specific error immediately after
+        # Load and add PDF images for this specific error immediately after (use cache if available)
         account_id = error.get('account_id', 'N/A')
         pdf_path = pdf_mapping.get(account_id, error.get('pdf_path', ''))
-        if pdf_path and os.path.exists(pdf_path):
-            images = load_pdf_as_images(pdf_path, max_pages=None)  # Load all pages
-            logger.info(f"Adding {len(images)} pages from PDF: {Path(pdf_path).name} for error {idx + 1}")
-            
+        
+        # Try to get images from cache first
+        images = None
+        if pdf_image_cache and account_id in pdf_image_cache:
+            images = pdf_image_cache[account_id]
+            logger.debug(f"Using cached images for {Path(pdf_path).name} (error {idx + 1})")
+        
+        if not images and pdf_path and os.path.exists(pdf_path):
+            images = load_pdf_as_images(pdf_path, max_pages=None, use_cache=True)  # Load all pages, cache for next time
+            logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name} for error {idx + 1}")
+            # Add to cache for next time
+            if pdf_image_cache is not None:
+                pdf_image_cache[account_id] = images
+        
+        if images:
             for img_data in images:
                 try:
                     img_bytes = base64.b64decode(img_data)
@@ -332,10 +391,13 @@ def refine_instructions_focused_mode(
     except Exception as e:
         return None, f"Failed to initialize Google GenAI client: {str(e)}", None
     
-    # Load ONLY this PDF (all pages for context)
+    # Load ONLY this PDF (all pages for context) - use cache if available
     pdf_images = []
-    if pdf_path and os.path.exists(pdf_path):
-        images = load_pdf_as_images(pdf_path, max_pages=None)  # Load all pages
+    if cached_images:
+        pdf_images = cached_images
+        logger.debug(f"Using cached images for {Path(pdf_path).name} ({len(cached_images)} pages)")
+    elif pdf_path and os.path.exists(pdf_path):
+        images = load_pdf_as_images(pdf_path, max_pages=None, use_cache=True)  # Load all pages, cache for next time
         pdf_images.extend(images)
         logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name}")
     else:
@@ -648,13 +710,24 @@ CRITICAL FOCUS - ICD1 IS PRIMARY:
         error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
         parts.append(types.Part.from_text(text=error_text))
         
-        # Load and add PDF images for this specific error immediately after
+        # Load and add PDF images for this specific error immediately after (use cache if available)
         account_id = error.get('account_id', 'N/A')
         pdf_path = pdf_mapping.get(account_id, error.get('pdf_path', ''))
-        if pdf_path and os.path.exists(pdf_path):
-            images = load_pdf_as_images(pdf_path, max_pages=None)  # Load all pages
-            logger.info(f"Adding {len(images)} pages from PDF: {Path(pdf_path).name} for error {idx + 1}")
-            
+        
+        # Try to get images from cache first
+        images = None
+        if pdf_image_cache and account_id in pdf_image_cache:
+            images = pdf_image_cache[account_id]
+            logger.debug(f"Using cached images for {Path(pdf_path).name} (error {idx + 1})")
+        
+        if not images and pdf_path and os.path.exists(pdf_path):
+            images = load_pdf_as_images(pdf_path, max_pages=None, use_cache=True)  # Load all pages, cache for next time
+            logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name} for error {idx + 1}")
+            # Add to cache for next time
+            if pdf_image_cache is not None:
+                pdf_image_cache[account_id] = images
+        
+        if images:
             for img_data in images:
                 try:
                     img_bytes = base64.b64decode(img_data)
