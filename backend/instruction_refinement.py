@@ -567,7 +567,8 @@ def refine_icd_instructions(
     pdf_mapping: Dict[str, str],
     model: str = "gemini-3-flash-preview",
     api_key: Optional[str] = None,
-    user_guidance: Optional[str] = None
+    user_guidance: Optional[str] = None,
+    pdf_image_cache: Optional[Dict[str, List[str]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine ICD instructions based on error cases.
@@ -579,6 +580,7 @@ def refine_icd_instructions(
         model: Gemini model to use
         api_key: Google API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
+        pdf_image_cache: Optional pre-loaded PDF image cache for faster access
     
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
