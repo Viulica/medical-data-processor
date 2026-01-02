@@ -9410,7 +9410,7 @@ export default {
       formData.append("enable_extraction", true);
       formData.append("extraction_n_pages", 2);
       formData.append("extraction_model", this.refinementExtractionModel);
-      formData.append("extraction_max_workers", 50);
+      formData.append("extraction_max_workers", 200);
       formData.append("worktracker_group", "");
       formData.append("worktracker_batch", "");
       formData.append("extract_csn", false);
@@ -9423,7 +9423,7 @@ export default {
         formData.append("cpt_vision_pages", 49); // Analyze 49 pages for better accuracy
         formData.append("cpt_vision_model", this.refinementCptVisionModel);
         formData.append("cpt_include_code_list", true);
-        formData.append("cpt_max_workers", 50);
+        formData.append("cpt_max_workers", 200);
         formData.append(
           "cpt_instruction_template_id",
           this.refinementSelectedCptInstructionId
@@ -9436,7 +9436,7 @@ export default {
       if (this.refinementEnableIcd) {
         formData.append("icd_n_pages", 1);
         formData.append("icd_vision_model", this.refinementIcdVisionModel);
-        formData.append("icd_max_workers", 50);
+        formData.append("icd_max_workers", 200);
         formData.append(
           "icd_instruction_template_id",
           this.refinementSelectedIcdInstructionId
