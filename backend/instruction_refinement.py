@@ -125,7 +125,8 @@ def refine_cpt_instructions(
     model: str = "gemini-3-flash-preview",
     api_key: Optional[str] = None,
     user_guidance: Optional[str] = None,
-    pdf_image_cache: Optional[Dict[str, List[str]]] = None
+    pdf_image_cache: Optional[Dict[str, List[str]]] = None,
+    instruction_history: Optional[List[Dict[str, Any]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine CPT instructions based on error cases.
@@ -137,6 +138,9 @@ def refine_cpt_instructions(
         model: Gemini model to use
         api_key: Google API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
+        pdf_image_cache: Optional pre-loaded PDF image cache for faster access
+        instruction_history: Optional list of previous instruction attempts with accuracies.
+                           Each dict should have: {"instructions": str, "accuracy": float, "iteration": int}
     
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
@@ -176,12 +180,37 @@ The user has provided the following guidance for this refinement process. Please
 
 """
     
+    # Build instruction history section if provided
+    history_section = ""
+    if instruction_history and len(instruction_history) > 0:
+        history_lines = ["\nPREVIOUS REFINEMENT ATTEMPTS (Learn from what was tried before):"]
+        for hist_item in instruction_history:
+            iteration = hist_item.get('iteration', '?')
+            accuracy = hist_item.get('accuracy', None)
+            instructions = hist_item.get('instructions', '')
+            
+            if accuracy is not None:
+                history_lines.append(f"\n--- Iteration {iteration} (Accuracy: {accuracy:.2%}) ---")
+            else:
+                history_lines.append(f"\n--- Iteration {iteration} (Original) ---")
+            
+            # Truncate very long instructions for readability
+            if len(instructions) > 2000:
+                instructions_preview = instructions[:2000] + "\n... [truncated for length]"
+            else:
+                instructions_preview = instructions
+            
+            history_lines.append(instructions_preview)
+        
+        history_lines.append("\n\nIMPORTANT: Analyze what worked and what didn't in previous attempts. Avoid repeating approaches that didn't improve accuracy significantly. Build on what worked, and try different strategies for what didn't.")
+        history_section = "\n".join(history_lines) + "\n"
+    
     prompt = f"""You are an expert medical coding instruction optimizer.
 
 TASK:
 Analyze the following errors and improve the CPT coding instructions to prevent these mistakes.
 
-CURRENT INSTRUCTIONS:
+{history_section}CURRENT INSTRUCTIONS (to improve):
 {current_instructions}
 
 {user_guidance_section}ERROR ANALYSIS WITH PDF CONTEXT:
@@ -568,7 +597,8 @@ def refine_icd_instructions(
     model: str = "gemini-3-flash-preview",
     api_key: Optional[str] = None,
     user_guidance: Optional[str] = None,
-    pdf_image_cache: Optional[Dict[str, List[str]]] = None
+    pdf_image_cache: Optional[Dict[str, List[str]]] = None,
+    instruction_history: Optional[List[Dict[str, Any]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Use Gemini 3 Flash to refine ICD instructions based on error cases.
@@ -581,6 +611,8 @@ def refine_icd_instructions(
         api_key: Google API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
         pdf_image_cache: Optional pre-loaded PDF image cache for faster access
+        instruction_history: Optional list of previous instruction attempts with accuracies.
+                           Each dict should have: {"instructions": str, "accuracy": float, "iteration": int}
     
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
@@ -664,12 +696,37 @@ The user has provided the following guidance for this refinement process. Please
 
 """
     
+    # Build instruction history section if provided
+    history_section = ""
+    if instruction_history and len(instruction_history) > 0:
+        history_lines = ["\nPREVIOUS REFINEMENT ATTEMPTS (Learn from what was tried before):"]
+        for hist_item in instruction_history:
+            iteration = hist_item.get('iteration', '?')
+            accuracy = hist_item.get('accuracy', None)
+            instructions = hist_item.get('instructions', '')
+            
+            if accuracy is not None:
+                history_lines.append(f"\n--- Iteration {iteration} (Accuracy: {accuracy:.2%}) ---")
+            else:
+                history_lines.append(f"\n--- Iteration {iteration} (Original) ---")
+            
+            # Truncate very long instructions for readability
+            if len(instructions) > 2000:
+                instructions_preview = instructions[:2000] + "\n... [truncated for length]"
+            else:
+                instructions_preview = instructions
+            
+            history_lines.append(instructions_preview)
+        
+        history_lines.append("\n\nIMPORTANT: Analyze what worked and what didn't in previous attempts. Avoid repeating approaches that didn't improve accuracy significantly. Build on what worked, and try different strategies for what didn't.")
+        history_section = "\n".join(history_lines) + "\n"
+    
     prompt = f"""You are an expert medical coding instruction optimizer.
 
 TASK:
 Analyze the following errors and improve the ICD coding instructions to prevent these mistakes.
 
-CURRENT INSTRUCTIONS:
+{history_section}CURRENT INSTRUCTIONS (to improve):
 {current_instructions}
 
 {user_guidance_section}ERROR ANALYSIS WITH PDF CONTEXT:

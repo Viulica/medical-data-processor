@@ -257,6 +257,10 @@ def run_refinement_job(
         best_cpt_accuracy = 0.0
         best_icd1_accuracy = 0.0
         
+        # Track instruction history for learning from previous attempts
+        cpt_instruction_history = []
+        icd_instruction_history = []
+        
         # ==================== STEP 0: Run extraction ONCE and cache PDF images ====================
         extraction_csv_path = None
         pdf_image_cache = {}  # account_id -> list of base64 images
@@ -361,6 +365,15 @@ def run_refinement_job(
         
         cpt_iteration = 0
         previous_cpt_accuracy = None
+        
+        # Add original instructions to history (before first iteration)
+        if enable_cpt:
+            original_cpt_template = get_prediction_instruction(instruction_id=original_cpt_template_id)
+            cpt_instruction_history.append({
+                "instructions": original_cpt_template['instructions_text'],
+                "accuracy": None,  # Will be filled after first prediction
+                "iteration": 0  # Original
+            })
         
         while enable_cpt and cpt_iteration < max_iterations:
             cpt_iteration += 1
@@ -493,6 +506,18 @@ def run_refinement_job(
                 
                 # Update best accuracy (only if CPT was calculated)
                 if enable_cpt and cpt_accuracy is not None:
+                    # Update history entry for current iteration
+                    if cpt_iteration == 1 and len(cpt_instruction_history) > 0:
+                        # Update original (iteration 0) with its accuracy
+                        cpt_instruction_history[0]['accuracy'] = cpt_accuracy
+                    else:
+                        # Add current iteration to history
+                        cpt_instruction_history.append({
+                            "instructions": cpt_instructions,
+                            "accuracy": cpt_accuracy,
+                            "iteration": cpt_iteration
+                        })
+                    
                     if cpt_accuracy > best_cpt_accuracy:
                         best_cpt_accuracy = cpt_accuracy
                         best_cpt_template_id = current_cpt_template_id
@@ -632,13 +657,14 @@ def run_refinement_job(
                             
                             logger.info(f"[Refinement {job_id}] Processing batch {batch_num}/{total_batches} (errors {batch_start+1}-{batch_end} of {len(all_cpt_errors)})...")
                             
-                            # Refine with this batch of errors
+                            # Refine with this batch of errors (pass instruction history)
                             improved_instructions, reasoning = refine_cpt_instructions(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
                                 user_guidance=refinement_guidance,
-                                pdf_image_cache=pdf_image_cache
+                                pdf_image_cache=pdf_image_cache,
+                                instruction_history=cpt_instruction_history
                             )
                             
                             if not improved_instructions:
@@ -711,6 +737,14 @@ def run_refinement_job(
             
             icd_iteration = 0
             previous_icd_accuracy = None
+            
+            # Add original ICD instructions to history (before first iteration)
+            original_icd_template = get_prediction_instruction(instruction_id=original_icd_template_id)
+            icd_instruction_history.append({
+                "instructions": original_icd_template['instructions_text'],
+                "accuracy": None,  # Will be filled after first prediction
+                "iteration": 0  # Original
+            })
             
             # Use best CPT template for ICD phase (if CPT was enabled)
             if enable_cpt:
@@ -851,6 +885,18 @@ def run_refinement_job(
                     
                     # Update best accuracy (only if ICD was calculated)
                     if enable_icd and icd1_accuracy is not None:
+                        # Update history entry for current iteration
+                        if icd_iteration == 1 and len(icd_instruction_history) > 0:
+                            # Update original (iteration 0) with its accuracy
+                            icd_instruction_history[0]['accuracy'] = icd1_accuracy
+                        else:
+                            # Add current iteration to history
+                            icd_instruction_history.append({
+                                "instructions": icd_instructions,
+                                "accuracy": icd1_accuracy,
+                                "iteration": icd_iteration
+                            })
+                        
                         if icd1_accuracy > best_icd1_accuracy:
                             best_icd1_accuracy = icd1_accuracy
                             best_icd_template_id = current_icd_template_id
@@ -992,13 +1038,14 @@ def run_refinement_job(
                             
                             logger.info(f"[Refinement {job_id}] Processing batch {batch_num}/{total_batches} (errors {batch_start+1}-{batch_end} of {len(all_icd_errors)})...")
                             
-                            # Refine with this batch of errors
+                            # Refine with this batch of errors (pass instruction history)
                             improved_instructions, reasoning = refine_icd_instructions(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
                                 user_guidance=refinement_guidance,
-                                pdf_image_cache=pdf_image_cache
+                                pdf_image_cache=pdf_image_cache,
+                                instruction_history=icd_instruction_history
                             )
                             
                             if not improved_instructions:
