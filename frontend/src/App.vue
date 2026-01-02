@@ -9434,7 +9434,7 @@ export default {
       // ICD parameters
       formData.append("enable_icd", this.refinementEnableIcd);
       if (this.refinementEnableIcd) {
-        formData.append("icd_n_pages", 1);
+        formData.append("icd_n_pages", 49); // Analyze 49 pages for better accuracy (same as CPT)
         formData.append("icd_vision_model", this.refinementIcdVisionModel);
         formData.append("icd_max_workers", 200);
         formData.append(
