@@ -70,7 +70,9 @@ def load_pdf_as_images(pdf_path: str, max_pages: Optional[int] = None, use_cache
         
         for page_num in range(page_range):
             page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
+            # Use same DPI as standard prediction (150 DPI) for consistency
+            mat = fitz.Matrix(150/72, 150/72)  # Scale factor for 150 DPI
+            pix = page.get_pixmap(matrix=mat)
             img_bytes = pix.tobytes("png")
             img_base64 = base64.b64encode(img_bytes).decode('utf-8')
             images.append(img_base64)
@@ -422,10 +424,7 @@ def refine_instructions_focused_mode(
     
     # Load ONLY this PDF (all pages for context) - use cache if available
     pdf_images = []
-    if cached_images:
-        pdf_images = cached_images
-        logger.debug(f"Using cached images for {Path(pdf_path).name} ({len(cached_images)} pages)")
-    elif pdf_path and os.path.exists(pdf_path):
+    if pdf_path and os.path.exists(pdf_path):
         images = load_pdf_as_images(pdf_path, max_pages=None, use_cache=True)  # Load all pages, cache for next time
         pdf_images.extend(images)
         logger.info(f"Loaded {len(images)} pages from PDF: {Path(pdf_path).name}")
