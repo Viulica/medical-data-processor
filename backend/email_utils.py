@@ -262,6 +262,118 @@ Next Step: {next_step}
         return False
 
 
+def _build_iteration_summary(
+    enable_cpt: bool,
+    enable_icd: bool,
+    cpt_instruction_history: Optional[List[Dict[str, Any]]],
+    icd_instruction_history: Optional[List[Dict[str, Any]]],
+    fmt_pct: callable
+) -> str:
+    """
+    Build HTML summary of all iterations tried during refinement.
+    
+    Args:
+        enable_cpt: Whether CPT was enabled
+        enable_icd: Whether ICD was enabled
+        cpt_instruction_history: List of CPT instruction history entries
+        icd_instruction_history: List of ICD instruction history entries
+        fmt_pct: Function to format percentage values
+    
+    Returns:
+        HTML string with iteration summary
+    """
+    summary_sections = []
+    
+    # CPT Iteration Summary
+    if enable_cpt and cpt_instruction_history:
+        cpt_section = ["<div class='section'>", "<h3>📊 CPT Refinement History - All Iterations Tried</h3>"]
+        
+        for idx, entry in enumerate(cpt_instruction_history):
+            iteration = entry.get('iteration', idx)
+            accuracy = entry.get('accuracy')
+            instructions = entry.get('instructions', '')
+            
+            # Truncate instructions for display (first 500 chars)
+            instructions_preview = instructions[:500] + "..." if len(instructions) > 500 else instructions
+            # Basic HTML escaping and line breaks
+            instructions_preview = instructions_preview.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+            
+            # Determine status badge
+            if iteration == 0:
+                status_badge = "<span style='background: #6c757d; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>ORIGINAL</span>"
+            elif accuracy is None:
+                status_badge = "<span style='background: #ffc107; color: black; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>PENDING</span>"
+            else:
+                status_badge = "<span style='background: #28a745; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>TESTED</span>"
+            
+            accuracy_display = fmt_pct(accuracy) if accuracy is not None else "Not yet tested"
+            
+            cpt_section.append(f"""
+            <div style='background: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff;'>
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+                    <h4 style='margin: 0; color: #007bff;'>Iteration {iteration}</h4>
+                    <div>
+                        {status_badge}
+                        <span style='margin-left: 10px; font-size: 18px; font-weight: bold; color: #007bff;'>{accuracy_display}</span>
+                    </div>
+                </div>
+                <div style='background: #f9f9f9; padding: 10px; border-radius: 3px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.4;'>
+                    {instructions_preview}
+                </div>
+            </div>
+            """)
+        
+        cpt_section.append("</div>")
+        summary_sections.append("\n".join(cpt_section))
+    
+    # ICD Iteration Summary
+    if enable_icd and icd_instruction_history:
+        icd_section = ["<div class='section'>", "<h3>📊 ICD Refinement History - All Iterations Tried</h3>"]
+        
+        for idx, entry in enumerate(icd_instruction_history):
+            iteration = entry.get('iteration', idx)
+            accuracy = entry.get('accuracy')
+            instructions = entry.get('instructions', '')
+            
+            # Truncate instructions for display (first 500 chars)
+            instructions_preview = instructions[:500] + "..." if len(instructions) > 500 else instructions
+            # Basic HTML escaping and line breaks
+            instructions_preview = instructions_preview.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+            
+            # Determine status badge
+            if iteration == 0:
+                status_badge = "<span style='background: #6c757d; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>ORIGINAL</span>"
+            elif accuracy is None:
+                status_badge = "<span style='background: #ffc107; color: black; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>PENDING</span>"
+            else:
+                status_badge = "<span style='background: #28a745; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px;'>TESTED</span>"
+            
+            accuracy_display = fmt_pct(accuracy) if accuracy is not None else "Not yet tested"
+            
+            icd_section.append(f"""
+            <div style='background: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #28a745;'>
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+                    <h4 style='margin: 0; color: #28a745;'>Iteration {iteration}</h4>
+                    <div>
+                        {status_badge}
+                        <span style='margin-left: 10px; font-size: 18px; font-weight: bold; color: #28a745;'>{accuracy_display}</span>
+                    </div>
+                </div>
+                <div style='background: #f9f9f9; padding: 10px; border-radius: 3px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.4;'>
+                    {instructions_preview}
+                </div>
+            </div>
+            """)
+        
+        icd_section.append("</div>")
+        summary_sections.append("\n".join(icd_section))
+    
+    if not summary_sections:
+        return ""
+    
+    return "\n".join(summary_sections)
+
+
 def send_completion_report(
     to_email: str,
     job_id: str,
@@ -274,7 +386,9 @@ def send_completion_report(
     ground_truth_path: Optional[str] = None,
     enable_cpt: bool = True,
     enable_icd: bool = True,
-    pdf_mapping: Optional[Dict[str, str]] = None
+    pdf_mapping: Optional[Dict[str, str]] = None,
+    cpt_instruction_history: Optional[List[Dict[str, Any]]] = None,
+    icd_instruction_history: Optional[List[Dict[str, Any]]] = None
 ) -> bool:
     """
     Send final completion email when refinement job finishes with detailed metrics and case-by-case table.
@@ -292,6 +406,8 @@ def send_completion_report(
         enable_cpt: Whether CPT was enabled
         enable_icd: Whether ICD was enabled
         pdf_mapping: Optional mapping from Account ID to PDF file path
+        cpt_instruction_history: Optional list of CPT instruction history entries
+        icd_instruction_history: Optional list of ICD instruction history entries
     
     Returns:
         True if email sent successfully, False otherwise
@@ -632,6 +748,8 @@ def send_completion_report(
                 <p><strong>Best CPT Template:</strong> {best_cpt_template_name}</p>
                 <p><strong>Best ICD Template:</strong> {best_icd_template_name}</p>
             </div>
+            
+            {_build_iteration_summary(enable_cpt, enable_icd, cpt_instruction_history, icd_instruction_history, fmt_pct)}
             
             <p style="text-align: center; color: #666; margin-top: 30px;">
                 These templates have been saved to the database and can be used for future processing.

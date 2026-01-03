@@ -1160,7 +1160,9 @@ def run_refinement_job(
             ground_truth_path=ground_truth_path,
             enable_cpt=enable_cpt,
             enable_icd=enable_icd,
-            pdf_mapping=pdf_mapping
+            pdf_mapping=pdf_mapping,
+            cpt_instruction_history=cpt_instruction_history if enable_cpt else None,
+            icd_instruction_history=icd_instruction_history if enable_icd else None
         )
         
         # Cleanup
