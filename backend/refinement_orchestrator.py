@@ -511,11 +511,22 @@ def run_refinement_job(
                 
                 # Update best accuracy (only if CPT was calculated)
                 if enable_cpt and cpt_accuracy is not None:
-                    # Update history entry for current iteration (will be updated with improved_instructions after refinement)
-                    if cpt_iteration == 1 and len(cpt_instruction_history) > 0:
-                        # Update original (iteration 0) with its accuracy
+                    # Update accuracy for the instructions we just tested
+                    # Find the history entry for these instructions (by iteration number)
+                    history_entry = None
+                    for entry in cpt_instruction_history:
+                        if entry['iteration'] == cpt_iteration - 1:  # Instructions from previous iteration that we just tested
+                            history_entry = entry
+                            break
+                    
+                    if history_entry is not None:
+                        # Update the accuracy for the instructions we just tested
+                        history_entry['accuracy'] = cpt_accuracy
+                        logger.info(f"[Refinement {job_id}] Updated CPT history for iteration {cpt_iteration - 1} with accuracy {cpt_accuracy:.2%}")
+                    elif cpt_iteration == 1:
+                        # First iteration: update original (iteration 0) with its accuracy
                         cpt_instruction_history[0]['accuracy'] = cpt_accuracy
-                    # NOTE: Don't add to history here - we'll add improved_instructions after refinement
+                        logger.info(f"[Refinement {job_id}] Updated original CPT instructions (iteration 0) with accuracy {cpt_accuracy:.2%}")
                     
                     if cpt_accuracy > best_cpt_accuracy:
                         best_cpt_accuracy = cpt_accuracy
@@ -702,13 +713,13 @@ def run_refinement_job(
                     
                     logger.info(f"[Refinement {job_id}] Created new CPT template: {new_template_name} (ID: {new_template_id})")
                     
-                    # Add improved instructions to history AFTER refinement (with the accuracy from this iteration)
+                    # Add improved instructions to history AFTER refinement (accuracy will be filled in next iteration when tested)
                     cpt_instruction_history.append({
                         "instructions": improved_instructions,
-                        "accuracy": cpt_accuracy,
+                        "accuracy": None,  # Will be updated in next iteration when these instructions are tested
                         "iteration": cpt_iteration
                     })
-                    logger.info(f"[Refinement {job_id}] Added iteration {cpt_iteration} to history with accuracy {cpt_accuracy:.2%}")
+                    logger.info(f"[Refinement {job_id}] Added CPT iteration {cpt_iteration} to history (accuracy will be measured in next iteration)")
                     
                     # Update current template
                     current_cpt_template_id = new_template_id
@@ -895,17 +906,22 @@ def run_refinement_job(
                     
                     # Update best accuracy (only if ICD was calculated)
                     if enable_icd and icd1_accuracy is not None:
-                        # Update history entry for current iteration
-                        if icd_iteration == 1 and len(icd_instruction_history) > 0:
-                            # Update original (iteration 0) with its accuracy
+                        # Update accuracy for the instructions we just tested
+                        # Find the history entry for these instructions (by iteration number)
+                        history_entry = None
+                        for entry in icd_instruction_history:
+                            if entry['iteration'] == icd_iteration - 1:  # Instructions from previous iteration that we just tested
+                                history_entry = entry
+                                break
+                        
+                        if history_entry is not None:
+                            # Update the accuracy for the instructions we just tested
+                            history_entry['accuracy'] = icd1_accuracy
+                            logger.info(f"[Refinement {job_id}] Updated history for iteration {icd_iteration - 1} with accuracy {icd1_accuracy:.2%}")
+                        elif icd_iteration == 1:
+                            # First iteration: update original (iteration 0) with its accuracy
                             icd_instruction_history[0]['accuracy'] = icd1_accuracy
-                        else:
-                            # Add current iteration to history
-                            icd_instruction_history.append({
-                                "instructions": icd_instructions,
-                                "accuracy": icd1_accuracy,
-                                "iteration": icd_iteration
-                            })
+                            logger.info(f"[Refinement {job_id}] Updated original instructions (iteration 0) with accuracy {icd1_accuracy:.2%}")
                         
                         if icd1_accuracy > best_icd1_accuracy:
                             best_icd1_accuracy = icd1_accuracy
@@ -1095,13 +1111,13 @@ def run_refinement_job(
                     
                     logger.info(f"[Refinement {job_id}] Created new ICD template: {new_template_name} (ID: {new_template_id})")
                     
-                    # Add improved instructions to history AFTER refinement (with the accuracy from this iteration)
+                    # Add improved instructions to history AFTER refinement (accuracy will be filled in next iteration when tested)
                     icd_instruction_history.append({
                         "instructions": improved_instructions,
-                        "accuracy": icd1_accuracy,
+                        "accuracy": None,  # Will be updated in next iteration when these instructions are tested
                         "iteration": icd_iteration
                     })
-                    logger.info(f"[Refinement {job_id}] Added ICD iteration {icd_iteration} to history with accuracy {icd1_accuracy:.2%}")
+                    logger.info(f"[Refinement {job_id}] Added ICD iteration {icd_iteration} to history (accuracy will be measured in next iteration)")
                     
                     # Update current template
                     current_icd_template_id = new_template_id
