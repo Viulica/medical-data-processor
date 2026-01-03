@@ -38,6 +38,7 @@ OUTPUT_FOLDER = "output"        # Folder where split PDFs will be saved
 CASE_SENSITIVE = False          # Set to True for case-sensitive matching
 PAGE_WORKERS = None             # Number of threads for processing pages (None = auto)
 PDF_WORKERS = None              # Number of threads for processing PDFs (None = auto)
+DETECTION_SHIFT = 0             # Shift detections by N pages (positive = shift down, negative = shift up)
 
 # Single file processing (set to None to process entire folder)
 SINGLE_FILE = None              # e.g., "path/to/specific/file.pdf" or None
@@ -136,7 +137,32 @@ def check_page_contains_text_wrapper(args):
     return page_number, check_page_contains_all_strings(pdf_path, page_number, filter_strings, case_sensitive)
 
 
-def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, max_workers=None):
+def shift_detection_pages(detection_pages, shift_amount, total_pages):
+    """Shift detection pages by the specified amount, clamping to valid page range."""
+    if shift_amount == 0:
+        return detection_pages
+    
+    shifted_pages = []
+    for page_num in detection_pages:
+        shifted_page = page_num + shift_amount
+        # Clamp to valid page range (0 to total_pages - 1)
+        shifted_page = max(0, min(shifted_page, total_pages - 1))
+        shifted_pages.append(shifted_page)
+    
+    # Remove duplicates and sort (in case shifting caused overlaps)
+    shifted_pages = sorted(list(set(shifted_pages)))
+    
+    if shift_amount != 0:
+        shift_direction = "down" if shift_amount > 0 else "up"
+        thread_safe_print(f"  Shifted detections {abs(shift_amount)} page(s) {shift_direction}")
+        if detection_pages != shifted_pages:
+            thread_safe_print(f"  Original: {[p+1 for p in detection_pages]}")
+            thread_safe_print(f"  Shifted:  {[p+1 for p in shifted_pages]}")
+    
+    return shifted_pages
+
+
+def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, max_workers=None, detection_shift=0):
     """Find all pages that match the detection criteria."""
     try:
         reader = PdfReader(input_pdf_path)
@@ -161,6 +187,10 @@ def find_detection_pages(input_pdf_path, filter_strings, case_sensitive=False, m
             if contains_all_strings:
                 detection_pages.append(page_num)
                 thread_safe_print(f"  ✓ Found detection on page {page_num + 1}")
+        
+        # Apply shift if specified
+        if detection_shift != 0:
+            detection_pages = shift_detection_pages(detection_pages, detection_shift, total_pages)
         
         return detection_pages, total_pages
             
@@ -217,12 +247,12 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
 
 def process_single_pdf(args):
     """Process a single PDF file - wrapper for use with ThreadPoolExecutor.map()"""
-    pdf_file, output_folder, filter_strings, case_sensitive, max_workers = args
+    pdf_file, output_folder, filter_strings, case_sensitive, max_workers, detection_shift = args
     
     thread_safe_print(f"\nProcessing: {os.path.basename(pdf_file)}")
     
     # Find detection pages
-    detection_pages, total_pages = find_detection_pages(pdf_file, filter_strings, case_sensitive, max_workers)
+    detection_pages, total_pages = find_detection_pages(pdf_file, filter_strings, case_sensitive, max_workers, detection_shift)
     
     if detection_pages:
         thread_safe_print(f"  Found {len(detection_pages)} detections")
@@ -235,7 +265,7 @@ def process_single_pdf(args):
         return 0
 
 
-def process_input_folder(input_folder, output_folder, filter_strings, case_sensitive=False, max_workers=None, pdf_workers=None):
+def process_input_folder(input_folder, output_folder, filter_strings, case_sensitive=False, max_workers=None, pdf_workers=None, detection_shift=0):
     """Process all PDFs in the input folder using multi-threading."""
     
     # Check if input folder exists
@@ -259,10 +289,13 @@ def process_input_folder(input_folder, output_folder, filter_strings, case_sensi
     print(f"Input folder: '{input_folder}'")
     print(f"Output folder: '{output_folder}'")
     print(f"PDF workers: {pdf_workers or 'auto'}, Page workers per PDF: {max_workers or 'auto'}")
+    if detection_shift != 0:
+        shift_direction = "down" if detection_shift > 0 else "up"
+        print(f"Detection shift: {abs(detection_shift)} page(s) {shift_direction}")
     print("-" * 50)
     
     # Prepare arguments for parallel PDF processing
-    pdf_args = [(pdf_file, output_folder, filter_strings, case_sensitive, max_workers) 
+    pdf_args = [(pdf_file, output_folder, filter_strings, case_sensitive, max_workers, detection_shift) 
                 for pdf_file in pdf_files]
     
     # Process PDFs in parallel while maintaining order
@@ -308,7 +341,7 @@ def main():
         print("-" * 50)
         
         # Find detections and create sections
-        detection_pages, total_pages = find_detection_pages(SINGLE_FILE, filter_strings, CASE_SENSITIVE, PAGE_WORKERS)
+        detection_pages, total_pages = find_detection_pages(SINGLE_FILE, filter_strings, CASE_SENSITIVE, PAGE_WORKERS, DETECTION_SHIFT)
         
         if detection_pages:
             print(f"Found {len(detection_pages)} detections on pages: {[p+1 for p in detection_pages]}")
@@ -318,7 +351,7 @@ def main():
             print("✗ No detections found")
     else:
         # Process folder
-        process_input_folder(INPUT_FOLDER, OUTPUT_FOLDER, filter_strings, CASE_SENSITIVE, PAGE_WORKERS, PDF_WORKERS)
+        process_input_folder(INPUT_FOLDER, OUTPUT_FOLDER, filter_strings, CASE_SENSITIVE, PAGE_WORKERS, PDF_WORKERS, DETECTION_SHIFT)
 
 
 if __name__ == "__main__":

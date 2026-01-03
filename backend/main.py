@@ -334,7 +334,7 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str):
+def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str, detection_shift: int = 0):
     """Background task to split multiple PDFs using the existing detection script"""
     job = job_status[job_id]
     
@@ -387,7 +387,7 @@ def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str):
         # Original script path
         script_path = current_dir / "1-split_pdf_by_detections.py"
         
-        # Create a temporary script with custom filter string
+        # Create a temporary script with custom filter string and shift
         temp_script_path = current_dir / f"temp_split_{job_id}.py"
         
         # Read the original script
@@ -396,24 +396,38 @@ def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str):
         
         # Replace the filter strings with the custom one
         custom_filter_lines = f'FILTER_STRINGS = ["{filter_string}"]\n'
+        custom_shift_line = f'DETECTION_SHIFT = {detection_shift}\n'
         
-        # Find and replace the FILTER_STRINGS line
+        # Find and replace the FILTER_STRINGS and DETECTION_SHIFT lines
         lines = script_content.split('\n')
         new_lines = []
         filter_replaced = False
+        shift_replaced = False
         
         for line in lines:
             if line.strip().startswith('FILTER_STRINGS = ') and not filter_replaced:
                 new_lines.append(custom_filter_lines)
                 filter_replaced = True
+            elif line.strip().startswith('DETECTION_SHIFT = ') and not shift_replaced:
+                new_lines.append(custom_shift_line)
+                shift_replaced = True
             else:
                 new_lines.append(line)
+        
+        # If DETECTION_SHIFT wasn't found, add it after FILTER_STRINGS
+        if not shift_replaced and filter_replaced:
+            # Find where FILTER_STRINGS was inserted and add shift after it
+            for i, line in enumerate(new_lines):
+                if line.strip().startswith('FILTER_STRINGS = '):
+                    new_lines.insert(i + 1, custom_shift_line)
+                    break
         
         # Write the modified script
         with open(temp_script_path, 'w') as f:
             f.write('\n'.join(new_lines))
         
-        job.message = f"Splitting PDF into sections using filter: '{filter_string}'..."
+        shift_msg = f" (shift: {detection_shift})" if detection_shift != 0 else ""
+        job.message = f"Splitting PDF into sections using filter: '{filter_string}'{shift_msg}..."
         job.progress = 50
         
         # Run the modified script
@@ -651,7 +665,7 @@ def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_string: str, max_workers: int = 7):
+def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_string: str, max_workers: int = 7, detection_shift: int = 0):
     """Background task to split multiple PDFs using OCR.space API"""
     job = job_status[job_id]
     
@@ -667,7 +681,8 @@ def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_stri
         # Create output folder if it doesn't exist
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        job.message = f"Analyzing {len(pdf_paths)} PDF(s) with OCR.space API (filter: '{filter_string}')..."
+        shift_msg = f" (shift: {detection_shift})" if detection_shift != 0 else ""
+        job.message = f"Analyzing {len(pdf_paths)} PDF(s) with OCR.space API (filter: '{filter_string}'{shift_msg})..."
         job.progress = 10
         
         # Path to OCR.space splitting script
@@ -688,7 +703,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_stri
         spec.loader.exec_module(split_module)
         split_pdf_with_ocrspace = split_module.split_pdf_with_ocrspace
         
-        logger.info(f"Running OCR.space split function with filter: {filter_string}")
+        logger.info(f"Running OCR.space split function with filter: {filter_string}, shift: {detection_shift}")
         logger.info(f"Input PDFs: {len(pdf_paths)} file(s)")
         logger.info(f"Output folder: {output_dir} (job-specific)")
         logger.info(f"Max workers: {max_workers}")
@@ -714,7 +729,7 @@ def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_stri
             
             logger.info(f"Processing PDF {idx+1}/{len(pdf_paths)}: {pdf_path}")
             created_count = split_pdf_with_ocrspace(
-                pdf_path, str(output_dir), filter_strings, max_workers, False, make_progress_callback(idx, len(pdf_paths))
+                pdf_path, str(output_dir), filter_strings, max_workers, False, make_progress_callback(idx, len(pdf_paths)), detection_shift
             )
             
             if created_count is None:
@@ -2152,12 +2167,13 @@ async def predict_icd_from_pdfs(
 async def split_pdf(
     background_tasks: BackgroundTasks,
     pdf_files: List[UploadFile] = File(...),
-    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
+    detection_shift: int = Form(default=0, description="Shift detections by N pages (positive = down, negative = up)")
 ):
     """Upload one or more PDF files to split into sections (OCR-based method)"""
     
     try:
-        logger.info(f"Received PDF split request - {len(pdf_files)} PDF file(s)")
+        logger.info(f"Received PDF split request - {len(pdf_files)} PDF file(s), shift: {detection_shift}")
         
         # Validate all files are PDFs
         pdf_paths = []
@@ -2179,7 +2195,7 @@ async def split_pdf(
             logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
         
         # Start background processing with all PDFs
-        background_tasks.add_task(split_pdf_background, job_id, pdf_paths, filter_string)
+        background_tasks.add_task(split_pdf_background, job_id, pdf_paths, filter_string, detection_shift)
         
         logger.info(f"Background split task started for job {job_id} with {len(pdf_files)} PDF(s)")
         
@@ -2252,12 +2268,13 @@ async def split_pdf_gemini(
 async def split_pdf_ocrspace(
     background_tasks: BackgroundTasks,
     pdf_files: List[UploadFile] = File(...),
-    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting")
+    filter_string: str = Form(..., description="Text to search for in PDF pages for splitting"),
+    detection_shift: int = Form(default=0, description="Shift detections by N pages (positive = down, negative = up)")
 ):
     """Upload one or more PDF files to split using OCR.space API - fastest and most reliable method"""
     
     try:
-        logger.info(f"Received OCR.space PDF split request - {len(pdf_files)} PDF file(s), filter: {filter_string}")
+        logger.info(f"Received OCR.space PDF split request - {len(pdf_files)} PDF file(s), filter: {filter_string}, shift: {detection_shift}")
         
         # Validate all files are PDFs
         for pdf_file in pdf_files:
@@ -2284,7 +2301,7 @@ async def split_pdf_ocrspace(
             logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
         
         # Start background processing with OCR.space method
-        background_tasks.add_task(split_pdf_ocrspace_background, job_id, pdf_paths, filter_string, max_workers)
+        background_tasks.add_task(split_pdf_ocrspace_background, job_id, pdf_paths, filter_string, max_workers, detection_shift)
         
         logger.info(f"Background OCR.space split task started for job {job_id} with {len(pdf_files)} PDF(s)")
         
@@ -7333,6 +7350,7 @@ async def process_unified(
     enable_split: bool = Form(default=False),
     split_filter_string: str = Form(default=""),
     split_method: str = Form(default="ocrspace"),  # "ocrspace" or "legacy"
+    split_detection_shift: int = Form(default=0, description="Shift detections by N pages (positive = down, negative = up)"),
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
@@ -7447,7 +7465,8 @@ async def process_unified(
                         str(output_dir),
                         [split_filter_string],
                         max_workers=7,
-                        case_sensitive=False
+                        case_sensitive=False,
+                        detection_shift=split_detection_shift
                     )
                 else:
                     # Use legacy splitting method

@@ -1009,6 +1009,23 @@
                     the PDF. Case insensitive search.
                   </small>
                 </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="unified-split-shift">Detection Shift (Optional)</label>
+                  <input
+                    id="unified-split-shift"
+                    v-model.number="unifiedSplitDetectionShift"
+                    type="number"
+                    min="-10"
+                    max="10"
+                    step="1"
+                    placeholder="0"
+                    class="page-input"
+                    style="max-width: 200px;"
+                  />
+                  <small class="help-text">
+                    Shift detections by N pages. Positive = down (later pages), Negative = up (earlier pages). Default: 0.
+                  </small>
+                </div>
               </div>
             </div>
 
@@ -2133,6 +2150,37 @@
                   the PDF. The system will create a new section starting from
                   each page containing this text.
                   <strong>Case insensitive search.</strong>
+                </p>
+              </div>
+            </div>
+
+            <!-- Detection Shift Input -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>Detection Shift (Optional)</h3>
+              </div>
+              <div class="filter-input-section">
+                <label for="detectionShift" class="filter-label">
+                  Shift detections by pages:
+                </label>
+                <input
+                  id="detectionShift"
+                  v-model.number="detectionShift"
+                  type="number"
+                  min="-10"
+                  max="10"
+                  step="1"
+                  placeholder="0"
+                  class="filter-input"
+                  style="max-width: 200px;"
+                  :disabled="isSplitting"
+                />
+                <p class="filter-help">
+                  Adjust detection positions by shifting them up or down by N pages.
+                  <strong>Positive values</strong> shift detections down (later pages).
+                  <strong>Negative values</strong> shift detections up (earlier pages).
+                  Default is 0 (no shift).
                 </p>
               </div>
             </div>
@@ -7680,6 +7728,7 @@ export default {
       // Split PDF functionality
       pdfFiles: [],
       filterString: "",
+      detectionShift: 0, // Shift detections by N pages (positive = down, negative = up)
       splitJobId: null,
       splitJobStatus: null,
       isSplitting: false,
@@ -7798,6 +7847,7 @@ export default {
       unifiedSplitPdfFile: null, // Single PDF when splitting enabled
       unifiedSplitFilterString: "", // Text to search for splitting
       unifiedSplitMethod: "ocrspace", // Split method: "ocrspace" or "legacy"
+      unifiedSplitDetectionShift: 0, // Shift detections by N pages (positive = down, negative = up)
       isUnifiedPdfDragActive: false,
       // Unified - Extraction settings
       unifiedExtractionPages: 49,
@@ -8516,6 +8566,7 @@ export default {
         formData.append("pdf_files", file);
       });
       formData.append("filter_string", this.filterString.trim());
+      formData.append("detection_shift", this.detectionShift || 0);
 
       // Choose endpoint based on method
       let splitUrl;
@@ -8669,6 +8720,7 @@ export default {
     resetSplitForm() {
       this.pdfFiles = [];
       this.filterString = "";
+      this.detectionShift = 0;
       this.splitJobId = null;
       this.splitJobStatus = null;
       this.isSplitting = false;
@@ -9184,6 +9236,7 @@ export default {
         formData.append("pdf_file", this.unifiedSplitPdfFile);
         formData.append("split_filter_string", this.unifiedSplitFilterString);
         formData.append("split_method", this.unifiedSplitMethod);
+        formData.append("split_detection_shift", this.unifiedSplitDetectionShift || 0);
       } else {
         formData.append("zip_file", this.unifiedZipFile);
       }
@@ -9632,6 +9685,7 @@ export default {
       this.unifiedSplitPdfFile = null;
       this.unifiedSplitFilterString = "";
       this.unifiedSplitMethod = "ocrspace";
+      this.unifiedSplitDetectionShift = 0;
       // Extraction settings
       this.unifiedExtractionPages = 49;
       this.unifiedExtractionModel = "gemini-3-flash-preview";

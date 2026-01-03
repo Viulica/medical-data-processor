@@ -346,6 +346,31 @@ def find_matching_pages(pdf_path, filter_strings, max_workers=7, case_sensitive=
     return matching_pages
 
 
+def shift_detection_pages(detection_pages, shift_amount, total_pages):
+    """Shift detection pages by the specified amount, clamping to valid page range."""
+    if shift_amount == 0:
+        return detection_pages
+    
+    shifted_pages = []
+    for page_num in detection_pages:
+        shifted_page = page_num + shift_amount
+        # Clamp to valid page range (0 to total_pages - 1)
+        shifted_page = max(0, min(shifted_page, total_pages - 1))
+        shifted_pages.append(shifted_page)
+    
+    # Remove duplicates and sort (in case shifting caused overlaps)
+    shifted_pages = sorted(list(set(shifted_pages)))
+    
+    if shift_amount != 0:
+        shift_direction = "down" if shift_amount > 0 else "up"
+        print(f"  🔄 Shifted detections {abs(shift_amount)} page(s) {shift_direction}")
+        if detection_pages != shifted_pages:
+            print(f"     Original: {[p+1 for p in detection_pages]}")
+            print(f"     Shifted:  {[p+1 for p in shifted_pages]}")
+    
+    return shifted_pages
+
+
 def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pages):
     """Create separate PDF files for each detected section."""
     try:
@@ -391,7 +416,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=7, case_sensitive=False, progress_callback=None):
+def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_workers=7, case_sensitive=False, progress_callback=None, detection_shift=0):
     """
     Main function to split a PDF using OCR.space API.
     
@@ -402,6 +427,7 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
         max_workers: Number of parallel workers (default: 7 - matches API semaphore)
         case_sensitive: Whether search is case-sensitive
         progress_callback: Optional callback function(completed, total, message) for progress updates
+        detection_shift: Shift detections by N pages (positive = shift down, negative = shift up)
         
     Returns:
         Number of sections created, or None if there was an error
@@ -412,6 +438,9 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
     print("=" * 70)
     print(f"Input PDF: {input_pdf_path}")
     print(f"Output folder: {output_folder}")
+    if detection_shift != 0:
+        shift_direction = "down" if detection_shift > 0 else "up"
+        print(f"Detection shift: {abs(detection_shift)} page(s) {shift_direction}")
     print()
     
     # Create output folder if it doesn't exist
@@ -427,6 +456,10 @@ def split_pdf_with_ocrspace(input_pdf_path, output_folder, filter_strings, max_w
     # Get total pages for section creation
     reader = PdfReader(input_pdf_path)
     total_pages = len(reader.pages)
+    
+    # Apply shift if specified
+    if detection_shift != 0:
+        detection_pages = shift_detection_pages(detection_pages, detection_shift, total_pages)
     
     # Create sections
     print(f"\n📑 Creating {len(detection_pages)} sections...")
