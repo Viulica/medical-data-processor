@@ -257,6 +257,7 @@ def run_refinement_job(
         best_icd_template_id = original_icd_template_id if enable_icd else None
         best_cpt_accuracy = 0.0
         best_icd1_accuracy = 0.0
+        final_results_csv_path = None  # Track final results CSV for detailed email
         
         # Track instruction history for learning from previous attempts
         cpt_instruction_history = []
@@ -491,6 +492,9 @@ def run_refinement_job(
                 results_csv_path = str(temp_dir / f"cpt_iter_{cpt_iteration}_results.csv")
                 results_df.to_csv(results_csv_path, index=False)
                 logger.info(f"[Refinement {job_id}] CPT prediction completed: {results_csv_path}")
+                # Track final results CSV (last iteration) - update if CPT is enabled
+                if enable_cpt:
+                    final_results_csv_path = results_csv_path
                 
             except Exception as e:
                 logger.error(f"[Refinement {job_id}] CPT prediction failed: {e}")
@@ -507,17 +511,11 @@ def run_refinement_job(
                 
                 # Update best accuracy (only if CPT was calculated)
                 if enable_cpt and cpt_accuracy is not None:
-                    # Update history entry for current iteration
+                    # Update history entry for current iteration (will be updated with improved_instructions after refinement)
                     if cpt_iteration == 1 and len(cpt_instruction_history) > 0:
                         # Update original (iteration 0) with its accuracy
                         cpt_instruction_history[0]['accuracy'] = cpt_accuracy
-                    else:
-                        # Add current iteration to history
-                        cpt_instruction_history.append({
-                            "instructions": cpt_instructions,
-                            "accuracy": cpt_accuracy,
-                            "iteration": cpt_iteration
-                        })
+                    # NOTE: Don't add to history here - we'll add improved_instructions after refinement
                     
                     if cpt_accuracy > best_cpt_accuracy:
                         best_cpt_accuracy = cpt_accuracy
@@ -704,6 +702,14 @@ def run_refinement_job(
                     
                     logger.info(f"[Refinement {job_id}] Created new CPT template: {new_template_name} (ID: {new_template_id})")
                     
+                    # Add improved instructions to history AFTER refinement (with the accuracy from this iteration)
+                    cpt_instruction_history.append({
+                        "instructions": improved_instructions,
+                        "accuracy": cpt_accuracy,
+                        "iteration": cpt_iteration
+                    })
+                    logger.info(f"[Refinement {job_id}] Added iteration {cpt_iteration} to history with accuracy {cpt_accuracy:.2%}")
+                    
                     # Update current template
                     current_cpt_template_id = new_template_id
                     previous_cpt_accuracy = cpt_accuracy
@@ -871,6 +877,8 @@ def run_refinement_job(
                     results_csv_path = str(temp_dir / f"icd_iter_{icd_iteration}_results.csv")
                     results_df.to_csv(results_csv_path, index=False)
                     logger.info(f"[Refinement {job_id}] ICD prediction completed: {results_csv_path}")
+                    # Track final results CSV (last iteration)
+                    final_results_csv_path = results_csv_path
                     
                 except Exception as e:
                     logger.error(f"[Refinement {job_id}] ICD prediction failed: {e}")
@@ -1087,6 +1095,14 @@ def run_refinement_job(
                     
                     logger.info(f"[Refinement {job_id}] Created new ICD template: {new_template_name} (ID: {new_template_id})")
                     
+                    # Add improved instructions to history AFTER refinement (with the accuracy from this iteration)
+                    icd_instruction_history.append({
+                        "instructions": improved_instructions,
+                        "accuracy": icd1_accuracy,
+                        "iteration": icd_iteration
+                    })
+                    logger.info(f"[Refinement {job_id}] Added ICD iteration {icd_iteration} to history with accuracy {icd1_accuracy:.2%}")
+                    
                     # Update current template
                     current_icd_template_id = new_template_id
                     previous_icd_accuracy = icd1_accuracy
@@ -1115,7 +1131,7 @@ def run_refinement_job(
         logger.info(f"[Refinement {job_id}] Refinement complete")
         update_refinement_job(job_id, phase="complete", status="completed")
         
-        # Send final completion email
+        # Send final completion email with detailed metrics
         send_completion_report(
             to_email=notification_email,
             job_id=job_id,
@@ -1123,7 +1139,12 @@ def run_refinement_job(
             final_icd1_accuracy=best_icd1_accuracy,
             best_cpt_template_id=best_cpt_template_id,
             best_icd_template_id=best_icd_template_id,
-            total_iterations=cpt_iteration + icd_iteration
+            total_iterations=cpt_iteration + icd_iteration,
+            predictions_path=final_results_csv_path,
+            ground_truth_path=ground_truth_path,
+            enable_cpt=enable_cpt,
+            enable_icd=enable_icd,
+            pdf_mapping=pdf_mapping
         )
         
         # Cleanup

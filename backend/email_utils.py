@@ -5,8 +5,10 @@ Email utility functions for sending iteration reports via Resend.
 
 import os
 import logging
+import pandas as pd
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from pathlib import Path
 
 try:
     import resend
@@ -267,10 +269,15 @@ def send_completion_report(
     final_icd1_accuracy: Optional[float],
     best_cpt_template_id: Optional[int],
     best_icd_template_id: Optional[int],
-    total_iterations: int
+    total_iterations: int,
+    predictions_path: Optional[str] = None,
+    ground_truth_path: Optional[str] = None,
+    enable_cpt: bool = True,
+    enable_icd: bool = True,
+    pdf_mapping: Optional[Dict[str, str]] = None
 ) -> bool:
     """
-    Send final completion email when refinement job finishes.
+    Send final completion email when refinement job finishes with detailed metrics and case-by-case table.
     
     Args:
         to_email: Recipient email address
@@ -280,6 +287,11 @@ def send_completion_report(
         best_cpt_template_id: ID of best CPT template
         best_icd_template_id: ID of best ICD template
         total_iterations: Total iterations completed
+        predictions_path: Path to final predictions CSV (optional)
+        ground_truth_path: Path to ground truth CSV (optional)
+        enable_cpt: Whether CPT was enabled
+        enable_icd: Whether ICD was enabled
+        pdf_mapping: Optional mapping from Account ID to PDF file path
     
     Returns:
         True if email sent successfully, False otherwise
@@ -307,18 +319,283 @@ def send_completion_report(
     def fmt_pct(val):
         return f"{val * 100:.2f}%" if val is not None else "N/A"
     
+    # Calculate detailed metrics and build case-by-case table
+    detailed_metrics_html = ""
+    case_table_html = ""
+    
+    if predictions_path and ground_truth_path:
+        try:
+            from accuracy_utils import read_dataframe, find_column, parse_icd_codes, get_predicted_icd_list
+            
+            # Read dataframes
+            predictions_df = read_dataframe(predictions_path)
+            ground_truth_df = read_dataframe(ground_truth_path)
+            
+            # Find columns
+            account_id_col_pred = find_column(predictions_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID', 'Acc. #', 'ACC #', 'ACCOUNT #'])
+            account_id_col_gt = find_column(ground_truth_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID', 'Acc. #', 'ACC #', 'ACCOUNT #'])
+            
+            cpt_col_pred = find_column(predictions_df, ['CPT', 'Cpt', 'ASA Code']) if enable_cpt else None
+            cpt_col_gt = find_column(ground_truth_df, ['CPT', 'Cpt']) if enable_cpt else None
+            
+            icd_cols_pred = {}
+            for col in predictions_df.columns:
+                col_upper = col.upper().strip()
+                if col_upper in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                    icd_cols_pred[col_upper] = col
+            
+            icd_col_gt = find_column(ground_truth_df, ['ICD', 'Icd']) if enable_icd else None
+            
+            if account_id_col_pred and account_id_col_gt:
+                # Build ground truth lookup
+                gt_dict = {}
+                for idx, row in ground_truth_df.iterrows():
+                    account_id = str(row[account_id_col_gt]).strip()
+                    if account_id not in gt_dict:
+                        gt_dict[account_id] = {
+                            'cpt': str(row[cpt_col_gt]).strip() if enable_cpt and cpt_col_gt and pd.notna(row.get(cpt_col_gt, '')) else '',
+                            'icd': str(row[icd_col_gt]).strip() if enable_icd and icd_col_gt and pd.notna(row.get(icd_col_gt, '')) else ''
+                        }
+                
+                # Calculate metrics and build case table
+                cpt_total = 0
+                cpt_correct = 0
+                cpt_wrong = 0
+                icd_total = 0
+                icd_correct = 0
+                icd_wrong = 0
+                
+                case_rows = []
+                
+                for idx, row in predictions_df.iterrows():
+                    account_id = str(row[account_id_col_pred]).strip()
+                    
+                    if account_id in gt_dict:
+                        gt_data = gt_dict[account_id]
+                        case_row = {'account_id': account_id}
+                        
+                        # CPT comparison
+                        if enable_cpt and cpt_col_pred:
+                            predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row.get(cpt_col_pred, '')) else ''
+                            expected_cpt = gt_data['cpt']
+                            cpt_total += 1
+                            cpt_match = predicted_cpt == expected_cpt
+                            
+                            if cpt_match:
+                                cpt_correct += 1
+                                case_row['cpt_status'] = '✅ Correct'
+                                case_row['cpt_status_class'] = 'correct'
+                            else:
+                                cpt_wrong += 1
+                                case_row['cpt_status'] = '❌ Wrong'
+                                case_row['cpt_status_class'] = 'wrong'
+                            
+                            case_row['predicted_cpt'] = predicted_cpt if predicted_cpt else '(empty)'
+                            case_row['expected_cpt'] = expected_cpt if expected_cpt else '(empty)'
+                        
+                        # ICD1 comparison
+                        if enable_icd and icd_col_gt:
+                            predicted_icd_list = get_predicted_icd_list(row, icd_cols_pred)
+                            gt_icd_list = parse_icd_codes(gt_data['icd'])
+                            
+                            if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
+                                icd_total += 1
+                                predicted_icd1 = predicted_icd_list[0] if predicted_icd_list[0] else ''
+                                expected_icd1 = gt_icd_list[0] if gt_icd_list[0] else ''
+                                icd_match = predicted_icd1 == expected_icd1
+                                
+                                if icd_match:
+                                    icd_correct += 1
+                                    case_row['icd_status'] = '✅ Correct'
+                                    case_row['icd_status_class'] = 'correct'
+                                else:
+                                    icd_wrong += 1
+                                    case_row['icd_status'] = '❌ Wrong'
+                                    case_row['icd_status_class'] = 'wrong'
+                                
+                                case_row['predicted_icd1'] = predicted_icd1 if predicted_icd1 else '(empty)'
+                                case_row['expected_icd1'] = expected_icd1 if expected_icd1 else '(empty)'
+                        
+                        # PDF path
+                        pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
+                        case_row['pdf_path'] = Path(pdf_path).name if pdf_path != 'N/A' else 'N/A'
+                        
+                        case_rows.append(case_row)
+                
+                # Build detailed metrics HTML
+                detailed_metrics_html = f"""
+                <div class="section">
+                    <h3>Detailed Metrics</h3>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 20px 0;">
+                        {"<div style='background: white; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff;'>" if enable_cpt else ""}
+                        {"<h4 style='margin-top: 0; color: #007bff;'>CPT Codes</h4>" if enable_cpt else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0;'><strong>Total Cases:</strong> {cpt_total}</p>" if enable_cpt else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0; color: #28a745;'><strong>✅ Correct:</strong> {cpt_correct}</p>" if enable_cpt else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0; color: #dc3545;'><strong>❌ Wrong:</strong> {cpt_wrong}</p>" if enable_cpt else ""}
+                        {"<p style='font-size: 24px; font-weight: bold; margin-top: 10px; color: #007bff;'>Accuracy: {fmt_pct(final_cpt_accuracy)}</p>" if enable_cpt else ""}
+                        {"</div>" if enable_cpt else ""}
+                        
+                        {"<div style='background: white; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745;'>" if enable_icd else ""}
+                        {"<h4 style='margin-top: 0; color: #28a745;'>ICD1 Codes</h4>" if enable_icd else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0;'><strong>Total Cases:</strong> {icd_total}</p>" if enable_icd else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0; color: #28a745;'><strong>✅ Correct:</strong> {icd_correct}</p>" if enable_icd else ""}
+                        {"<p style='font-size: 18px; margin: 5px 0; color: #dc3545;'><strong>❌ Wrong:</strong> {icd_wrong}</p>" if enable_icd else ""}
+                        {"<p style='font-size: 24px; font-weight: bold; margin-top: 10px; color: #28a745;'>Accuracy: {fmt_pct(final_icd1_accuracy)}</p>" if enable_icd else ""}
+                        {"</div>" if enable_icd else ""}
+                    </div>
+                </div>
+                """
+                
+                # Build text blobs for copy-paste
+                all_cases_text = "=== ALL CASES (Copy-Paste Ready) ===\n\n"
+                errors_only_text = "=== ERRORS ONLY (Copy-Paste Ready) ===\n\n"
+                
+                for case in case_rows:
+                    account_id = case.get('account_id', 'N/A')
+                    pdf_name = case.get('pdf_path', 'N/A')
+                    
+                    # Build case line
+                    case_line = f"Account ID: {account_id} | PDF: {pdf_name}"
+                    
+                    # Add CPT info
+                    if enable_cpt and 'predicted_cpt' in case:
+                        predicted_cpt = case.get('predicted_cpt', '')
+                        expected_cpt = case.get('expected_cpt', '')
+                        cpt_status = case.get('cpt_status', '')
+                        case_line += f" | CPT: Predicted='{predicted_cpt}' Expected='{expected_cpt}' Status={cpt_status}"
+                    
+                    # Add ICD info
+                    if enable_icd and 'predicted_icd1' in case:
+                        predicted_icd1 = case.get('predicted_icd1', '')
+                        expected_icd1 = case.get('expected_icd1', '')
+                        icd_status = case.get('icd_status', '')
+                        case_line += f" | ICD1: Predicted='{predicted_icd1}' Expected='{expected_icd1}' Status={icd_status}"
+                    
+                    case_line += "\n"
+                    
+                    # Add to all cases blob
+                    all_cases_text += case_line
+                    
+                    # Add to errors blob if wrong
+                    is_error = False
+                    if enable_cpt and 'cpt_status' in case and 'wrong' in case.get('cpt_status', '').lower():
+                        is_error = True
+                    if enable_icd and 'icd_status' in case and 'wrong' in case.get('icd_status', '').lower():
+                        is_error = True
+                    
+                    if is_error:
+                        errors_only_text += case_line
+                
+                # Build case-by-case table HTML
+                table_rows = ""
+                for case in case_rows:
+                    account_id = case.get('account_id', 'N/A')
+                    pdf_name = case.get('pdf_path', 'N/A')
+                    
+                    # CPT columns
+                    cpt_cols = ""
+                    if enable_cpt and 'predicted_cpt' in case:
+                        cpt_status = case.get('cpt_status', '')
+                        cpt_status_class = case.get('cpt_status_class', '')
+                        predicted_cpt = case.get('predicted_cpt', '')
+                        expected_cpt = case.get('expected_cpt', '')
+                        cpt_cols = f"""
+                        <td class="status-{cpt_status_class}">{cpt_status}</td>
+                        <td><strong>{predicted_cpt}</strong></td>
+                        <td><strong>{expected_cpt}</strong></td>
+                        """
+                    
+                    # ICD columns
+                    icd_cols = ""
+                    if enable_icd and 'predicted_icd1' in case:
+                        icd_status = case.get('icd_status', '')
+                        icd_status_class = case.get('icd_status_class', '')
+                        predicted_icd1 = case.get('predicted_icd1', '')
+                        expected_icd1 = case.get('expected_icd1', '')
+                        icd_cols = f"""
+                        <td class="status-{icd_status_class}">{icd_status}</td>
+                        <td><strong>{predicted_icd1}</strong></td>
+                        <td><strong>{expected_icd1}</strong></td>
+                        """
+                    
+                    table_rows += f"""
+                    <tr>
+                        <td><strong>{account_id}</strong></td>
+                        <td>{pdf_name}</td>
+                        {cpt_cols}
+                        {icd_cols}
+                    </tr>
+                    """
+                
+                # Count total errors for display
+                total_errors = 0
+                if enable_cpt:
+                    total_errors += cpt_wrong
+                if enable_icd:
+                    total_errors += icd_wrong
+                
+                # Build table header
+                table_header = "<th>Account ID</th><th>PDF File</th>"
+                if enable_cpt:
+                    table_header += "<th>CPT Status</th><th>Predicted CPT</th><th>Expected CPT</th>"
+                if enable_icd:
+                    table_header += "<th>ICD1 Status</th><th>Predicted ICD1</th><th>Expected ICD1</th>"
+                
+                case_table_html = f"""
+                <div class="section">
+                    <h3>📋 Copy-Paste Ready Text Blobs</h3>
+                    <div style="background: white; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #667eea;">
+                        <h4 style="margin-top: 0; color: #667eea;">📄 ALL CASES ({len(case_rows)} cases)</h4>
+                        <textarea readonly style="width: 100%; min-height: 400px; font-family: 'Courier New', monospace; font-size: 13px; padding: 15px; border: 1px solid #ddd; border-radius: 3px; background: #f9f9f9; line-height: 1.6; white-space: pre-wrap;" onclick="this.select(); document.execCommand('copy');">{all_cases_text}</textarea>
+                        <p style="font-size: 12px; color: #666; margin-top: 8px;">💡 Click textarea to select all, then copy-paste to AI</p>
+                    </div>
+                    <div style="background: white; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #dc3545;">
+                        <h4 style="margin-top: 0; color: #dc3545;">❌ ERRORS ONLY ({total_errors} errors)</h4>
+                        <textarea readonly style="width: 100%; min-height: 300px; font-family: 'Courier New', monospace; font-size: 13px; padding: 15px; border: 1px solid #dc3545; border-radius: 3px; background: #fff5f5; line-height: 1.6; white-space: pre-wrap;" onclick="this.select(); document.execCommand('copy');">{errors_only_text if errors_only_text.strip() else 'No errors found!'}</textarea>
+                        <p style="font-size: 12px; color: #666; margin-top: 8px;">💡 Click textarea to select all, then copy-paste to AI</p>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>Case-by-Case Results Table ({len(case_rows)} cases)</h3>
+                    <div style="overflow-x: auto; margin-top: 15px;">
+                        <table class="case-table">
+                            <thead>
+                                <tr>
+                                    {table_header}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {table_rows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                """
+        except Exception as e:
+            logger.error(f"Failed to generate detailed metrics: {e}")
+            detailed_metrics_html = f"<div class='section'><p style='color: #dc3545;'>⚠️ Could not generate detailed metrics: {str(e)}</p></div>"
+            case_table_html = ""
+    
     html_content = f"""
     <html>
     <head>
         <style>
             body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
             .header {{ background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 20px; text-align: center; }}
-            .content {{ padding: 20px; max-width: 800px; margin: 0 auto; }}
+            .content {{ padding: 20px; max-width: 1200px; margin: 0 auto; }}
             .section {{ margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }}
             .metrics {{ display: flex; justify-content: space-around; margin: 15px 0; }}
             .metric {{ text-align: center; }}
             .metric-value {{ font-size: 32px; font-weight: bold; color: #28a745; }}
             .metric-label {{ font-size: 14px; color: #666; margin-top: 5px; }}
+            .case-table {{ width: 100%; border-collapse: collapse; background: white; margin-top: 10px; }}
+            .case-table th {{ background: #667eea; color: white; padding: 12px; text-align: left; font-weight: bold; border: 1px solid #555; }}
+            .case-table td {{ padding: 10px; border: 1px solid #ddd; }}
+            .case-table tr:nth-child(even) {{ background: #f9f9f9; }}
+            .case-table tr:hover {{ background: #f0f0f0; }}
+            .status-correct {{ color: #28a745; font-weight: bold; }}
+            .status-wrong {{ color: #dc3545; font-weight: bold; }}
         </style>
     </head>
     <body>
@@ -345,6 +622,10 @@ def send_completion_report(
                     </div>
                 </div>
             </div>
+            
+            {detailed_metrics_html}
+            
+            {case_table_html}
             
             <div class="section">
                 <h3>Best Templates</h3>
