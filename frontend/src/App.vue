@@ -2066,6 +2066,7 @@
                   </span>
                   <span v-else-if="splitMethod === 'gemini-prompt'">
                     🤖 Uses Gemini AI with custom prompt - flexible and intelligent detection.
+                    Processes up to 20 PDFs in parallel for maximum speed.
                     Best for complex patterns or custom criteria.
                   </span>
                   <span v-else>

@@ -666,41 +666,38 @@ def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string
         gc.collect()
 
 def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom_prompt: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12, detection_shift: int = 0):
-    """Background task to split multiple PDFs using Gemini with custom prompt"""
+    """Background task to split multiple PDFs using Gemini with custom prompt - PARALLEL processing"""
     job = job_status[job_id]
-    
+
     try:
         job.status = "processing"
-        job.message = f"Starting PDF splitting for {len(pdf_paths)} file(s)..."
+        job.message = f"Starting parallel PDF splitting for {len(pdf_paths)} file(s)..."
         job.progress = 10
-        
+
         # Use job-specific output folder
         current_dir = Path(__file__).parent / "current"
         output_dir = current_dir / "output" / job_id  # Job-specific folder
-        
+
         # Create output folder if it doesn't exist
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         shift_msg = f" (shift: {detection_shift})" if detection_shift != 0 else ""
         job.message = f"Analyzing {len(pdf_paths)} PDF(s) with Gemini prompt{shift_msg}..."
-        job.progress = 30
-        
+        job.progress = 20
+
         # Set up environment for the script
         env = os.environ.copy()
         env['PYTHONPATH'] = str(current_dir)
         # Copy API keys
         if 'GOOGLE_API_KEY' in os.environ:
             env['GOOGLE_API_KEY'] = os.environ['GOOGLE_API_KEY']
-        
+
         # Path to Gemini prompt splitting script
         script_path = current_dir / "1-split_pdf_gemini_prompt.py"
-        
+
         if not script_path.exists():
             raise Exception(f"Gemini prompt splitting script not found: {script_path}")
-        
-        job.message = f"Analyzing PDF pages with custom prompt..."
-        job.progress = 40
-        
+
         # Import and call the function directly
         import sys
         import importlib.util
@@ -709,59 +706,99 @@ def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom
         sys.modules["split_pdf_gemini_prompt"] = split_module
         spec.loader.exec_module(split_module)
         split_pdf_with_gemini_prompt = split_module.split_pdf_with_gemini_prompt
-        
-        logger.info(f"Running Gemini prompt split function")
+
+        logger.info(f"Running parallel Gemini prompt split function")
         logger.info(f"Input PDFs: {len(pdf_paths)} file(s)")
         logger.info(f"Output folder: {output_dir} (job-specific)")
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Model: {model}")
-        logger.info(f"Max workers: {max_workers}")
+        logger.info(f"Max workers per PDF: {max_workers}")
+        logger.info(f"Parallel PDFs: {min(20, len(pdf_paths))} concurrent")
         logger.info(f"Detection shift: {detection_shift}")
         logger.info(f"Prompt preview: {custom_prompt[:100]}...")
-        
-        # Process each PDF
+
+        job.message = f"Processing {len(pdf_paths)} PDFs with up to 20 parallel Gemini requests..."
+        job.progress = 30
+
+        # Process PDFs in parallel (up to 20 concurrent)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         total_created = 0
-        
-        for idx, pdf_path in enumerate(pdf_paths):
-            job.message = f"Gemini prompt processing PDF {idx+1}/{len(pdf_paths)}..."
-            job.progress = 30 + int((idx / len(pdf_paths)) * 50)  # 30-80% for processing
-            
-            logger.info(f"Processing PDF {idx+1}/{len(pdf_paths)}: {pdf_path}")
-            created_count = split_pdf_with_gemini_prompt(
-                pdf_path, str(output_dir), custom_prompt, batch_size, model, max_workers, detection_shift
-            )
-            
-            if created_count is None:
-                logger.warning(f"Gemini prompt splitting returned None for PDF {idx+1}, continuing...")
-            else:
-                total_created += created_count or 0
-                logger.info(f"PDF {idx+1} created {created_count} sections")
-        
+        successful_pdfs = 0
+        failed_pdfs = 0
+
+        # Thread-safe progress tracking
+        import threading
+        progress_lock = threading.Lock()
+        completed_pdfs = 0
+
+        def update_progress(pdf_idx, pdf_name, created_count):
+            nonlocal completed_pdfs, total_created, successful_pdfs, failed_pdfs
+            with progress_lock:
+                completed_pdfs += 1
+                if created_count is not None:
+                    total_created += created_count or 0
+                    successful_pdfs += 1
+                else:
+                    failed_pdfs += 1
+
+                progress_pct = 30 + int((completed_pdfs / len(pdf_paths)) * 60)  # 30-90% for processing
+                job.progress = progress_pct
+                job.message = f"Processed {completed_pdfs}/{len(pdf_paths)} PDFs (Success: {successful_pdfs}, Failed: {failed_pdfs})"
+
+                logger.info(f"PDF {pdf_idx+1}/{len(pdf_paths)} ({pdf_name}): {created_count or 0} sections created")
+
+        # Process PDFs in parallel with up to 20 concurrent threads
+        pdf_workers = min(20, len(pdf_paths))  # Up to 20 parallel PDFs
+        with ThreadPoolExecutor(max_workers=pdf_workers) as executor:
+            # Submit all PDF processing tasks
+            future_to_pdf = {}
+            for idx, pdf_path in enumerate(pdf_paths):
+                future = executor.submit(
+                    split_pdf_with_gemini_prompt,
+                    pdf_path, str(output_dir), custom_prompt, batch_size, model, max_workers, detection_shift
+                )
+                future_to_pdf[future] = (idx, pdf_path)
+
+            # Collect results as they complete
+            for future in as_completed(future_to_pdf):
+                idx, pdf_path = future_to_pdf[future]
+                pdf_name = Path(pdf_path).name
+
+                try:
+                    created_count = future.result()
+                    update_progress(idx, pdf_name, created_count)
+
+                except Exception as e:
+                    logger.error(f"Exception processing PDF {idx+1} ({pdf_name}): {str(e)}")
+                    update_progress(idx, pdf_name, None)
+
         if total_created == 0:
-            raise Exception("Gemini prompt splitting failed - no sections created from any PDF")
-        
+            raise Exception(f"Gemini prompt splitting failed - no sections created from {len(pdf_paths)} PDF(s)")
+
+        logger.info(f"Parallel processing complete: {successful_pdfs} successful, {failed_pdfs} failed, {total_created} total sections")
+
         job.message = "Creating ZIP archive of split PDFs..."
-        job.progress = 90
-        
+        job.progress = 95
+
         # Create ZIP file with all split PDFs
         zip_path = Path(f"/tmp/results/{job_id}_split_pdfs_gemini_prompt.zip")
         zip_path.parent.mkdir(exist_ok=True)
-        
+
         # Find all PDF files created by the script
         pdf_files = list(output_dir.glob("*.pdf"))
-        
+
         if not pdf_files:
             raise Exception("No PDF files were created by the splitting script. This could mean no matching pages were found.")
-        
+
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for pdf_file in pdf_files:
                 zipf.write(pdf_file, pdf_file.name)
-        
+
         job.result_file = str(zip_path)
         job.status = "completed"
         job.progress = 100
         job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections from {len(pdf_paths)} PDF(s)."
-        
+
         # Clean up uploaded files
         for pdf_path in pdf_paths:
             if os.path.exists(pdf_path):
@@ -769,15 +806,15 @@ def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom
                     os.unlink(pdf_path)
                 except:
                     pass
-        
-        logger.info(f"Gemini prompt splitting completed successfully for job {job_id}")
-        
+
+        logger.info(f"Parallel Gemini prompt splitting completed successfully for job {job_id}")
+
     except Exception as e:
         logger.error(f"Gemini prompt splitting error: {str(e)}")
         job.status = "failed"
         job.error = str(e)
         job.message = f"Error: {str(e)}"
-        
+
         # Clean up uploaded files even on failure
         for pdf_path in pdf_paths:
             if os.path.exists(pdf_path):
@@ -785,7 +822,7 @@ def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom
                     os.unlink(pdf_path)
                 except:
                     pass
-        
+
         # Clean up memory even on failure
         gc.collect()
 
