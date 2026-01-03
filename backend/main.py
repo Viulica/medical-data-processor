@@ -665,6 +665,130 @@ def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string
         # Clean up memory even on failure
         gc.collect()
 
+def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom_prompt: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12, detection_shift: int = 0):
+    """Background task to split multiple PDFs using Gemini with custom prompt"""
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = f"Starting PDF splitting for {len(pdf_paths)} file(s)..."
+        job.progress = 10
+        
+        # Use job-specific output folder
+        current_dir = Path(__file__).parent / "current"
+        output_dir = current_dir / "output" / job_id  # Job-specific folder
+        
+        # Create output folder if it doesn't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        shift_msg = f" (shift: {detection_shift})" if detection_shift != 0 else ""
+        job.message = f"Analyzing {len(pdf_paths)} PDF(s) with Gemini prompt{shift_msg}..."
+        job.progress = 30
+        
+        # Set up environment for the script
+        env = os.environ.copy()
+        env['PYTHONPATH'] = str(current_dir)
+        # Copy API keys
+        if 'GOOGLE_API_KEY' in os.environ:
+            env['GOOGLE_API_KEY'] = os.environ['GOOGLE_API_KEY']
+        
+        # Path to Gemini prompt splitting script
+        script_path = current_dir / "1-split_pdf_gemini_prompt.py"
+        
+        if not script_path.exists():
+            raise Exception(f"Gemini prompt splitting script not found: {script_path}")
+        
+        job.message = f"Analyzing PDF pages with custom prompt..."
+        job.progress = 40
+        
+        # Import and call the function directly
+        import sys
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("split_pdf_gemini_prompt", script_path)
+        split_module = importlib.util.module_from_spec(spec)
+        sys.modules["split_pdf_gemini_prompt"] = split_module
+        spec.loader.exec_module(split_module)
+        split_pdf_with_gemini_prompt = split_module.split_pdf_with_gemini_prompt
+        
+        logger.info(f"Running Gemini prompt split function")
+        logger.info(f"Input PDFs: {len(pdf_paths)} file(s)")
+        logger.info(f"Output folder: {output_dir} (job-specific)")
+        logger.info(f"Batch size: {batch_size}")
+        logger.info(f"Model: {model}")
+        logger.info(f"Max workers: {max_workers}")
+        logger.info(f"Detection shift: {detection_shift}")
+        logger.info(f"Prompt preview: {custom_prompt[:100]}...")
+        
+        # Process each PDF
+        total_created = 0
+        
+        for idx, pdf_path in enumerate(pdf_paths):
+            job.message = f"Gemini prompt processing PDF {idx+1}/{len(pdf_paths)}..."
+            job.progress = 30 + int((idx / len(pdf_paths)) * 50)  # 30-80% for processing
+            
+            logger.info(f"Processing PDF {idx+1}/{len(pdf_paths)}: {pdf_path}")
+            created_count = split_pdf_with_gemini_prompt(
+                pdf_path, str(output_dir), custom_prompt, batch_size, model, max_workers, detection_shift
+            )
+            
+            if created_count is None:
+                logger.warning(f"Gemini prompt splitting returned None for PDF {idx+1}, continuing...")
+            else:
+                total_created += created_count or 0
+                logger.info(f"PDF {idx+1} created {created_count} sections")
+        
+        if total_created == 0:
+            raise Exception("Gemini prompt splitting failed - no sections created from any PDF")
+        
+        job.message = "Creating ZIP archive of split PDFs..."
+        job.progress = 90
+        
+        # Create ZIP file with all split PDFs
+        zip_path = Path(f"/tmp/results/{job_id}_split_pdfs_gemini_prompt.zip")
+        zip_path.parent.mkdir(exist_ok=True)
+        
+        # Find all PDF files created by the script
+        pdf_files = list(output_dir.glob("*.pdf"))
+        
+        if not pdf_files:
+            raise Exception("No PDF files were created by the splitting script. This could mean no matching pages were found.")
+        
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for pdf_file in pdf_files:
+                zipf.write(pdf_file, pdf_file.name)
+        
+        job.result_file = str(zip_path)
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Splitting completed successfully! Created {len(pdf_files)} sections from {len(pdf_paths)} PDF(s)."
+        
+        # Clean up uploaded files
+        for pdf_path in pdf_paths:
+            if os.path.exists(pdf_path):
+                try:
+                    os.unlink(pdf_path)
+                except:
+                    pass
+        
+        logger.info(f"Gemini prompt splitting completed successfully for job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"Gemini prompt splitting error: {str(e)}")
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"Error: {str(e)}"
+        
+        # Clean up uploaded files even on failure
+        for pdf_path in pdf_paths:
+            if os.path.exists(pdf_path):
+                try:
+                    os.unlink(pdf_path)
+                except:
+                    pass
+        
+        # Clean up memory even on failure
+        gc.collect()
+
 def split_pdf_ocrspace_background(job_id: str, pdf_paths: List[str], filter_string: str, max_workers: int = 7, detection_shift: int = 0):
     """Background task to split multiple PDFs using OCR.space API"""
     job = job_status[job_id]
@@ -2309,6 +2433,70 @@ async def split_pdf_ocrspace(
         
     except Exception as e:
         logger.error(f"OCR.space PDF split upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/split-pdf-gemini-prompt")
+async def split_pdf_gemini_prompt(
+    background_tasks: BackgroundTasks,
+    pdf_files: List[UploadFile] = File(...),
+    custom_prompt: str = Form(..., description="Custom prompt describing what to look for on pages"),
+    batch_size: int = Form(default=5, description="Number of pages to process per API call (1-50)"),
+    model: str = Form(default="gemini-3-flash-preview", description="Gemini model to use"),
+    detection_shift: int = Form(default=0, description="Shift detections by N pages (positive = down, negative = up)")
+):
+    """Upload one or more PDF files to split using Gemini with a custom prompt"""
+    
+    try:
+        logger.info(f"Received Gemini prompt PDF split request - {len(pdf_files)} PDF file(s), prompt length: {len(custom_prompt)}")
+        
+        # Validate all files are PDFs
+        for pdf_file in pdf_files:
+            if not pdf_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"File {pdf_file.filename} must be a PDF")
+        
+        # Validate batch size
+        if batch_size < 1 or batch_size > 50:
+            raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
+        
+        # Validate model
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+        if model not in valid_models:
+            raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
+        
+        # Validate prompt
+        if not custom_prompt or not custom_prompt.strip():
+            raise HTTPException(status_code=400, detail="Custom prompt cannot be empty")
+        
+        # Configuration
+        max_workers = 12
+        
+        logger.info(f"Using batch_size: {batch_size}, model: {model}, shift: {detection_shift}")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created Gemini prompt split job {job_id}")
+        
+        # Save all uploaded PDFs
+        pdf_paths = []
+        for idx, pdf_file in enumerate(pdf_files):
+            pdf_path = f"/tmp/{job_id}_input_{idx}.pdf"
+            with open(pdf_path, "wb") as f:
+                shutil.copyfileobj(pdf_file.file, f)
+            pdf_paths.append(pdf_path)
+            logger.info(f"PDF {idx+1}/{len(pdf_files)} saved - path: {pdf_path}")
+        
+        # Start background processing with Gemini prompt method
+        background_tasks.add_task(split_pdf_gemini_prompt_background, job_id, pdf_paths, custom_prompt, batch_size, model, max_workers, detection_shift)
+        
+        logger.info(f"Background Gemini prompt split task started for job {job_id} with {len(pdf_files)} PDF(s)")
+        
+        return {"job_id": job_id, "message": f"{len(pdf_files)} PDF(s) uploaded and Gemini prompt splitting started"}
+        
+    except Exception as e:
+        logger.error(f"Gemini prompt PDF split upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/download/{job_id}")

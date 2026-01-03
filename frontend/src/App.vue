@@ -2055,13 +2055,18 @@
                   Splitting Method
                 </label>
                 <select v-model="splitMethod" class="form-select">
-                  <option value="ocrspace">New Splitting Method</option>
+                  <option value="ocrspace">New Splitting Method (OCR)</option>
                   <option value="legacy">Old Splitting Method</option>
+                  <option value="gemini-prompt">Gemini Prompt Method</option>
                 </select>
                 <p class="form-hint" style="margin-top: 10px; color: #6b7280">
                   <span v-if="splitMethod === 'ocrspace'">
                     ⚡ Uses enhanced OCR API - fast, reliable, and accurate.
                     Best for most documents.
+                  </span>
+                  <span v-else-if="splitMethod === 'gemini-prompt'">
+                    🤖 Uses Gemini AI with custom prompt - flexible and intelligent detection.
+                    Best for complex patterns or custom criteria.
                   </span>
                   <span v-else>
                     🐌 Legacy local OCR - slowest option, not recommended.
@@ -2127,8 +2132,8 @@
               </div>
             </div>
 
-            <!-- Filter String Input -->
-            <div class="upload-card">
+            <!-- Filter String Input (shown for OCR methods) -->
+            <div v-if="splitMethod !== 'gemini-prompt'" class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
                 <h3>Split Filter</h3>
@@ -2150,6 +2155,33 @@
                   the PDF. The system will create a new section starting from
                   each page containing this text.
                   <strong>Case insensitive search.</strong>
+                </p>
+              </div>
+            </div>
+
+            <!-- Custom Prompt Input (shown for Gemini Prompt method) -->
+            <div v-if="splitMethod === 'gemini-prompt'" class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Custom Detection Prompt</h3>
+              </div>
+              <div class="filter-input-section">
+                <label for="customPrompt" class="filter-label">
+                  Describe what to look for:
+                </label>
+                <textarea
+                  id="customPrompt"
+                  v-model="customPrompt"
+                  rows="4"
+                  placeholder='e.g., your task is to identify starts of a unique patient record in a big pdf file, a patient record start will always have a pasted looking id that starts with "25..." somewhere on the first page of that patient, your output is ONLY the indexes of the patient starting pages'
+                  class="filter-input"
+                  style="resize: vertical; min-height: 100px; font-family: monospace;"
+                  :disabled="isSplitting"
+                ></textarea>
+                <p class="filter-help">
+                  Describe the criteria for identifying pages where splits should occur.
+                  Gemini will analyze the PDF and return the page indexes that match your description.
+                  <strong>Be specific and clear about what to look for.</strong>
                 </p>
               </div>
             </div>
@@ -7728,6 +7760,7 @@ export default {
       // Split PDF functionality
       pdfFiles: [],
       filterString: "",
+      customPrompt: 'your task is to identify starts of a unique patient record in a big pdf file, a patient record start will always have a pasted looking id that starts with "25..." somewhere on the first page of that patient, your output is ONLY the indexes of the patient starting pages',
       detectionShift: 0, // Shift detections by N pages (positive = down, negative = up)
       splitJobId: null,
       splitJobStatus: null,
@@ -8043,7 +8076,11 @@ export default {
       );
     },
     canSplit() {
-      return this.pdfFiles.length > 0 && this.filterString.trim();
+      if (this.pdfFiles.length === 0) return false;
+      if (this.splitMethod === "gemini-prompt") {
+        return this.customPrompt.trim().length > 0;
+      }
+      return this.filterString.trim().length > 0;
     },
     canPredictCpt() {
       if (this.useVisionPrediction) {
@@ -8531,6 +8568,7 @@ export default {
       const methodNames = {
         ocrspace: "New Splitting Method",
         legacy: "Old Splitting Method",
+        "gemini-prompt": "Gemini Prompt Method",
       };
       const method = methodNames[this.splitMethod] || this.splitMethod;
       console.log(`🚀 Starting PDF splitting process (${method} method)...`);
@@ -8544,7 +8582,12 @@ export default {
             }))
           : "No files"
       );
-      console.log("🔍 Filter String:", this.filterString);
+      
+      if (this.splitMethod === "gemini-prompt") {
+        console.log("🤖 Custom Prompt:", this.customPrompt);
+      } else {
+        console.log("🔍 Filter String:", this.filterString);
+      }
 
       if (this.pdfFiles.length === 0) {
         console.error("❌ No PDF files selected");
@@ -8552,10 +8595,19 @@ export default {
         return;
       }
 
-      if (!this.filterString.trim()) {
-        console.error("❌ No filter string provided");
-        this.toast.error("Please enter a filter string to search for");
-        return;
+      // Validate based on method
+      if (this.splitMethod === "gemini-prompt") {
+        if (!this.customPrompt.trim()) {
+          console.error("❌ No custom prompt provided");
+          this.toast.error("Please enter a custom prompt describing what to look for");
+          return;
+        }
+      } else {
+        if (!this.filterString.trim()) {
+          console.error("❌ No filter string provided");
+          this.toast.error("Please enter a filter string to search for");
+          return;
+        }
       }
 
       this.isSplitting = true;
@@ -8565,15 +8617,23 @@ export default {
       this.pdfFiles.forEach((file) => {
         formData.append("pdf_files", file);
       });
-      formData.append("filter_string", this.filterString.trim());
-      formData.append("detection_shift", this.detectionShift || 0);
-
-      // Choose endpoint based on method
+      
+      // Choose endpoint and parameters based on method
       let splitUrl;
-      if (this.splitMethod === "ocrspace") {
+      if (this.splitMethod === "gemini-prompt") {
+        splitUrl = joinUrl(API_BASE_URL, "split-pdf-gemini-prompt");
+        formData.append("custom_prompt", this.customPrompt.trim());
+        formData.append("batch_size", 5); // Default batch size
+        formData.append("model", "gemini-3-flash-preview"); // Default model
+        formData.append("detection_shift", this.detectionShift || 0);
+      } else if (this.splitMethod === "ocrspace") {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf-ocrspace");
+        formData.append("filter_string", this.filterString.trim());
+        formData.append("detection_shift", this.detectionShift || 0);
       } else {
         splitUrl = joinUrl(API_BASE_URL, "split-pdf");
+        formData.append("filter_string", this.filterString.trim());
+        formData.append("detection_shift", this.detectionShift || 0);
       }
 
       console.log("🔧 Split URL:", splitUrl);
@@ -8720,6 +8780,7 @@ export default {
     resetSplitForm() {
       this.pdfFiles = [];
       this.filterString = "";
+      this.customPrompt = 'your task is to identify starts of a unique patient record in a big pdf file, a patient record start will always have a pasted looking id that starts with "25..." somewhere on the first page of that patient, your output is ONLY the indexes of the patient starting pages';
       this.detectionShift = 0;
       this.splitJobId = null;
       this.splitJobStatus = null;
