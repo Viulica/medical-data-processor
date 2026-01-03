@@ -7865,7 +7865,8 @@ async def process_unified_with_refinement(
     notification_email: str = Form(default="cvetkovskileon@gmail.com"),
     refinement_guidance: Optional[str] = Form(default=None),
     refinement_mode: str = Form(default="batch"),  # "batch" or "focused"
-    batch_size: int = Form(default=10)  # Number of errors per batch in batch mode
+    batch_size: int = Form(default=10),  # Number of errors per batch in batch mode
+    refinement_model: str = Form(default="gemini-3-flash-preview")  # Model to use for refinement
 ):
     """
     Unified processing with AI-powered iterative instruction refinement.
@@ -8004,7 +8005,8 @@ async def process_unified_with_refinement(
             notification_email=notification_email,
             refinement_guidance=refinement_guidance,
             refinement_mode=refinement_mode,
-            batch_size=batch_size
+            batch_size=batch_size,
+            refinement_model=refinement_model
         )
         
         logger.info(f"Background refinement task started for job {job_id} (mode: {refinement_mode}, batch_size: {batch_size})")

@@ -194,7 +194,8 @@ def run_refinement_job(
     notification_email: str,
     refinement_guidance: Optional[str] = None,
     refinement_mode: str = "batch",  # "batch" or "focused"
-    batch_size: int = 10  # Number of errors per batch in batch mode
+    batch_size: int = 10,  # Number of errors per batch in batch mode
+    refinement_model: str = "gemini-3-flash-preview"  # Model to use for refinement
 ):
     """
     Main refinement job orchestrator.
@@ -606,8 +607,8 @@ def run_refinement_job(
                                 single_error_case=error_case,
                                 pdf_path=pdf_path,
                                 instruction_type="cpt",
-                                user_guidance=refinement_guidance,
-                                cached_images=cached_images
+                                model=refinement_model,
+                                user_guidance=refinement_guidance
                             )
                             
                             if not improved_instructions:
@@ -662,6 +663,7 @@ def run_refinement_job(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
+                                model=refinement_model,
                                 user_guidance=refinement_guidance,
                                 pdf_image_cache=pdf_image_cache,
                                 instruction_history=cpt_instruction_history
@@ -988,6 +990,7 @@ def run_refinement_job(
                                 single_error_case=error_case,
                                 pdf_path=pdf_path,
                                 instruction_type="icd",
+                                model=refinement_model,
                                 user_guidance=refinement_guidance
                             )
                             
@@ -1043,6 +1046,7 @@ def run_refinement_job(
                                 current_instructions=working_instructions,
                                 error_cases=batch_errors,
                                 pdf_mapping=pdf_mapping,
+                                model=refinement_model,
                                 user_guidance=refinement_guidance,
                                 pdf_image_cache=pdf_image_cache,
                                 instruction_history=icd_instruction_history

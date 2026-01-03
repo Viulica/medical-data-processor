@@ -4478,6 +4478,22 @@
                     >Number of errors to process per batch (default: 10)</small
                   >
                 </div>
+                <div class="setting-group" style="margin-top: 15px">
+                  <label for="refinement-model">Refinement Model</label>
+                  <select
+                    id="refinement-model"
+                    v-model="refinementModel"
+                    class="form-input"
+                  >
+                    <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                    <option value="gemini-flash-lite-latest">Gemini Flash Lite Latest</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </select>
+                  <small class="help-text"
+                    >AI model to use for instruction refinement</small
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -7929,6 +7945,7 @@ export default {
       refinementGuidance: "",
       refinementMode: "batch", // "batch" or "focused"
       refinementBatchSize: 10, // Number of errors per batch in batch mode
+      refinementModel: "gemini-3-flash-preview", // Model to use for refinement
       refinementJobId: null,
       refinementStatus: {},
       isProcessingRefinement: false,
@@ -9579,6 +9596,7 @@ export default {
       }
       formData.append("refinement_mode", this.refinementMode);
       formData.append("batch_size", this.refinementBatchSize);
+      formData.append("refinement_model", this.refinementModel);
 
       try {
         const backendUrl = this.getBackendUrl();
