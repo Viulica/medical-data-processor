@@ -762,7 +762,7 @@ def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-
     
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
-        icd_codes_dict: Dictionary with keys 'ICD1', 'ICD2', 'ICD3', 'ICD4' containing ICD codes
+        icd_codes_dict: Dictionary with keys 'ICD1', 'ICD1_Reasoning', 'ICD2', 'ICD2_Reasoning', 'ICD3', 'ICD3_Reasoning', 'ICD4', 'ICD4_Reasoning' containing ICD codes and reasoning
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return None, 0, 0.0, "Google GenAI SDK not available. Install with: pip install google-genai"
@@ -813,20 +813,30 @@ OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
 {
   "ICD1": "primary_diagnosis_code",
+  "ICD1_Reasoning": "brief explanation of why this code was chosen (1-2 sentences)",
   "ICD2": "secondary_diagnosis_code_or_empty",
+  "ICD2_Reasoning": "brief explanation of why this code was chosen or empty string if no code",
   "ICD3": "tertiary_diagnosis_code_or_empty",
-  "ICD4": "quaternary_diagnosis_code_or_empty"
+  "ICD3_Reasoning": "brief explanation of why this code was chosen or empty string if no code",
+  "ICD4": "quaternary_diagnosis_code_or_empty",
+  "ICD4_Reasoning": "brief explanation of why this code was chosen or empty string if no code"
 }
 
-If a code doesn't exist, use an empty string "" for that field.
+If a code doesn't exist, use an empty string "" for both the code and its reasoning field.
 
 Example response:
 {
   "ICD1": "K63.5",
+  "ICD1_Reasoning": "Polyp of colon identified during colonoscopy procedure",
   "ICD2": "E11.9",
+  "ICD2_Reasoning": "Type 2 diabetes mellitus documented in patient history",
   "ICD3": "I10",
-  "ICD4": ""
+  "ICD3_Reasoning": "Essential hypertension noted in medical record",
+  "ICD4": "",
+  "ICD4_Reasoning": ""
 }
+
+IMPORTANT: For each ICD code you provide, you MUST include a brief reasoning explanation (1-2 sentences) explaining why that specific code was chosen based on the document content. This helps verify the accuracy of your coding decisions.
 
 Respond with ONLY the JSON object, nothing else."""
     
@@ -897,9 +907,13 @@ Respond with ONLY the JSON object, nothing else."""
             # Ensure all required keys exist
             result = {
                 "ICD1": icd_codes_dict.get("ICD1", ""),
+                "ICD1_Reasoning": icd_codes_dict.get("ICD1_Reasoning", ""),
                 "ICD2": icd_codes_dict.get("ICD2", ""),
+                "ICD2_Reasoning": icd_codes_dict.get("ICD2_Reasoning", ""),
                 "ICD3": icd_codes_dict.get("ICD3", ""),
-                "ICD4": icd_codes_dict.get("ICD4", "")
+                "ICD3_Reasoning": icd_codes_dict.get("ICD3_Reasoning", ""),
+                "ICD4": icd_codes_dict.get("ICD4", ""),
+                "ICD4_Reasoning": icd_codes_dict.get("ICD4_Reasoning", "")
             }
             
             # Estimate tokens and cost (Gemini pricing estimates)
@@ -934,14 +948,19 @@ Respond with ONLY the JSON object, nothing else."""
                 # Try to extract codes manually if JSON parsing fails
                 result = {
                     "ICD1": "",
+                    "ICD1_Reasoning": "",
                     "ICD2": "",
+                    "ICD2_Reasoning": "",
                     "ICD3": "",
-                    "ICD4": ""
+                    "ICD3_Reasoning": "",
+                    "ICD4": "",
+                    "ICD4_Reasoning": ""
                 }
                 icd_pattern = r'[A-Z]\d{2}\.?\d*'
                 found_codes = re.findall(icd_pattern, response_text)
                 for i, code in enumerate(found_codes[:4]):
                     result[f"ICD{i+1}"] = code
+                    result[f"ICD{i+1}_Reasoning"] = "Code extracted from response (reasoning not available)"
                 return result, 0, 0.0, error_message
                 
         except Exception as e:
@@ -970,7 +989,7 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
     
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
-        icd_codes_dict: Dictionary with keys 'ICD1', 'ICD2', 'ICD3', 'ICD4' containing ICD codes
+        icd_codes_dict: Dictionary with keys 'ICD1', 'ICD1_Reasoning', 'ICD2', 'ICD2_Reasoning', 'ICD3', 'ICD3_Reasoning', 'ICD4', 'ICD4_Reasoning' containing ICD codes and reasoning
     """
     # Check if using Gemini model
     if is_gemini_model(model):
@@ -1014,20 +1033,30 @@ OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
 {
   "ICD1": "primary_diagnosis_code",
+  "ICD1_Reasoning": "brief explanation of why this code was chosen (1-2 sentences)",
   "ICD2": "secondary_diagnosis_code_or_empty",
+  "ICD2_Reasoning": "brief explanation of why this code was chosen or empty string if no code",
   "ICD3": "tertiary_diagnosis_code_or_empty",
-  "ICD4": "quaternary_diagnosis_code_or_empty"
+  "ICD3_Reasoning": "brief explanation of why this code was chosen or empty string if no code",
+  "ICD4": "quaternary_diagnosis_code_or_empty",
+  "ICD4_Reasoning": "brief explanation of why this code was chosen or empty string if no code"
 }
 
-If a code doesn't exist, use an empty string "" for that field.
+If a code doesn't exist, use an empty string "" for both the code and its reasoning field.
 
 Example response:
 {
   "ICD1": "K63.5",
+  "ICD1_Reasoning": "Polyp of colon identified during colonoscopy procedure",
   "ICD2": "E11.9",
+  "ICD2_Reasoning": "Type 2 diabetes mellitus documented in patient history",
   "ICD3": "I10",
-  "ICD4": ""
+  "ICD3_Reasoning": "Essential hypertension noted in medical record",
+  "ICD4": "",
+  "ICD4_Reasoning": ""
 }
+
+IMPORTANT: For each ICD code you provide, you MUST include a brief reasoning explanation (1-2 sentences) explaining why that specific code was chosen based on the document content. This helps verify the accuracy of your coding decisions.
 
 Respond with ONLY the JSON object, nothing else."""
     
@@ -1099,24 +1128,33 @@ Respond with ONLY the JSON object, nothing else."""
                         # Ensure all required keys exist
                         result = {
                             "ICD1": icd_codes_dict.get("ICD1", ""),
+                            "ICD1_Reasoning": icd_codes_dict.get("ICD1_Reasoning", ""),
                             "ICD2": icd_codes_dict.get("ICD2", ""),
+                            "ICD2_Reasoning": icd_codes_dict.get("ICD2_Reasoning", ""),
                             "ICD3": icd_codes_dict.get("ICD3", ""),
-                            "ICD4": icd_codes_dict.get("ICD4", "")
+                            "ICD3_Reasoning": icd_codes_dict.get("ICD3_Reasoning", ""),
+                            "ICD4": icd_codes_dict.get("ICD4", ""),
+                            "ICD4_Reasoning": icd_codes_dict.get("ICD4_Reasoning", "")
                         }
                     except json.JSONDecodeError:
                         # If JSON parsing fails, try to extract codes manually
                         logger.warning(f"Failed to parse JSON, attempting manual extraction. Response: {content_text[:200]}")
                         result = {
                             "ICD1": "",
+                            "ICD1_Reasoning": "",
                             "ICD2": "",
+                            "ICD2_Reasoning": "",
                             "ICD3": "",
-                            "ICD4": ""
+                            "ICD3_Reasoning": "",
+                            "ICD4": "",
+                            "ICD4_Reasoning": ""
                         }
                         # Try to find ICD codes in the text (basic pattern matching)
                         icd_pattern = r'[A-Z]\d{2}\.?\d*'
                         found_codes = re.findall(icd_pattern, content_text)
                         for i, code in enumerate(found_codes[:4]):
                             result[f"ICD{i+1}"] = code
+                            result[f"ICD{i+1}_Reasoning"] = "Code extracted from response (reasoning not available)"
                 else:
                     raise Exception(f"Empty response content. Response: {response_data}")
             else:
@@ -1646,7 +1684,17 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 if not image_data_list:
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
                     model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
-                    return idx, filename, {"ICD1": "ERROR", "ICD2": "", "ICD3": "", "ICD4": ""}, 0, 0.0, error_msg, model_source
+                    error_dict = {
+                        "ICD1": "ERROR",
+                        "ICD1_Reasoning": "",
+                        "ICD2": "",
+                        "ICD2_Reasoning": "",
+                        "ICD3": "",
+                        "ICD3_Reasoning": "",
+                        "ICD4": "",
+                        "ICD4_Reasoning": ""
+                    }
+                    return idx, filename, error_dict, 0, 0.0, error_msg, model_source
                 
                 # Predict ICD codes from images
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
@@ -1661,17 +1709,25 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                     if error:
                         error_dict = {
                             "ICD1": f"ERROR: {error[:30]}",
+                            "ICD1_Reasoning": "",
                             "ICD2": "",
+                            "ICD2_Reasoning": "",
                             "ICD3": "",
-                            "ICD4": ""
+                            "ICD3_Reasoning": "",
+                            "ICD4": "",
+                            "ICD4_Reasoning": ""
                         }
                         return idx, filename, error_dict, tokens, cost, error, model_source
                     else:
                         error_dict = {
                             "ICD1": "ERROR: No prediction",
+                            "ICD1_Reasoning": "",
                             "ICD2": "",
+                            "ICD2_Reasoning": "",
                             "ICD3": "",
-                            "ICD4": ""
+                            "ICD3_Reasoning": "",
+                            "ICD4": "",
+                            "ICD4_Reasoning": ""
                         }
                         return idx, filename, error_dict, tokens, cost, "No prediction returned from API", model_source
                 
@@ -1683,9 +1739,13 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
                 error_dict = {
                     "ICD1": f"ERROR: {type(e).__name__}",
+                    "ICD1_Reasoning": "",
                     "ICD2": "",
+                    "ICD2_Reasoning": "",
                     "ICD3": "",
-                    "ICD4": ""
+                    "ICD3_Reasoning": "",
+                    "ICD4": "",
+                    "ICD4_Reasoning": ""
                 }
                 return idx, filename, error_dict, 0, 0.0, error_msg, model_source
         
@@ -1698,9 +1758,13 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 results[idx] = {
                     'filename': filename,
                     'icd1': icd_codes_dict.get('ICD1', ''),
+                    'icd1_reasoning': icd_codes_dict.get('ICD1_Reasoning', ''),
                     'icd2': icd_codes_dict.get('ICD2', ''),
+                    'icd2_reasoning': icd_codes_dict.get('ICD2_Reasoning', ''),
                     'icd3': icd_codes_dict.get('ICD3', ''),
+                    'icd3_reasoning': icd_codes_dict.get('ICD3_Reasoning', ''),
                     'icd4': icd_codes_dict.get('ICD4', ''),
+                    'icd4_reasoning': icd_codes_dict.get('ICD4_Reasoning', ''),
                     'tokens': tokens,
                     'cost': cost,
                     'error': error,
@@ -1717,9 +1781,13 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         # Convert results to lists in correct order
         filenames = [results[i]['filename'] for i in range(len(pdf_files))]
         icd1_list = [results[i]['icd1'] for i in range(len(pdf_files))]
+        icd1_reasoning_list = [results[i]['icd1_reasoning'] for i in range(len(pdf_files))]
         icd2_list = [results[i]['icd2'] for i in range(len(pdf_files))]
+        icd2_reasoning_list = [results[i]['icd2_reasoning'] for i in range(len(pdf_files))]
         icd3_list = [results[i]['icd3'] for i in range(len(pdf_files))]
+        icd3_reasoning_list = [results[i]['icd3_reasoning'] for i in range(len(pdf_files))]
         icd4_list = [results[i]['icd4'] for i in range(len(pdf_files))]
+        icd4_reasoning_list = [results[i]['icd4_reasoning'] for i in range(len(pdf_files))]
         tokens_list = [results[i]['tokens'] for i in range(len(pdf_files))]
         costs_list = [results[i]['cost'] for i in range(len(pdf_files))]
         errors_list = [results[i]['error'] for i in range(len(pdf_files))]
@@ -1729,9 +1797,13 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         df = pd.DataFrame({
             'Patient Filename': filenames,
             'ICD1': icd1_list,
+            'ICD1 Reasoning': icd1_reasoning_list,
             'ICD2': icd2_list,
+            'ICD2 Reasoning': icd2_reasoning_list,
             'ICD3': icd3_list,
+            'ICD3 Reasoning': icd3_reasoning_list,
             'ICD4': icd4_list,
+            'ICD4 Reasoning': icd4_reasoning_list,
             'Model Source': model_sources,
             'Tokens Used': tokens_list,
             'Cost (USD)': costs_list,

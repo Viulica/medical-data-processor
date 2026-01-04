@@ -850,13 +850,13 @@ def run_refinement_job(
                                 break
                     
                     # Remove existing ICD columns before merging
-                    icd_columns_to_remove = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
+                    icd_columns_to_remove = ['ICD1', 'ICD1 Reasoning', 'ICD2', 'ICD2 Reasoning', 'ICD3', 'ICD3 Reasoning', 'ICD4', 'ICD4 Reasoning']
                     existing_icd_cols = [col for col in icd_columns_to_remove if col in results_df.columns]
                     if existing_icd_cols:
                         results_df = results_df.drop(columns=existing_icd_cols, errors='ignore')
                     
-                    # Extract ICD columns to merge
-                    icd_cols_to_merge = ['ICD1', 'ICD2', 'ICD3', 'ICD4', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+                    # Extract ICD columns to merge (including reasoning columns)
+                    icd_cols_to_merge = ['ICD1', 'ICD1 Reasoning', 'ICD2', 'ICD2 Reasoning', 'ICD3', 'ICD3 Reasoning', 'ICD4', 'ICD4 Reasoning', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
                     icd_cols_available = [col for col in icd_cols_to_merge if col in icd_df.columns]
                     
                     if filename_col_icd and source_file_col_ext:

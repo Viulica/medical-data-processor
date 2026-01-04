@@ -7438,7 +7438,7 @@ def process_unified_background(
             
             # IMPORTANT: Remove any existing ICD columns from extraction data BEFORE merging
             # This prevents pandas from adding _x/_y suffixes
-            icd_columns_to_remove = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
+            icd_columns_to_remove = ['ICD1', 'ICD1 Reasoning', 'ICD2', 'ICD2 Reasoning', 'ICD3', 'ICD3 Reasoning', 'ICD4', 'ICD4 Reasoning']
             existing_icd_cols = [col for col in icd_columns_to_remove if col in base_df.columns]
             if existing_icd_cols:
                 logger.info(f"[Unified {job_id}] Removing existing ICD columns from extraction data: {existing_icd_cols}")
@@ -7451,8 +7451,8 @@ def process_unified_background(
             elif 'Filename' in icd_df.columns:
                 filename_col = 'Filename'
             
-            # Extract ICD columns to merge
-            icd_cols_to_merge = ['ICD1', 'ICD2', 'ICD3', 'ICD4', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
+            # Extract ICD columns to merge (including reasoning columns)
+            icd_cols_to_merge = ['ICD1', 'ICD1 Reasoning', 'ICD2', 'ICD2 Reasoning', 'ICD3', 'ICD3 Reasoning', 'ICD4', 'ICD4 Reasoning', 'Model Source', 'Tokens Used', 'Cost (USD)', 'Error Message']
             icd_cols_available = [col for col in icd_cols_to_merge if col in icd_df.columns]
             
             if filename_col and 'source_file' in base_df.columns:
