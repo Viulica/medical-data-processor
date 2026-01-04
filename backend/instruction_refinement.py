@@ -218,15 +218,18 @@ Analyze the following errors and improve the CPT coding instructions to prevent 
 {user_guidance_section}ERROR ANALYSIS WITH PDF CONTEXT:
 Below are the error cases. Each error is followed immediately by its COMPLETE PDF document (all pages) for easy mapping.
 
+IMPORTANT: Each error includes the model's reasoning for why it chose the predicted code. Use this reasoning to understand the model's thought process and identify where it went wrong. This will help you create better instructions that address the root cause of the mistake.
+
 REQUIREMENTS:
 1. Analyze the patterns in these errors - what common mistakes is the AI making?
-2. Improve the instructions to prevent these specific errors
-3. Make instructions GENERALIZABLE - focus on pattern recognition, not hardcoded rules
-4. Use if-else logic ONLY when absolutely necessary for specific edge cases
-5. Build upon the existing instructions - don't start from scratch
-6. Keep instructions clear, concise, and actionable
-7. Prioritize rules that will generalize to similar cases
-{("8. Follow the user guidance provided above" if user_guidance_section else "")}
+2. Pay special attention to the model's reasoning - understand WHY it made the wrong choice
+3. Improve the instructions to prevent these specific errors by addressing the flawed reasoning patterns
+4. Make instructions GENERALIZABLE - focus on pattern recognition, not hardcoded rules
+5. Use if-else logic ONLY when absolutely necessary for specific edge cases
+6. Build upon the existing instructions - don't start from scratch
+7. Keep instructions clear, concise, and actionable
+8. Prioritize rules that will generalize to similar cases
+{("9. Follow the user guidance provided above" if user_guidance_section else "")}
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON object in this exact format:
@@ -247,9 +250,13 @@ Respond with ONLY the JSON object, nothing else."""
     for idx, error in enumerate(selected_errors):
         predicted = error.get('predicted', 'N/A')
         expected = error.get('expected', 'N/A')
+        predicted_reasoning = error.get('predicted_reasoning', '')
         
-        # Add error text
-        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+        # Build error text with reasoning if available
+        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'"
+        if predicted_reasoning:
+            error_text += f"\n- Model's Reasoning for '{predicted}': {predicted_reasoning}"
+        error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
         parts.append(types.Part.from_text(text=error_text))
         
         # Load and add PDF images for this specific error immediately after (use cache if available)
@@ -436,6 +443,15 @@ def refine_instructions_focused_mode(
     expected = single_error_case.get('expected', '')
     error_type = single_error_case.get('error_type', instruction_type.upper())
     
+    # Extract reasoning if available
+    predicted_reasoning = single_error_case.get('predicted_reasoning', '')
+    
+    # For ICD, also get individual code reasoning
+    predicted_icd1_reasoning = single_error_case.get('predicted_icd1_reasoning', '')
+    predicted_icd2_reasoning = single_error_case.get('predicted_icd2_reasoning', '')
+    predicted_icd3_reasoning = single_error_case.get('predicted_icd3_reasoning', '')
+    predicted_icd4_reasoning = single_error_case.get('predicted_icd4_reasoning', '')
+    
     error_description = f"""
 ERROR CASE:
 - Error Type: {error_type}
@@ -443,6 +459,26 @@ ERROR CASE:
 - Expected: {expected}
 - The AI predicted "{predicted}" but the correct answer is "{expected}"
 """
+    
+    # Add reasoning to error description
+    if predicted_reasoning:
+        error_description += f"\n- Model's Reasoning for '{predicted}': {predicted_reasoning}"
+    
+    # For ICD errors, add reasoning for each code if available
+    if error_type == 'ICD1' and predicted_icd1_reasoning:
+        error_description += f"\n- Model's Reasoning for ICD1 '{predicted}': {predicted_icd1_reasoning}"
+    if predicted_icd2_reasoning:
+        predicted_icd2 = single_error_case.get('predicted_icd2', '')
+        if predicted_icd2:
+            error_description += f"\n- Model's Reasoning for ICD2 '{predicted_icd2}': {predicted_icd2_reasoning}"
+    if predicted_icd3_reasoning:
+        predicted_icd3 = single_error_case.get('predicted_icd3', '')
+        if predicted_icd3:
+            error_description += f"\n- Model's Reasoning for ICD3 '{predicted_icd3}': {predicted_icd3_reasoning}"
+    if predicted_icd4_reasoning:
+        predicted_icd4 = single_error_case.get('predicted_icd4', '')
+        if predicted_icd4:
+            error_description += f"\n- Model's Reasoning for ICD4 '{predicted_icd4}': {predicted_icd4_reasoning}"
     
     # Use default guidance if not provided
     effective_guidance = user_guidance if user_guidance and user_guidance.strip() else DEFAULT_REFINEMENT_GUIDANCE
@@ -462,6 +498,7 @@ PDF CONTEXT:
 Below is the COMPLETE PDF document (all pages) for this error case.
 - Carefully examine the PDF to understand WHY the coder chose "{expected}" instead of "{predicted}"
 - Look for patterns, context clues, procedure types, diagnoses, and other details that would guide the correct coding decision
+- Pay attention to the model's reasoning (if provided) - understand WHY it made the wrong choice and what flawed logic led to the mistake
 
 USER GUIDANCE:
 {effective_guidance}
@@ -731,6 +768,8 @@ Analyze the following errors and improve the ICD coding instructions to prevent 
 {user_guidance_section}ERROR ANALYSIS WITH PDF CONTEXT:
 Below are the error cases. Each error is followed immediately by its COMPLETE PDF document (all pages) for easy mapping.
 
+IMPORTANT: Each error includes the model's reasoning for why it chose each predicted ICD code. Use this reasoning to understand the model's thought process and identify where it went wrong. This will help you create better instructions that address the root cause of the mistake.
+
 CRITICAL FOCUS - ICD1 IS PRIMARY:
 - ICD1 (PRIMARY diagnosis) is THE MOST IMPORTANT code for medical billing - this is what determines payment
 - Accuracy is ONLY tested on ICD1 - this is the ONLY code that matters for success metrics
@@ -738,6 +777,7 @@ CRITICAL FOCUS - ICD1 IS PRIMARY:
 - Your PRIMARY goal is to fix ICD1 prediction errors - focus ALL improvements on getting ICD1 correct
 - The secondary codes (ICD2-4) may help you understand context, but DO NOT prioritize fixing them
 - If ICD1 is wrong but ICD2-4 are correct, that's still a FAILURE - focus on fixing ICD1
+- Pay special attention to the model's reasoning for ICD1 - understand WHY it chose the wrong primary diagnosis
 """
 
     # Build content with interleaved errors and PDFs for easy mapping
@@ -765,7 +805,25 @@ CRITICAL FOCUS - ICD1 IS PRIMARY:
         expected_str = ', '.join(expected_icds) if expected_icds else '(none)'
         
         # Add error text
-        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+        # Extract reasoning for each ICD code if available
+        predicted_icd1_reasoning = error.get('predicted_icd1_reasoning', '')
+        predicted_icd2_reasoning = error.get('predicted_icd2_reasoning', '')
+        predicted_icd3_reasoning = error.get('predicted_icd3_reasoning', '')
+        predicted_icd4_reasoning = error.get('predicted_icd4_reasoning', '')
+        
+        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})"
+        
+        # Add reasoning if available
+        if predicted_icd1_reasoning:
+            error_text += f"\n- Model's Reasoning for ICD1 '{predicted_icd1}': {predicted_icd1_reasoning}"
+        if predicted_icd2 and predicted_icd2_reasoning:
+            error_text += f"\n- Model's Reasoning for ICD2 '{predicted_icd2}': {predicted_icd2_reasoning}"
+        if predicted_icd3 and predicted_icd3_reasoning:
+            error_text += f"\n- Model's Reasoning for ICD3 '{predicted_icd3}': {predicted_icd3_reasoning}"
+        if predicted_icd4 and predicted_icd4_reasoning:
+            error_text += f"\n- Model's Reasoning for ICD4 '{predicted_icd4}': {predicted_icd4_reasoning}"
+        
+        error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
         parts.append(types.Part.from_text(text=error_text))
         
         # Load and add PDF images for this specific error immediately after (use cache if available)

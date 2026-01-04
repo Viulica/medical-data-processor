@@ -215,12 +215,21 @@ def calculate_accuracy(
                     if len(error_cases) < 5:
                         logger.info(f"CPT Mismatch - Account: {account_id}, Predicted: '{predicted_cpt}', Ground Truth: '{gt_cpt}'")
                     pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
+                    
+                    # Extract reasoning from Code Explanation column if available
+                    cpt_reasoning = ''
+                    if 'Code Explanation' in predictions_df.columns:
+                        reasoning_val = row.get('Code Explanation', '')
+                        if pd.notna(reasoning_val) and str(reasoning_val).strip():
+                            cpt_reasoning = str(reasoning_val).strip()
+                    
                     error_cases.append({
                         'account_id': account_id,
                         'pdf_path': pdf_path,
                         'predicted': predicted_cpt,
                         'expected': gt_cpt,
-                        'error_type': 'CPT'
+                        'error_type': 'CPT',
+                        'predicted_reasoning': cpt_reasoning
                     })
             
             # Compare ICD1 (only if both predicted and ground truth have codes)
@@ -236,6 +245,30 @@ def calculate_accuracy(
                         icd1_matches += 1
                     else:
                         pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
+                        
+                        # Extract reasoning from ICD Reasoning columns if available
+                        icd1_reasoning = ''
+                        icd2_reasoning = ''
+                        icd3_reasoning = ''
+                        icd4_reasoning = ''
+                        
+                        if 'ICD1 Reasoning' in predictions_df.columns:
+                            reasoning_val = row.get('ICD1 Reasoning', '')
+                            if pd.notna(reasoning_val) and str(reasoning_val).strip():
+                                icd1_reasoning = str(reasoning_val).strip()
+                        if 'ICD2 Reasoning' in predictions_df.columns:
+                            reasoning_val = row.get('ICD2 Reasoning', '')
+                            if pd.notna(reasoning_val) and str(reasoning_val).strip():
+                                icd2_reasoning = str(reasoning_val).strip()
+                        if 'ICD3 Reasoning' in predictions_df.columns:
+                            reasoning_val = row.get('ICD3 Reasoning', '')
+                            if pd.notna(reasoning_val) and str(reasoning_val).strip():
+                                icd3_reasoning = str(reasoning_val).strip()
+                        if 'ICD4 Reasoning' in predictions_df.columns:
+                            reasoning_val = row.get('ICD4 Reasoning', '')
+                            if pd.notna(reasoning_val) and str(reasoning_val).strip():
+                                icd4_reasoning = str(reasoning_val).strip()
+                        
                         error_cases.append({
                             'account_id': account_id,
                             'pdf_path': pdf_path,
@@ -249,7 +282,11 @@ def calculate_accuracy(
                             'expected_icd2': gt_icd_list[1] if len(gt_icd_list) > 1 else '',
                             'expected_icd3': gt_icd_list[2] if len(gt_icd_list) > 2 else '',
                             'expected_icd4': gt_icd_list[3] if len(gt_icd_list) > 3 else '',
-                            'error_type': 'ICD1'
+                            'error_type': 'ICD1',
+                            'predicted_icd1_reasoning': icd1_reasoning,
+                            'predicted_icd2_reasoning': icd2_reasoning,
+                            'predicted_icd3_reasoning': icd3_reasoning,
+                            'predicted_icd4_reasoning': icd4_reasoning
                         })
                 elif len(predicted_icd_list) == 0:
                     icd_skipped_no_predicted += 1

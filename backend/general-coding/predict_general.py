@@ -1457,7 +1457,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
     
@@ -1471,6 +1471,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         progress_callback: Optional callback function(completed, total, message)
         custom_instructions: Optional custom instructions to append to the prompt
         include_code_list: Whether to include the complete CPT code list in the prompt (default True)
+        image_cache: Optional dict mapping PDF filename to list of base64 images (for speed optimization)
     
     Returns:
         bool: True if successful, False otherwise
@@ -1618,7 +1619,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
     
@@ -1631,6 +1632,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         max_workers: Number of concurrent threads
         progress_callback: Optional callback function(completed, total, message)
         custom_instructions: Optional custom instructions to append to the prompt
+        image_cache: Optional dict mapping PDF filename to list of base64 images (for speed optimization)
     
     Returns:
         bool: True if successful, False otherwise
@@ -1678,8 +1680,16 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
             filename = pdf_path.name
             
             try:
-                # Extract pages as base64 images
-                image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
+                # Use cached images if available, otherwise extract
+                if image_cache and filename in image_cache:
+                    image_data_list = image_cache[filename]
+                    logger.debug(f"Using cached images for {filename}")
+                else:
+                    # Extract pages as base64 images
+                    image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
+                    # Cache for potential reuse
+                    if image_cache is not None:
+                        image_cache[filename] = image_data_list
                 
                 if not image_data_list:
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."

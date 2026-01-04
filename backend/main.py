@@ -6374,10 +6374,14 @@ def process_unified_background(
         
         # ==================== PARALLEL EXECUTION STRATEGY ====================
         # Determine which operations can run in parallel:
-        # 1. All three (Extraction + CPT Vision + ICD) can run in parallel
+        # 1. All three (Extraction + CPT Vision + ICD) can run in parallel - MAXIMUM SPEED!
+        #    - Extraction, CPT Vision, and ICD Vision can ALL run simultaneously since they're independent
         # 2. Extraction + ICD can run in parallel, then CPT non-vision after extraction
+        #    - CPT non-vision needs extraction results, so it must wait
         # 3. Fall back to sequential processing for other cases
         
+        # ALWAYS run all three in parallel when extraction is enabled and both CPT/ICD use vision mode
+        # This is the fastest possible configuration - all operations are independent!
         run_all_three_parallel = (
             enable_extraction and 
             enable_cpt and cpt_vision_mode and 
@@ -6409,7 +6413,33 @@ def process_unified_background(
             # Import prediction functions
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, pdf_pages_to_base64_images
+            
+            # OPTIMIZATION: Pre-extract and cache PDF images to share between CPT and ICD
+            # This avoids extracting the same PDFs twice when both use vision mode
+            pdf_image_cache = {}  # filename -> list of base64 images
+            if enable_cpt and cpt_vision_mode and enable_icd:
+                # Determine max pages needed (use the larger of the two)
+                max_pages_needed = max(cpt_vision_pages, icd_n_pages)
+                logger.info(f"[Unified {job_id}] ⚡ SPEED OPTIMIZATION: Pre-extracting PDF images (max {max_pages_needed} pages) to share between CPT and ICD...")
+                
+                pdf_files = list((temp_dir / "input").glob("**/*.pdf"))
+                pdf_files = sorted(pdf_files, key=lambda x: x.name)
+                
+                # Pre-extract images in parallel
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
+                    future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
+                    for future in as_completed(future_to_pdf):
+                        pdf_path = future_to_pdf[future]
+                        try:
+                            images = future.result()
+                            if images:
+                                pdf_image_cache[pdf_path.name] = images
+                        except Exception as e:
+                            logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
+                
+                logger.info(f"[Unified {job_id}] ✅ Pre-extracted images for {len(pdf_image_cache)} PDFs (shared cache)")
             
             # Thread-safe progress tracking for all three operations
             import threading
@@ -6590,6 +6620,7 @@ def process_unified_background(
                             cpt_total[0] = total
                         update_progress()
                     
+                    # Use shared image cache if available (optimization)
                     result = predict_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path_local,
@@ -6599,7 +6630,8 @@ def process_unified_background(
                         max_workers=cpt_max_workers,
                         progress_callback=cpt_progress,
                         custom_instructions=cpt_custom_instructions,
-                        include_code_list=cpt_include_code_list
+                        include_code_list=cpt_include_code_list,
+                        image_cache=pdf_image_cache if pdf_image_cache else None
                     )
                     cpt_result[0] = cpt_csv_path_local if result else None
                     if not result:
@@ -6632,6 +6664,7 @@ def process_unified_background(
                             icd_total[0] = total
                         update_progress()
                     
+                    # Note: No image cache here since extraction+ICD parallel doesn't share with CPT
                     result = predict_icd_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path_local,
@@ -6640,7 +6673,8 @@ def process_unified_background(
                         api_key=api_key,
                         max_workers=icd_max_workers,
                         progress_callback=icd_progress,
-                        custom_instructions=icd_custom_instructions
+                        custom_instructions=icd_custom_instructions,
+                        image_cache=None
                     )
                     icd_result[0] = icd_csv_path_local if result else None
                     if not result:
@@ -7000,7 +7034,30 @@ def process_unified_background(
             # Import prediction functions
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, pdf_pages_to_base64_images
+            
+            # OPTIMIZATION: Pre-extract and cache PDF images to share between CPT and ICD
+            pdf_image_cache = {}  # filename -> list of base64 images
+            max_pages_needed = max(cpt_vision_pages, icd_n_pages)
+            logger.info(f"[Unified {job_id}] ⚡ SPEED OPTIMIZATION: Pre-extracting PDF images (max {max_pages_needed} pages) to share between CPT and ICD...")
+            
+            pdf_files = list((temp_dir / "input").glob("**/*.pdf"))
+            pdf_files = sorted(pdf_files, key=lambda x: x.name)
+            
+            # Pre-extract images in parallel
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
+                future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
+                for future in as_completed(future_to_pdf):
+                    pdf_path = future_to_pdf[future]
+                    try:
+                        images = future.result()
+                        if images:
+                            pdf_image_cache[pdf_path.name] = images
+                    except Exception as e:
+                        logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
+            
+            logger.info(f"[Unified {job_id}] ✅ Pre-extracted images for {len(pdf_image_cache)} PDFs (shared cache)")
             
             # Create output paths
             cpt_csv_path = str(temp_dir / "cpt_predictions.csv")
@@ -7061,6 +7118,7 @@ def process_unified_background(
                     else:
                         cpt_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
+                    # Use shared image cache (optimization)
                     result = predict_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path,
@@ -7070,7 +7128,8 @@ def process_unified_background(
                         max_workers=cpt_max_workers,
                         progress_callback=cpt_progress,
                         custom_instructions=cpt_custom_instructions,
-                        include_code_list=cpt_include_code_list
+                        include_code_list=cpt_include_code_list,
+                        image_cache=pdf_image_cache
                     )
                     cpt_result[0] = result
                 except Exception as e:
@@ -7085,6 +7144,7 @@ def process_unified_background(
                     else:
                         icd_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
+                    # Use shared image cache (optimization)
                     result = predict_icd_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path,
@@ -7093,7 +7153,8 @@ def process_unified_background(
                         api_key=icd_api_key,
                         max_workers=icd_max_workers,
                         progress_callback=icd_progress,
-                        custom_instructions=icd_custom_instructions
+                        custom_instructions=icd_custom_instructions,
+                        image_cache=pdf_image_cache
                     )
                     icd_result[0] = result
                 except Exception as e:
