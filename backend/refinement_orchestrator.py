@@ -41,7 +41,9 @@ def test_single_pdf_error_fixed(
     icd_n_pages: int = 1,
     icd_vision_model: str = "openai/gpt-5.2:online",
     cpt_include_code_list: bool = True,
-    temp_dir: Optional[Path] = None
+    temp_dir: Optional[Path] = None,
+    pdf_image_cache: Optional[Dict[str, List[str]]] = None,
+    use_fast_test: bool = True  # Use 1 page for faster testing
 ) -> tuple[bool, str]:
     """
     Test if a single error is fixed by running prediction on that specific PDF.
@@ -59,6 +61,8 @@ def test_single_pdf_error_fixed(
         icd_vision_model: Model for ICD
         cpt_include_code_list: Whether to include CPT code list
         temp_dir: Temporary directory for output files
+        pdf_image_cache: Optional cache of PDF images (filename -> images)
+        use_fast_test: If True, use only 1 page for faster testing
     
     Returns:
         Tuple of (is_fixed: bool, predicted_code: str)
@@ -80,14 +84,98 @@ def test_single_pdf_error_fixed(
         sys.path.insert(0, str(general_coding_path))
         from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, is_gemini_model
         
+        # OPTIMIZATION: Use cached images if available, otherwise extract
+        pdf_filename = Path(pdf_path).name
+        cached_images = None
+        if pdf_image_cache and pdf_filename in pdf_image_cache:
+            cached_images = pdf_image_cache[pdf_filename]
+            logger.debug(f"Using cached images for {pdf_filename} (fast test)")
+        
+        # For fast testing, use only 1 page
+        test_pages = 1 if use_fast_test else (cpt_vision_pages if instruction_type.lower() == "cpt" else icd_n_pages)
+        
         # Create a temporary folder with just this PDF
         test_pdf_folder = temp_dir / "test_single_pdf"
         test_pdf_folder.mkdir(exist_ok=True)
         
         # Copy PDF to test folder
+        # IMPORTANT: If pdf_path is a directory or points to split PDFs, we need to handle it
         import shutil
-        test_pdf_path = test_pdf_folder / Path(pdf_path).name
-        shutil.copy2(pdf_path, test_pdf_path)
+        pdf_path_obj = Path(pdf_path)
+        
+        # Check if pdf_path is a file or directory
+        if pdf_path_obj.is_file():
+            # It's a single file - copy it
+            test_pdf_path = test_pdf_folder / pdf_filename
+            shutil.copy2(pdf_path, test_pdf_path)
+            logger.debug(f"Copied single PDF file: {pdf_path} -> {test_pdf_path}")
+        elif pdf_path_obj.is_dir():
+            # It's a directory - find the main PDF file
+            # First, try to find a file matching the expected filename
+            pdf_files_in_dir = list(pdf_path_obj.glob("*.pdf")) + list(pdf_path_obj.glob("*.PDF"))
+            if pdf_files_in_dir:
+                # Try to find exact match first
+                exact_match = None
+                for pf in pdf_files_in_dir:
+                    if pf.name == pdf_filename or pf.name.lower() == pdf_filename.lower():
+                        exact_match = pf
+                        break
+                
+                if exact_match:
+                    main_pdf = exact_match
+                    logger.info(f"Found exact match in directory: {main_pdf.name}")
+                else:
+                    # Prefer files without "section" in the name, otherwise use first file
+                    main_pdf = None
+                    for pf in pdf_files_in_dir:
+                        if "section" not in pf.name.lower():
+                            main_pdf = pf
+                            break
+                    if main_pdf is None:
+                        main_pdf = pdf_files_in_dir[0]  # Use first file if all are sections
+                    logger.info(f"Using main PDF from directory: {main_pdf.name} (out of {len(pdf_files_in_dir)} files)")
+                
+                test_pdf_path = test_pdf_folder / main_pdf.name
+                shutil.copy2(main_pdf, test_pdf_path)
+            else:
+                raise Exception(f"PDF path is a directory but contains no PDF files: {pdf_path}")
+        else:
+            # Path doesn't exist as file or directory - try to find it
+            # Check if it's a file in parent directory
+            parent_dir = pdf_path_obj.parent
+            if parent_dir.exists() and parent_dir.is_dir():
+                # Try exact filename match first
+                potential_file = parent_dir / pdf_filename
+                if potential_file.exists() and potential_file.is_file():
+                    test_pdf_path = test_pdf_folder / pdf_filename
+                    shutil.copy2(potential_file, test_pdf_path)
+                    logger.info(f"Found PDF file in parent directory: {potential_file.name}")
+                else:
+                    # Try pattern matching
+                    matching_files = list(parent_dir.glob(f"{pdf_filename}*"))
+                    if matching_files:
+                        # Use the first matching file
+                        test_pdf_path = test_pdf_folder / pdf_filename
+                        shutil.copy2(matching_files[0], test_pdf_path)
+                        logger.info(f"Found PDF file by pattern matching: {matching_files[0].name}")
+                    else:
+                        raise Exception(f"Could not find PDF file: {pdf_path}")
+            else:
+                raise Exception(f"PDF path does not exist: {pdf_path}")
+        
+        # CRITICAL: Ensure ONLY one PDF is in the test folder to avoid processing multiple files
+        # Clean up any other PDFs that might have been copied
+        all_pdfs_in_test_folder = list(test_pdf_folder.glob("*.pdf")) + list(test_pdf_folder.glob("*.PDF"))
+        logger.info(f"[Fast Test] PDF path type: {'DIRECTORY' if Path(pdf_path).is_dir() else 'FILE' if Path(pdf_path).is_file() else 'NOT FOUND'}")
+        logger.info(f"[Fast Test] Test folder contains {len(all_pdfs_in_test_folder)} PDF file(s)")
+        if len(all_pdfs_in_test_folder) > 1:
+            logger.warning(f"[Fast Test] ⚠️ Found {len(all_pdfs_in_test_folder)} PDFs in test folder! This will cause multiple API calls. Keeping only: {test_pdf_path.name}")
+            for pdf_file in all_pdfs_in_test_folder:
+                if pdf_file != test_pdf_path:
+                    logger.warning(f"[Fast Test] Deleting extra PDF: {pdf_file.name}")
+                    pdf_file.unlink()  # Delete extra PDFs
+        else:
+            logger.info(f"[Fast Test] ✅ Test folder correctly contains only 1 PDF: {test_pdf_path.name}")
         
         if instruction_type.lower() == "cpt":
             # Test CPT prediction
@@ -96,16 +184,21 @@ def test_single_pdf_error_fixed(
                 api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else os.getenv("OPENROUTER_API_KEY")
                 
                 output_file = str(temp_dir / "test_cpt_result.csv")
+                
+                # OPTIMIZATION: Use cached images if available
+                test_image_cache = {pdf_filename: cached_images} if cached_images else None
+                
                 success = predict_codes_from_pdfs_api(
                     pdf_folder=str(test_pdf_folder),
                     output_file=output_file,
-                    n_pages=cpt_vision_pages,
+                    n_pages=test_pages,  # Use fast test pages
                     model=cpt_vision_model,
                     api_key=api_key,
                     max_workers=1,
                     progress_callback=None,
                     custom_instructions=instructions,
-                    include_code_list=cpt_include_code_list
+                    include_code_list=cpt_include_code_list,
+                    image_cache=test_image_cache  # Pass cache for speed
                 )
                 
                 if success and os.path.exists(output_file):
@@ -140,15 +233,20 @@ def test_single_pdf_error_fixed(
             api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else (os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
             
             output_file = str(temp_dir / "test_icd_result.csv")
+            
+            # OPTIMIZATION: Use cached images if available
+            test_image_cache = {pdf_filename: cached_images} if cached_images else None
+            
             success = predict_icd_codes_from_pdfs_api(
                 pdf_folder=str(test_pdf_folder),
                 output_file=output_file,
-                n_pages=icd_n_pages,
+                n_pages=test_pages,  # Use fast test pages
                 model=icd_vision_model,
                 api_key=api_key,
                 max_workers=1,
                 progress_callback=None,
-                custom_instructions=instructions
+                custom_instructions=instructions,
+                image_cache=test_image_cache  # Pass cache for speed
             )
             
             if success and os.path.exists(output_file):
@@ -540,6 +638,7 @@ def run_refinement_job(
             
             # Run ONLY CPT prediction (reuse extraction CSV and cached PDFs)
             logger.info(f"[Refinement {job_id}] Running CPT prediction only (iteration {cpt_iteration})...")
+            logger.info(f"[Refinement {job_id}] ⚠️  FULL PREDICTION: Processing ALL PDFs to calculate overall accuracy (this may take a while)...")
             
             try:
                 if not extraction_csv_path:
@@ -822,6 +921,7 @@ def run_refinement_job(
                                 
                                 # Immediately test if error is fixed
                                 logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Testing if error is fixed...")
+                                logger.info(f"[Refinement {job_id}] ⚡ FAST TEST: Testing ONLY this one PDF ({Path(pdf_path).name}) - NOT all PDFs")
                                 is_fixed, new_predicted = test_single_pdf_error_fixed(
                                     pdf_path=pdf_path,
                                     account_id=account_id,
@@ -832,8 +932,11 @@ def run_refinement_job(
                                     cpt_vision_pages=cpt_vision_pages,
                                     cpt_vision_model=cpt_vision_model,
                                     cpt_include_code_list=cpt_include_code_list,
-                                    temp_dir=temp_dir
+                                    temp_dir=temp_dir,
+                                    pdf_image_cache=test_pdf_image_cache,  # Use pre-loaded cache
+                                    use_fast_test=True  # Use 1 page for faster testing
                                 )
+                                logger.info(f"[Refinement {job_id}] ✅ Fast test completed for {Path(pdf_path).name}")
                                 
                                 case_status["attempts"].append({
                                     "attempt": attempt_num,
@@ -1050,6 +1153,7 @@ def run_refinement_job(
                 
                 # Run ONLY ICD prediction (reuse extraction CSV and cached PDFs)
                 logger.info(f"[Refinement {job_id}] Running ICD prediction only (iteration {icd_iteration})...")
+                logger.info(f"[Refinement {job_id}] ⚠️  FULL PREDICTION: Processing ALL PDFs to calculate overall accuracy (this may take a while)...")
                 
                 try:
                     if not extraction_csv_path:
@@ -1336,6 +1440,7 @@ def run_refinement_job(
                                 
                                 # Immediately test if error is fixed
                                 logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Testing if error is fixed...")
+                                logger.info(f"[Refinement {job_id}] ⚡ FAST TEST: Testing ONLY this one PDF ({Path(pdf_path).name}) - NOT all PDFs")
                                 is_fixed, new_predicted = test_single_pdf_error_fixed(
                                     pdf_path=pdf_path,
                                     account_id=account_id,
@@ -1344,8 +1449,11 @@ def run_refinement_job(
                                     instructions=improved_instructions,
                                     icd_n_pages=icd_n_pages,
                                     icd_vision_model=icd_vision_model,
-                                    temp_dir=temp_dir
+                                    temp_dir=temp_dir,
+                                    pdf_image_cache=test_pdf_image_cache,  # Use pre-loaded cache
+                                    use_fast_test=True  # Use 1 page for faster testing
                                 )
+                                logger.info(f"[Refinement {job_id}] ✅ Fast test completed for {Path(pdf_path).name}")
                                 
                                 case_status["attempts"].append({
                                     "attempt": attempt_num,

@@ -8,6 +8,8 @@ import os
 import base64
 import json
 import logging
+import requests
+import time
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
@@ -30,6 +32,12 @@ order is important so sometimes the ai will make mistakes of putting a code into
 the ai will know what to pick for PRIMARY ICD1 diagnosis
 
 if you are the cpt coded prediction analyer, then ignore icd specific instructions"""
+
+
+def is_gemini_model(model_name: str) -> bool:
+    """Check if model name indicates a Gemini model (not OpenRouter format)"""
+    clean_model = model_name.replace('google/', '').replace(':online', '').replace('models/', '')
+    return clean_model.startswith('gemini') or 'gemini' in clean_model.lower()
 
 
 def normalize_gemini_model(model_name: str) -> str:
@@ -131,14 +139,14 @@ def refine_cpt_instructions(
     instruction_history: Optional[List[Dict[str, Any]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
-    Use Gemini 3 Flash to refine CPT instructions based on error cases.
+    Use AI model to refine CPT instructions based on error cases.
     
     Args:
         current_instructions: Current instruction text
         error_cases: List of error dictionaries with account_id, pdf_path, predicted, expected
         pdf_mapping: Dictionary mapping account_id to PDF file path
-        model: Gemini model to use
-        api_key: Google API key (optional, uses env var if not provided)
+        model: Model to use (Gemini or OpenRouter format like "deepseek/deepseek-v3.2")
+        api_key: API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
         pdf_image_cache: Optional pre-loaded PDF image cache for faster access
         instruction_history: Optional list of previous instruction attempts with accuracies.
@@ -147,25 +155,39 @@ def refine_cpt_instructions(
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
     """
-    if not GOOGLE_GENAI_AVAILABLE:
-        return None, "Google GenAI SDK not available"
+    # Check if using Gemini or OpenRouter model
+    use_openrouter = not is_gemini_model(model)
     
-    model = normalize_gemini_model(model)
-    
-    # Get API key
-    if api_key:
-        api_key_value = api_key
+    if use_openrouter:
+        # Use OpenRouter for non-Gemini models
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        
+        if not api_key_value:
+            return None, "No OpenRouter API key provided"
     else:
-        api_key_value = os.getenv("GOOGLE_API_KEY")
-    
-    if not api_key_value:
-        return None, "No Google API key provided"
-    
-    # Initialize client
-    try:
-        client = genai.Client(api_key=api_key_value)
-    except Exception as e:
-        return None, f"Failed to initialize Google GenAI client: {str(e)}"
+        # Use Gemini
+        if not GOOGLE_GENAI_AVAILABLE:
+            return None, "Google GenAI SDK not available"
+        
+        model = normalize_gemini_model(model)
+        
+        # Get API key
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+        
+        if not api_key_value:
+            return None, "No Google API key provided"
+        
+        # Initialize client
+        try:
+            client = genai.Client(api_key=api_key_value)
+        except Exception as e:
+            return None, f"Failed to initialize Google GenAI client: {str(e)}"
     
     # Select up to 10 diverse error cases with PDF context
     selected_errors = error_cases[:10]
@@ -244,22 +266,9 @@ The reasoning should explain the key changes made.
 Respond with ONLY the JSON object, nothing else."""
 
     # Build content with interleaved errors and PDFs for easy mapping
-    parts = [types.Part.from_text(text=prompt)]
-    
-    # Add each error with its PDF images immediately after
+    # Load all PDF images first
+    all_error_images = []
     for idx, error in enumerate(selected_errors):
-        predicted = error.get('predicted', 'N/A')
-        expected = error.get('expected', 'N/A')
-        predicted_reasoning = error.get('predicted_reasoning', '')
-        
-        # Build error text with reasoning if available
-        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'"
-        if predicted_reasoning:
-            error_text += f"\n- Model's Reasoning for '{predicted}': {predicted_reasoning}"
-        error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
-        parts.append(types.Part.from_text(text=error_text))
-        
-        # Load and add PDF images for this specific error immediately after (use cache if available)
         account_id = error.get('account_id', 'N/A')
         pdf_path = pdf_mapping.get(account_id, error.get('pdf_path', ''))
         
@@ -276,17 +285,9 @@ Respond with ONLY the JSON object, nothing else."""
             if pdf_image_cache is not None:
                 pdf_image_cache[account_id] = images
         
-        if images:
-            for img_data in images:
-                try:
-                    img_bytes = base64.b64decode(img_data)
-                    parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
-                except Exception as e:
-                    logger.warning(f"Failed to add image: {e}")
-        else:
-            parts.append(types.Part.from_text(text="(PDF not available for this error)\n"))
+        all_error_images.append(images if images else [])
     
-    # Add final instructions after all errors and PDFs
+    # Build final instructions text
     final_instructions = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -310,78 +311,204 @@ The improved_instructions should be the complete, refined instruction text that 
 The reasoning should explain the key changes made.
 
 Respond with ONLY the JSON object, nothing else."""
-    parts.append(types.Part.from_text(text=final_instructions))
     
-    contents = [types.Content(role="user", parts=parts)]
-    
-    # Configure thinking for Gemini 3 models
-    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-    else:
-        thinking_config = types.ThinkingConfig(thinking_budget=-1)
-    
-    # Enable web search
-    tools = [
-        types.Tool(googleSearch=types.GoogleSearch()),
-    ]
-    
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools
-    )
-    
-    # Retry mechanism
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=generate_content_config
-            )
+    if use_openrouter:
+        # Build OpenRouter format content
+        content = [{"type": "text", "text": prompt}]
+        
+        # Add each error with its PDF images
+        for idx, error in enumerate(selected_errors):
+            predicted = error.get('predicted', 'N/A')
+            expected = error.get('expected', 'N/A')
+            predicted_reasoning = error.get('predicted_reasoning', '')
             
-            response_text = response.text.strip()
+            # Build error text with reasoning if available
+            error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'"
+            if predicted_reasoning:
+                error_text += f"\n- Model's Reasoning for '{predicted}': {predicted_reasoning}"
+            error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+            content.append({"type": "text", "text": error_text})
             
-            # Try to parse JSON response
+            # Add images in OpenRouter format
+            images = all_error_images[idx]
+            if images:
+                for img_data in images:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{img_data}"
+                        }
+                    })
+            else:
+                content.append({"type": "text", "text": "(PDF not available for this error)\n"})
+        
+        content.append({"type": "text", "text": final_instructions})
+        
+        messages = [{"role": "user", "content": content}]
+        
+        # OpenRouter API call
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key_value}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "messages": messages
+        }
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
             try:
-                # Remove markdown code blocks if present
-                if response_text.startswith("```"):
-                    response_text = response_text.split("```")[1]
-                    if response_text.startswith("json"):
-                        response_text = response_text[4:]
-                response_text = response_text.strip()
+                response = requests.post(url, headers=headers, json=payload, timeout=300)
+                response.raise_for_status()
                 
-                result = json.loads(response_text)
-                improved_instructions = result.get("improved_instructions", "")
-                reasoning = result.get("reasoning", "")
-                
-                if improved_instructions:
-                    return improved_instructions, reasoning
+                response_data = response.json()
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    response_text = response_data["choices"][0]["message"]["content"].strip()
                 else:
-                    return None, "Gemini did not return improved_instructions"
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
-                logger.warning(f"Response text: {response_text[:500]}")
+                    return None, "OpenRouter did not return a valid response"
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    
+                    if improved_instructions:
+                        return improved_instructions, reasoning
+                    else:
+                        return None, "Model did not return improved_instructions"
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    else:
+                        # Try to extract instructions from plain text
+                        if "improved_instructions" in response_text.lower():
+                            return response_text, "Parsed from plain text response"
+                        return None, f"Failed to parse JSON response: {str(e)}"
+            
+            except Exception as e:
+                logger.error(f"OpenRouter API error (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
                     continue
                 else:
-                    # Try to extract instructions from plain text
-                    if "improved_instructions" in response_text.lower():
-                        # Fallback: return the response as-is
-                        return response_text, "Parsed from plain text response"
-                    return None, f"Failed to parse JSON response: {str(e)}"
+                    return None, f"Max retries reached: {str(e)}"
         
-        except Exception as e:
-            logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(2 ** attempt)  # Exponential backoff
-                continue
+        return None, "Max retries reached"
+    else:
+        # Build Gemini format content
+        parts = [types.Part.from_text(text=prompt)]
+        
+        # Add each error with its PDF images immediately after
+        for idx, error in enumerate(selected_errors):
+            predicted = error.get('predicted', 'N/A')
+            expected = error.get('expected', 'N/A')
+            predicted_reasoning = error.get('predicted_reasoning', '')
+            
+            # Build error text with reasoning if available
+            error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted: '{predicted}'\n- Expected: '{expected}'"
+            if predicted_reasoning:
+                error_text += f"\n- Model's Reasoning for '{predicted}': {predicted_reasoning}"
+            error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+            parts.append(types.Part.from_text(text=error_text))
+            
+            # Add images
+            images = all_error_images[idx]
+            if images:
+                for img_data in images:
+                    try:
+                        img_bytes = base64.b64decode(img_data)
+                        parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+                    except Exception as e:
+                        logger.warning(f"Failed to add image: {e}")
             else:
-                return None, f"Max retries reached: {str(e)}"
-    
-    return None, "Max retries reached"
+                parts.append(types.Part.from_text(text="(PDF not available for this error)\n"))
+        
+        parts.append(types.Part.from_text(text=final_instructions))
+        
+        contents = [types.Content(role="user", parts=parts)]
+        
+        # Configure thinking for Gemini 3 models
+        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        else:
+            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        
+        # Enable web search
+        tools = [
+            types.Tool(googleSearch=types.GoogleSearch()),
+        ]
+        
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            thinking_config=thinking_config,
+            tools=tools
+        )
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config
+                )
+                
+                response_text = response.text.strip()
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    
+                    if improved_instructions:
+                        return improved_instructions, reasoning
+                    else:
+                        return None, "Gemini did not return improved_instructions"
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        # Try to extract instructions from plain text
+                        if "improved_instructions" in response_text.lower():
+                            # Fallback: return the response as-is
+                            return response_text, "Parsed from plain text response"
+                        return None, f"Failed to parse JSON response: {str(e)}"
+            
+            except Exception as e:
+                logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    return None, f"Max retries reached: {str(e)}"
+        
+        return None, "Max retries reached"
 
 
 def refine_instructions_focused_mode(
@@ -402,32 +529,46 @@ def refine_instructions_focused_mode(
         single_error_case: Single error dictionary with account_id, predicted, expected
         pdf_path: Path to the PDF for this specific error
         instruction_type: "cpt" or "icd"
-        model: Gemini model to use
-        api_key: Google API key (optional, uses env var if not provided)
+        model: Model to use (Gemini or OpenRouter format like "deepseek/deepseek-v3.2")
+        api_key: API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
     
     Returns:
         Tuple of (improved_instructions, reasoning, rule_type) where rule_type is "general" or "hardcoded"
     """
-    if not GOOGLE_GENAI_AVAILABLE:
-        return None, "Google GenAI SDK not available", None
+    # Check if using Gemini or OpenRouter model
+    use_openrouter = not is_gemini_model(model)
     
-    model = normalize_gemini_model(model)
-    
-    # Get API key
-    if api_key:
-        api_key_value = api_key
+    if use_openrouter:
+        # Use OpenRouter for non-Gemini models
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        
+        if not api_key_value:
+            return None, "No OpenRouter API key provided", None
     else:
-        api_key_value = os.getenv("GOOGLE_API_KEY")
-    
-    if not api_key_value:
-        return None, "No Google API key provided", None
-    
-    # Initialize client
-    try:
-        client = genai.Client(api_key=api_key_value)
-    except Exception as e:
-        return None, f"Failed to initialize Google GenAI client: {str(e)}", None
+        # Use Gemini
+        if not GOOGLE_GENAI_AVAILABLE:
+            return None, "Google GenAI SDK not available", None
+        
+        model = normalize_gemini_model(model)
+        
+        # Get API key
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+        
+        if not api_key_value:
+            return None, "No Google API key provided", None
+        
+        # Initialize client
+        try:
+            client = genai.Client(api_key=api_key_value)
+        except Exception as e:
+            return None, f"Failed to initialize Google GenAI client: {str(e)}", None
     
     # Load ONLY this PDF (all pages for context) - use cache if available
     pdf_images = []
@@ -544,86 +685,166 @@ The rule_explanation should justify your choice.
 Respond with ONLY the JSON object, nothing else."""
 
     # Build content with images
-    parts = [types.Part.from_text(text=prompt)]
-    
-    # Add ONLY this PDF's images
-    logger.info(f"Adding {len(pdf_images)} PDF page images for focused refinement")
-    for img_data in pdf_images:
-        try:
-            img_bytes = base64.b64decode(img_data)
-            parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
-        except Exception as e:
-            logger.warning(f"Failed to add image: {e}")
-    
-    contents = [types.Content(role="user", parts=parts)]
-    
-    # Configure thinking for Gemini 3 models
-    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-    else:
-        thinking_config = types.ThinkingConfig(thinking_budget=-1)
-    
-    # Enable web search
-    tools = [
-        types.Tool(googleSearch=types.GoogleSearch()),
-    ]
-    
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools
-    )
-    
-    # Retry mechanism
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=generate_content_config
-            )
-            
-            response_text = response.text.strip()
-            
-            # Try to parse JSON response
+    if use_openrouter:
+        # Build OpenRouter format content
+        content = [{"type": "text", "text": prompt}]
+        
+        # Add images in OpenRouter format
+        logger.info(f"Adding {len(pdf_images)} PDF page images for focused refinement")
+        for img_data in pdf_images:
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_data}"
+                }
+            })
+        
+        messages = [{"role": "user", "content": content}]
+        
+        # OpenRouter API call
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key_value}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "messages": messages
+        }
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
             try:
-                # Remove markdown code blocks if present
-                if response_text.startswith("```"):
-                    response_text = response_text.split("```")[1]
-                    if response_text.startswith("json"):
-                        response_text = response_text[4:]
-                response_text = response_text.strip()
+                response = requests.post(url, headers=headers, json=payload, timeout=300)
+                response.raise_for_status()
                 
-                result = json.loads(response_text)
-                improved_instructions = result.get("improved_instructions", "")
-                reasoning = result.get("reasoning", "")
-                rule_type = result.get("rule_type", "general")
-                rule_explanation = result.get("rule_explanation", "")
-                
-                if improved_instructions:
-                    full_reasoning = f"{reasoning} [Rule Type: {rule_type}] {rule_explanation}"
-                    return improved_instructions, full_reasoning, rule_type
+                response_data = response.json()
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    response_text = response_data["choices"][0]["message"]["content"].strip()
                 else:
-                    return None, "Gemini did not return improved_instructions", None
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
-                logger.warning(f"Response text: {response_text[:500]}")
+                    return None, "OpenRouter did not return a valid response", None
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    rule_type = result.get("rule_type", "general")
+                    rule_explanation = result.get("rule_explanation", "")
+                    
+                    if improved_instructions:
+                        full_reasoning = f"{reasoning} [Rule Type: {rule_type}] {rule_explanation}"
+                        return improved_instructions, full_reasoning, rule_type
+                    else:
+                        return None, "Model did not return improved_instructions", None
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    else:
+                        return None, f"Failed to parse JSON response: {str(e)}", None
+            
+            except Exception as e:
+                logger.error(f"OpenRouter API error (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
                     continue
                 else:
-                    return None, f"Failed to parse JSON response: {str(e)}", None
+                    return None, f"Max retries reached: {str(e)}", None
         
-        except Exception as e:
-            logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(2 ** attempt)  # Exponential backoff
-                continue
-            else:
-                return None, f"Max retries reached: {str(e)}", None
-    
-    return None, "Max retries reached", None
+        return None, "Max retries reached", None
+    else:
+        # Build Gemini format content
+        parts = [types.Part.from_text(text=prompt)]
+        
+        # Add ONLY this PDF's images
+        logger.info(f"Adding {len(pdf_images)} PDF page images for focused refinement")
+        for img_data in pdf_images:
+            try:
+                img_bytes = base64.b64decode(img_data)
+                parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+            except Exception as e:
+                logger.warning(f"Failed to add image: {e}")
+        
+        contents = [types.Content(role="user", parts=parts)]
+        
+        # Configure thinking for Gemini 3 models
+        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        else:
+            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        
+        # Enable web search
+        tools = [
+            types.Tool(googleSearch=types.GoogleSearch()),
+        ]
+        
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            thinking_config=thinking_config,
+            tools=tools
+        )
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config
+                )
+                
+                response_text = response.text.strip()
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    rule_type = result.get("rule_type", "general")
+                    rule_explanation = result.get("rule_explanation", "")
+                    
+                    if improved_instructions:
+                        full_reasoning = f"{reasoning} [Rule Type: {rule_type}] {rule_explanation}"
+                        return improved_instructions, full_reasoning, rule_type
+                    else:
+                        return None, "Gemini did not return improved_instructions", None
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        return None, f"Failed to parse JSON response: {str(e)}", None
+            
+            except Exception as e:
+                logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    return None, f"Max retries reached: {str(e)}", None
+        
+        return None, "Max retries reached", None
 
 
 def refine_icd_instructions(
@@ -637,14 +858,14 @@ def refine_icd_instructions(
     instruction_history: Optional[List[Dict[str, Any]]] = None
 ) -> tuple[Optional[str], Optional[str]]:
     """
-    Use Gemini 3 Flash to refine ICD instructions based on error cases.
+    Use AI model to refine ICD instructions based on error cases.
     
     Args:
         current_instructions: Current instruction text
         error_cases: List of error dictionaries with account_id, pdf_path, predicted, expected
         pdf_mapping: Dictionary mapping account_id to PDF file path
-        model: Gemini model to use
-        api_key: Google API key (optional, uses env var if not provided)
+        model: Model to use (Gemini or OpenRouter format like "deepseek/deepseek-v3.2")
+        api_key: API key (optional, uses env var if not provided)
         user_guidance: Optional user-provided guidance/prompt for the refinement agent
         pdf_image_cache: Optional pre-loaded PDF image cache for faster access
         instruction_history: Optional list of previous instruction attempts with accuracies.
@@ -653,25 +874,39 @@ def refine_icd_instructions(
     Returns:
         Tuple of (improved_instructions, reasoning) or (None, error_message)
     """
-    if not GOOGLE_GENAI_AVAILABLE:
-        return None, "Google GenAI SDK not available"
+    # Check if using Gemini or OpenRouter model
+    use_openrouter = not is_gemini_model(model)
     
-    model = normalize_gemini_model(model)
-    
-    # Get API key
-    if api_key:
-        api_key_value = api_key
+    if use_openrouter:
+        # Use OpenRouter for non-Gemini models
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        
+        if not api_key_value:
+            return None, "No OpenRouter API key provided"
     else:
-        api_key_value = os.getenv("GOOGLE_API_KEY")
-    
-    if not api_key_value:
-        return None, "No Google API key provided"
-    
-    # Initialize client
-    try:
-        client = genai.Client(api_key=api_key_value)
-    except Exception as e:
-        return None, f"Failed to initialize Google GenAI client: {str(e)}"
+        # Use Gemini
+        if not GOOGLE_GENAI_AVAILABLE:
+            return None, "Google GenAI SDK not available"
+        
+        model = normalize_gemini_model(model)
+        
+        # Get API key
+        if api_key:
+            api_key_value = api_key
+        else:
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+        
+        if not api_key_value:
+            return None, "No Google API key provided"
+        
+        # Initialize client
+        try:
+            client = genai.Client(api_key=api_key_value)
+        except Exception as e:
+            return None, f"Failed to initialize Google GenAI client: {str(e)}"
     
     # Select up to 10 diverse error cases with PDF context
     selected_errors = error_cases[:10]
@@ -781,52 +1016,9 @@ CRITICAL FOCUS - ICD1 IS PRIMARY:
 """
 
     # Build content with interleaved errors and PDFs for easy mapping
-    parts = [types.Part.from_text(text=prompt)]
-    
-    # Add each error with its PDF images immediately after
+    # Load all PDF images first
+    all_error_images = []
     for idx, error in enumerate(selected_errors):
-        predicted_icd1 = error.get('predicted_icd1', error.get('predicted', 'N/A'))
-        predicted_icd2 = error.get('predicted_icd2', '')
-        predicted_icd3 = error.get('predicted_icd3', '')
-        predicted_icd4 = error.get('predicted_icd4', '')
-        expected_icd1 = error.get('expected_icd1', error.get('expected', 'N/A'))
-        expected_icd2 = error.get('expected_icd2', '')
-        expected_icd3 = error.get('expected_icd3', '')
-        expected_icd4 = error.get('expected_icd4', '')
-        
-        # Build predicted ICD codes string
-        predicted_icds = [predicted_icd1, predicted_icd2, predicted_icd3, predicted_icd4]
-        predicted_icds = [icd for icd in predicted_icds if icd]  # Remove empty
-        predicted_str = ', '.join(predicted_icds) if predicted_icds else '(none)'
-        
-        # Build expected ICD codes string
-        expected_icds = [expected_icd1, expected_icd2, expected_icd3, expected_icd4]
-        expected_icds = [icd for icd in expected_icds if icd]  # Remove empty
-        expected_str = ', '.join(expected_icds) if expected_icds else '(none)'
-        
-        # Add error text
-        # Extract reasoning for each ICD code if available
-        predicted_icd1_reasoning = error.get('predicted_icd1_reasoning', '')
-        predicted_icd2_reasoning = error.get('predicted_icd2_reasoning', '')
-        predicted_icd3_reasoning = error.get('predicted_icd3_reasoning', '')
-        predicted_icd4_reasoning = error.get('predicted_icd4_reasoning', '')
-        
-        error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})"
-        
-        # Add reasoning if available
-        if predicted_icd1_reasoning:
-            error_text += f"\n- Model's Reasoning for ICD1 '{predicted_icd1}': {predicted_icd1_reasoning}"
-        if predicted_icd2 and predicted_icd2_reasoning:
-            error_text += f"\n- Model's Reasoning for ICD2 '{predicted_icd2}': {predicted_icd2_reasoning}"
-        if predicted_icd3 and predicted_icd3_reasoning:
-            error_text += f"\n- Model's Reasoning for ICD3 '{predicted_icd3}': {predicted_icd3_reasoning}"
-        if predicted_icd4 and predicted_icd4_reasoning:
-            error_text += f"\n- Model's Reasoning for ICD4 '{predicted_icd4}': {predicted_icd4_reasoning}"
-        
-        error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
-        parts.append(types.Part.from_text(text=error_text))
-        
-        # Load and add PDF images for this specific error immediately after (use cache if available)
         account_id = error.get('account_id', 'N/A')
         pdf_path = pdf_mapping.get(account_id, error.get('pdf_path', ''))
         
@@ -843,17 +1035,9 @@ CRITICAL FOCUS - ICD1 IS PRIMARY:
             if pdf_image_cache is not None:
                 pdf_image_cache[account_id] = images
         
-        if images:
-            for img_data in images:
-                try:
-                    img_bytes = base64.b64decode(img_data)
-                    parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
-                except Exception as e:
-                    logger.warning(f"Failed to add image: {e}")
-        else:
-            parts.append(types.Part.from_text(text="(PDF not available for this error)\n"))
+        all_error_images.append(images if images else [])
     
-    # Add final instructions after all errors and PDFs
+    # Build final instructions text
     final_instructions = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -879,76 +1063,261 @@ The improved_instructions should be the complete, refined instruction text that 
 The reasoning should explain the key changes made.
 
 Respond with ONLY the JSON object, nothing else."""
-    parts.append(types.Part.from_text(text=final_instructions))
     
-    contents = [types.Content(role="user", parts=parts)]
-    
-    # Configure thinking for Gemini 3 models
-    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-    else:
-        thinking_config = types.ThinkingConfig(thinking_budget=-1)
-    
-    # Enable web search
-    tools = [
-        types.Tool(googleSearch=types.GoogleSearch()),
-    ]
-    
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools
-    )
-    
-    # Retry mechanism
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=generate_content_config
-            )
+    if use_openrouter:
+        # Build OpenRouter format content
+        content = [{"type": "text", "text": prompt}]
+        
+        # Add each error with its PDF images
+        for idx, error in enumerate(selected_errors):
+            predicted_icd1 = error.get('predicted_icd1', error.get('predicted', 'N/A'))
+            predicted_icd2 = error.get('predicted_icd2', '')
+            predicted_icd3 = error.get('predicted_icd3', '')
+            predicted_icd4 = error.get('predicted_icd4', '')
+            expected_icd1 = error.get('expected_icd1', error.get('expected', 'N/A'))
+            expected_icd2 = error.get('expected_icd2', '')
+            expected_icd3 = error.get('expected_icd3', '')
+            expected_icd4 = error.get('expected_icd4', '')
             
-            response_text = response.text.strip()
+            # Build predicted ICD codes string
+            predicted_icds = [predicted_icd1, predicted_icd2, predicted_icd3, predicted_icd4]
+            predicted_icds = [icd for icd in predicted_icds if icd]  # Remove empty
+            predicted_str = ', '.join(predicted_icds) if predicted_icds else '(none)'
             
-            # Try to parse JSON response
+            # Build expected ICD codes string
+            expected_icds = [expected_icd1, expected_icd2, expected_icd3, expected_icd4]
+            expected_icds = [icd for icd in expected_icds if icd]  # Remove empty
+            expected_str = ', '.join(expected_icds) if expected_icds else '(none)'
+            
+            # Extract reasoning for each ICD code if available
+            predicted_icd1_reasoning = error.get('predicted_icd1_reasoning', '')
+            predicted_icd2_reasoning = error.get('predicted_icd2_reasoning', '')
+            predicted_icd3_reasoning = error.get('predicted_icd3_reasoning', '')
+            predicted_icd4_reasoning = error.get('predicted_icd4_reasoning', '')
+            
+            error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})"
+            
+            # Add reasoning if available
+            if predicted_icd1_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD1 '{predicted_icd1}': {predicted_icd1_reasoning}"
+            if predicted_icd2 and predicted_icd2_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD2 '{predicted_icd2}': {predicted_icd2_reasoning}"
+            if predicted_icd3 and predicted_icd3_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD3 '{predicted_icd3}': {predicted_icd3_reasoning}"
+            if predicted_icd4 and predicted_icd4_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD4 '{predicted_icd4}': {predicted_icd4_reasoning}"
+            
+            error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+            content.append({"type": "text", "text": error_text})
+            
+            # Add images in OpenRouter format
+            images = all_error_images[idx]
+            if images:
+                for img_data in images:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{img_data}"
+                        }
+                    })
+            else:
+                content.append({"type": "text", "text": "(PDF not available for this error)\n"})
+        
+        content.append({"type": "text", "text": final_instructions})
+        
+        messages = [{"role": "user", "content": content}]
+        
+        # OpenRouter API call
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key_value}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "messages": messages
+        }
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
             try:
-                # Remove markdown code blocks if present
-                if response_text.startswith("```"):
-                    response_text = response_text.split("```")[1]
-                    if response_text.startswith("json"):
-                        response_text = response_text[4:]
-                response_text = response_text.strip()
+                response = requests.post(url, headers=headers, json=payload, timeout=300)
+                response.raise_for_status()
                 
-                result = json.loads(response_text)
-                improved_instructions = result.get("improved_instructions", "")
-                reasoning = result.get("reasoning", "")
-                
-                if improved_instructions:
-                    return improved_instructions, reasoning
+                response_data = response.json()
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    response_text = response_data["choices"][0]["message"]["content"].strip()
                 else:
-                    return None, "Gemini did not return improved_instructions"
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
-                logger.warning(f"Response text: {response_text[:500]}")
+                    return None, "OpenRouter did not return a valid response"
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    
+                    if improved_instructions:
+                        return improved_instructions, reasoning
+                    else:
+                        return None, "Model did not return improved_instructions"
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    else:
+                        # Try to extract instructions from plain text
+                        if "improved_instructions" in response_text.lower():
+                            return response_text, "Parsed from plain text response"
+                        return None, f"Failed to parse JSON response: {str(e)}"
+            
+            except Exception as e:
+                logger.error(f"OpenRouter API error (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
                     continue
                 else:
-                    # Try to extract instructions from plain text
-                    if "improved_instructions" in response_text.lower():
-                        # Fallback: return the response as-is
-                        return response_text, "Parsed from plain text response"
-                    return None, f"Failed to parse JSON response: {str(e)}"
+                    return None, f"Max retries reached: {str(e)}"
         
-        except Exception as e:
-            logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(2 ** attempt)  # Exponential backoff
-                continue
+        return None, "Max retries reached"
+    else:
+        # Build Gemini format content
+        parts = [types.Part.from_text(text=prompt)]
+        
+        # Add each error with its PDF images immediately after
+        for idx, error in enumerate(selected_errors):
+            predicted_icd1 = error.get('predicted_icd1', error.get('predicted', 'N/A'))
+            predicted_icd2 = error.get('predicted_icd2', '')
+            predicted_icd3 = error.get('predicted_icd3', '')
+            predicted_icd4 = error.get('predicted_icd4', '')
+            expected_icd1 = error.get('expected_icd1', error.get('expected', 'N/A'))
+            expected_icd2 = error.get('expected_icd2', '')
+            expected_icd3 = error.get('expected_icd3', '')
+            expected_icd4 = error.get('expected_icd4', '')
+            
+            # Build predicted ICD codes string
+            predicted_icds = [predicted_icd1, predicted_icd2, predicted_icd3, predicted_icd4]
+            predicted_icds = [icd for icd in predicted_icds if icd]  # Remove empty
+            predicted_str = ', '.join(predicted_icds) if predicted_icds else '(none)'
+            
+            # Build expected ICD codes string
+            expected_icds = [expected_icd1, expected_icd2, expected_icd3, expected_icd4]
+            expected_icds = [icd for icd in expected_icds if icd]  # Remove empty
+            expected_str = ', '.join(expected_icds) if expected_icds else '(none)'
+            
+            # Add error text
+            # Extract reasoning for each ICD code if available
+            predicted_icd1_reasoning = error.get('predicted_icd1_reasoning', '')
+            predicted_icd2_reasoning = error.get('predicted_icd2_reasoning', '')
+            predicted_icd3_reasoning = error.get('predicted_icd3_reasoning', '')
+            predicted_icd4_reasoning = error.get('predicted_icd4_reasoning', '')
+            
+            error_text = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nERROR {idx + 1}:\n- Predicted ICD codes: {predicted_str}\n  (ICD1: {predicted_icd1}, ICD2: {predicted_icd2 or '(empty)'}, ICD3: {predicted_icd3 or '(empty)'}, ICD4: {predicted_icd4 or '(empty)'})\n- Expected ICD codes: {expected_str}\n  (ICD1: {expected_icd1}, ICD2: {expected_icd2 or '(empty)'}, ICD3: {expected_icd3 or '(empty)'}, ICD4: {expected_icd4 or '(empty)'})"
+            
+            # Add reasoning if available
+            if predicted_icd1_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD1 '{predicted_icd1}': {predicted_icd1_reasoning}"
+            if predicted_icd2 and predicted_icd2_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD2 '{predicted_icd2}': {predicted_icd2_reasoning}"
+            if predicted_icd3 and predicted_icd3_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD3 '{predicted_icd3}': {predicted_icd3_reasoning}"
+            if predicted_icd4 and predicted_icd4_reasoning:
+                error_text += f"\n- Model's Reasoning for ICD4 '{predicted_icd4}': {predicted_icd4_reasoning}"
+            
+            error_text += f"\n\nPDF DOCUMENT FOR ERROR {idx + 1}:\n"
+            parts.append(types.Part.from_text(text=error_text))
+            
+            # Add images
+            images = all_error_images[idx]
+            if images:
+                for img_data in images:
+                    try:
+                        img_bytes = base64.b64decode(img_data)
+                        parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+                    except Exception as e:
+                        logger.warning(f"Failed to add image: {e}")
             else:
-                return None, f"Max retries reached: {str(e)}"
-    
-    return None, "Max retries reached"
+                parts.append(types.Part.from_text(text="(PDF not available for this error)\n"))
+        
+        parts.append(types.Part.from_text(text=final_instructions))
+        
+        contents = [types.Content(role="user", parts=parts)]
+        
+        # Configure thinking for Gemini 3 models
+        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        else:
+            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        
+        # Enable web search
+        tools = [
+            types.Tool(googleSearch=types.GoogleSearch()),
+        ]
+        
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            thinking_config=thinking_config,
+            tools=tools
+        )
+        
+        # Retry mechanism
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config
+                )
+                
+                response_text = response.text.strip()
+                
+                # Try to parse JSON response
+                try:
+                    # Remove markdown code blocks if present
+                    if response_text.startswith("```"):
+                        response_text = response_text.split("```")[1]
+                        if response_text.startswith("json"):
+                            response_text = response_text[4:]
+                    response_text = response_text.strip()
+                    
+                    result = json.loads(response_text)
+                    improved_instructions = result.get("improved_instructions", "")
+                    reasoning = result.get("reasoning", "")
+                    
+                    if improved_instructions:
+                        return improved_instructions, reasoning
+                    else:
+                        return None, "Gemini did not return improved_instructions"
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response (attempt {attempt + 1}): {e}")
+                    logger.warning(f"Response text: {response_text[:500]}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        # Try to extract instructions from plain text
+                        if "improved_instructions" in response_text.lower():
+                            # Fallback: return the response as-is
+                            return response_text, "Parsed from plain text response"
+                        return None, f"Failed to parse JSON response: {str(e)}"
+            
+            except Exception as e:
+                logger.error(f"Gemini API error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    return None, f"Max retries reached: {str(e)}"
+        
+        return None, "Max retries reached"
 

@@ -1475,27 +1475,27 @@
                         </div>
                       </label>
 
-                      <!-- Claude Haiku 4.5 Option -->
+                      <!-- DeepSeek V3.2 Option -->
                       <label
                         class="model-option-card"
                         :class="{
                           selected:
-                            unifiedCptVisionModel === 'anthropic/claude-haiku-4.5',
+                            unifiedCptVisionModel === 'deepseek/deepseek-v3.2',
                         }"
                       >
                         <input
                           type="radio"
                           v-model="unifiedCptVisionModel"
-                          value="anthropic/claude-haiku-4.5"
+                          value="deepseek/deepseek-v3.2"
                           class="model-radio"
                         />
                         <div class="model-content">
                           <div class="model-header">
                             <div class="model-name">
-                              <span class="model-title">Claude Haiku 4.5</span>
+                              <span class="model-title">DeepSeek V3.2</span>
                               <span class="model-badge badge-fast">Fast</span>
                             </div>
-                            <div class="model-provider">Anthropic</div>
+                            <div class="model-provider">DeepSeek</div>
                           </div>
                           <div class="model-features">
                             <span class="feature-tag">⚡ Fast Processing</span>
@@ -1864,27 +1864,27 @@
                       </div>
                     </label>
 
-                    <!-- Claude Haiku 4.5 Option -->
+                    <!-- DeepSeek V3.2 Option -->
                     <label
                       class="model-option-card"
                       :class="{
                         selected:
-                          unifiedIcdVisionModel === 'anthropic/claude-haiku-4.5',
+                          unifiedIcdVisionModel === 'deepseek/deepseek-v3.2',
                       }"
                     >
                       <input
                         type="radio"
                         v-model="unifiedIcdVisionModel"
-                        value="anthropic/claude-haiku-4.5"
+                        value="deepseek/deepseek-v3.2"
                         class="model-radio"
                       />
                       <div class="model-content">
                         <div class="model-header">
                           <div class="model-name">
-                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-title">DeepSeek V3.2</span>
                             <span class="model-badge badge-fast">Fast</span>
                           </div>
-                          <div class="model-provider">Anthropic</div>
+                          <div class="model-provider">DeepSeek</div>
                         </div>
                         <div class="model-features">
                           <span class="feature-tag">⚡ Fast Processing</span>
@@ -2628,26 +2628,26 @@
                     </div>
                   </label>
 
-                  <!-- Claude Haiku 4.5 Option -->
+                  <!-- DeepSeek V3.2 Option -->
                   <label
                     class="model-option-card"
                     :class="{
-                      selected: cptVisionModel === 'anthropic/claude-haiku-4.5',
+                      selected: cptVisionModel === 'deepseek/deepseek-v3.2',
                     }"
                   >
                     <input
                       type="radio"
                       v-model="cptVisionModel"
-                      value="anthropic/claude-haiku-4.5"
+                      value="deepseek/deepseek-v3.2"
                       class="model-radio"
                     />
                     <div class="model-content">
                       <div class="model-header">
                         <div class="model-name">
-                          <span class="model-title">Claude Haiku 4.5</span>
+                          <span class="model-title">DeepSeek V3.2</span>
                           <span class="model-badge badge-fast">Fast</span>
                 </div>
-                        <div class="model-provider">Anthropic</div>
+                        <div class="model-provider">DeepSeek</div>
                       </div>
                       <div class="model-features">
                         <span class="feature-tag">⚡ Fast Processing</span>
@@ -3184,26 +3184,26 @@
                     </div>
                   </label>
 
-                  <!-- Claude Haiku 4.5 Option -->
+                  <!-- DeepSeek V3.2 Option -->
                   <label
                     class="model-option-card"
                     :class="{
-                      selected: icdVisionModel === 'anthropic/claude-haiku-4.5',
+                      selected: icdVisionModel === 'deepseek/deepseek-v3.2',
                     }"
                   >
                     <input
                       type="radio"
                       v-model="icdVisionModel"
-                      value="anthropic/claude-haiku-4.5"
+                      value="deepseek/deepseek-v3.2"
                       class="model-radio"
                     />
                     <div class="model-content">
                       <div class="model-header">
                         <div class="model-name">
-                          <span class="model-title">Claude Haiku 4.5</span>
+                          <span class="model-title">DeepSeek V3.2</span>
                           <span class="model-badge badge-fast">Fast</span>
                 </div>
-                        <div class="model-provider">Anthropic</div>
+                        <div class="model-provider">DeepSeek</div>
                       </div>
                       <div class="model-features">
                         <span class="feature-tag">⚡ Fast Processing</span>
@@ -4281,27 +4281,27 @@
                       </div>
                     </label>
 
-                    <!-- Claude Haiku 4.5 Option -->
+                    <!-- DeepSeek V3.2 Option -->
                     <label
                       class="model-option-card"
                       :class="{
                         selected:
-                          refinementCptVisionModel === 'anthropic/claude-haiku-4.5',
+                          refinementCptVisionModel === 'deepseek/deepseek-v3.2',
                       }"
                     >
                       <input
                         type="radio"
                         v-model="refinementCptVisionModel"
-                        value="anthropic/claude-haiku-4.5"
+                        value="deepseek/deepseek-v3.2"
                         class="model-radio"
                       />
                       <div class="model-content">
                         <div class="model-header">
                           <div class="model-name">
-                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-title">DeepSeek V3.2</span>
                             <span class="model-badge badge-fast">Fast</span>
                   </div>
-                          <div class="model-provider">Anthropic</div>
+                          <div class="model-provider">DeepSeek</div>
                         </div>
                         <div class="model-features">
                           <span class="feature-tag">⚡ Fast Processing</span>
@@ -4508,27 +4508,27 @@
                       </div>
                     </label>
 
-                    <!-- Claude Haiku 4.5 Option -->
+                    <!-- DeepSeek V3.2 Option -->
                     <label
                       class="model-option-card"
                       :class="{
                         selected:
-                          refinementIcdVisionModel === 'anthropic/claude-haiku-4.5',
+                          refinementIcdVisionModel === 'deepseek/deepseek-v3.2',
                       }"
                     >
                       <input
                         type="radio"
                         v-model="refinementIcdVisionModel"
-                        value="anthropic/claude-haiku-4.5"
+                        value="deepseek/deepseek-v3.2"
                         class="model-radio"
                       />
                       <div class="model-content">
                         <div class="model-header">
                           <div class="model-name">
-                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-title">DeepSeek V3.2</span>
                             <span class="model-badge badge-fast">Fast</span>
                   </div>
-                          <div class="model-provider">Anthropic</div>
+                          <div class="model-provider">DeepSeek</div>
                         </div>
                         <div class="model-features">
                           <span class="feature-tag">⚡ Fast Processing</span>
@@ -4661,6 +4661,7 @@
                     <option value="gemini-flash-lite-latest">Gemini Flash Lite Latest</option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                    <option value="deepseek/deepseek-v3.2">DeepSeek V3.2 (OpenRouter)</option>
                   </select>
                   <small class="help-text"
                     >AI model to use for instruction refinement</small
@@ -4721,9 +4722,9 @@
               </div>
               
               <!-- Detailed Case Status Table (Focused Mode) -->
-              <div v-if="refinementCaseStatuses && refinementCaseStatuses.length > 0" class="case-status-table-container" style="margin-top: 20px;">
+              <div v-if="refinementStatus.status === 'running' || (refinementCaseStatuses && refinementCaseStatuses.length > 0)" class="case-status-table-container" style="margin-top: 20px;">
                 <h4>Case-by-Case Progress (Focused Mode)</h4>
-                <div class="case-status-summary" style="margin-bottom: 10px;">
+                <div v-if="refinementCaseStatuses && refinementCaseStatuses.length > 0" class="case-status-summary" style="margin-bottom: 10px;">
                   <strong>Progress:</strong> Case {{ refinementCurrentCase }} / {{ refinementTotalCases }}
                   <span style="margin-left: 20px;">
                     Fixed: <span style="color: green;">{{ refinementFixedCount }}</span> | 
@@ -4731,7 +4732,10 @@
                     Processing: <span style="color: orange;">{{ refinementProcessingCount }}</span>
                   </span>
                 </div>
-                <div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+                <div v-else style="margin-bottom: 10px; padding: 10px; background-color: #f5f5f5; border-radius: 4px;">
+                  <em>Waiting for case status data... (This will appear when focused mode starts processing cases)</em>
+                </div>
+                <div v-if="refinementCaseStatuses && refinementCaseStatuses.length > 0" style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
                   <table class="case-status-table" style="width: 100%; border-collapse: collapse;">
                     <thead style="background-color: #f5f5f5; position: sticky; top: 0;">
                       <tr>
@@ -4787,6 +4791,9 @@
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                <div v-else style="padding: 20px; text-align: center; color: #666;">
+                  <p>No cases processed yet. The table will appear when focused mode starts processing errors.</p>
                 </div>
               </div>
             </div>
@@ -9903,14 +9910,22 @@ export default {
           if (data.error_message) {
             try {
               const parsed = JSON.parse(data.error_message);
+              console.log("Parsed refinement status:", parsed);
               if (parsed.case_statuses) {
                 this.refinementCaseStatuses = parsed.case_statuses;
                 this.refinementCurrentCase = parsed.current_case || 0;
                 this.refinementTotalCases = parsed.total_cases || 0;
+                console.log("Case statuses updated:", this.refinementCaseStatuses.length, "cases");
               }
             } catch (e) {
               // Not JSON, ignore
+              console.log("error_message is not JSON:", data.error_message);
             }
+          } else {
+            // Clear case statuses if no error_message
+            this.refinementCaseStatuses = [];
+            this.refinementCurrentCase = 0;
+            this.refinementTotalCases = 0;
           }
 
           if (data.status === "completed" || data.status === "failed") {

@@ -8117,7 +8117,8 @@ async def get_refinement_status(job_id: str):
             "icd1_accuracy": job.get('icd1_accuracy'),
             "best_cpt_accuracy": job.get('best_cpt_accuracy'),
             "best_icd1_accuracy": job.get('best_icd1_accuracy'),
-            "message": message
+            "message": message,
+            "error_message": job.get('error_message')  # Include error_message for case statuses in focused mode
         }
     except HTTPException:
         raise
