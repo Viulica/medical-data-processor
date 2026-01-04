@@ -9,9 +9,7 @@ module.exports = defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        pathRewrite: {
-          '^/api': ''
-        }
+        // Don't rewrite path - backend expects /api prefix
       }
     }
   }

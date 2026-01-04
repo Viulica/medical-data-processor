@@ -849,6 +849,16 @@ def run_refinement_job(
                         
                         logger.info(f"[Refinement {job_id}] Processing {len(all_cpt_errors)} CPT errors one by one...")
                         
+                        # Create filename-based cache for fast testing (filename -> images)
+                        # Convert from account_id-based cache to filename-based cache
+                        test_pdf_image_cache = {}
+                        for account_id, images in pdf_image_cache.items():
+                            if account_id in pdf_mapping:
+                                pdf_path = pdf_mapping[account_id]
+                                pdf_filename = Path(pdf_path).name
+                                test_pdf_image_cache[pdf_filename] = images
+                        logger.info(f"[Refinement {job_id}] Created test PDF image cache with {len(test_pdf_image_cache)} entries")
+                        
                         # Start with current instructions
                         working_instructions = cpt_instructions
                         all_reasonings = []
@@ -1367,6 +1377,16 @@ def run_refinement_job(
                         )
                         
                         logger.info(f"[Refinement {job_id}] Processing {len(all_icd_errors)} ICD errors one by one...")
+                        
+                        # Create filename-based cache for fast testing (filename -> images)
+                        # Convert from account_id-based cache to filename-based cache
+                        test_pdf_image_cache = {}
+                        for account_id, images in pdf_image_cache.items():
+                            if account_id in pdf_mapping:
+                                pdf_path = pdf_mapping[account_id]
+                                pdf_filename = Path(pdf_path).name
+                                test_pdf_image_cache[pdf_filename] = images
+                        logger.info(f"[Refinement {job_id}] Created test PDF image cache with {len(test_pdf_image_cache)} entries")
                         
                         # Start with current instructions
                         working_instructions = icd_instructions

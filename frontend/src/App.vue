@@ -7984,8 +7984,10 @@ function joinUrl(base, path) {
   return `${cleanBase}/${cleanPath}`;
 }
 
+// In development, use empty string to leverage Vue dev server proxy
+// In production, use VUE_APP_API_URL if set, otherwise empty (for same-origin)
 const API_BASE_URL = (
-  process.env.VUE_APP_API_URL || "http://localhost:8000"
+  process.env.VUE_APP_API_URL || ''
 ).replace(/\/+$/, ""); // Remove all trailing slashes to prevent double slashes
 
 export default {
