@@ -1474,6 +1474,35 @@
                           </div>
                         </div>
                       </label>
+
+                      <!-- Claude Haiku 4.5 Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected:
+                            unifiedCptVisionModel === 'anthropic/claude-haiku-4.5',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="anthropic/claude-haiku-4.5"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">Claude Haiku 4.5</span>
+                              <span class="model-badge badge-fast">Fast</span>
+                            </div>
+                            <div class="model-provider">Anthropic</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag">⚡ Fast Processing</span>
+                            <span class="feature-tag">🎯 High Quality</span>
+                          </div>
+                        </div>
+                      </label>
                     </div>
                   </div>
 
@@ -1831,6 +1860,35 @@
                         <div class="model-features">
                           <span class="feature-tag">⚡ Ultra Fast</span>
                           <span class="feature-tag">💰 Most Cost-Effective</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Claude Haiku 4.5 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          unifiedIcdVisionModel === 'anthropic/claude-haiku-4.5',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="anthropic/claude-haiku-4.5"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">Anthropic</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Fast Processing</span>
+                          <span class="feature-tag">🎯 High Quality</span>
                         </div>
                       </div>
                     </label>
@@ -2569,6 +2627,34 @@
                       </div>
                     </div>
                   </label>
+
+                  <!-- Claude Haiku 4.5 Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: cptVisionModel === 'anthropic/claude-haiku-4.5',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="cptVisionModel"
+                      value="anthropic/claude-haiku-4.5"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Claude Haiku 4.5</span>
+                          <span class="model-badge badge-fast">Fast</span>
+                        </div>
+                        <div class="model-provider">Anthropic</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⚡ Fast Processing</span>
+                        <span class="feature-tag">🎯 High Quality</span>
+                      </div>
+                    </div>
+                  </label>
                 </div>
               </div>
             </div>
@@ -3094,6 +3180,34 @@
                       <div class="model-features">
                         <span class="feature-tag">🚀 Very Fast</span>
                         <span class="feature-tag">🔬 Preview Model</span>
+                      </div>
+                    </div>
+                  </label>
+
+                  <!-- Claude Haiku 4.5 Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: icdVisionModel === 'anthropic/claude-haiku-4.5',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="icdVisionModel"
+                      value="anthropic/claude-haiku-4.5"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Claude Haiku 4.5</span>
+                          <span class="model-badge badge-fast">Fast</span>
+                        </div>
+                        <div class="model-provider">Anthropic</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">⚡ Fast Processing</span>
+                        <span class="feature-tag">🎯 High Quality</span>
                       </div>
                     </div>
                   </label>
@@ -4166,6 +4280,35 @@
                         </div>
                       </div>
                     </label>
+
+                    <!-- Claude Haiku 4.5 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementCptVisionModel === 'anthropic/claude-haiku-4.5',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="anthropic/claude-haiku-4.5"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">Anthropic</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Fast Processing</span>
+                          <span class="feature-tag">🎯 High Quality</span>
+                        </div>
+                      </div>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -4361,6 +4504,35 @@
                         <div class="model-features">
                           <span class="feature-tag">⚡ Fastest & Cheapest</span>
                           <span class="feature-tag">💰 Cost-Effective</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    <!-- Claude Haiku 4.5 Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected:
+                          refinementIcdVisionModel === 'anthropic/claude-haiku-4.5',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="anthropic/claude-haiku-4.5"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Claude Haiku 4.5</span>
+                            <span class="model-badge badge-fast">Fast</span>
+                          </div>
+                          <div class="model-provider">Anthropic</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">⚡ Fast Processing</span>
+                          <span class="feature-tag">🎯 High Quality</span>
                         </div>
                       </div>
                     </label>
