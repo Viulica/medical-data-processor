@@ -1105,11 +1105,15 @@ Respond with ONLY the JSON object, nothing else."""
     openrouter_model = model
     if "deepseek" in model.lower():
         openrouter_model = "deepseek/deepseek-v3.2"
+        logger.info(f"Normalized DeepSeek model from '{model}' to '{openrouter_model}'")
     
     payload = {
         "model": openrouter_model,
         "messages": messages
     }
+    
+    # Log the model being used for debugging
+    logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
     
     # Retry mechanism with exponential backoff
     max_retries = 5
@@ -1211,18 +1215,24 @@ Respond with ONLY the JSON object, nothing else."""
             try:
                 if hasattr(e, 'response') and e.response:
                     response_data = e.response.json()
+                    logger.error(f"OpenRouter error response: {response_data}")
                     if isinstance(response_data, dict):
                         error_detail = response_data.get('error', {}).get('message', str(e))
                         if not error_detail or error_detail == str(e):
                             error_detail = response_data.get('error', str(e))
-            except:
-                pass
+            except Exception as parse_error:
+                logger.error(f"Failed to parse error response: {parse_error}")
+                if hasattr(e, 'response') and e.response:
+                    logger.error(f"Raw error response text: {e.response.text}")
             
             # Build descriptive error message
             if status_code:
                 error_message = f"HTTP {status_code}: {error_detail}"
             else:
                 error_message = f"HTTP Error: {error_detail}"
+            
+            # Log the model that was used for debugging
+            logger.error(f"Failed OpenRouter request - Model: {openrouter_model}, URL: {url}")
             
             # Retry on all errors
             if attempt < max_retries - 1:
