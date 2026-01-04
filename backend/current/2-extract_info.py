@@ -199,7 +199,9 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/medical-data-processor",
+        "X-Title": "Medical Data Processor"
     }
     
     # Ensure DeepSeek model uses exact format

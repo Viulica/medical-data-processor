@@ -587,18 +587,32 @@ Respond with ONLY the JSON object, nothing else."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key_value}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/medical-data-processor",
+        "X-Title": "Medical Data Processor"
     }
     
-    # Ensure DeepSeek model uses exact format
+    # Ensure DeepSeek model uses exact format - try multiple possible formats
     openrouter_model = model
     if "deepseek" in model.lower():
-        openrouter_model = "deepseek/deepseek-v3.2"
+        # Try the exact format first
+        if model.lower() == "deepseek/deepseek-v3.2" or "deepseek-v3.2" in model.lower():
+            openrouter_model = "deepseek/deepseek-v3.2"
+        # If it's already in the correct format, use it as-is
+        elif model.startswith("deepseek/"):
+            openrouter_model = model
+        else:
+            # Default to v3.2 format
+            openrouter_model = "deepseek/deepseek-v3.2"
+        logger.info(f"DeepSeek model - Original: '{model}', Using: '{openrouter_model}'")
     
     payload = {
         "model": openrouter_model,
         "messages": messages
     }
+    
+    # Log the model being used for debugging
+    logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
     
     # Retry mechanism with exponential backoff
     max_retries = 5
@@ -1098,14 +1112,24 @@ Respond with ONLY the JSON object, nothing else."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key_value}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/medical-data-processor",
+        "X-Title": "Medical Data Processor"
     }
     
-    # Ensure DeepSeek model uses exact format
+    # Ensure DeepSeek model uses exact format - try multiple possible formats
     openrouter_model = model
     if "deepseek" in model.lower():
-        openrouter_model = "deepseek/deepseek-v3.2"
-        logger.info(f"Normalized DeepSeek model from '{model}' to '{openrouter_model}'")
+        # Try the exact format first
+        if model.lower() == "deepseek/deepseek-v3.2" or "deepseek-v3.2" in model.lower():
+            openrouter_model = "deepseek/deepseek-v3.2"
+        # If it's already in the correct format, use it as-is
+        elif model.startswith("deepseek/"):
+            openrouter_model = model
+        else:
+            # Default to v3.2 format
+            openrouter_model = "deepseek/deepseek-v3.2"
+        logger.info(f"DeepSeek model - Original: '{model}', Using: '{openrouter_model}'")
     
     payload = {
         "model": openrouter_model,

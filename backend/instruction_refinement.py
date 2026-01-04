@@ -350,7 +350,9 @@ Respond with ONLY the JSON object, nothing else."""
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key_value}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/medical-data-processor",
+            "X-Title": "Medical Data Processor"
         }
         
         # Ensure DeepSeek model uses exact format
@@ -710,7 +712,9 @@ Respond with ONLY the JSON object, nothing else."""
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key_value}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/medical-data-processor",
+            "X-Title": "Medical Data Processor"
         }
         
         # Ensure DeepSeek model uses exact format
@@ -1141,7 +1145,9 @@ Respond with ONLY the JSON object, nothing else."""
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key_value}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/medical-data-processor",
+            "X-Title": "Medical Data Processor"
         }
         
         # Ensure DeepSeek model uses exact format
