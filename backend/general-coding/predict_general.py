@@ -1685,8 +1685,8 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                     image_data_list = image_cache[filename]
                     logger.debug(f"Using cached images for {filename}")
                 else:
-                # Extract pages as base64 images
-                image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
+                    # Extract pages as base64 images
+                    image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
                     # Cache for potential reuse
                     if image_cache is not None:
                         image_cache[filename] = image_data_list
