@@ -2646,7 +2646,7 @@
                         <div class="model-name">
                           <span class="model-title">Claude Haiku 4.5</span>
                           <span class="model-badge badge-fast">Fast</span>
-                        </div>
+                </div>
                         <div class="model-provider">Anthropic</div>
                       </div>
                       <div class="model-features">
@@ -3202,7 +3202,7 @@
                         <div class="model-name">
                           <span class="model-title">Claude Haiku 4.5</span>
                           <span class="model-badge badge-fast">Fast</span>
-                        </div>
+                </div>
                         <div class="model-provider">Anthropic</div>
                       </div>
                       <div class="model-features">
@@ -4300,7 +4300,7 @@
                           <div class="model-name">
                             <span class="model-title">Claude Haiku 4.5</span>
                             <span class="model-badge badge-fast">Fast</span>
-                          </div>
+                  </div>
                           <div class="model-provider">Anthropic</div>
                         </div>
                         <div class="model-features">
@@ -4527,7 +4527,7 @@
                           <div class="model-name">
                             <span class="model-title">Claude Haiku 4.5</span>
                             <span class="model-badge badge-fast">Fast</span>
-                          </div>
+                  </div>
                           <div class="model-provider">Anthropic</div>
                         </div>
                         <div class="model-features">
@@ -4717,6 +4717,76 @@
                 </div>
                 <div v-if="refinementStatus.message" class="progress-message">
                   {{ refinementStatus.message }}
+                </div>
+              </div>
+              
+              <!-- Detailed Case Status Table (Focused Mode) -->
+              <div v-if="refinementCaseStatuses && refinementCaseStatuses.length > 0" class="case-status-table-container" style="margin-top: 20px;">
+                <h4>Case-by-Case Progress (Focused Mode)</h4>
+                <div class="case-status-summary" style="margin-bottom: 10px;">
+                  <strong>Progress:</strong> Case {{ refinementCurrentCase }} / {{ refinementTotalCases }}
+                  <span style="margin-left: 20px;">
+                    Fixed: <span style="color: green;">{{ refinementFixedCount }}</span> | 
+                    Not Fixed: <span style="color: red;">{{ refinementNotFixedCount }}</span> | 
+                    Processing: <span style="color: orange;">{{ refinementProcessingCount }}</span>
+                  </span>
+                </div>
+                <div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+                  <table class="case-status-table" style="width: 100%; border-collapse: collapse;">
+                    <thead style="background-color: #f5f5f5; position: sticky; top: 0;">
+                      <tr>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">#</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Account ID</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">PDF</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Predicted</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Expected</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Status</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Attempts</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Final Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="caseStatus in refinementCaseStatuses" :key="caseStatus.case_number" 
+                          :style="getCaseRowStyle(caseStatus)">
+                        <td style="padding: 8px; border: 1px solid #ddd;">{{ caseStatus.case_number }}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{{ caseStatus.account_id }}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="caseStatus.pdf_filename">
+                          {{ caseStatus.pdf_filename }}
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{{ caseStatus.predicted }}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{{ caseStatus.expected }}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                          <span :style="getStatusStyle(caseStatus.status)">
+                            {{ formatStatus(caseStatus.status) }}
+                          </span>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                          <div v-for="attempt in caseStatus.attempts" :key="attempt.attempt" style="margin-bottom: 4px;">
+                            <strong>Attempt {{ attempt.attempt }}:</strong>
+                            <span v-if="attempt.status === 'tested'">
+                              <span v-if="attempt.is_fixed" style="color: green;">✅ Fixed</span>
+                              <span v-else style="color: red;">❌ Still Wrong</span>
+                              <span v-if="attempt.predicted_after_fix"> ({{ attempt.predicted_after_fix }})</span>
+                            </span>
+                            <span v-else-if="attempt.status === 'refinement_failed'" style="color: orange;">
+                              ⚠️ Refinement Failed
+                            </span>
+                          </div>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                          <span v-if="caseStatus.final_status === 'fixed'" style="color: green; font-weight: bold;">
+                            ✅ Fixed ({{ caseStatus.final_predicted }})
+                          </span>
+                          <span v-else-if="caseStatus.final_status === 'not_fixed'" style="color: red; font-weight: bold;">
+                            ❌ Not Fixed
+                          </span>
+                          <span v-else style="color: orange;">
+                            Processing...
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -8120,6 +8190,9 @@ export default {
       refinementModel: "gemini-3-flash-preview", // Model to use for refinement
       refinementJobId: null,
       refinementStatus: {},
+      refinementCaseStatuses: [],
+      refinementCurrentCase: 0,
+      refinementTotalCases: 0,
       isProcessingRefinement: false,
       isRefinementZipDragActive: false,
       isRefinementExcelDragActive: false,
@@ -8245,6 +8318,15 @@ export default {
     };
   },
   computed: {
+    refinementFixedCount() {
+      return this.refinementCaseStatuses.filter(cs => cs.final_status === 'fixed').length;
+    },
+    refinementNotFixedCount() {
+      return this.refinementCaseStatuses.filter(cs => cs.final_status === 'not_fixed').length;
+    },
+    refinementProcessingCount() {
+      return this.refinementCaseStatuses.filter(cs => cs.final_status === null || cs.final_status === undefined).length;
+    },
     canProcess() {
       return (
         this.zipFile &&
@@ -9816,6 +9898,20 @@ export default {
 
           const data = await response.json();
           this.refinementStatus = data;
+          
+          // Parse case statuses from error_message if it's JSON
+          if (data.error_message) {
+            try {
+              const parsed = JSON.parse(data.error_message);
+              if (parsed.case_statuses) {
+                this.refinementCaseStatuses = parsed.case_statuses;
+                this.refinementCurrentCase = parsed.current_case || 0;
+                this.refinementTotalCases = parsed.total_cases || 0;
+              }
+            } catch (e) {
+              // Not JSON, ignore
+            }
+          }
 
           if (data.status === "completed" || data.status === "failed") {
             this.isProcessingRefinement = false;
@@ -9840,6 +9936,37 @@ export default {
 
       checkStatus();
     },
+    getCaseRowStyle(caseStatus) {
+      if (caseStatus.final_status === 'fixed') {
+        return { backgroundColor: '#e8f5e9' }; // Light green
+      } else if (caseStatus.final_status === 'not_fixed') {
+        return { backgroundColor: '#ffebee' }; // Light red
+      } else if (caseStatus.status && caseStatus.status.includes('processing')) {
+        return { backgroundColor: '#fff3e0' }; // Light orange
+      }
+      return {};
+    },
+    getStatusStyle(status) {
+      if (status === 'fixed') {
+        return { color: 'green', fontWeight: 'bold' };
+      } else if (status === 'not_fixed') {
+        return { color: 'red', fontWeight: 'bold' };
+      } else if (status && status.includes('attempt')) {
+        return { color: 'orange' };
+      }
+      return { color: '#666' };
+    },
+    formatStatus(status) {
+      if (!status) return 'Pending';
+      if (status === 'fixed') return '✅ Fixed';
+      if (status === 'not_fixed') return '❌ Not Fixed';
+      if (status === 'processing') return '⏳ Processing';
+      if (status.includes('attempt_')) {
+        const attemptNum = status.match(/attempt_(\d+)/);
+        return attemptNum ? `Attempt ${attemptNum[1]}` : status;
+      }
+      return status;
+    },
     resetRefinementForm() {
       this.refinementZipFile = null;
       this.refinementExcelFile = null;
@@ -9850,6 +9977,9 @@ export default {
       this.refinementSelectedIcdInstructionId = null;
       this.refinementJobId = null;
       this.refinementStatus = {};
+      this.refinementCaseStatuses = [];
+      this.refinementCurrentCase = 0;
+      this.refinementTotalCases = 0;
       this.isProcessingRefinement = false;
       if (this.refinementPollingInterval) {
         clearInterval(this.refinementPollingInterval);

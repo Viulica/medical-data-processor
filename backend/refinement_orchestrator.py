@@ -10,6 +10,7 @@ import logging
 import zipfile
 import shutil
 import re
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -26,6 +27,158 @@ from instruction_refinement import refine_cpt_instructions, refine_icd_instructi
 from email_utils import send_iteration_report, send_completion_report
 
 logger = logging.getLogger(__name__)
+
+
+def test_single_pdf_error_fixed(
+    pdf_path: str,
+    account_id: str,
+    expected_code: str,
+    instruction_type: str,  # "cpt" or "icd"
+    instructions: str,
+    cpt_vision_mode: bool = True,
+    cpt_vision_pages: int = 1,
+    cpt_vision_model: str = "openai/gpt-5.2:online",
+    icd_n_pages: int = 1,
+    icd_vision_model: str = "openai/gpt-5.2:online",
+    cpt_include_code_list: bool = True,
+    temp_dir: Optional[Path] = None
+) -> tuple[bool, str]:
+    """
+    Test if a single error is fixed by running prediction on that specific PDF.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        account_id: Account ID for this case
+        expected_code: Expected code (CPT or ICD1)
+        instruction_type: "cpt" or "icd"
+        instructions: New instructions to test
+        cpt_vision_mode: Whether CPT uses vision mode
+        cpt_vision_pages: Number of pages for CPT vision
+        cpt_vision_model: Model for CPT vision
+        icd_n_pages: Number of pages for ICD
+        icd_vision_model: Model for ICD
+        cpt_include_code_list: Whether to include CPT code list
+        temp_dir: Temporary directory for output files
+    
+    Returns:
+        Tuple of (is_fixed: bool, predicted_code: str)
+    """
+    import sys
+    import os
+    import tempfile
+    import pandas as pd
+    from pathlib import Path
+    
+    # Create temp directory if not provided
+    if temp_dir is None:
+        temp_dir = Path(tempfile.mkdtemp())
+    else:
+        temp_dir = Path(temp_dir)
+    
+    try:
+        general_coding_path = Path(__file__).parent / "general-coding"
+        sys.path.insert(0, str(general_coding_path))
+        from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, is_gemini_model
+        
+        # Create a temporary folder with just this PDF
+        test_pdf_folder = temp_dir / "test_single_pdf"
+        test_pdf_folder.mkdir(exist_ok=True)
+        
+        # Copy PDF to test folder
+        import shutil
+        test_pdf_path = test_pdf_folder / Path(pdf_path).name
+        shutil.copy2(pdf_path, test_pdf_path)
+        
+        if instruction_type.lower() == "cpt":
+            # Test CPT prediction
+            if cpt_vision_mode:
+                using_gemini = is_gemini_model(cpt_vision_model)
+                api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else os.getenv("OPENROUTER_API_KEY")
+                
+                output_file = str(temp_dir / "test_cpt_result.csv")
+                success = predict_codes_from_pdfs_api(
+                    pdf_folder=str(test_pdf_folder),
+                    output_file=output_file,
+                    n_pages=cpt_vision_pages,
+                    model=cpt_vision_model,
+                    api_key=api_key,
+                    max_workers=1,
+                    progress_callback=None,
+                    custom_instructions=instructions,
+                    include_code_list=cpt_include_code_list
+                )
+                
+                if success and os.path.exists(output_file):
+                    df = pd.read_csv(output_file)
+                    if len(df) > 0:
+                        # Find row matching account_id or filename
+                        predicted_code = None
+                        pdf_filename = Path(pdf_path).name
+                        for _, row in df.iterrows():
+                            filename = str(row.get('Patient Filename', '')).strip()
+                            account_col = str(row.get('Account #', '')).strip()
+                            # Match by account_id in any column or by PDF filename
+                            if (account_id in filename or account_id in account_col or 
+                                account_id in str(row.get('Account', '')).strip() or
+                                pdf_filename in filename or filename in pdf_filename):
+                                predicted_code = str(row.get('CPT Code', '')).strip()
+                                break
+                        
+                        if predicted_code is None and len(df) > 0:
+                            # Fallback: use first row
+                            predicted_code = str(df.iloc[0].get('CPT Code', '')).strip()
+                        
+                        is_fixed = predicted_code == expected_code
+                        return is_fixed, predicted_code or ""
+            else:
+                # Non-vision mode not supported for single PDF test
+                return False, "Non-vision CPT mode not supported for single PDF test"
+        
+        elif instruction_type.lower() == "icd":
+            # Test ICD prediction
+            using_gemini = is_gemini_model(icd_vision_model)
+            api_key = os.getenv("GOOGLE_API_KEY") if using_gemini else (os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
+            
+            output_file = str(temp_dir / "test_icd_result.csv")
+            success = predict_icd_codes_from_pdfs_api(
+                pdf_folder=str(test_pdf_folder),
+                output_file=output_file,
+                n_pages=icd_n_pages,
+                model=icd_vision_model,
+                api_key=api_key,
+                max_workers=1,
+                progress_callback=None,
+                custom_instructions=instructions
+            )
+            
+            if success and os.path.exists(output_file):
+                df = pd.read_csv(output_file)
+                if len(df) > 0:
+                    # Find row matching account_id or filename
+                    predicted_icd1 = None
+                    pdf_filename = Path(pdf_path).name
+                    for _, row in df.iterrows():
+                        filename = str(row.get('Patient Filename', '')).strip()
+                        account_col = str(row.get('Account #', '')).strip()
+                        # Match by account_id in any column or by PDF filename
+                        if (account_id in filename or account_id in account_col or 
+                            account_id in str(row.get('Account', '')).strip() or
+                            pdf_filename in filename or filename in pdf_filename):
+                            predicted_icd1 = str(row.get('ICD1', '')).strip()
+                            break
+                    
+                    if predicted_icd1 is None and len(df) > 0:
+                        # Fallback: use first row
+                        predicted_icd1 = str(df.iloc[0].get('ICD1', '')).strip()
+                    
+                    is_fixed = predicted_icd1 == expected_code
+                    return is_fixed, predicted_icd1 or ""
+        
+        return False, "Prediction failed"
+    
+    except Exception as e:
+        logger.error(f"Error testing single PDF: {e}")
+        return False, f"Error: {str(e)}"
 
 
 def run_cpt_prediction_only(
@@ -583,8 +736,8 @@ def run_refinement_job(
                     
                     # Refine instructions using Gemini
                     if refinement_mode == "focused":
-                        # FOCUSED MODE: Process one error at a time
-                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in FOCUSED MODE (one error at a time)...")
+                        # FOCUSED MODE: Process one error at a time with immediate retry testing
+                        logger.info(f"[Refinement {job_id}] Refining CPT instructions in FOCUSED MODE (one error at a time with immediate retry)...")
                         
                         # Get ALL error cases (not just 10) for focused mode
                         all_cpt_errors = get_error_cases(
@@ -602,38 +755,153 @@ def run_refinement_job(
                         all_reasonings = []
                         rule_type_counts = {"general": 0, "hardcoded": 0}
                         
+                        # Track detailed case status for frontend
+                        case_statuses = []
+                        
                         # Process each error one at a time
                         for error_idx, error_case in enumerate(all_cpt_errors, 1):
                             account_id = error_case.get('account_id', 'N/A')
                             pdf_path = pdf_mapping.get(account_id, error_case.get('pdf_path', ''))
+                            predicted_code = error_case.get('predicted', 'N/A')
+                            expected_code = error_case.get('expected', 'N/A')
                             
-                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_cpt_errors)}: Predicted '{error_case.get('predicted', 'N/A')}' -> Expected '{error_case.get('expected', 'N/A')}'")
+                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_cpt_errors)}: Account {account_id}, Predicted '{predicted_code}' -> Expected '{expected_code}'")
                             
-                            # Refine with this single error
-                            cached_images = pdf_image_cache.get(account_id) if pdf_image_cache else None
-                            improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
-                                current_instructions=working_instructions,
-                                single_error_case=error_case,
-                                pdf_path=pdf_path,
-                                instruction_type="cpt",
-                                model=refinement_model,
-                                user_guidance=refinement_guidance
-                            )
+                            # Initialize case status
+                            case_status = {
+                                "case_number": error_idx,
+                                "account_id": account_id,
+                                "pdf_filename": Path(pdf_path).name if pdf_path else "N/A",
+                                "predicted": predicted_code,
+                                "expected": expected_code,
+                                "status": "processing",
+                                "attempts": [],
+                                "final_status": None,
+                                "final_predicted": None
+                            }
                             
-                            if not improved_instructions:
-                                logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}: {reasoning}")
-                                continue
+                            # Try up to 3 times to fix this error
+                            error_fixed = False
+                            current_test_instructions = working_instructions
                             
-                            # Update working instructions for next iteration
-                            working_instructions = improved_instructions
-                            all_reasonings.append(f"Error {error_idx} (Account {account_id}): {reasoning}")
+                            for attempt_num in range(1, 4):  # 3 attempts
+                                logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Refining instructions...")
+                                
+                                # Refine with this single error
+                                improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
+                                    current_instructions=current_test_instructions,
+                                    single_error_case=error_case,
+                                    pdf_path=pdf_path,
+                                    instruction_type="cpt",
+                                    model=refinement_model,
+                                    user_guidance=refinement_guidance
+                                )
+                                
+                                if not improved_instructions:
+                                    logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}, attempt {attempt_num}: {reasoning}")
+                                    case_status["attempts"].append({
+                                        "attempt": attempt_num,
+                                        "status": "refinement_failed",
+                                        "reasoning": reasoning
+                                    })
+                                    # Update status
+                                    update_refinement_job(
+                                        job_id,
+                                        status="running",
+                                        error_message=json.dumps({
+                                            "phase": "cpt",
+                                            "current_case": error_idx,
+                                            "total_cases": len(all_cpt_errors),
+                                            "case_statuses": case_statuses + [case_status]
+                                        })
+                                    )
+                                    continue
+                                
+                                # Update instructions for testing
+                                current_test_instructions = improved_instructions
+                                
+                                # Immediately test if error is fixed
+                                logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Testing if error is fixed...")
+                                is_fixed, new_predicted = test_single_pdf_error_fixed(
+                                    pdf_path=pdf_path,
+                                    account_id=account_id,
+                                    expected_code=expected_code,
+                                    instruction_type="cpt",
+                                    instructions=improved_instructions,
+                                    cpt_vision_mode=cpt_vision_mode,
+                                    cpt_vision_pages=cpt_vision_pages,
+                                    cpt_vision_model=cpt_vision_model,
+                                    cpt_include_code_list=cpt_include_code_list,
+                                    temp_dir=temp_dir
+                                )
+                                
+                                case_status["attempts"].append({
+                                    "attempt": attempt_num,
+                                    "status": "tested",
+                                    "reasoning": reasoning,
+                                    "predicted_after_fix": new_predicted,
+                                    "is_fixed": is_fixed
+                                })
+                                
+                                # Update status with current progress
+                                case_status["status"] = f"attempt_{attempt_num}_tested"
+                                update_refinement_job(
+                                    job_id,
+                                    status="running",
+                                    error_message=json.dumps({
+                                        "phase": "cpt",
+                                        "current_case": error_idx,
+                                        "total_cases": len(all_cpt_errors),
+                                        "case_statuses": case_statuses + [case_status]
+                                    })
+                                )
+                                
+                                if is_fixed:
+                                    logger.info(f"[Refinement {job_id}] ✅ Error {error_idx} FIXED on attempt {attempt_num}! Predicted '{new_predicted}' matches expected '{expected_code}'")
+                                    error_fixed = True
+                                    case_status["final_status"] = "fixed"
+                                    case_status["final_predicted"] = new_predicted
+                                    case_status["status"] = "fixed"
+                                    # Update working instructions to the fixed version
+                                    working_instructions = improved_instructions
+                                    break
+                                else:
+                                    logger.info(f"[Refinement {job_id}] ❌ Error {error_idx} still wrong on attempt {attempt_num}. Predicted '{new_predicted}' != expected '{expected_code}'. Retrying...")
+                            
+                            if not error_fixed:
+                                logger.warning(f"[Refinement {job_id}] ⚠️ Error {error_idx} NOT FIXED after 3 attempts. Moving on...")
+                                case_status["final_status"] = "not_fixed"
+                                case_status["status"] = "not_fixed"
+                                # Still update working instructions to the last attempt
+                                working_instructions = current_test_instructions
+                            
+                            # Add final reasoning summary
+                            if case_status["attempts"]:
+                                last_attempt = case_status["attempts"][-1]
+                                all_reasonings.append(f"Error {error_idx} (Account {account_id}): {last_attempt.get('reasoning', 'N/A')} - {'✅ FIXED' if error_fixed else '❌ NOT FIXED'}")
                             
                             if rule_type:
                                 rule_type_counts[rule_type] = rule_type_counts.get(rule_type, 0) + 1
+                            
+                            # Add to case statuses
+                            case_statuses.append(case_status)
+                            
+                            # Update status after each case
+                            update_refinement_job(
+                                job_id,
+                                status="running",
+                                error_message=json.dumps({
+                                    "phase": "cpt",
+                                    "current_case": error_idx,
+                                    "total_cases": len(all_cpt_errors),
+                                    "case_statuses": case_statuses
+                                })
+                            )
                         
                         # Final improved instructions after processing all errors
                         improved_instructions = working_instructions
-                        reasoning = f"Processed {len(all_cpt_errors)} errors. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
+                        fixed_count = sum(1 for cs in case_statuses if cs.get("final_status") == "fixed")
+                        reasoning = f"Processed {len(all_cpt_errors)} errors. Fixed {fixed_count}/{len(all_cpt_errors)}. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
                         
                         if not improved_instructions:
                             logger.error(f"[Refinement {job_id}] Failed to refine CPT instructions in focused mode")
@@ -982,8 +1250,8 @@ def run_refinement_job(
                     
                     # Refine instructions using Gemini
                     if refinement_mode == "focused":
-                        # FOCUSED MODE: Process one error at a time
-                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in FOCUSED MODE (one error at a time)...")
+                        # FOCUSED MODE: Process one error at a time with immediate retry testing
+                        logger.info(f"[Refinement {job_id}] Refining ICD instructions in FOCUSED MODE (one error at a time with immediate retry)...")
                         
                         # Get ALL error cases (not just 10) for focused mode
                         all_icd_errors = get_error_cases(
@@ -1001,37 +1269,151 @@ def run_refinement_job(
                         all_reasonings = []
                         rule_type_counts = {"general": 0, "hardcoded": 0}
                         
+                        # Track detailed case status for frontend
+                        case_statuses = []
+                        
                         # Process each error one at a time
                         for error_idx, error_case in enumerate(all_icd_errors, 1):
                             account_id = error_case.get('account_id', 'N/A')
                             pdf_path = pdf_mapping.get(account_id, error_case.get('pdf_path', ''))
+                            predicted_icd1 = error_case.get('predicted_icd1', error_case.get('predicted', 'N/A'))
+                            expected_icd1 = error_case.get('expected_icd1', error_case.get('expected', 'N/A'))
                             
-                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_icd_errors)}: Predicted '{error_case.get('predicted', 'N/A')}' -> Expected '{error_case.get('expected', 'N/A')}'")
+                            logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_icd_errors)}: Account {account_id}, Predicted '{predicted_icd1}' -> Expected '{expected_icd1}'")
                             
-                            # Refine with this single error
-                            improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
-                                current_instructions=working_instructions,
-                                single_error_case=error_case,
-                                pdf_path=pdf_path,
-                                instruction_type="icd",
-                                model=refinement_model,
-                                user_guidance=refinement_guidance
-                            )
+                            # Initialize case status
+                            case_status = {
+                                "case_number": error_idx,
+                                "account_id": account_id,
+                                "pdf_filename": Path(pdf_path).name if pdf_path else "N/A",
+                                "predicted": predicted_icd1,
+                                "expected": expected_icd1,
+                                "status": "processing",
+                                "attempts": [],
+                                "final_status": None,
+                                "final_predicted": None
+                            }
                             
-                            if not improved_instructions:
-                                logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}: {reasoning}")
-                                continue
+                            # Try up to 3 times to fix this error
+                            error_fixed = False
+                            current_test_instructions = working_instructions
                             
-                            # Update working instructions for next iteration
-                            working_instructions = improved_instructions
-                            all_reasonings.append(f"Error {error_idx} (Account {account_id}): {reasoning}")
+                            for attempt_num in range(1, 4):  # 3 attempts
+                                logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Refining instructions...")
+                                
+                                # Refine with this single error
+                                improved_instructions, reasoning, rule_type = refine_instructions_focused_mode(
+                                    current_instructions=current_test_instructions,
+                                    single_error_case=error_case,
+                                    pdf_path=pdf_path,
+                                    instruction_type="icd",
+                                    model=refinement_model,
+                                    user_guidance=refinement_guidance
+                                )
+                                
+                                if not improved_instructions:
+                                    logger.warning(f"[Refinement {job_id}] Failed to refine for error {error_idx}, attempt {attempt_num}: {reasoning}")
+                                    case_status["attempts"].append({
+                                        "attempt": attempt_num,
+                                        "status": "refinement_failed",
+                                        "reasoning": reasoning
+                                    })
+                                    # Update status
+                                    update_refinement_job(
+                                        job_id,
+                                        status="running",
+                                        error_message=json.dumps({
+                                            "phase": "icd",
+                                            "current_case": error_idx,
+                                            "total_cases": len(all_icd_errors),
+                                            "case_statuses": case_statuses + [case_status]
+                                        })
+                                    )
+                                    continue
+                                
+                                # Update instructions for testing
+                                current_test_instructions = improved_instructions
+                                
+                                # Immediately test if error is fixed
+                                logger.info(f"[Refinement {job_id}] Error {error_idx}, Attempt {attempt_num}/3: Testing if error is fixed...")
+                                is_fixed, new_predicted = test_single_pdf_error_fixed(
+                                    pdf_path=pdf_path,
+                                    account_id=account_id,
+                                    expected_code=expected_icd1,
+                                    instruction_type="icd",
+                                    instructions=improved_instructions,
+                                    icd_n_pages=icd_n_pages,
+                                    icd_vision_model=icd_vision_model,
+                                    temp_dir=temp_dir
+                                )
+                                
+                                case_status["attempts"].append({
+                                    "attempt": attempt_num,
+                                    "status": "tested",
+                                    "reasoning": reasoning,
+                                    "predicted_after_fix": new_predicted,
+                                    "is_fixed": is_fixed
+                                })
+                                
+                                # Update status with current progress
+                                case_status["status"] = f"attempt_{attempt_num}_tested"
+                                update_refinement_job(
+                                    job_id,
+                                    status="running",
+                                    error_message=json.dumps({
+                                        "phase": "icd",
+                                        "current_case": error_idx,
+                                        "total_cases": len(all_icd_errors),
+                                        "case_statuses": case_statuses + [case_status]
+                                    })
+                                )
+                                
+                                if is_fixed:
+                                    logger.info(f"[Refinement {job_id}] ✅ Error {error_idx} FIXED on attempt {attempt_num}! Predicted '{new_predicted}' matches expected '{expected_icd1}'")
+                                    error_fixed = True
+                                    case_status["final_status"] = "fixed"
+                                    case_status["final_predicted"] = new_predicted
+                                    case_status["status"] = "fixed"
+                                    # Update working instructions to the fixed version
+                                    working_instructions = improved_instructions
+                                    break
+                                else:
+                                    logger.info(f"[Refinement {job_id}] ❌ Error {error_idx} still wrong on attempt {attempt_num}. Predicted '{new_predicted}' != expected '{expected_icd1}'. Retrying...")
+                            
+                            if not error_fixed:
+                                logger.warning(f"[Refinement {job_id}] ⚠️ Error {error_idx} NOT FIXED after 3 attempts. Moving on...")
+                                case_status["final_status"] = "not_fixed"
+                                case_status["status"] = "not_fixed"
+                                # Still update working instructions to the last attempt
+                                working_instructions = current_test_instructions
+                            
+                            # Add final reasoning summary
+                            if case_status["attempts"]:
+                                last_attempt = case_status["attempts"][-1]
+                                all_reasonings.append(f"Error {error_idx} (Account {account_id}): {last_attempt.get('reasoning', 'N/A')} - {'✅ FIXED' if error_fixed else '❌ NOT FIXED'}")
                             
                             if rule_type:
                                 rule_type_counts[rule_type] = rule_type_counts.get(rule_type, 0) + 1
+                            
+                            # Add to case statuses
+                            case_statuses.append(case_status)
+                            
+                            # Update status after each case
+                            update_refinement_job(
+                                job_id,
+                                status="running",
+                                error_message=json.dumps({
+                                    "phase": "icd",
+                                    "current_case": error_idx,
+                                    "total_cases": len(all_icd_errors),
+                                    "case_statuses": case_statuses
+                                })
+                            )
                         
                         # Final improved instructions after processing all errors
                         improved_instructions = working_instructions
-                        reasoning = f"Processed {len(all_icd_errors)} errors. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
+                        fixed_count = sum(1 for cs in case_statuses if cs.get("final_status") == "fixed")
+                        reasoning = f"Processed {len(all_icd_errors)} errors. Fixed {fixed_count}/{len(all_icd_errors)}. Rules added: {rule_type_counts['general']} general, {rule_type_counts['hardcoded']} hardcoded.\n\n" + "\n".join(all_reasonings[:5])  # Show first 5 reasonings
                         
                         if not improved_instructions:
                             logger.error(f"[Refinement {job_id}] Failed to refine ICD instructions in focused mode")
