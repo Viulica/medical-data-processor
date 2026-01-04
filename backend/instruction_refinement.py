@@ -353,8 +353,13 @@ Respond with ONLY the JSON object, nothing else."""
             "Content-Type": "application/json"
         }
         
+        # Ensure DeepSeek model uses exact format
+        openrouter_model = model
+        if "deepseek" in model.lower():
+            openrouter_model = "deepseek/deepseek-v3.2"
+        
         payload = {
-            "model": model,
+            "model": openrouter_model,
             "messages": messages
         }
         
@@ -708,8 +713,13 @@ Respond with ONLY the JSON object, nothing else."""
             "Content-Type": "application/json"
         }
         
+        # Ensure DeepSeek model uses exact format
+        openrouter_model = model
+        if "deepseek" in model.lower():
+            openrouter_model = "deepseek/deepseek-v3.2"
+        
         payload = {
-            "model": model,
+            "model": openrouter_model,
             "messages": messages
         }
         
@@ -1134,8 +1144,13 @@ Respond with ONLY the JSON object, nothing else."""
             "Content-Type": "application/json"
         }
         
+        # Ensure DeepSeek model uses exact format
+        openrouter_model = model
+        if "deepseek" in model.lower():
+            openrouter_model = "deepseek/deepseek-v3.2"
+        
         payload = {
-            "model": model,
+            "model": openrouter_model,
             "messages": messages
         }
         
