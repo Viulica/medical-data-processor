@@ -137,6 +137,7 @@
                   'config',
                   'insurance-config',
                   'templates',
+                  'add-charge-fields',
                   'prediction-instructions',
                   'special-cases-templates',
                 ].includes(activeTab),
@@ -168,6 +169,12 @@
                 class="dropdown-item"
               >
                 📝 Field Templates
+              </button>
+              <button
+                @click="selectTabAndLoad('add-charge-fields', 'loadTemplatesForChargeFields')"
+                class="dropdown-item"
+              >
+                ⚡ Add Charge Fields
               </button>
               <button
                 @click="
@@ -7548,6 +7555,130 @@
           </div>
         </div>
 
+        <!-- Add Charge Fields Tab -->
+        <div v-if="activeTab === 'add-charge-fields'" class="upload-section">
+          <div class="section-header">
+            <h2>⚡ Add Charge Fields to Template</h2>
+            <p>
+              Bulk add charge-related fields to an existing template. Select a template, 
+              configure location, and upload provider list to add all charge fields at once.
+            </p>
+          </div>
+
+          <div class="charge-fields-form">
+            <div class="form-group">
+              <label>Select Template *</label>
+              <select
+                v-model="chargeFieldsTemplateId"
+                class="form-select"
+                @change="onChargeFieldsTemplateChange"
+              >
+                <option :value="null" disabled>Choose a template...</option>
+                <option
+                  v-for="template in allTemplatesForChargeFields"
+                  :key="template.id"
+                  :value="template.id"
+                >
+                  {{ template.name }}
+                </option>
+              </select>
+              <p v-if="chargeFieldsTemplateId" class="field-hint">
+                Selected: {{ getSelectedTemplateName() }}
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Location Value *</label>
+              <input
+                v-model="chargeFieldsLocationValue"
+                type="text"
+                class="form-input"
+                placeholder="e.g., GAP-UMCS"
+              />
+              <p class="field-hint">
+                This value will be used as a fixed output for the Location field
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Provider List *</label>
+              <div class="provider-upload-section">
+                <div class="upload-instructions">
+                  <p><strong>Option 1: Upload Provider Excel File</strong></p>
+                  <p class="field-hint">
+                    Upload an Excel file containing provider list. The system will extract 
+                    CRNA and MD providers automatically.
+                  </p>
+                  <input
+                    ref="chargeFieldsProviderFile"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    @change="onChargeFieldsProviderFileSelect"
+                    class="form-file-input"
+                  />
+                  <p v-if="chargeFieldsProviderFile" class="file-selected">
+                    📄 {{ chargeFieldsProviderFile.name }}
+                  </p>
+                  <button
+                    v-if="chargeFieldsProviderFile"
+                    @click="processProviderFile"
+                    class="btn-primary"
+                    :disabled="isProcessingProviderFile"
+                    style="margin-top: 10px"
+                  >
+                    <span v-if="isProcessingProviderFile">Processing...</span>
+                    <span v-else>Process Provider File</span>
+                  </button>
+                </div>
+
+                <div class="upload-instructions" style="margin-top: 20px">
+                  <p><strong>Option 2: Paste Provider List</strong></p>
+                  <p class="field-hint">
+                    Or paste the formatted provider list directly (output from Provider Mapping tab)
+                  </p>
+                  <textarea
+                    v-model="chargeFieldsProviderListText"
+                    class="form-textarea"
+                    rows="10"
+                    placeholder="Billable CRNA providers:&#10;LAST NAME, FIRST NAME MIDDLE, CRNA&#10;...&#10;&#10;Billable MD providers:&#10;LAST NAME, FIRST NAME MIDDLE, MD&#10;..."
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button
+                @click="addChargeFieldsToTemplate"
+                class="btn-primary btn-large"
+                :disabled="
+                  !chargeFieldsTemplateId ||
+                  !chargeFieldsLocationValue ||
+                  !chargeFieldsProviderListText ||
+                  isAddingChargeFields
+                "
+              >
+                <span v-if="isAddingChargeFields">Adding Fields...</span>
+                <span v-else>⚡ Add All Charge Fields</span>
+              </button>
+            </div>
+
+            <div v-if="chargeFieldsResult" class="result-section">
+              <div class="success-message">
+                <h3>✅ Success!</h3>
+                <p>{{ chargeFieldsResult.message }}</p>
+                <p>Added {{ chargeFieldsResult.fields_added }} charge fields to the template.</p>
+                <button
+                  @click="viewTemplateAfterChargeFields"
+                  class="btn-secondary"
+                  style="margin-top: 10px"
+                >
+                  View Updated Template
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Prediction Instructions Manager Tab -->
         <div
           v-if="activeTab === 'prediction-instructions'"
@@ -8296,6 +8427,15 @@ export default {
       selectedTemplateIdStandard: null,
       useTemplateInsteadOfExcelFast: false,
       useTemplateInsteadOfExcelStandard: false,
+      // Add Charge Fields functionality
+      chargeFieldsTemplateId: null,
+      chargeFieldsLocationValue: "",
+      chargeFieldsProviderListText: "",
+      chargeFieldsProviderFile: null,
+      isProcessingProviderFile: false,
+      isAddingChargeFields: false,
+      chargeFieldsResult: null,
+      allTemplatesForChargeFields: [],
       // Prediction Instructions Manager functionality
       predictionInstructions: [],
       predictionInstructionsLoading: false,
@@ -13167,6 +13307,195 @@ export default {
     },
 
     // ========================================================================
+    // Add Charge Fields Methods
+    // ========================================================================
+
+    async loadTemplatesForChargeFields() {
+      this.activeTab = "add-charge-fields";
+      try {
+        // Load all templates without pagination for dropdown
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/templates"),
+          {
+            params: {
+              page: 1,
+              page_size: 1000, // Get a large number to include all templates
+            },
+          }
+        );
+        this.allTemplatesForChargeFields = response.data.templates;
+      } catch (error) {
+        console.error("Failed to load templates for charge fields:", error);
+        this.toast.error("Failed to load templates");
+      }
+    },
+
+    onChargeFieldsTemplateChange() {
+      // Reset result when template changes
+      this.chargeFieldsResult = null;
+    },
+
+    getSelectedTemplateName() {
+      const template = this.allTemplatesForChargeFields.find(
+        (t) => t.id === this.chargeFieldsTemplateId
+      );
+      return template ? template.name : "";
+    },
+
+    onChargeFieldsProviderFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.chargeFieldsProviderFile = file;
+      }
+    },
+
+    async processProviderFile() {
+      if (!this.chargeFieldsProviderFile) {
+        this.toast.error("Please select a provider file");
+        return;
+      }
+
+      this.isProcessingProviderFile = true;
+      try {
+        const formData = new FormData();
+        formData.append("excel_file", this.chargeFieldsProviderFile);
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "provider-mapping"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        const jobId = response.data.job_id;
+        this.toast.info("Processing provider file...");
+
+        // Poll for job status
+        await this.pollProviderMappingJob(jobId);
+      } catch (error) {
+        console.error("Failed to process provider file:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to process provider file"
+        );
+        this.isProcessingProviderFile = false;
+      }
+    },
+
+    async pollProviderMappingJob(jobId) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusResponse = await axios.get(
+            joinUrl(API_BASE_URL, `job-status/${jobId}`)
+          );
+          const jobData = statusResponse.data;
+
+          if (jobData.status === "completed") {
+            clearInterval(pollInterval);
+            this.isProcessingProviderFile = false;
+
+            // Get the provider list text from the result
+            if (jobData.result && jobData.result.output) {
+              this.chargeFieldsProviderListText = jobData.result.output;
+              this.toast.success("Provider file processed successfully!");
+            } else {
+              this.toast.error("No provider data found in result");
+            }
+          } else if (jobData.status === "failed") {
+            clearInterval(pollInterval);
+            this.isProcessingProviderFile = false;
+            this.toast.error(
+              jobData.message || "Provider file processing failed"
+            );
+          }
+        } catch (error) {
+          clearInterval(pollInterval);
+          this.isProcessingProviderFile = false;
+          console.error("Failed to poll job status:", error);
+          this.toast.error("Failed to check processing status");
+        }
+      }, 2000); // Poll every 2 seconds
+    },
+
+    async addChargeFieldsToTemplate() {
+      if (
+        !this.chargeFieldsTemplateId ||
+        !this.chargeFieldsLocationValue ||
+        !this.chargeFieldsProviderListText
+      ) {
+        this.toast.error("Please fill in all required fields");
+        return;
+      }
+
+      this.isAddingChargeFields = true;
+      this.chargeFieldsResult = null;
+
+      try {
+        const formData = new FormData();
+        formData.append("location_value", this.chargeFieldsLocationValue);
+        formData.append(
+          "provider_list_text",
+          this.chargeFieldsProviderListText
+        );
+
+        const response = await axios.post(
+          joinUrl(
+            API_BASE_URL,
+            `api/templates/${this.chargeFieldsTemplateId}/add-charge-fields`
+          ),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.chargeFieldsResult = response.data;
+        this.toast.success(response.data.message);
+
+        // Reset form
+        this.chargeFieldsLocationValue = "";
+        this.chargeFieldsProviderListText = "";
+        this.chargeFieldsProviderFile = null;
+        if (this.$refs.chargeFieldsProviderFile) {
+          this.$refs.chargeFieldsProviderFile.value = "";
+        }
+      } catch (error) {
+        console.error("Failed to add charge fields:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to add charge fields"
+        );
+      } finally {
+        this.isAddingChargeFields = false;
+      }
+    },
+
+    async viewTemplateAfterChargeFields() {
+      if (this.chargeFieldsTemplateId) {
+        // Switch to templates tab and view the updated template
+        this.activeTab = "templates";
+        await this.loadTemplates(true);
+
+        // Find and view the template
+        try {
+          const response = await axios.get(
+            joinUrl(
+              API_BASE_URL,
+              `api/templates/${this.chargeFieldsTemplateId}`
+            )
+          );
+          await this.viewTemplateDetails(response.data);
+        } catch (error) {
+          console.error("Failed to load template:", error);
+          this.toast.error("Failed to load template details");
+        }
+      }
+    },
+
+    // ========================================================================
     // Prediction Instructions Manager Methods
     // ========================================================================
 
@@ -15997,5 +16326,100 @@ input:checked + .slider:hover {
 .model-option-card.selected .feature-tag {
   background: #dbeafe;
   color: #1e40af;
+}
+
+/* Add Charge Fields Styles */
+.charge-fields-form {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.charge-fields-form .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.charge-fields-form .form-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.charge-fields-form .form-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.provider-upload-section {
+  border: 2px dashed #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  background: #f8fafc;
+}
+
+.upload-instructions {
+  margin-bottom: 1rem;
+}
+
+.upload-instructions p {
+  margin-bottom: 0.5rem;
+}
+
+.upload-instructions strong {
+  color: #1e40af;
+  font-weight: 600;
+}
+
+.form-actions {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.btn-large {
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  min-width: 250px;
+}
+
+.result-section {
+  margin-top: 2rem;
+  padding: 2rem;
+  border-radius: 12px;
+  background: #f0fdf4;
+  border: 2px solid #86efac;
+}
+
+.success-message h3 {
+  color: #166534;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+}
+
+.success-message p {
+  color: #15803d;
+  margin-bottom: 0.5rem;
+}
+
+.field-hint {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+.file-selected {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #f1f5f9;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 0.875rem;
 }
 </style>

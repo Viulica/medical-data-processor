@@ -5669,6 +5669,413 @@ async def delete_template(template_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
 
 
+@app.post("/api/templates/{template_id}/add-charge-fields")
+async def add_charge_fields_to_template(
+    template_id: int,
+    location_value: str = Form(...),
+    provider_list_text: str = Form(...)
+):
+    """
+    Add charge fields to an existing template in bulk.
+    
+    Args:
+        template_id: ID of the template to update
+        location_value: Value for the Location field (e.g., "GAP-UMCS")
+        provider_list_text: Formatted provider list text from provider mapping
+    """
+    try:
+        from db_utils import get_template, update_template as update_template_in_db
+        
+        # Check if template exists
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Parse provider list to separate CRNA and MD
+        lines = provider_list_text.strip().split('\n')
+        crna_providers = []
+        md_providers = []
+        all_providers = []
+        
+        current_section = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if "Billable CRNA providers:" in line:
+                current_section = "crna"
+                continue
+            elif "Billable MD providers:" in line:
+                current_section = "md"
+                continue
+            
+            if current_section == "crna":
+                crna_providers.append(line)
+                all_providers.append(line)
+            elif current_section == "md":
+                md_providers.append(line)
+                all_providers.append(line)
+        
+        # Format provider lists for instructions
+        crna_list_str = "\n".join(crna_providers) if crna_providers else "No CRNA providers"
+        md_list_str = "\n".join(md_providers) if md_providers else "No MD providers"
+        all_providers_str = "\n".join(all_providers) if all_providers else "No providers"
+        
+        # Define all charge fields
+        charge_fields = [
+            {
+                'name': 'Location',
+                'description': f'In this field always output value "{location_value}", exactly that never anything else',
+                'location': 'N/A - Fixed value',
+                'output_format': 'String'
+            },
+            {
+                'name': 'PatientClass',
+                'description': '''PatientClass Extraction Rule
+
+determine if the patient is an inpatient or an outpatient (likely listed somewhere in the record)
+
+Only these two values are allowed: INPATIENT or OUTPATIENT
+
+Do not output any other value!''',
+                'location': 'Patient record - patient class field',
+                'output_format': 'INPATIENT or OUTPATIENT'
+            },
+            {
+                'name': 'Surgeon',
+                'description': f'''AI INSTRUCTION — SURGEON (MD) PROVIDER EXTRACTION RULE
+
+SECTION TO READ
+
+ANESTHESIA RECORD → SURGEON
+
+The AI must extract only ONE surgeon (MD) using the rules below.
+
+1️⃣ PRIMARY RULE — Identify and Extract the Surgeon
+
+If a surgeon is listed anywhere in the record, the AI must:
+
+✔ Identify the Surgeon / MD
+✔ Extract the name
+✔ Standardize it using the reference list
+
+If only one surgeon MD is listed → Extract that surgeon MD.
+
+2️⃣ MULTIPLE SURGEONS (MD) LISTED
+
+If more than one MD appears:
+
+✔ Extract ONLY ONE
+✔ Select the surgeon whose name appears as the primary surgeon, "Attending Surgeon," or the first listed surgeon.
+
+3️⃣ NAME STANDARDIZATION REQUIREMENTS
+
+The raw MD name in the record may contain:
+
+Spelling errors
+Missing middle initial
+Extra or missing spaces
+Abbreviations
+Only ID format (ex: GOSSAGE-13379)
+Incorrect punctuation
+Missing credential
+
+👉 The AI MUST replace the raw name with the EXACT standardized name from the MD reference list.
+
+4️⃣ OUTPUT FORMAT (MANDATORY)
+
+The extracted MD must ALWAYS follow this structure:
+
+{{LAST NAME}}, {{FIRST NAME}} {{MIDDLE INITIAL}}, MD
+
+5️⃣ CREDENTIAL RULE
+
+All extracted surgeon providers must be labeled as:
+
+MD
+
+Do NOT change the credential to DO, MBBS, etc., even if raw text contains these.
+Only use MD, as per the standardized provider list.
+
+6️⃣ REFERENCE LIST (STANDARDIZED PROVIDER NAMES)
+
+The AI must match the extracted surgeon to the following approved list:
+
+MD Providers (Standardized)
+{md_list_str}
+
+7️⃣ IF THE MD NAME IS NOT FOUND IN THE STANDARDIZED LIST
+
+If the extracted surgeon does not match any name in the reference list:
+
+👉 Leave the cell BLANK.
+
+✔ FINAL OUTPUT RULE
+
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, MD''',
+                'location': 'Anesthesia record - surgeon field',
+                'output_format': 'LAST NAME, FIRST NAME MIDDLE INITIAL, MD'
+            },
+            {
+                'name': 'Referring',
+                'description': 'COPY VALUE FROM surgeon field and put here also, exactly same output value (needed for our integration system to work)',
+                'location': 'Copy from Surgeon field',
+                'output_format': 'Same as Surgeon field'
+            },
+            {
+                'name': 'ResponsibleProvider',
+                'description': f'''✅ AI INSTRUCTION — PROVIDER (MD or CRNA) EXTRACTION RULE
+
+SECTION TO READ
+
+1️⃣ ANESTHESIA RECORD MULTIPLE CRNAs or multiple MD LISTED — SELECT THE CRNA or MD WITH LONGEST DURATION
+
+MD takes priority for being in Responsible Provider field over CRNA though, but ONLY if he was actually properly on the case participating, if the MD only SIGNED the record and nothing else but the CRNA did the work, then CRNA is responsible provider
+
+When the anesthesia record contains more than one CRNA or MD, the AI must:
+Step A — Identify each CRNA or MD by ID
+
+Step B — Calculate total anesthesia time
+
+Duration = End Time – Start Time
+
+Step C — Select the CRNA or MD with longest time
+
+This CRNA or MD becomes the performing provider.
+
+2️⃣ANESTHESIA RECORD → CRNA Entries
+
+if there is no multiple CRNA Then the AI must extract only ONE CRNA provider using the rules below.
+PRIMARY RULE — Extract the CRNA Listed in the Anesthesia Record
+
+The AI must always map ID or raw text to the standardized provider list (reference list given below).
+
+3️⃣ NAME STANDARDIZATION — MUST MATCH REFERENCE LIST EXACTLY
+
+The raw provider name in the record may have:
+
+Spelling errors
+Abbreviations
+Extra text
+Missing credentials
+Only an ID
+Partial names
+
+👉 The AI must always replace the raw name with the exact standardized version from the reference list.
+
+4️⃣ OUTPUT FORMAT (MANDATORY)
+
+The provider must ALWAYS be output in this format:
+
+{{LAST NAME}}, {{FIRST NAME}} {{MIDDLE INITIAL}}, CRNA
+or
+{{LAST NAME}}, {{FIRST NAME}} {{MIDDLE INITIAL}}, MD
+
+if there is an MD or CRNA that is NOT on our reference list of our providers it CANNOT go in this or any other field, because they are not providers that we can bill for
+
+REFERENCE LIST (STANDARDIZED PROVIDER NAMES):
+{all_providers_str}''',
+                'location': 'Anesthesia record - provider with longest duration',
+                'output_format': 'LAST NAME, FIRST NAME MIDDLE INITIAL, CRNA or MD'
+            },
+            {
+                'name': 'MD',
+                'description': f'''if there is an MD from our standardized list of providers on the case, then put it in this field, if there are multiple pick the one with highest time on case, the list of billable providers is:
+
+{md_list_str}''',
+                'location': 'Anesthesia record - MD provider',
+                'output_format': 'LAST NAME, FIRST NAME MIDDLE INITIAL, MD'
+            },
+            {
+                'name': 'CRNA',
+                'description': f'''if there is a CRNA from our standardized list of providers on the case, then put it in this field, if there are multiple pick the one with highest time on case, the list of billable providers is:
+
+{crna_list_str}''',
+                'location': 'Anesthesia record - CRNA provider',
+                'output_format': 'LAST NAME, FIRST NAME MIDDLE INITIAL, CRNA'
+            },
+            {
+                'name': 'SRNA',
+                'description': "if there is a SRNA present on the case output in this field just text 'SRNA'",
+                'location': 'Anesthesia record - SRNA field',
+                'output_format': 'SRNA or empty'
+            },
+            {
+                'name': 'Resident',
+                'description': "if there is a RESIDENT present on the case output in this field just text 'RES'",
+                'location': 'Anesthesia record - Resident field',
+                'output_format': 'RES or empty'
+            },
+            {
+                'name': 'Revenue',
+                'description': 'if the case is a labor case then put OB otherwise always OR',
+                'location': 'Determine from case type',
+                'output_format': 'OR or OB'
+            },
+            {
+                'name': 'PlaceOfService',
+                'description': 'always leave empty string',
+                'location': 'N/A',
+                'output_format': 'Empty string'
+            },
+            {
+                'name': 'TypeOfService',
+                'description': 'always leave empty string',
+                'location': 'N/A',
+                'output_format': 'Empty string'
+            },
+            {
+                'name': 'AnStart',
+                'description': '''AI Instruction: Extract Anesthesia Start Time (With DOS + Required Format)
+
+1️⃣ Primary Capture Rule — Extract Anesthesia Start Time
+Look for fields labeled exactly or similarly as:
+Anes Start or an start or anything indicating the start of anesthesia
+
+If found Anes Start, extract this value EXACTLY as recorded.
+
+2️⃣ Secondary Capture Rule — Use Anesthesia Ready Time ONLY if Start Time is Missing
+If Anesthesia Start Time is completely missing, then search for:
+Anes Ready
+Extract Ready Time ONLY when Start Time is not available.
+
+3️⃣ Required Output Format (MANDATORY)
+The output must ALWAYS include:
+
+Date of Service (DOS)
+Time
+Corrected, unified datetime format
+
+Format to output:
+Example:
+9/30/2025  9:53:00 AM
+
+4️⃣ Automatically Correct Inconsistent or Incomplete Formats
+
+The AI must auto-correct formatting issues such as:
+
+Missing seconds → add :00
+Missing AM/PM → infer using recorded format (if ambiguous, use document standard)
+Wrong separator (e.g., "." or "-") → convert to /
+24-hour time → convert to AM/PM format
+Missing leading zeros → correct to proper format
+
+Example Corrections
+Raw Value Found	Correct Output
+09:22	9/30/2025 9:22:00 AM
+14:05	9/30/2025 2:05:00 PM
+9.22 AM	9/30/2025 9:22:00 AM
+
+5️⃣ Final Output Rule
+
+Always output:
+
+<DOS + Time>
+
+Example (Start Time Found)
+9/30/2025  9:53:00 AM
+
+Example (Start Time Missing → Ready Time Used)
+9/30/2025  9:53:00 AM (Ready Time Used)''',
+                'location': 'Anesthesia record - Anes Start or Anes Ready',
+                'output_format': 'MM/DD/YYYY HH:MM:SS AM/PM'
+            },
+            {
+                'name': 'AnStop',
+                'description': '''AI Instruction: Extract Anesthesia End Time (With DOS + Required Format)
+
+1️⃣ Primary Capture Rule — Extract Anesthesia End Time
+
+Look for fields labeled exactly or similarly as:
+Anes End, anesthesia end, anything indicating when the anesthesia stopped
+👉 If found, extract the time as recorded.
+
+3️⃣ Required Output Format (MANDATORY)
+
+The output must always include:
+
+Date of Service (DOS)
+Time in correct unified format
+
+Final required format:
+MM/DD/YYYY HH:MM:SS AM/PM
+
+Example:
+9/30/2025 9:22:00 AM
+
+4️⃣ Automatically Correct Time Formats
+
+The AI must auto-correct inconsistencies such as:
+
+Missing seconds → add :00
+Missing AM/PM → infer from 24-hour or document standard
+24-hour format → convert to AM/PM
+Missing leading zeros → correct (9:2 → 9:02)
+Wrong separators → convert to / or : appropriately
+If only time is present, append the DOS
+
+Examples of Corrections
+Raw Value Found	Output
+15:10	9/30/2025 3:10:00 PM
+3.10 PM	9/30/2025 3:10:00 PM
+03:10	9/30/2025 3:10:00 AM (based on context)
+3:10	9/30/2025 3:10:00 AM
+
+5️⃣ Final Output Rule
+
+Always output:
+
+<DOS + Time>
+
+Example (End Time Found)
+9/30/2025  9:53:00 AM''',
+                'location': 'Anesthesia record - Anes End',
+                'output_format': 'MM/DD/YYYY HH:MM:SS AM/PM'
+            },
+            {
+                'name': 'AnesthesiaType',
+                'description': 'output values can be GENERAL, MAC, REGIONAL, TIVA nothing else dont output any other value ever, whatever is listed in the record you should think like a medical coder, think like what a medical coder would put of one of these 4 standardized values in order to get the case PAID',
+                'location': 'Anesthesia record - anesthesia type',
+                'output_format': 'GENERAL, MAC, REGIONAL, or TIVA'
+            },
+            {
+                'name': 'PhysicalStatus',
+                'description': 'allowed output values are : 1, 2, 3, 4, 5, 6 , find the physical status, p status of the patient (medical billing term) and extract it as a number EXACTLY one of these numbers NO other value',
+                'location': 'Anesthesia record - physical status',
+                'output_format': '1, 2, 3, 4, 5, or 6'
+            }
+        ]
+        
+        # Get existing fields from template
+        existing_fields = existing_template['template_data'].get('fields', [])
+        
+        # Add charge fields to existing fields
+        updated_fields = existing_fields + charge_fields
+        
+        # Update template with new fields
+        template_data = {'fields': updated_fields}
+        success = update_template_in_db(
+            template_id=template_id,
+            template_data=template_data
+        )
+        
+        if success:
+            updated_template = get_template(template_id=template_id)
+            return {
+                "message": f"Successfully added {len(charge_fields)} charge fields to template",
+                "template": updated_template,
+                "fields_added": len(charge_fields)
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template with charge fields")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add charge fields to template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add charge fields: {str(e)}")
+
+
 @app.post("/api/templates/{template_id}/export")
 async def export_template_as_excel(template_id: int):
     """Export a template back to Excel format for download"""
@@ -6428,16 +6835,17 @@ def process_unified_background(
                 
                 # Pre-extract images in parallel
                 from concurrent.futures import ThreadPoolExecutor, as_completed
-                with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
-                    future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
-                    for future in as_completed(future_to_pdf):
-                        pdf_path = future_to_pdf[future]
-                        try:
-                            images = future.result()
-                            if images:
-                                pdf_image_cache[pdf_path.name] = images
-                        except Exception as e:
-                            logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
+                if pdf_files:
+                    with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
+                        future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
+                        for future in as_completed(future_to_pdf):
+                            pdf_path = future_to_pdf[future]
+                            try:
+                                images = future.result()
+                                if images:
+                                    pdf_image_cache[pdf_path.name] = images
+                            except Exception as e:
+                                logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
                 
                 logger.info(f"[Unified {job_id}] ✅ Pre-extracted images for {len(pdf_image_cache)} PDFs (shared cache)")
             
@@ -7046,16 +7454,17 @@ def process_unified_background(
             
             # Pre-extract images in parallel
             from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
-                future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
-                for future in as_completed(future_to_pdf):
-                    pdf_path = future_to_pdf[future]
-                    try:
-                        images = future.result()
-                        if images:
-                            pdf_image_cache[pdf_path.name] = images
-                    except Exception as e:
-                        logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
+            if pdf_files:
+                with ThreadPoolExecutor(max_workers=min(20, len(pdf_files))) as executor:
+                    future_to_pdf = {executor.submit(pdf_pages_to_base64_images, str(pdf_path), max_pages_needed): pdf_path for pdf_path in pdf_files}
+                    for future in as_completed(future_to_pdf):
+                        pdf_path = future_to_pdf[future]
+                        try:
+                            images = future.result()
+                            if images:
+                                pdf_image_cache[pdf_path.name] = images
+                        except Exception as e:
+                            logger.warning(f"[Unified {job_id}] Failed to pre-extract images from {pdf_path.name}: {e}")
             
             logger.info(f"[Unified {job_id}] ✅ Pre-extracted images for {len(pdf_image_cache)} PDFs (shared cache)")
             
