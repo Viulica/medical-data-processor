@@ -5673,6 +5673,7 @@ async def delete_template(template_id: int):
 async def add_charge_fields_to_template(
     template_id: int,
     location_value: str = Form(...),
+    surgeon_list_text: str = Form(...),
     provider_list_text: str = Form(...)
 ):
     """
@@ -5681,6 +5682,7 @@ async def add_charge_fields_to_template(
     Args:
         template_id: ID of the template to update
         location_value: Value for the Location field (e.g., "GAP-UMCS")
+        surgeon_list_text: Formatted surgeon list text from surgeon mapping
         provider_list_text: Formatted provider list text from provider mapping
     """
     try:
@@ -5690,6 +5692,11 @@ async def add_charge_fields_to_template(
         existing_template = get_template(template_id=template_id)
         if not existing_template:
             raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Parse surgeon list (simple list of surgeons, one per line)
+        surgeon_lines = surgeon_list_text.strip().split('\n')
+        surgeon_list = [line.strip() for line in surgeon_lines if line.strip()]
+        surgeon_list_str = "\n".join(surgeon_list) if surgeon_list else "No surgeons"
         
         # Parse provider list to separate CRNA and MD
         lines = provider_list_text.strip().split('\n')
@@ -5802,7 +5809,7 @@ Only use MD, as per the standardized provider list.
 The AI must match the extracted surgeon to the following approved list:
 
 MD Providers (Standardized)
-{md_list_str}
+{surgeon_list_str}
 
 7️⃣ IF THE MD NAME IS NOT FOUND IN THE STANDARDIZED LIST
 

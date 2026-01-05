@@ -7601,7 +7601,52 @@
             </div>
 
             <div class="form-group">
-              <label>Provider List *</label>
+              <label>Surgeon List *</label>
+              <div class="provider-upload-section">
+                <div class="upload-instructions">
+                  <p><strong>Option 1: Upload Surgeon Excel File</strong></p>
+                  <p class="field-hint">
+                    Upload an Excel file containing surgeon list (columns: Last Name, First Name, Middle Name).
+                  </p>
+                  <input
+                    ref="chargeFieldsSurgeonFile"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    @change="onChargeFieldsSurgeonFileSelect"
+                    class="form-file-input"
+                  />
+                  <p v-if="chargeFieldsSurgeonFile" class="file-selected">
+                    📄 {{ chargeFieldsSurgeonFile.name }}
+                  </p>
+                  <button
+                    v-if="chargeFieldsSurgeonFile"
+                    @click="processSurgeonFile"
+                    class="btn-primary"
+                    :disabled="isProcessingSurgeonFile"
+                    style="margin-top: 10px"
+                  >
+                    <span v-if="isProcessingSurgeonFile">Processing...</span>
+                    <span v-else>Process Surgeon File</span>
+                  </button>
+                </div>
+
+                <div class="upload-instructions" style="margin-top: 20px">
+                  <p><strong>Option 2: Paste Surgeon List</strong></p>
+                  <p class="field-hint">
+                    Or paste the formatted surgeon list directly (output from Surgeon Mapping tab)
+                  </p>
+                  <textarea
+                    v-model="chargeFieldsSurgeonListText"
+                    class="form-textarea"
+                    rows="8"
+                    placeholder="LAST NAME, FIRST NAME MIDDLE, MD&#10;LAST NAME, FIRST NAME MIDDLE, MD&#10;..."
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Provider List (CRNA & MD) *</label>
               <div class="provider-upload-section">
                 <div class="upload-instructions">
                   <p><strong>Option 1: Upload Provider Excel File</strong></p>
@@ -7653,6 +7698,7 @@
                 :disabled="
                   !chargeFieldsTemplateId ||
                   !chargeFieldsLocationValue ||
+                  !chargeFieldsSurgeonListText ||
                   !chargeFieldsProviderListText ||
                   isAddingChargeFields
                 "
@@ -8430,6 +8476,9 @@ export default {
       // Add Charge Fields functionality
       chargeFieldsTemplateId: null,
       chargeFieldsLocationValue: "",
+      chargeFieldsSurgeonListText: "",
+      chargeFieldsSurgeonFile: null,
+      isProcessingSurgeonFile: false,
       chargeFieldsProviderListText: "",
       chargeFieldsProviderFile: null,
       isProcessingProviderFile: false,
@@ -8741,8 +8790,12 @@ export default {
         this.loadInsuranceMappings(true);
       } else if (methodName === "loadTemplates") {
         this.loadTemplates(true);
+      } else if (methodName === "loadTemplatesForChargeFields") {
+        this.loadTemplatesForChargeFields();
       } else if (methodName === "loadPredictionInstructions") {
         this.loadPredictionInstructions(true);
+      } else if (methodName === "loadSpecialCasesTemplates") {
+        this.loadSpecialCasesTemplates(true);
       }
     },
 
@@ -13342,6 +13395,83 @@ export default {
       return template ? template.name : "";
     },
 
+    onChargeFieldsSurgeonFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.chargeFieldsSurgeonFile = file;
+      }
+    },
+
+    async processSurgeonFile() {
+      if (!this.chargeFieldsSurgeonFile) {
+        this.toast.error("Please select a surgeon file");
+        return;
+      }
+
+      this.isProcessingSurgeonFile = true;
+      try {
+        const formData = new FormData();
+        formData.append("excel_file", this.chargeFieldsSurgeonFile);
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "surgeon-mapping"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        const jobId = response.data.job_id;
+        this.toast.info("Processing surgeon file...");
+
+        // Poll for job status
+        await this.pollSurgeonMappingJob(jobId);
+      } catch (error) {
+        console.error("Failed to process surgeon file:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to process surgeon file"
+        );
+        this.isProcessingSurgeonFile = false;
+      }
+    },
+
+    async pollSurgeonMappingJob(jobId) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusResponse = await axios.get(
+            joinUrl(API_BASE_URL, `job-status/${jobId}`)
+          );
+          const jobData = statusResponse.data;
+
+          if (jobData.status === "completed") {
+            clearInterval(pollInterval);
+            this.isProcessingSurgeonFile = false;
+
+            // Get the surgeon list text from the result
+            if (jobData.result && jobData.result.output) {
+              this.chargeFieldsSurgeonListText = jobData.result.output;
+              this.toast.success("Surgeon file processed successfully!");
+            } else {
+              this.toast.error("No surgeon data found in result");
+            }
+          } else if (jobData.status === "failed") {
+            clearInterval(pollInterval);
+            this.isProcessingSurgeonFile = false;
+            this.toast.error(
+              jobData.message || "Surgeon file processing failed"
+            );
+          }
+        } catch (error) {
+          clearInterval(pollInterval);
+          this.isProcessingSurgeonFile = false;
+          console.error("Failed to poll job status:", error);
+          this.toast.error("Failed to check processing status");
+        }
+      }, 2000); // Poll every 2 seconds
+    },
+
     onChargeFieldsProviderFileSelect(event) {
       const file = event.target.files[0];
       if (file) {
@@ -13423,6 +13553,7 @@ export default {
       if (
         !this.chargeFieldsTemplateId ||
         !this.chargeFieldsLocationValue ||
+        !this.chargeFieldsSurgeonListText ||
         !this.chargeFieldsProviderListText
       ) {
         this.toast.error("Please fill in all required fields");
@@ -13435,6 +13566,10 @@ export default {
       try {
         const formData = new FormData();
         formData.append("location_value", this.chargeFieldsLocationValue);
+        formData.append(
+          "surgeon_list_text",
+          this.chargeFieldsSurgeonListText
+        );
         formData.append(
           "provider_list_text",
           this.chargeFieldsProviderListText
@@ -13458,8 +13593,13 @@ export default {
 
         // Reset form
         this.chargeFieldsLocationValue = "";
+        this.chargeFieldsSurgeonListText = "";
+        this.chargeFieldsSurgeonFile = null;
         this.chargeFieldsProviderListText = "";
         this.chargeFieldsProviderFile = null;
+        if (this.$refs.chargeFieldsSurgeonFile) {
+          this.$refs.chargeFieldsSurgeonFile.value = "";
+        }
         if (this.$refs.chargeFieldsProviderFile) {
           this.$refs.chargeFieldsProviderFile.value = "";
         }
