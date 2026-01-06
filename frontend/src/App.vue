@@ -13884,7 +13884,7 @@ export default {
       this.selectedManualSplitPages = [];
     },
 
-    onPageImageLoad(pageNumber) {
+    onPageImageLoad() {
       // Image loaded successfully
     },
 
