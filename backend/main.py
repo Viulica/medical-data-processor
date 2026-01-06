@@ -2536,6 +2536,208 @@ async def split_pdf_gemini_prompt(
         logger.error(f"Gemini prompt PDF split upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+@app.post("/manual-split-pdf/upload")
+async def upload_pdf_for_manual_split(pdf_file: UploadFile = File(...)):
+    """
+    Upload a PDF file for manual splitting.
+    Returns PDF info including page count.
+    """
+    try:
+        if not pdf_file.filename.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="File must be a PDF")
+        
+        # Save PDF temporarily
+        import tempfile
+        import fitz  # PyMuPDF
+        from PyPDF2 import PdfReader
+        
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        content = await pdf_file.read()
+        temp_pdf.write(content)
+        temp_pdf.close()
+        
+        # Get page count
+        reader = PdfReader(temp_pdf.name)
+        page_count = len(reader.pages)
+        
+        # Generate a unique ID for this PDF session
+        pdf_session_id = str(uuid.uuid4())
+        
+        # Store PDF path in a temporary location (will be cleaned up later)
+        session_pdf_path = f"/tmp/manual_split_{pdf_session_id}.pdf"
+        shutil.copy2(temp_pdf.name, session_pdf_path)
+        os.unlink(temp_pdf.name)
+        
+        # Store session info (in production, use Redis or database)
+        if not hasattr(upload_pdf_for_manual_split, 'sessions'):
+            upload_pdf_for_manual_split.sessions = {}
+        upload_pdf_for_manual_split.sessions[pdf_session_id] = {
+            'pdf_path': session_pdf_path,
+            'filename': pdf_file.filename,
+            'page_count': page_count,
+            'created_at': time.time()
+        }
+        
+        return {
+            "pdf_session_id": pdf_session_id,
+            "filename": pdf_file.filename,
+            "page_count": page_count
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to upload PDF for manual split: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.get("/manual-split-pdf/{pdf_session_id}/page/{page_number}")
+async def get_pdf_page_image(pdf_session_id: str, page_number: int):
+    """
+    Get a PDF page as an image for display.
+    Returns page image as PNG.
+    """
+    try:
+        import fitz  # PyMuPDF
+        import base64
+        from io import BytesIO
+        
+        # Get session info
+        if not hasattr(upload_pdf_for_manual_split, 'sessions'):
+            raise HTTPException(status_code=404, detail="PDF session not found")
+        
+        sessions = upload_pdf_for_manual_split.sessions
+        if pdf_session_id not in sessions:
+            raise HTTPException(status_code=404, detail="PDF session not found")
+        
+        session_info = sessions[pdf_session_id]
+        pdf_path = session_info['pdf_path']
+        page_count = session_info['page_count']
+        
+        # Validate page number (0-based)
+        if page_number < 0 or page_number >= page_count:
+            raise HTTPException(status_code=400, detail=f"Page number must be between 0 and {page_count - 1}")
+        
+        # Open PDF and render page
+        doc = fitz.open(pdf_path)
+        page = doc[page_number]
+        
+        # Render page as image (scale for thumbnail)
+        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        pix = page.get_pixmap(matrix=mat)
+        
+        # Convert to PNG bytes
+        img_bytes = pix.tobytes("png")
+        doc.close()
+        
+        # Return as base64 encoded image
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        return {
+            "page_number": page_number,
+            "image_data": f"data:image/png;base64,{img_base64}",
+            "width": pix.width,
+            "height": pix.height
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get PDF page image: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to render page: {str(e)}")
+
+@app.post("/manual-split-pdf/{pdf_session_id}/split")
+async def split_pdf_manual(
+    pdf_session_id: str,
+    request: dict = Body(...)
+):
+    """
+    Split PDF based on manually selected page indexes.
+    selected_pages should be a list of page numbers (0-based) where splits should occur.
+    """
+    try:
+        from PyPDF2 import PdfReader, PdfWriter
+        import tempfile
+        
+        # Get session info
+        if not hasattr(upload_pdf_for_manual_split, 'sessions'):
+            raise HTTPException(status_code=404, detail="PDF session not found")
+        
+        sessions = upload_pdf_for_manual_split.sessions
+        if pdf_session_id not in sessions:
+            raise HTTPException(status_code=404, detail="PDF session not found")
+        
+        session_info = sessions[pdf_session_id]
+        pdf_path = session_info['pdf_path']
+        filename = session_info['filename']
+        page_count = session_info['page_count']
+        
+        # Get selected pages from request body
+        selected_pages = request.get('selected_pages', [])
+        
+        # Validate selected pages
+        if not selected_pages:
+            raise HTTPException(status_code=400, detail="At least one page must be selected")
+        
+        # Sort and validate page numbers
+        selected_pages = sorted([int(p) for p in selected_pages])
+        if selected_pages[0] < 0 or selected_pages[-1] >= page_count:
+            raise HTTPException(status_code=400, detail=f"Page numbers must be between 0 and {page_count - 1}")
+        
+        # Read PDF
+        reader = PdfReader(pdf_path)
+        base_name = os.path.splitext(filename)[0]
+        
+        # Create output directory
+        output_dir = Path("/tmp") / f"manual_split_{pdf_session_id}"
+        output_dir.mkdir(exist_ok=True)
+        
+        # Create PDF sections
+        created_pdfs = []
+        for i, start_page in enumerate(selected_pages):
+            # Determine end page (exclusive)
+            if i + 1 < len(selected_pages):
+                end_page = selected_pages[i + 1]
+            else:
+                end_page = page_count  # Last section goes to end
+            
+            # Create PDF for this section
+            writer = PdfWriter()
+            
+            # Add pages to this section
+            for page_idx in range(start_page, end_page):
+                writer.add_page(reader.pages[page_idx])
+            
+            # Save section PDF
+            section_filename = f"{base_name}_section_{i + 1:02d}_pages_{start_page + 1}-{end_page}.pdf"
+            section_path = output_dir / section_filename
+            
+            with open(section_path, 'wb') as output_file:
+                writer.write(output_file)
+            
+            created_pdfs.append({
+                "filename": section_filename,
+                "pages": f"{start_page + 1}-{end_page}",
+                "page_count": end_page - start_page
+            })
+        
+        # Create ZIP file with all split PDFs
+        zip_path = output_dir / f"{base_name}_split.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for pdf_info in created_pdfs:
+                pdf_file_path = output_dir / pdf_info['filename']
+                zipf.write(pdf_file_path, pdf_info['filename'])
+        
+        # Return ZIP file
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"{base_name}_split.zip",
+            media_type="application/zip"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to split PDF manually: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to split PDF: {str(e)}")
+
 @app.get("/download/{job_id}")
 async def download_result(job_id: str, format: str = "csv"):
     """Download the processed file in CSV or XLSX format
@@ -6056,8 +6258,21 @@ Example (End Time Found)
         # Get existing fields from template
         existing_fields = existing_template['template_data'].get('fields', [])
         
-        # Add charge fields to existing fields
-        updated_fields = existing_fields + charge_fields
+        # Get list of charge field names to check for duplicates
+        charge_field_names = {field['name'] for field in charge_fields}
+        
+        # Find existing fields that will be overridden
+        existing_field_names = {field.get('name') for field in existing_fields if field.get('name')}
+        overridden_fields = existing_field_names & charge_field_names
+        
+        # Remove existing fields that have the same name as charge fields (override them)
+        filtered_existing_fields = [
+            field for field in existing_fields 
+            if field.get('name') not in charge_field_names
+        ]
+        
+        # Add charge fields to filtered existing fields (this will override any duplicates)
+        updated_fields = filtered_existing_fields + charge_fields
         
         # Update template with new fields
         template_data = {'fields': updated_fields}
@@ -6068,10 +6283,20 @@ Example (End Time Found)
         
         if success:
             updated_template = get_template(template_id=template_id)
+            override_count = len(overridden_fields)
+            new_count = len(charge_fields) - override_count
+            
+            if override_count > 0:
+                message = f"Successfully processed {len(charge_fields)} charge fields: {new_count} added, {override_count} overridden"
+            else:
+                message = f"Successfully added {len(charge_fields)} charge fields to template"
+            
             return {
-                "message": f"Successfully added {len(charge_fields)} charge fields to template",
+                "message": message,
                 "template": updated_template,
-                "fields_added": len(charge_fields)
+                "fields_added": len(charge_fields),
+                "fields_overridden": override_count,
+                "fields_new": new_count
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to update template with charge fields")

@@ -62,6 +62,13 @@
             ✂️ Split PDF
           </button>
           <button
+            @click="activeTab = 'manual-split'"
+            :class="{ active: activeTab === 'manual-split' }"
+            class="tab-btn"
+          >
+            👆 Manual Split PDF
+          </button>
+          <button
             @click="activeTab = 'cpt'"
             :class="{ active: activeTab === 'cpt' }"
             class="tab-btn"
@@ -2379,6 +2386,123 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ splitJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual PDF Split Tab -->
+        <div v-if="activeTab === 'manual-split'" class="upload-section">
+          <div class="section-header">
+            <h2>👆 Manual PDF Split</h2>
+            <p>
+              Upload a PDF and manually select which pages to split on. 
+              Click on page thumbnails to select split points.
+            </p>
+          </div>
+
+          <!-- Step 1: Upload PDF -->
+          <div v-if="!manualSplitPdfSessionId" class="upload-card">
+            <div class="card-header">
+              <div class="step-number">1</div>
+              <h3>Upload PDF</h3>
+            </div>
+            <div
+              class="dropzone"
+              :class="{
+                active: isManualSplitPdfDragActive,
+                'has-file': manualSplitPdfFile !== null,
+              }"
+              @drop="onManualSplitPdfDrop"
+              @dragover.prevent
+              @dragenter.prevent
+              @click="triggerManualSplitPdfUpload"
+            >
+              <input
+                ref="manualSplitPdfInput"
+                type="file"
+                accept=".pdf"
+                @change="onManualSplitPdfFileSelect"
+                style="display: none"
+              />
+              <div class="upload-content">
+                <div class="upload-icon">📄</div>
+                <div v-if="manualSplitPdfFile" class="file-info">
+                  <div class="file-icon">📄</div>
+                  <span class="file-name">{{ manualSplitPdfFile.name }}</span>
+                  <span class="file-size">{{ formatFileSize(manualSplitPdfFile.size) }}</span>
+                </div>
+                <p v-else class="upload-text">
+                  Drag & drop PDF file here<br />or click to browse
+                </p>
+              </div>
+            </div>
+            <div v-if="manualSplitPdfFile" class="form-actions" style="margin-top: 20px">
+              <button
+                @click="uploadManualSplitPdf"
+                class="btn-primary"
+                :disabled="isUploadingManualSplitPdf"
+              >
+                <span v-if="isUploadingManualSplitPdf">Uploading...</span>
+                <span v-else>Upload & Load Pages</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 2: Select Pages -->
+          <div v-if="manualSplitPdfSessionId && manualSplitPageCount > 0" class="manual-split-container">
+            <div class="manual-split-header">
+              <h3>Select Pages to Split On ({{ selectedManualSplitPages.length }} selected)</h3>
+              <div class="manual-split-actions">
+                <button
+                  @click="selectAllManualSplitPages"
+                  class="btn-secondary"
+                  style="margin-right: 10px"
+                >
+                  Select All
+                </button>
+                <button
+                  @click="clearManualSplitSelection"
+                  class="btn-secondary"
+                  style="margin-right: 10px"
+                >
+                  Clear Selection
+                </button>
+                <button
+                  @click="splitManualPdf"
+                  class="btn-primary"
+                  :disabled="selectedManualSplitPages.length === 0 || isSplittingManualPdf"
+                >
+                  <span v-if="isSplittingManualPdf">Splitting...</span>
+                  <span v-else>Split PDF ({{ selectedManualSplitPages.length }} sections)</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="pdf-pages-grid">
+              <div
+                v-for="pageNum in manualSplitPageCount"
+                :key="pageNum"
+                class="pdf-page-thumbnail"
+                :class="{ selected: selectedManualSplitPages.includes(pageNum - 1) }"
+                @click="toggleManualSplitPage(pageNum - 1)"
+              >
+                <div class="page-number">Page {{ pageNum }}</div>
+                <div v-if="manualSplitPageImages[pageNum - 1]" class="page-image-container">
+                  <img
+                    :src="manualSplitPageImages[pageNum - 1]"
+                    :alt="`Page ${pageNum}`"
+                    class="page-image"
+                    @load="onPageImageLoad(pageNum - 1)"
+                  />
+                </div>
+                <div v-else class="page-loading">
+                  <div class="spinner-small"></div>
+                  <span>Loading...</span>
+                </div>
+                <div v-if="selectedManualSplitPages.includes(pageNum - 1)" class="page-selected-indicator">
+                  ✓ Selected
+                </div>
               </div>
             </div>
           </div>
@@ -7712,7 +7836,9 @@
               <div class="success-message">
                 <h3>✅ Success!</h3>
                 <p>{{ chargeFieldsResult.message }}</p>
-                <p>Added {{ chargeFieldsResult.fields_added }} charge fields to the template.</p>
+                <p v-if="chargeFieldsResult.fields_overridden > 0" class="override-info">
+                  ℹ️ {{ chargeFieldsResult.fields_overridden }} existing field(s) were overridden with new definitions.
+                </p>
                 <button
                   @click="viewTemplateAfterChargeFields"
                   class="btn-secondary"
@@ -8214,6 +8340,15 @@ export default {
       splitOutputFileName: "", // Custom output filename for downloads
       statusPollingInterval: null,
       splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
+      // Manual PDF Split functionality
+      manualSplitPdfFile: null,
+      isManualSplitPdfDragActive: false,
+      manualSplitPdfSessionId: null,
+      manualSplitPageCount: 0,
+      manualSplitPageImages: {}, // Object mapping page number to image data URL
+      selectedManualSplitPages: [], // Array of selected page indexes (0-based)
+      isUploadingManualSplitPdf: false,
+      isSplittingManualPdf: false,
       // CPT prediction functionality
       csvFile: null,
       selectedClient: "uni",
@@ -13636,6 +13771,168 @@ export default {
     },
 
     // ========================================================================
+    // Manual PDF Split Methods
+    // ========================================================================
+
+    triggerManualSplitPdfUpload() {
+      this.$refs.manualSplitPdfInput?.click();
+    },
+
+    onManualSplitPdfDrop(e) {
+      e.preventDefault();
+      this.isManualSplitPdfDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith('.pdf')) {
+        this.manualSplitPdfFile = files[0];
+      }
+    },
+
+    onManualSplitPdfFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith('.pdf')) {
+        this.manualSplitPdfFile = file;
+      }
+    },
+
+    async uploadManualSplitPdf() {
+      if (!this.manualSplitPdfFile) {
+        this.toast.error("Please select a PDF file");
+        return;
+      }
+
+      this.isUploadingManualSplitPdf = true;
+      try {
+        const formData = new FormData();
+        formData.append("pdf_file", this.manualSplitPdfFile);
+
+        const response = await axios.post(
+          joinUrl(API_BASE_URL, "manual-split-pdf/upload"),
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        this.manualSplitPdfSessionId = response.data.pdf_session_id;
+        this.manualSplitPageCount = response.data.page_count;
+        this.manualSplitPageImages = {};
+        this.selectedManualSplitPages = [];
+
+        this.toast.success(`PDF uploaded! Loading ${this.manualSplitPageCount} pages...`);
+
+        // Load all page images
+        await this.loadManualSplitPageImages();
+      } catch (error) {
+        console.error("Failed to upload PDF:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to upload PDF"
+        );
+      } finally {
+        this.isUploadingManualSplitPdf = false;
+      }
+    },
+
+    async loadManualSplitPageImages() {
+      // Load pages in batches to avoid overwhelming the server
+      const batchSize = 5;
+      for (let i = 0; i < this.manualSplitPageCount; i += batchSize) {
+        const batch = [];
+        for (let j = i; j < Math.min(i + batchSize, this.manualSplitPageCount); j++) {
+          batch.push(this.loadSinglePageImage(j));
+        }
+        await Promise.all(batch);
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    },
+
+    async loadSinglePageImage(pageNumber) {
+      try {
+        const response = await axios.get(
+          joinUrl(
+            API_BASE_URL,
+            `manual-split-pdf/${this.manualSplitPdfSessionId}/page/${pageNumber}`
+          )
+        );
+        this.$set(this.manualSplitPageImages, pageNumber, response.data.image_data);
+      } catch (error) {
+        console.error(`Failed to load page ${pageNumber + 1}:`, error);
+      }
+    },
+
+    toggleManualSplitPage(pageNumber) {
+      const index = this.selectedManualSplitPages.indexOf(pageNumber);
+      if (index === -1) {
+        this.selectedManualSplitPages.push(pageNumber);
+      } else {
+        this.selectedManualSplitPages.splice(index, 1);
+      }
+      // Keep sorted
+      this.selectedManualSplitPages.sort((a, b) => a - b);
+    },
+
+    selectAllManualSplitPages() {
+      this.selectedManualSplitPages = Array.from(
+        { length: this.manualSplitPageCount },
+        (_, i) => i
+      );
+    },
+
+    clearManualSplitSelection() {
+      this.selectedManualSplitPages = [];
+    },
+
+    onPageImageLoad(pageNumber) {
+      // Image loaded successfully
+    },
+
+    async splitManualPdf() {
+      if (this.selectedManualSplitPages.length === 0) {
+        this.toast.error("Please select at least one page to split on");
+        return;
+      }
+
+      this.isSplittingManualPdf = true;
+      try {
+        const response = await axios.post(
+          joinUrl(
+            API_BASE_URL,
+            `manual-split-pdf/${this.manualSplitPdfSessionId}/split`
+          ),
+          {
+            selected_pages: this.selectedManualSplitPages,
+          },
+          {
+            responseType: "blob",
+          }
+        );
+
+        // Download the ZIP file
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `manual_split_${Date.now()}.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(
+          `PDF split successfully! Created ${this.selectedManualSplitPages.length} section(s).`
+        );
+      } catch (error) {
+        console.error("Failed to split PDF:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to split PDF"
+        );
+      } finally {
+        this.isSplittingManualPdf = false;
+      }
+    },
+
+    // ========================================================================
     // Prediction Instructions Manager Methods
     // ========================================================================
 
@@ -16547,6 +16844,15 @@ input:checked + .slider:hover {
   margin-bottom: 0.5rem;
 }
 
+.override-info {
+  color: #d97706 !important;
+  font-weight: 500;
+  background: #fef3c7;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border-left: 3px solid #f59e0b;
+}
+
 .field-hint {
   font-size: 0.875rem;
   color: #64748b;
@@ -16561,5 +16867,130 @@ input:checked + .slider:hover {
   border-radius: 6px;
   color: #475569;
   font-size: 0.875rem;
+}
+
+/* Manual PDF Split Styles */
+.manual-split-container {
+  margin-top: 2rem;
+}
+
+.manual-split-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.manual-split-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #1e293b;
+}
+
+.manual-split-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pdf-pages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.pdf-page-thumbnail {
+  position: relative;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.pdf-page-thumbnail:hover {
+  border-color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.pdf-page-thumbnail.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.page-number {
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.pdf-page-thumbnail.selected .page-number {
+  color: #1e40af;
+}
+
+.page-image-container {
+  width: 100%;
+  height: 250px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.page-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 250px;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.spinner-small {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 0.5rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.page-selected-indicator {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: #3b82f6;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 </style>
