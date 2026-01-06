@@ -13856,7 +13856,8 @@ export default {
             `manual-split-pdf/${this.manualSplitPdfSessionId}/page/${pageNumber}`
           )
         );
-        this.$set(this.manualSplitPageImages, pageNumber, response.data.image_data);
+        // Vue 3: Direct assignment works for reactive objects
+        this.manualSplitPageImages[pageNumber] = response.data.image_data;
       } catch (error) {
         console.error(`Failed to load page ${pageNumber + 1}:`, error);
       }
