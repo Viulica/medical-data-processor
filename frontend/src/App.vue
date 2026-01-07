@@ -14424,12 +14424,6 @@ export default {
       this.isSavingPredictionInstruction = false;
     },
 
-    formatDate(dateString) {
-      if (!dateString) return "N/A";
-      const date = new Date(dateString);
-      return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-    },
-
     getInsuranceStatusTitle() {
       if (!this.insuranceJobStatus) return "";
 
