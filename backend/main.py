@@ -3095,55 +3095,94 @@ def provider_mapping_background(job_id: str, excel_path: str):
         
         sheet = workbook.active
         
-        job.message = "Searching for CRNA section..."
+        job.message = "Searching for column headers..."
         job.progress = 30
         
-        # Find the CRNA cell
-        crna_row = None
+        # Find the header row and column positions
+        # Look for "CRNA", "Name", and "MedNet Code" headers
+        header_row = None
         crna_col = None
+        name_col = None
+        mednet_code_col = None
         
+        # Search for header row (typically contains "CRNA", "Name", "MedNet Code")
         for row_idx, row in enumerate(sheet.iter_rows(), start=1):
             for col_idx, cell in enumerate(row, start=1):
                 cell_value = cell.value
-                if cell_value and str(cell_value).strip().upper() == "CRNA":
-                    crna_row = row_idx
-                    crna_col = col_idx
-                    break
-            if crna_row:
+                if cell_value:
+                    cell_str = str(cell_value).strip().upper()
+                    if cell_str == "CRNA":
+                        crna_col = col_idx
+                        if header_row is None:
+                            header_row = row_idx
+                    elif cell_str == "NAME":
+                        name_col = col_idx
+                        if header_row is None:
+                            header_row = row_idx
+                    elif cell_str in ["MEDNET CODE", "MEDNETCODE", "MED NET CODE"]:
+                        mednet_code_col = col_idx
+                        if header_row is None:
+                            header_row = row_idx
+            
+            # If we found all columns, we can stop
+            if header_row and crna_col and name_col and mednet_code_col:
                 break
         
-        if not crna_row:
-            raise Exception("Could not find 'CRNA' cell in the Excel file")
+        if not header_row:
+            raise Exception("Could not find header row in the Excel file")
         
-        logger.info(f"Found CRNA at row {crna_row}, col {crna_col}")
+        if not name_col:
+            raise Exception("Could not find 'Name' column in the Excel file")
+        
+        if not mednet_code_col:
+            raise Exception("Could not find 'MedNet Code' column in the Excel file")
+        
+        logger.info(f"Found header row {header_row}: CRNA col={crna_col}, Name col={name_col}, MedNet Code col={mednet_code_col}")
         
         job.message = "Extracting CRNA providers..."
         job.progress = 50
         
-        # Extract CRNA providers (assuming names are in the same column, below CRNA)
+        # Extract CRNA providers with MedNet codes
+        # Start from row after header
         crna_providers = []
-        current_row = crna_row + 1
+        data_start_row = header_row + 1
         
-        while current_row <= sheet.max_row:
-            cell = sheet.cell(row=current_row, column=crna_col)
-            cell_value = cell.value
-            
-            # Check if we've reached the MD section or an empty cell
-            if cell_value:
-                cell_str = str(cell_value).strip().upper()
-                if cell_str == "MD":
-                    # Found MD section, stop collecting CRNA providers
+        # Find where CRNA section ends (either MD header or empty rows)
+        while data_start_row <= sheet.max_row:
+            # Check if we've reached the MD section (check all columns for "MD")
+            found_md = False
+            for col_idx in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=data_start_row, column=col_idx)
+                if cell.value and str(cell.value).strip().upper() == "MD":
+                    found_md = True
                     break
-                elif cell_str:  # Non-empty, non-MD value
-                    # Parse provider name: "LASTNAME, FIRSTNAME, MIDDLENAME" or "LASTNAME, FIRSTNAME"
-                    provider_name = str(cell_value).strip()
-                    crna_providers.append(provider_name)
-            else:
-                # Empty cell - end of CRNA section if we've found some providers
+            
+            if found_md:
+                break
+            
+            # Get provider name from Name column
+            name_cell = sheet.cell(row=data_start_row, column=name_col)
+            provider_name = str(name_cell.value).strip() if name_cell.value else ""
+            
+            # Get MedNet code from MedNet Code column
+            mednet_code_cell = sheet.cell(row=data_start_row, column=mednet_code_col)
+            mednet_code = str(mednet_code_cell.value).strip() if mednet_code_cell.value else ""
+            
+            # Stop if name is empty (end of data)
+            if not provider_name:
                 if crna_providers:
                     break
+                else:
+                    data_start_row += 1
+                    continue
             
-            current_row += 1
+            # Store provider with MedNet code
+            crna_providers.append({
+                'name': provider_name,
+                'mednet_code': mednet_code
+            })
+            
+            data_start_row += 1
         
         logger.info(f"Found {len(crna_providers)} CRNA providers")
         
@@ -3153,42 +3192,38 @@ def provider_mapping_background(job_id: str, excel_path: str):
         # Find MD section (if exists)
         md_providers = []
         md_row = None
-        md_col = crna_col  # Default to same column as CRNA
         
-        # Check if we found MD while scanning CRNA section
-        if current_row <= sheet.max_row:
-            cell = sheet.cell(row=current_row, column=crna_col)
-            if cell.value and str(cell.value).strip().upper() == "MD":
-                md_row = current_row
-                md_col = crna_col
-            else:
-                # Search for MD cell from the beginning
-                for row_idx, row in enumerate(sheet.iter_rows(), start=1):
-                    for col_idx, cell in enumerate(row, start=1):
-                        cell_value = cell.value
-                        if cell_value and str(cell_value).strip().upper() == "MD":
-                            md_row = row_idx
-                            md_col = col_idx
-                            break
-                    if md_row:
-                        break
+        # Search for MD header starting from where CRNA section ended
+        for row_idx in range(data_start_row, sheet.max_row + 1):
+            for col_idx in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=row_idx, column=col_idx)
+                if cell.value and str(cell.value).strip().upper() == "MD":
+                    md_row = row_idx
+                    break
+            if md_row:
+                break
         
         if md_row:
-            logger.info(f"Found MD at row {md_row}, col {md_col}")
-            # Extract MD providers
+            logger.info(f"Found MD at row {md_row}")
+            # Extract MD providers with MedNet codes
             current_row = md_row + 1
             
             while current_row <= sheet.max_row:
-                cell = sheet.cell(row=current_row, column=md_col)
-                cell_value = cell.value
+                # Get provider name from Name column
+                name_cell = sheet.cell(row=current_row, column=name_col)
+                provider_name = str(name_cell.value).strip() if name_cell.value else ""
                 
-                if cell_value:
-                    provider_name = str(cell_value).strip()
-                    if provider_name:  # Non-empty value
-                        md_providers.append(provider_name)
-                else:
-                    # Empty cell - end of MD section
+                # Get MedNet code from MedNet Code column
+                mednet_code_cell = sheet.cell(row=current_row, column=mednet_code_col)
+                mednet_code = str(mednet_code_cell.value).strip() if mednet_code_cell.value else ""
+                
+                if not provider_name:
                     break
+                
+                md_providers.append({
+                    'name': provider_name,
+                    'mednet_code': mednet_code
+                })
                 
                 current_row += 1
             
@@ -3197,9 +3232,12 @@ def provider_mapping_background(job_id: str, excel_path: str):
         job.message = "Formatting output..."
         job.progress = 90
         
-        # Format providers: {last name}, {first name} {middle name}, {title}
-        def format_provider(name_str, title):
-            """Parse provider name and format it"""
+        # Format providers: {last name}, {first name} {middle name}, {title} (MedNet Code: {code})
+        def format_provider(provider_dict, title):
+            """Parse provider name and format it with MedNet code"""
+            name_str = provider_dict['name']
+            mednet_code = provider_dict.get('mednet_code', '')
+            
             # Split by comma
             parts = [p.strip() for p in name_str.split(',')]
             
@@ -3210,12 +3248,18 @@ def provider_mapping_background(job_id: str, excel_path: str):
                 
                 # Format: {last name}, {first name} {middle name}, {title}
                 if middle_name:
-                    return f"{last_name}, {first_name} {middle_name}, {title}"
+                    formatted_name = f"{last_name}, {first_name} {middle_name}, {title}"
                 else:
-                    return f"{last_name}, {first_name}, {title}"
+                    formatted_name = f"{last_name}, {first_name}, {title}"
             else:
                 # Fallback: if format is unexpected, just add title
-                return f"{name_str}, {title}"
+                formatted_name = f"{name_str}, {title}"
+            
+            # Add MedNet code if available
+            if mednet_code:
+                return f"{formatted_name} (MedNet Code: {mednet_code})"
+            else:
+                return formatted_name
         
         # Format CRNA providers
         formatted_crna = [format_provider(p, "CRNA") for p in crna_providers]
