@@ -7192,6 +7192,7 @@ def process_unified_background(
             # Thread 1: Extraction
             def run_extraction():
                 try:
+                    import os
                     logger.info(f"[Unified {job_id}] Starting extraction thread...")
                     env = os.environ.copy()
                     env['PYTHONPATH'] = str(Path(__file__).parent / "current")
@@ -7320,6 +7321,7 @@ def process_unified_background(
             # Thread 2: CPT Vision
             def run_cpt():
                 try:
+                    import os
                     cpt_csv_path_local = str(temp_dir / "cpt_predictions.csv")
                     Path(cpt_csv_path_local).parent.mkdir(exist_ok=True)
                     
@@ -7364,6 +7366,7 @@ def process_unified_background(
             # Thread 3: ICD Vision
             def run_icd():
                 try:
+                    import os
                     icd_csv_path_local = str(temp_dir / "icd_predictions.csv")
                     Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
                     
@@ -7493,6 +7496,7 @@ def process_unified_background(
             # Thread 1: Extraction
             def run_extraction():
                 try:
+                    import os
                     env = os.environ.copy()
                     env['PYTHONPATH'] = str(Path(__file__).parent / "current")
                     env['OPENBLAS_NUM_THREADS'] = '12'
@@ -7583,6 +7587,7 @@ def process_unified_background(
             # Thread 2: ICD Vision
             def run_icd():
                 try:
+                    import os
                     icd_csv_path_local = str(temp_dir / "icd_predictions.csv")
                     Path(icd_csv_path_local).parent.mkdir(exist_ok=True)
                     
@@ -7833,6 +7838,7 @@ def process_unified_background(
             
             def run_cpt():
                 try:
+                    import os
                     # Check if using Gemini model and select appropriate API key
                     using_gemini_cpt = is_gemini_model(cpt_vision_model)
                     if using_gemini_cpt:
@@ -7859,6 +7865,7 @@ def process_unified_background(
             
             def run_icd():
                 try:
+                    import os
                     # Check if using Gemini model and select appropriate API key
                     using_gemini_icd = is_gemini_model(icd_vision_model)
                     if using_gemini_icd:
