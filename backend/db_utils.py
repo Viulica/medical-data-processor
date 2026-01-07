@@ -94,6 +94,29 @@ def init_database():
     CREATE INDEX IF NOT EXISTS idx_insurance_input_code ON insurance_mappings(input_code);
     CREATE INDEX IF NOT EXISTS idx_insurance_output_code ON insurance_mappings(output_code);
     
+    CREATE TABLE IF NOT EXISTS unified_results (
+        id SERIAL PRIMARY KEY,
+        job_id VARCHAR(255) NOT NULL UNIQUE,
+        filename VARCHAR(255),
+        file_path_csv VARCHAR(500) NOT NULL,
+        file_path_xlsx VARCHAR(500),
+        file_size_bytes BIGINT,
+        row_count INTEGER,
+        enabled_extraction BOOLEAN DEFAULT FALSE,
+        enabled_cpt BOOLEAN DEFAULT FALSE,
+        enabled_icd BOOLEAN DEFAULT FALSE,
+        extraction_model VARCHAR(100),
+        cpt_vision_model VARCHAR(100),
+        icd_vision_model VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        status VARCHAR(50) DEFAULT 'completed'
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
+    CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_unified_results_expires_at ON unified_results(expires_at);
+    
     CREATE TABLE IF NOT EXISTS special_cases_templates (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL UNIQUE,
@@ -1324,4 +1347,201 @@ if __name__ == "__main__":
         print(f"Found {len(modifiers)} modifiers in database")
     else:
         print("❌ Database connection failed!")
+
+
+def save_unified_result(
+    job_id: str,
+    filename: str,
+    file_path_csv: str,
+    file_path_xlsx: Optional[str] = None,
+    file_size_bytes: Optional[int] = None,
+    row_count: Optional[int] = None,
+    enabled_extraction: bool = False,
+    enabled_cpt: bool = False,
+    enabled_icd: bool = False,
+    extraction_model: Optional[str] = None,
+    cpt_vision_model: Optional[str] = None,
+    icd_vision_model: Optional[str] = None,
+    status: str = "completed"
+):
+    """
+    Save unified processing result metadata to database.
+    
+    Args:
+        job_id: Unique job identifier
+        filename: Display filename
+        file_path_csv: Path to CSV result file
+        file_path_xlsx: Optional path to XLSX result file
+        file_size_bytes: File size in bytes
+        row_count: Number of rows in result
+        enabled_extraction: Whether extraction was enabled
+        enabled_cpt: Whether CPT was enabled
+        enabled_icd: Whether ICD was enabled
+        extraction_model: Model used for extraction
+        cpt_vision_model: Model used for CPT
+        icd_vision_model: Model used for ICD
+        status: Job status
+    
+    Returns:
+        Result ID on success, None on failure
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        # Calculate expiration date (3 days from now)
+        expires_at = datetime.now() + timedelta(days=3)
+        
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO unified_results (
+                        job_id, filename, file_path_csv, file_path_xlsx, file_size_bytes,
+                        row_count, enabled_extraction, enabled_cpt, enabled_icd,
+                        extraction_model, cpt_vision_model, icd_vision_model,
+                        status, expires_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (job_id) 
+                    DO UPDATE SET
+                        filename = EXCLUDED.filename,
+                        file_path_csv = EXCLUDED.file_path_csv,
+                        file_path_xlsx = EXCLUDED.file_path_xlsx,
+                        file_size_bytes = EXCLUDED.file_size_bytes,
+                        row_count = EXCLUDED.row_count,
+                        enabled_extraction = EXCLUDED.enabled_extraction,
+                        enabled_cpt = EXCLUDED.enabled_cpt,
+                        enabled_icd = EXCLUDED.enabled_icd,
+                        extraction_model = EXCLUDED.extraction_model,
+                        cpt_vision_model = EXCLUDED.cpt_vision_model,
+                        icd_vision_model = EXCLUDED.icd_vision_model,
+                        status = EXCLUDED.status,
+                        expires_at = EXCLUDED.expires_at
+                    RETURNING id
+                """, (
+                    job_id, filename, file_path_csv, file_path_xlsx, file_size_bytes,
+                    row_count, enabled_extraction, enabled_cpt, enabled_icd,
+                    extraction_model, cpt_vision_model, icd_vision_model,
+                    status, expires_at
+                ))
+                result = cur.fetchone()
+                return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to save unified result for job {job_id}: {e}")
+        return None
+
+
+def get_all_unified_results(page: int = 1, page_size: int = 50):
+    """
+    Get all unified processing results with pagination.
+    
+    Args:
+        page: Page number (1-indexed)
+        page_size: Number of results per page
+    
+    Returns:
+        Dictionary with 'results' list and 'total' count
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Get total count
+                cur.execute("SELECT COUNT(*) as total FROM unified_results")
+                total = cur.fetchone()['total']
+                
+                # Get paginated results (newest first)
+                offset = (page - 1) * page_size
+                cur.execute("""
+                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx,
+                           file_size_bytes, row_count, enabled_extraction, enabled_cpt,
+                           enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
+                           created_at, expires_at, status
+                    FROM unified_results
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """, (page_size, offset))
+                
+                results = [dict(row) for row in cur.fetchall()]
+                
+                return {
+                    'results': results,
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size
+                }
+    except Exception as e:
+        logger.error(f"Failed to get unified results: {e}")
+        return {'results': [], 'total': 0, 'page': page, 'page_size': page_size}
+
+
+def get_unified_result(job_id: str):
+    """
+    Get a specific unified result by job_id.
+    
+    Args:
+        job_id: Job identifier
+    
+    Returns:
+        Dictionary with result data or None if not found
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx,
+                           file_size_bytes, row_count, enabled_extraction, enabled_cpt,
+                           enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
+                           created_at, expires_at, status
+                    FROM unified_results
+                    WHERE job_id = %s
+                """, (job_id,))
+                result = cur.fetchone()
+                return dict(result) if result else None
+    except Exception as e:
+        logger.error(f"Failed to get unified result for job {job_id}: {e}")
+        return None
+
+
+def delete_expired_unified_results():
+    """
+    Delete unified results that have expired (older than 3 days).
+    Also deletes the associated files.
+    
+    Returns:
+        Number of deleted results
+    """
+    try:
+        import os
+        from datetime import datetime
+        
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Get expired results
+                cur.execute("""
+                    SELECT id, job_id, file_path_csv, file_path_xlsx
+                    FROM unified_results
+                    WHERE expires_at < CURRENT_TIMESTAMP
+                """)
+                
+                expired_results = cur.fetchall()
+                deleted_count = 0
+                
+                for result in expired_results:
+                    # Delete files
+                    for file_path in [result['file_path_csv'], result['file_path_xlsx']]:
+                        if file_path and os.path.exists(file_path):
+                            try:
+                                os.unlink(file_path)
+                                logger.info(f"Deleted expired file: {file_path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to delete file {file_path}: {e}")
+                    
+                    # Delete database record
+                    cur.execute("DELETE FROM unified_results WHERE id = %s", (result['id'],))
+                    deleted_count += 1
+                    logger.info(f"Deleted expired unified result: {result['job_id']}")
+                
+                return deleted_count
+    except Exception as e:
+        logger.error(f"Failed to delete expired unified results: {e}")
+        return 0
 

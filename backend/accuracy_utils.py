@@ -97,6 +97,60 @@ def parse_icd_codes(icd_string: str) -> List[str]:
     return [c for c in codes if c]
 
 
+def is_critical_error(predicted: str, truth: str) -> bool:
+    """
+    Simple check: Will this mistake cause a claim DENIAL?
+    
+    Returns True = FIX THIS (critical error), False = IGNORE THIS (non-critical)
+    
+    Critical errors are:
+    1. Different first letter (different body system/chapter)
+    2. Different first 3 digits (different condition)
+    
+    Non-critical errors are:
+    - Same letter and first 3 digits, only specificity differs (insurance pays anyway)
+    
+    Args:
+        predicted: Predicted ICD code
+        truth: Ground truth ICD code
+    
+    Returns:
+        True if critical error (will cause denial), False if non-critical
+    """
+    # Normalize codes (remove any trailing letters like 'A' in S42.422A)
+    predicted = predicted.strip().upper()
+    truth = truth.strip().upper()
+    
+    # If codes are identical, not an error
+    if predicted == truth:
+        return False
+    
+    # If either code is empty or invalid, can't determine
+    if not predicted or not truth or len(predicted) < 1 or len(truth) < 1:
+        return False
+    
+    # Get first letter (the "chapter")
+    pred_letter = predicted[0]
+    truth_letter = truth[0]
+    
+    # CRITICAL ERROR #1: Different letter = Different body system
+    # Example: M (muscle) vs G (nerve) vs S (injury) vs T (complication)
+    if pred_letter != truth_letter:
+        return True  # FIX THIS!
+    
+    # CRITICAL ERROR #2: Different first 3 digits = Different condition
+    # Example: M75 (shoulder) vs M19 (knee arthritis)
+    # Extract first 3 characters (letter + 2 digits)
+    pred_base = predicted[:3] if len(predicted) >= 3 else predicted
+    truth_base = truth[:3] if len(truth) >= 3 else truth
+    
+    if pred_base != truth_base:
+        return True  # FIX THIS!
+    
+    # Everything else = just specificity difference = insurance pays anyway
+    return False  # IGNORE THIS
+
+
 def get_predicted_icd_list(row: pd.Series, icd_cols: Dict[str, str]) -> List[str]:
     """
     Get predicted ICD codes from ICD1, ICD2, ICD3, ICD4 columns as a list.
@@ -126,7 +180,7 @@ def calculate_accuracy(
     predictions_path: str,
     ground_truth_path: str,
     pdf_mapping: Optional[Dict[str, str]] = None
-) -> Tuple[float, float, List[Dict[str, any]]]:
+) -> Tuple[float, float, List[Dict[str, any]], Optional[float], Optional[int], Optional[int]]:
     """
     Calculate CPT and ICD1 accuracy by comparing predictions vs ground truth.
     
@@ -136,8 +190,11 @@ def calculate_accuracy(
         pdf_mapping: Optional mapping from Account ID to PDF file path
     
     Returns:
-        Tuple of (cpt_accuracy, icd1_accuracy, error_cases)
+        Tuple of (cpt_accuracy, icd1_accuracy, error_cases, icd1_critical_error_rate, icd1_critical_errors, icd1_total_errors)
         error_cases is a list of dicts with keys: account_id, pdf_path, predicted, expected, error_type
+        icd1_critical_error_rate: Percentage of ICD1 errors that are critical (will cause denial)
+        icd1_critical_errors: Count of critical ICD1 errors
+        icd1_total_errors: Total count of ICD1 errors
     """
     # Read files
     predictions_df = read_dataframe(predictions_path)
@@ -187,6 +244,8 @@ def calculate_accuracy(
     cpt_total = 0
     icd1_matches = 0
     icd1_total = 0
+    icd1_critical_errors = 0
+    icd1_total_errors = 0
     error_cases = []
     
     # Diagnostic counters
@@ -244,6 +303,10 @@ def calculate_accuracy(
                     if icd1_match:
                         icd1_matches += 1
                     else:
+                        # Check if this is a critical error
+                        is_critical = is_critical_error(predicted_icd1, gt_icd1)
+                        if is_critical:
+                            icd1_critical_errors += 1
                         pdf_path = pdf_mapping.get(account_id, 'N/A') if pdf_mapping else 'N/A'
                         
                         # Extract reasoning from ICD Reasoning columns if available
@@ -310,6 +373,11 @@ def calculate_accuracy(
     icd1_accuracy = icd1_matches / icd1_total if icd1_total > 0 else 0.0
     logger.info(f"ICD1 Accuracy: {icd1_accuracy:.2%} ({icd1_matches}/{icd1_total})")
     
+    # Calculate critical error rate
+    icd1_critical_error_rate = (icd1_critical_errors / icd1_total_errors * 100) if icd1_total_errors > 0 else None
+    if icd1_critical_error_rate is not None:
+        logger.info(f"ICD1 Critical Error Rate: {icd1_critical_error_rate:.2f}% ({icd1_critical_errors}/{icd1_total_errors} errors are critical)")
+    
     # Diagnostic logging
     logger.info(f"Accuracy Diagnostics:")
     logger.info(f"  - Total predictions: {predictions_total}")
@@ -317,8 +385,10 @@ def calculate_accuracy(
     logger.info(f"  - ICD skipped (no predicted code): {icd_skipped_no_predicted}")
     logger.info(f"  - ICD skipped (no ground truth code): {icd_skipped_no_ground_truth}")
     logger.info(f"  - ICD1 total compared: {icd1_total}")
+    logger.info(f"  - ICD1 total errors: {icd1_total_errors}")
+    logger.info(f"  - ICD1 critical errors: {icd1_critical_errors}")
     
-    return cpt_accuracy, icd1_accuracy, error_cases
+    return cpt_accuracy, icd1_accuracy, error_cases, icd1_critical_error_rate, icd1_critical_errors, icd1_total_errors
 
 
 def get_error_cases(
@@ -341,7 +411,7 @@ def get_error_cases(
     Returns:
         List of error case dictionaries
     """
-    _, _, all_errors = calculate_accuracy(predictions_path, ground_truth_path, pdf_mapping)
+    _, _, all_errors, _, _, _ = calculate_accuracy(predictions_path, ground_truth_path, pdf_mapping)
     
     # Filter by error type
     if error_type == 'cpt':

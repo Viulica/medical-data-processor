@@ -141,6 +141,27 @@ async def startup_event():
         logger.info("✅ Database schema initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
+    
+    # Schedule periodic cleanup of expired unified results (every 6 hours)
+    try:
+        import asyncio
+        from db_utils import delete_expired_unified_results
+        
+        async def periodic_cleanup():
+            while True:
+                try:
+                    await asyncio.sleep(6 * 60 * 60)  # Wait 6 hours
+                    deleted_count = delete_expired_unified_results()
+                    if deleted_count > 0:
+                        logger.info(f"Cleaned up {deleted_count} expired unified results")
+                except Exception as e:
+                    logger.error(f"Error in periodic cleanup: {e}")
+        
+        # Start cleanup task in background
+        asyncio.create_task(periodic_cleanup())
+        logger.info("✅ Started periodic cleanup task for expired unified results")
+    except Exception as e:
+        logger.warning(f"Failed to start cleanup task: {e}")
 
 # Add CORS middleware
 # Get allowed origins from environment or use defaults
@@ -171,7 +192,7 @@ class ProcessingJob:
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-2.5-flash", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-flash-latest", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
     """Background task to process PDFs"""
     job = job_status[job_id]
     
@@ -2389,7 +2410,7 @@ async def split_pdf_gemini(
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
         # Validate model
-        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest"]
         if model not in valid_models:
             raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
         
@@ -2496,7 +2517,7 @@ async def split_pdf_gemini_prompt(
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
         # Validate model
-        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest"]
         if model not in valid_models:
             raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
         
@@ -4485,6 +4506,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         # ICD1 mismatch analysis
         icd1_mismatches_total = 0
         icd1_mismatch_but_found_in_other_slots = 0
+        icd1_critical_errors = 0
         not_found = 0
         
         for idx, row in predictions_df.iterrows():
@@ -4680,6 +4702,13 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                         icd_mismatches += 1
                         # Track ICD1 mismatch analysis
                         icd1_mismatches_total += 1
+                        
+                        # Check if this is a critical error (will cause claim denial)
+                        from accuracy_utils import is_critical_error
+                        is_critical = is_critical_error(predicted_icd1, gt_icd1)
+                        if is_critical:
+                            icd1_critical_errors += 1
+                        
                         # Check if the correct ICD1 code appears in ICD2, ICD3, or ICD4
                         if gt_icd1:
                             found_in_other_slots = False
@@ -5121,6 +5150,9 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         if icd1_mismatches_total > 0:
             icd1_mismatch_percentage_found_in_other_slots = (icd1_mismatch_but_found_in_other_slots / icd1_mismatches_total * 100)
         
+        # Calculate critical error rate (percentage of ICD1 errors that are critical)
+        icd1_critical_error_rate = (icd1_critical_errors / icd1_mismatches_total * 100) if icd1_mismatches_total > 0 else 0
+        
         # Calculate theoretical ICD accuracy if "found in other slots" were counted as correct
         theoretical_icd_matches = icd_matches + icd1_mismatch_but_found_in_other_slots
         theoretical_icd_accuracy = (theoretical_icd_matches / icd_total * 100) if icd_total > 0 else 0
@@ -5159,6 +5191,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Stop Time Mismatches',
                 'Stop Time Accuracy (%)',
                 'ICD1 Mismatches (Total)',
+                'ICD1 Critical Errors (Will Cause Denial)',
+                'ICD1 Critical Error Rate (%)',
                 'ICD1 Mismatches Found in ICD2-4',
                 'ICD1 Mismatch Recovery Rate (%)',
                 'Theoretical ICD Accuracy (%)',
@@ -5194,6 +5228,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 stop_time_mismatches,
                 f'{(stop_time_matches / (stop_time_matches + stop_time_mismatches) * 100):.2f}%' if (stop_time_matches + stop_time_mismatches) > 0 else 'N/A',
                 icd1_mismatches_total,
+                icd1_critical_errors,
+                f'{icd1_critical_error_rate:.2f}%',
                 icd1_mismatch_but_found_in_other_slots,
                 f'{icd1_mismatch_percentage_found_in_other_slots:.2f}%',
                 f'{theoretical_icd_accuracy:.2f}%',
@@ -5268,7 +5304,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             os.unlink(charge_detail_path)
         
         logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Provider {provider_accuracy_str}, Location {location_accuracy_str}, Overall {overall_accuracy:.2f}%")
-        logger.info(f"ICD1 Mismatch Analysis: {icd1_mismatches_total} total mismatches, {icd1_mismatch_but_found_in_other_slots} found in ICD2-4 ({icd1_mismatch_percentage_found_in_other_slots:.2f}%), Theoretical ICD accuracy: {theoretical_icd_accuracy:.2f}%")
+        logger.info(f"ICD1 Mismatch Analysis: {icd1_mismatches_total} total mismatches, {icd1_critical_errors} critical errors ({icd1_critical_error_rate:.2f}%), {icd1_mismatch_but_found_in_other_slots} found in ICD2-4 ({icd1_mismatch_percentage_found_in_other_slots:.2f}%), Theoretical ICD accuracy: {theoretical_icd_accuracy:.2f}%")
         
     except Exception as e:
         logger.error(f"CPT codes check background error: {str(e)}")
@@ -7037,7 +7073,8 @@ def process_unified_background(
     icd_vision_model: str,
     icd_max_workers: int,
     icd_custom_instructions: str,
-    icd_instruction_template_id: Optional[int]
+    icd_instruction_template_id: Optional[int],
+    output_filename: Optional[str] = None
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     job = job_status[job_id]
@@ -8285,6 +8322,33 @@ def process_unified_background(
         
         logger.info(f"[Unified {job_id}] Processing completed: {result_csv}")
         
+        # Save result metadata to database
+        try:
+            from db_utils import save_unified_result
+            import os
+            
+            file_size = os.path.getsize(result_csv) if os.path.exists(result_csv) else None
+            filename = output_filename if output_filename else f"unified_result_{job_id}"
+            
+            save_unified_result(
+                job_id=job_id,
+                filename=filename,
+                file_path_csv=result_csv,
+                file_path_xlsx=result_xlsx,
+                file_size_bytes=file_size,
+                row_count=len(base_df),
+                enabled_extraction=enable_extraction,
+                enabled_cpt=enable_cpt,
+                enabled_icd=enable_icd,
+                extraction_model=extraction_model if enable_extraction else None,
+                cpt_vision_model=cpt_vision_model if enable_cpt and cpt_vision_mode else None,
+                icd_vision_model=icd_vision_model if enable_icd else None,
+                status="completed"
+            )
+            logger.info(f"[Unified {job_id}] Saved result metadata to database")
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to save result metadata: {e}")
+        
         # Clean up temp directory
         try:
             shutil.rmtree(temp_dir)
@@ -8325,7 +8389,7 @@ async def process_unified(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-2.5-flash"),
+    extraction_model: str = Form(default="gemini-flash-latest"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -8346,7 +8410,8 @@ async def process_unified(
     icd_vision_model: str = Form(default="openai/gpt-5.2:online"),  # Vision model selection
     icd_max_workers: int = Form(default=50),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
-    icd_instruction_template_id: Optional[int] = Form(default=None)  # For template selection
+    icd_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
+    output_filename: Optional[str] = Form(default=None)  # Custom output filename (optional)
 ):
     """
     Unified endpoint to run PDF splitting (optional) + data extraction + CPT prediction + ICD prediction
@@ -8541,6 +8606,7 @@ async def process_unified(
             zip_path=zip_path,
             excel_path=excel_path,
             excel_filename=excel_filename,
+            output_filename=output_filename,
             enable_extraction=enable_extraction,
             extraction_n_pages=extraction_n_pages,
             extraction_model=extraction_model,
@@ -8584,7 +8650,7 @@ async def process_unified_with_refinement(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-2.5-flash"),
+    extraction_model: str = Form(default="gemini-flash-latest"),
     extraction_max_workers: int = Form(default=50),
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -8874,6 +8940,98 @@ async def get_refinement_history(job_id: str):
     except Exception as e:
         logger.error(f"Failed to get refinement history: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
+
+
+@app.get("/api/unified-results")
+async def list_unified_results(page: int = 1, page_size: int = 50):
+    """
+    List all unified processing results with pagination.
+    """
+    try:
+        from db_utils import get_all_unified_results
+        
+        result = get_all_unified_results(page=page, page_size=page_size)
+        
+        # Format dates and file sizes
+        for res in result['results']:
+            if res.get('created_at'):
+                res['created_at'] = res['created_at'].isoformat() if hasattr(res['created_at'], 'isoformat') else str(res['created_at'])
+            if res.get('expires_at'):
+                res['expires_at'] = res['expires_at'].isoformat() if hasattr(res['expires_at'], 'isoformat') else str(res['expires_at'])
+            if res.get('file_size_bytes'):
+                res['file_size_mb'] = round(res['file_size_bytes'] / 1024 / 1024, 2)
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to list unified results: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list results: {str(e)}")
+
+
+@app.get("/api/unified-results/{job_id}/download")
+async def download_unified_result(job_id: str, format: str = "csv"):
+    """
+    Download a unified processing result file.
+    
+    Args:
+        job_id: Job identifier
+        format: File format - "csv" or "xlsx" (default: "csv")
+    """
+    try:
+        from db_utils import get_unified_result
+        
+        result = get_unified_result(job_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
+        
+        # Determine file path based on format
+        if format.lower() == "xlsx" and result.get('file_path_xlsx'):
+            file_path = result['file_path_xlsx']
+        elif format.lower() == "csv" and result.get('file_path_csv'):
+            file_path = result['file_path_csv']
+        else:
+            # Fallback to CSV if XLSX not available
+            if format.lower() == "xlsx":
+                logger.warning(f"XLSX not available for {job_id}, falling back to CSV")
+            file_path = result['file_path_csv']
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        # Determine filename
+        filename = result.get('filename', f"unified_result_{job_id}")
+        if not filename.endswith(f'.{format.lower()}'):
+            filename = f"{filename}.{format.lower()}"
+        
+        # Return file
+        return FileResponse(
+            file_path,
+            media_type="application/octet-stream",
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download unified result {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download result: {str(e)}")
+
+
+@app.post("/api/unified-results/cleanup")
+async def cleanup_expired_unified_results():
+    """
+    Manually trigger cleanup of expired unified results (older than 3 days).
+    """
+    try:
+        from db_utils import delete_expired_unified_results
+        
+        deleted_count = delete_expired_unified_results()
+        
+        return {
+            "message": f"Cleanup completed",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to cleanup expired results: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup: {str(e)}")
 
 
 if __name__ == "__main__":

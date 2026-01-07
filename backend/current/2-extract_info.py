@@ -262,7 +262,7 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     
     return None
 
-def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-3-pro-preview", max_retries=5, field_name_for_log=None):
+def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-flash-latest", max_retries=5, field_name_for_log=None):
     """Extract patient information from a multi-page patient PDF file.
     
     Args:
@@ -307,8 +307,8 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 )),
             ]
             
-            # Use thinking_level="HIGH" for Gemini 3 models, thinking_budget=-1 for others
-            if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+            # Use thinking_level="HIGH" for Gemini 3 models and latest models, thinking_budget=-1 for others
+            if model in ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-flash-latest"]:
                 thinking_config = types.ThinkingConfig(
                     thinking_level="HIGH",
                 )
@@ -469,7 +469,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-3-pro-preview", priority_model="gemini-3-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}")

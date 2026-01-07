@@ -43,6 +43,18 @@
             🔮 Extract + CPT + ICD
           </button>
           <button
+            @click="activeTab = 'unified-results'"
+            :class="{ active: activeTab === 'unified-results' }"
+            class="tab-btn"
+            style="
+              background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+              color: white;
+              font-weight: 600;
+            "
+          >
+            📥 Results
+          </button>
+          <button
             @click="activeTab = 'ai-refinement'"
             :class="{ active: activeTab === 'ai-refinement' }"
             class="tab-btn"
@@ -1201,8 +1213,11 @@
                     v-model="unifiedExtractionModel"
                     class="form-select"
                   >
+                    <option value="gemini-flash-latest">
+                      Gemini Flash Latest (Default)
+                    </option>
                     <option value="gemini-3-flash-preview">
-                      Gemini 3 Flash Preview (Recommended)
+                      Gemini 3 Flash Preview
                     </option>
                     <option value="models/gemini-flash-lite-latest">
                       Gemini Flash Lite (Fastest & Cheapest)
@@ -2103,6 +2118,139 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ unifiedJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unified Results Tab -->
+        <div v-if="activeTab === 'unified-results'" class="upload-section">
+          <div class="upload-card">
+            <div class="card-header">
+              <h2>📥 Unified Processing Results</h2>
+              <p>View and download your saved processing results</p>
+            </div>
+
+            <div class="settings-content">
+              <div class="setting-group">
+                <button
+                  @click="loadUnifiedResults"
+                  class="btn btn-primary"
+                  :disabled="loadingUnifiedResults"
+                >
+                  <span v-if="loadingUnifiedResults">⏳</span>
+                  <span v-else>🔄</span>
+                  {{ loadingUnifiedResults ? 'Loading...' : 'Refresh Results' }}
+                </button>
+                <button
+                  @click="cleanupExpiredResults"
+                  class="btn btn-secondary"
+                  :disabled="cleaningUpResults"
+                  style="margin-left: 10px;"
+                >
+                  <span v-if="cleaningUpResults">⏳</span>
+                  <span v-else>🗑️</span>
+                  {{ cleaningUpResults ? 'Cleaning...' : 'Cleanup Expired' }}
+                </button>
+              </div>
+
+              <div v-if="unifiedResults.length === 0 && !loadingUnifiedResults" class="empty-state">
+                <p>No results found. Process files using the "Extract + CPT + ICD" tab.</p>
+              </div>
+
+              <div v-else class="results-table-container">
+                <table class="results-table">
+                  <thead>
+                    <tr>
+                      <th>Filename</th>
+                      <th>Job ID</th>
+                      <th>Enabled Steps</th>
+                      <th>Models</th>
+                      <th>Rows</th>
+                      <th>Size</th>
+                      <th>Created</th>
+                      <th>Expires</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="result in unifiedResults" :key="result.id">
+                      <td>
+                        <strong>{{ result.filename || `Result ${result.id}` }}</strong>
+                      </td>
+                      <td>
+                        <code style="font-size: 0.85em;">{{ result.job_id.substring(0, 8) }}...</code>
+                      </td>
+                      <td>
+                        <div class="step-badges">
+                          <span v-if="result.enabled_extraction" class="badge badge-blue">Extract</span>
+                          <span v-if="result.enabled_cpt" class="badge badge-green">CPT</span>
+                          <span v-if="result.enabled_icd" class="badge badge-purple">ICD</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="model-info">
+                          <div v-if="result.extraction_model" class="model-tag">
+                            E: {{ result.extraction_model.substring(0, 15) }}...
+                          </div>
+                          <div v-if="result.cpt_vision_model" class="model-tag">
+                            C: {{ result.cpt_vision_model.substring(0, 15) }}...
+                          </div>
+                          <div v-if="result.icd_vision_model" class="model-tag">
+                            I: {{ result.icd_vision_model.substring(0, 15) }}...
+                          </div>
+                        </div>
+                      </td>
+                      <td>{{ result.row_count || '-' }}</td>
+                      <td>{{ result.file_size_mb ? `${result.file_size_mb} MB` : '-' }}</td>
+                      <td>{{ formatDate(result.created_at) }}</td>
+                      <td>
+                        <span :class="{ 'expiring-soon': isExpiringSoon(result.expires_at) }">
+                          {{ formatDate(result.expires_at) }}
+                        </span>
+                      </td>
+                      <td>
+                        <div class="action-buttons">
+                          <button
+                            @click="downloadUnifiedResult(result.job_id, 'csv')"
+                            class="btn-icon-small"
+                            title="Download CSV"
+                          >
+                            📄
+                          </button>
+                          <button
+                            v-if="result.file_path_xlsx"
+                            @click="downloadUnifiedResult(result.job_id, 'xlsx')"
+                            class="btn-icon-small"
+                            title="Download XLSX"
+                          >
+                            📊
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div v-if="unifiedResultsTotal > unifiedResultsPageSize" class="pagination">
+                  <button
+                    @click="loadUnifiedResults(unifiedResultsPage - 1)"
+                    :disabled="unifiedResultsPage <= 1"
+                    class="btn btn-secondary"
+                  >
+                    ← Previous
+                  </button>
+                  <span class="page-info">
+                    Page {{ unifiedResultsPage }} of {{ totalUnifiedResultsPages }}
+                  </span>
+                  <button
+                    @click="loadUnifiedResults(unifiedResultsPage + 1)"
+                    :disabled="unifiedResultsPage * unifiedResultsPageSize >= unifiedResultsTotal"
+                    class="btn btn-secondary"
+                  >
+                    Next →
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4202,8 +4350,11 @@
                     v-model="refinementExtractionModel"
                     class="form-select"
                   >
+                    <option value="gemini-flash-latest">
+                      Gemini Flash Latest (Default)
+                    </option>
                     <option value="gemini-3-flash-preview">
-                      Gemini 3 Flash Preview (Recommended)
+                      Gemini 3 Flash Preview
                     </option>
                     <option value="models/gemini-flash-lite-latest">
                       Gemini Flash Lite (Fastest & Cheapest)
@@ -5201,6 +5352,33 @@
               v-if="cptCheckJobStatus.status === 'completed'"
               class="success-section"
             >
+              <!-- Critical Error Metrics -->
+              <div v-if="cptCheckJobStatus.result && cptCheckJobStatus.result.icd1_critical_error_rate !== undefined" class="metrics-section">
+                <h4>ICD1 Critical Error Metrics</h4>
+                <div class="metrics-grid">
+                  <div class="metric-card critical">
+                    <div class="metric-label">Critical Errors</div>
+                    <div class="metric-value critical-value">
+                      {{ cptCheckJobStatus.result.icd1_critical_errors || 0 }}
+                    </div>
+                    <div class="metric-sublabel">Will cause claim denial</div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-label">Total ICD1 Errors</div>
+                    <div class="metric-value">
+                      {{ cptCheckJobStatus.result.icd1_total_errors || 0 }}
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-label">Critical Error Rate</div>
+                    <div class="metric-value" :class="{ 'critical-rate': (cptCheckJobStatus.result.icd1_critical_error_rate || 0) > 50 }">
+                      {{ (cptCheckJobStatus.result.icd1_critical_error_rate || 0).toFixed(1) }}%
+                    </div>
+                    <div class="metric-sublabel">of all ICD1 errors</div>
+                  </div>
+                </div>
+              </div>
+
               <div class="download-format-group">
                 <button
                   @click="downloadCptCheckResults('xlsx')"
@@ -8464,7 +8642,7 @@ export default {
       isUnifiedPdfDragActive: false,
       // Unified - Extraction settings
       unifiedExtractionPages: 49,
-      unifiedExtractionModel: "gemini-3-flash-preview",
+      unifiedExtractionModel: "gemini-flash-latest",
       unifiedExtractionMaxWorkers: 50,
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
@@ -8488,13 +8666,20 @@ export default {
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
       unifiedOutputFileName: "", // Custom output filename for downloads
+      // Unified Results functionality
+      unifiedResults: [],
+      unifiedResultsPage: 1,
+      unifiedResultsPageSize: 20,
+      unifiedResultsTotal: 0,
+      loadingUnifiedResults: false,
+      cleaningUpResults: false,
       // AI Refinement functionality
       refinementZipFile: null,
       refinementExcelFile: null,
       refinementGroundTruthFile: null,
       refinementUseExtractionTemplate: false,
       refinementSelectedExtractionTemplateId: null,
-      refinementExtractionModel: "gemini-3-flash-preview", // Extraction model selection
+      refinementExtractionModel: "gemini-flash-latest", // Extraction model selection
       refinementEnableCpt: true, // Enable CPT refinement
       refinementEnableIcd: true, // Enable ICD refinement
       refinementSelectedCptInstructionId: null,
@@ -8858,7 +9043,22 @@ export default {
       // For now, we require extraction to be enabled
       return false;
     },
+
+    totalUnifiedResultsPages() {
+      if (this.unifiedResultsTotal === 0 || this.unifiedResultsPageSize === 0) {
+        return 1;
+      }
+      return Math.ceil(this.unifiedResultsTotal / this.unifiedResultsPageSize);
+    },
   },
+  watch: {
+    activeTab(newTab) {
+      if (newTab === 'unified-results') {
+        this.loadUnifiedResults();
+      }
+    }
+  },
+
   mounted() {
     // Close dropdowns when clicking outside
     document.addEventListener("click", (e) => {
@@ -10415,7 +10615,7 @@ export default {
       this.unifiedSplitDetectionShift = 0;
       // Extraction settings
       this.unifiedExtractionPages = 49;
-      this.unifiedExtractionModel = "gemini-3-flash-preview";
+      this.unifiedExtractionModel = "gemini-flash-latest";
       this.unifiedExtractionMaxWorkers = 50;
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
@@ -10439,6 +10639,115 @@ export default {
       this.unifiedUseIcdTemplate = false;
       this.unifiedSelectedIcdInstructionId = null;
       this.unifiedOutputFileName = "";
+    },
+
+    // ==================== UNIFIED RESULTS METHODS ====================
+
+    async loadUnifiedResults(page = 1) {
+      this.loadingUnifiedResults = true;
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await axios.get(
+          `${backendUrl}/api/unified-results`,
+          {
+            params: {
+              page: page,
+              page_size: this.unifiedResultsPageSize
+            }
+          }
+        );
+
+        this.unifiedResults = response.data.results || [];
+        this.unifiedResultsTotal = response.data.total || 0;
+        this.unifiedResultsPage = page;
+      } catch (error) {
+        console.error("Error loading unified results:", error);
+        this.toast.error("Failed to load results");
+        this.unifiedResults = [];
+      } finally {
+        this.loadingUnifiedResults = false;
+      }
+    },
+
+    async downloadUnifiedResult(jobId, format = "csv") {
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await axios.get(
+          `${backendUrl}/api/unified-results/${jobId}/download`,
+          {
+            params: { format: format },
+            responseType: "blob"
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        
+        // Get filename from Content-Disposition header or use default
+        let filename = `unified_result_${jobId}.${format}`;
+        try {
+          const contentDisposition = response.headers?.["content-disposition"] || 
+                                     response.headers?.get?.("content-disposition") ||
+                                     (response.headers && typeof response.headers === 'object' && response.headers["content-disposition"]);
+          if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+            if (filenameMatch) {
+              filename = filenameMatch[1];
+            }
+          }
+        } catch (e) {
+          // If header parsing fails, use default filename
+          console.log("Could not parse filename from headers, using default");
+        }
+        
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download result");
+      }
+    },
+
+    async cleanupExpiredResults() {
+      if (!confirm("Are you sure you want to cleanup expired results?")) {
+        return;
+      }
+
+      this.cleaningUpResults = true;
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await axios.post(
+          `${backendUrl}/api/unified-results/cleanup`
+        );
+
+        this.toast.success(`Cleaned up ${response.data.deleted_count} expired results`);
+        await this.loadUnifiedResults(this.unifiedResultsPage);
+      } catch (error) {
+        console.error("Error cleaning up results:", error);
+        this.toast.error("Failed to cleanup results");
+      } finally {
+        this.cleaningUpResults = false;
+      }
+    },
+
+    formatDate(dateString) {
+      if (!dateString) return "-";
+      const date = new Date(dateString);
+      return date.toLocaleString();
+    },
+
+    isExpiringSoon(expiresAt) {
+      if (!expiresAt) return false;
+      const expires = new Date(expiresAt);
+      const now = new Date();
+      const hoursUntilExpiry = (expires - now) / (1000 * 60 * 60);
+      return hoursUntilExpiry < 24; // Expiring within 24 hours
     },
 
     getUnifiedStatusTitle() {
@@ -16994,4 +17303,197 @@ input:checked + .slider:hover {
   font-size: 0.75rem;
   font-weight: 600;
 }
+/* Unified Results Table Styles */
+.results-table-container {
+  margin-top: 1.5rem;
+  overflow-x: auto;
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.results-table thead {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.results-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.results-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+}
+
+.results-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.step-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-blue {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-green {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-purple {
+  background: #e9d5ff;
+  color: #6b21a8;
+}
+
+.model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.model-tag {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-icon-small {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.btn-icon-small:hover {
+  background: #e5e7eb;
+  transform: scale(1.1);
+}
+
+.expiring-soon {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.page-info {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+/* Critical Error Metrics Styles */
+.metrics-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border-left: 4px solid #dc2626;
+}
+
+.metrics-section h4 {
+  margin: 0 0 1rem 0;
+  color: #1e293b;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.metric-card {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+.metric-card.critical {
+  border: 2px solid #dc2626;
+  background: #fef2f2;
+}
+
+.metric-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 0.25rem;
+}
+
+.metric-value.critical-value {
+  color: #dc2626;
+  font-size: 2rem;
+}
+
+.metric-value.critical-rate {
+  color: #dc2626;
+}
+
+.metric-sublabel {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+}
+
 </style>

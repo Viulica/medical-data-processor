@@ -755,7 +755,7 @@ def run_refinement_job(
             
             # Calculate accuracy
             try:
-                cpt_accuracy, icd1_accuracy, all_errors = calculate_accuracy(
+                cpt_accuracy, icd1_accuracy, all_errors, icd1_critical_error_rate, icd1_critical_errors, icd1_total_errors = calculate_accuracy(
                     predictions_path=results_csv_path,
                     ground_truth_path=ground_truth_path,
                     pdf_mapping=pdf_mapping

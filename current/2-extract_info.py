@@ -103,7 +103,7 @@ def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
         return None
 
 
-def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-3-pro-preview", max_retries=5):
+def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-flash-latest", max_retries=5):
     """Extract patient information from a multi-page patient PDF file."""
     
     for attempt in range(max_retries):
@@ -215,7 +215,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, response, temp_patient_pdf
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-3-pro-preview"):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-flash-latest"):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
