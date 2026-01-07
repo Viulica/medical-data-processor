@@ -194,6 +194,8 @@ class ProcessingJob:
 
 def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-flash-latest", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
     """Background task to process PDFs"""
+    import os
+    
     job = job_status[job_id]
     
     try:
@@ -7077,6 +7079,8 @@ def process_unified_background(
     output_filename: Optional[str] = None
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
+    import os
+    
     job = job_status[job_id]
     
     try:
