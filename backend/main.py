@@ -6112,7 +6112,7 @@ Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, MD''',
                 'output_format': 'Same as Surgeon field'
             },
             {
-                'name': 'ResponsibleProvider',
+                'name': 'Responsible Provider',
                 'description': f'''✅ AI INSTRUCTION — PROVIDER (MD or CRNA) EXTRACTION RULE
 
 SECTION TO READ
@@ -6322,7 +6322,7 @@ Example (End Time Found)
                 'output_format': 'MM/DD/YYYY HH:MM:SS AM/PM'
             },
             {
-                'name': 'AnesthesiaType',
+                'name': 'Anesthesia Type',
                 'description': 'output values can be GENERAL, MAC, REGIONAL, TIVA nothing else dont output any other value ever, whatever is listed in the record you should think like a medical coder, think like what a medical coder would put of one of these 4 standardized values in order to get the case PAID',
                 'location': 'Anesthesia record - anesthesia type',
                 'output_format': 'GENERAL, MAC, REGIONAL, or TIVA'
