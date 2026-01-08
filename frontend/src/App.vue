@@ -6075,6 +6075,34 @@
                     for UNI
                   </p>
                 </div>
+
+                <div class="ai-toggle-container" style="margin-top: 1rem">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      <span class="toggle-icon">👤</span>
+                      <span class="toggle-text"
+                        >Change Responsible Provider to MD if billing P only</span
+                      >
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="changeResponsibleProviderToMdIfPOnly" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      changeResponsibleProviderToMdIfPOnly
+                        ? "When ONLY P modifier is used (no M1, GC, or QS modifiers) AND both MD and CRNA columns are filled, the Responsible Provider will be set to the MD value."
+                        : "Responsible Provider will remain unchanged."
+                    }}
+                  </p>
+                  <p
+                    class="toggle-description"
+                    style="margin-top: 0.5rem; font-style: italic; color: #666"
+                  >
+                    (turn on for NTA group)
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -8609,6 +8637,7 @@ export default {
       enableBcbsMedicareModifiers: false, // Toggle for BCBS Medicare modifiers (true = normal generation, false = only P modifiers for 003)
       peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
       addPtForNonMedicare: false, // Toggle for adding PT modifier to non-Medicare insurances
+      changeResponsibleProviderToMdIfPOnly: false, // Toggle for changing Responsible Provider to MD when only P modifier is used
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -12461,6 +12490,8 @@ export default {
       formData.append("peripheral_blocks_mode", this.peripheralBlocksMode);
       // Add PT modifier for non-Medicare parameter
       formData.append("add_pt_for_non_medicare", this.addPtForNonMedicare);
+      // Add change Responsible Provider to MD if P only parameter
+      formData.append("change_responsible_provider_to_md_if_p_only", this.changeResponsibleProviderToMdIfPOnly);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
@@ -12473,6 +12504,7 @@ export default {
       );
       console.log("📋 Peripheral Blocks Mode:", this.peripheralBlocksMode);
       console.log("🏥 Add PT for Non-Medicare:", this.addPtForNonMedicare);
+      console.log("👤 Change Responsible Provider to MD if P only:", this.changeResponsibleProviderToMdIfPOnly);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -12582,6 +12614,7 @@ export default {
       this.enableBcbsMedicareModifiers = false;
       this.peripheralBlocksMode = "other";
       this.addPtForNonMedicare = false;
+      this.changeResponsibleProviderToMdIfPOnly = false;
     },
 
     getModifiersStatusTitle() {

@@ -543,7 +543,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -559,6 +559,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             - "UNI": Generate blocks ONLY when Anesthesia Type is "General"
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
+        change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
     """
     try:
         # Load modifiers definition
@@ -620,6 +621,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("=" * 80)
             print("🏥 PT MODIFIER FOR NON-MEDICARE ENABLED 🏥")
             print("PT modifier will be added for non-Medicare insurances when polyps found and screening colonoscopy")
+            print("=" * 80)
+        
+        # Log change Responsible Provider to MD if P only mode
+        if change_responsible_provider_to_md_if_p_only:
+            print("=" * 80)
+            print("👤 CHANGE RESPONSIBLE PROVIDER TO MD IF P ONLY ENABLED 👤")
+            print("Responsible Provider will be set to MD value when ONLY P modifier is used and both MD and CRNA are present")
             print("=" * 80)
         
         # Load insurances.csv for PT modifier Medicare check
@@ -954,6 +962,59 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             if primary_mednet_code in ['3136', '003']:
                 print(f"   Final Modifiers: M1='{new_row['M1']}', M2='{new_row['M2']}', M3='{new_row['M3']}', M4='{new_row['M4']}'")
                 print(f"   medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}\n")
+            
+            # Check if we need to change Responsible Provider to MD when only P modifier is used
+            # Conditions:
+            # 1. change_responsible_provider_to_md_if_p_only is True
+            # 2. Only P modifier is used (no provider type modifiers AA/QK/QZ/QX, no GC, no QS)
+            #    - M1 has P modifier (P1-P6) - this means no AA/QK/QZ/QX modifiers
+            #    - M3 is empty - this means no GC or QS modifiers
+            #    - M2 can be empty or PT (if PT modifier is also present)
+            # 3. Both MD and CRNA columns are filled out
+            if change_responsible_provider_to_md_if_p_only:
+                m1_value = str(new_row.get('M1', '')).strip()
+                m2_value = str(new_row.get('M2', '')).strip()
+                m3_value = str(new_row.get('M3', '')).strip()
+                
+                # Helper function to check if a value is a P modifier (P1-P6)
+                def is_p_modifier(val):
+                    return (
+                        val and 
+                        val.startswith('P') and 
+                        len(val) == 2 and 
+                        val[1].isdigit() and 
+                        1 <= int(val[1]) <= 6
+                    )
+                
+                # Check if only P modifier is used (no AA/QK/QZ/QX, no GC, no QS)
+                # P modifier will be in M1 when it's the only modifier (or with PT)
+                # M3 empty means no GC or QS modifiers
+                # M2 can be empty or PT (if PT modifier is also present)
+                only_p_modifier = (
+                    is_p_modifier(m1_value) and  # M1 has P modifier (no AA/QK/QZ/QX)
+                    not m3_value and  # M3 empty (no GC, no QS)
+                    (not m2_value or m2_value == 'PT')  # M2 empty or PT (no GC modifier)
+                )
+                
+                # Check if both MD and CRNA are filled
+                md_value = ''
+                crna_value = ''
+                if has_md_column:
+                    md_value = row.get('MD', '')
+                    if pd.isna(md_value) or str(md_value).strip() == '':
+                        md_value = ''
+                if has_crna_column:
+                    crna_value = row.get('CRNA', '')
+                    if pd.isna(crna_value) or str(crna_value).strip() == '':
+                        crna_value = ''
+                
+                both_providers_filled = bool(md_value and crna_value)
+                
+                # If conditions are met, set Responsible Provider to MD value
+                if only_p_modifier and both_providers_filled:
+                    if 'Responsible Provider' in new_row:
+                        new_row['Responsible Provider'] = str(md_value).strip()
+                        print(f"Row {idx + 1}: Changed Responsible Provider to MD value '{str(md_value).strip()}' (only P modifier used, both MD and CRNA present)")
             
             # Special case: If ASA Code is 01967 in main charge, clear ICD1-ICD4 and set ICD1 = "O80"
             asa_code = str(new_row.get('ASA Code', '')).strip()
