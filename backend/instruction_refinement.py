@@ -451,7 +451,7 @@ Respond with ONLY the JSON object, nothing else."""
         
         # Configure thinking for Gemini 3 models
         if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+            thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
         
@@ -795,7 +795,7 @@ Respond with ONLY the JSON object, nothing else."""
         
         # Configure thinking for Gemini 3 models
         if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+            thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
         
@@ -1276,7 +1276,7 @@ Respond with ONLY the JSON object, nothing else."""
         
         # Configure thinking for Gemini 3 models
         if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+            thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
         

@@ -302,15 +302,13 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                     )
                 ]
             
-            tools = [
-                types.Tool(googleSearch=types.GoogleSearch(
-                )),
-            ]
+            # Google Search grounding disabled for extraction (only enabled for CPT/ICD prediction)
+            # tools = []  # No tools needed for extraction
             
-            # Use thinking_level="HIGH" for Gemini 3 models and latest models, thinking_budget=-1 for others
-            if model in ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-flash-latest"]:
+            # Use thinking_level="MEDIUM" for Gemini 3 models only, thinking_budget=-1 for others (including gemini-flash-latest and gemini-flash-lite-latest)
+            if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
                 thinking_config = types.ThinkingConfig(
-                    thinking_level="HIGH",
+                    thinking_level="MEDIUM",
                 )
             else:
                 thinking_config = types.ThinkingConfig(
@@ -319,7 +317,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain",
                 thinking_config=thinking_config,
-                tools=tools
+                # tools=tools  # No Google Search for extraction
             )
 
             # Collect the full response with retry on API failures

@@ -1288,7 +1288,7 @@ answer ONLY with the code, nothing else"""
                     top_p=0.9,
                     max_output_tokens=50,
                     thinking_config=types.ThinkingConfig(
-                        thinking_level="HIGH",
+                        thinking_level="MEDIUM",
                     ),
                 )
                 
