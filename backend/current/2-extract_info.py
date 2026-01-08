@@ -807,7 +807,7 @@ if __name__ == "__main__":
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 50  # Default thread pool size
     model = "gemini-3-pro-preview"  # Default model for normal fields
-    priority_model = "gemini-3-pro-preview"  # Default model for priority fields (always use best model)
+    priority_model = "gemini-3-flash-preview"  # Default model for priority fields (always use best model)
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
     extract_csn = False  # Extract CSN from PDF filenames

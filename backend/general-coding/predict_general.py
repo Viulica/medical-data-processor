@@ -1539,6 +1539,9 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         for ext in ['*.pdf', '*.PDF']:
             pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
         
+        # Deduplicate PDF files (on case-insensitive filesystems like macOS, *.pdf and *.PDF match the same files)
+        pdf_files = list(set(pdf_files))
+        
         # Also check case-insensitive manually
         if not pdf_files:
             all_files = list(pdf_folder_path.rglob("*"))
@@ -1694,6 +1697,9 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         pdf_files = []
         for ext in ['*.pdf', '*.PDF']:
             pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
+        
+        # Deduplicate PDF files (on case-insensitive filesystems like macOS, *.pdf and *.PDF match the same files)
+        pdf_files = list(set(pdf_files))
         
         # Also check case-insensitive manually
         if not pdf_files:
