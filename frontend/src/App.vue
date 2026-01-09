@@ -1532,6 +1532,52 @@
                           </div>
                         </div>
                       </label>
+
+                      <!-- Custom OpenRouter Model Option -->
+                      <label
+                        class="model-option-card"
+                        :class="{
+                          selected: unifiedCptVisionModel === 'custom',
+                        }"
+                      >
+                        <input
+                          type="radio"
+                          v-model="unifiedCptVisionModel"
+                          value="custom"
+                          class="model-radio"
+                        />
+                        <div class="model-content">
+                          <div class="model-header">
+                            <div class="model-name">
+                              <span class="model-title">Custom Model</span>
+                              <span class="model-badge badge-fast">OpenRouter</span>
+                            </div>
+                            <div class="model-provider">Custom</div>
+                          </div>
+                          <div class="model-features">
+                            <span class="feature-tag">🔧 Enter Any Model</span>
+                            <span class="feature-tag">🌐 OpenRouter</span>
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                    
+                    <!-- Custom Model Input (shown when custom is selected) -->
+                    <div v-if="unifiedCptVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                      <label for="unified-cpt-custom-model" class="form-label">
+                        Custom OpenRouter Model Name:
+                      </label>
+                      <input
+                        id="unified-cpt-custom-model"
+                        v-model="unifiedCptCustomModel"
+                        type="text"
+                        class="form-input"
+                        placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                        style="margin-top: 8px"
+                      />
+                      <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                        Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                      </p>
                     </div>
                   </div>
 
@@ -1921,6 +1967,52 @@
                         </div>
                       </div>
                     </label>
+
+                    <!-- Custom OpenRouter Model Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected: unifiedIcdVisionModel === 'custom',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="unifiedIcdVisionModel"
+                        value="custom"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Custom Model</span>
+                            <span class="model-badge badge-fast">OpenRouter</span>
+                          </div>
+                          <div class="model-provider">Custom</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🔧 Enter Any Model</span>
+                          <span class="feature-tag">🌐 OpenRouter</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  <!-- Custom Model Input (shown when custom is selected) -->
+                  <div v-if="unifiedIcdVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                    <label for="unified-icd-custom-model" class="form-label">
+                      Custom OpenRouter Model Name:
+                    </label>
+                    <input
+                      id="unified-icd-custom-model"
+                      v-model="unifiedIcdCustomModel"
+                      type="text"
+                      class="form-input"
+                      placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                      style="margin-top: 8px"
+                    />
+                    <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                      Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                    </p>
                   </div>
                 </div>
 
@@ -2934,6 +3026,52 @@
                       </div>
                     </div>
                   </label>
+
+                  <!-- Custom OpenRouter Model Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: cptVisionModel === 'custom',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="cptVisionModel"
+                      value="custom"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Custom Model</span>
+                          <span class="model-badge badge-fast">OpenRouter</span>
+                        </div>
+                        <div class="model-provider">Custom</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">🔧 Enter Any Model</span>
+                        <span class="feature-tag">🌐 OpenRouter</span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                <!-- Custom Model Input (shown when custom is selected) -->
+                <div v-if="cptVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                  <label for="cpt-custom-model" class="form-label">
+                    Custom OpenRouter Model Name:
+                  </label>
+                  <input
+                    id="cpt-custom-model"
+                    v-model="cptCustomModel"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                    style="margin-top: 8px"
+                  />
+                  <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                    Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                  </p>
                 </div>
               </div>
             </div>
@@ -3490,6 +3628,52 @@
                       </div>
                     </div>
                   </label>
+
+                  <!-- Custom OpenRouter Model Option -->
+                  <label
+                    class="model-option-card"
+                    :class="{
+                      selected: icdVisionModel === 'custom',
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      v-model="icdVisionModel"
+                      value="custom"
+                      class="model-radio"
+                    />
+                    <div class="model-content">
+                      <div class="model-header">
+                        <div class="model-name">
+                          <span class="model-title">Custom Model</span>
+                          <span class="model-badge badge-fast">OpenRouter</span>
+                        </div>
+                        <div class="model-provider">Custom</div>
+                      </div>
+                      <div class="model-features">
+                        <span class="feature-tag">🔧 Enter Any Model</span>
+                        <span class="feature-tag">🌐 OpenRouter</span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                <!-- Custom Model Input (shown when custom is selected) -->
+                <div v-if="icdVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                  <label for="icd-custom-model" class="form-label">
+                    Custom OpenRouter Model Name:
+                  </label>
+                  <input
+                    id="icd-custom-model"
+                    v-model="icdCustomModel"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                    style="margin-top: 8px"
+                  />
+                  <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                    Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                  </p>
                 </div>
               </div>
             </div>
@@ -4591,6 +4775,52 @@
                         </div>
                       </div>
                     </label>
+
+                    <!-- Custom OpenRouter Model Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected: refinementCptVisionModel === 'custom',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementCptVisionModel"
+                        value="custom"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Custom Model</span>
+                            <span class="model-badge badge-fast">OpenRouter</span>
+                          </div>
+                          <div class="model-provider">Custom</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🔧 Enter Any Model</span>
+                          <span class="feature-tag">🌐 OpenRouter</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  <!-- Custom Model Input (shown when custom is selected) -->
+                  <div v-if="refinementCptVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                    <label for="refinement-cpt-custom-model" class="form-label">
+                      Custom OpenRouter Model Name:
+                    </label>
+                    <input
+                      id="refinement-cpt-custom-model"
+                      v-model="refinementCptCustomModel"
+                      type="text"
+                      class="form-input"
+                      placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                      style="margin-top: 8px"
+                    />
+                    <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                      Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -4818,6 +5048,52 @@
                         </div>
                       </div>
                     </label>
+
+                    <!-- Custom OpenRouter Model Option -->
+                    <label
+                      class="model-option-card"
+                      :class="{
+                        selected: refinementIcdVisionModel === 'custom',
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        v-model="refinementIcdVisionModel"
+                        value="custom"
+                        class="model-radio"
+                      />
+                      <div class="model-content">
+                        <div class="model-header">
+                          <div class="model-name">
+                            <span class="model-title">Custom Model</span>
+                            <span class="model-badge badge-fast">OpenRouter</span>
+                          </div>
+                          <div class="model-provider">Custom</div>
+                        </div>
+                        <div class="model-features">
+                          <span class="feature-tag">🔧 Enter Any Model</span>
+                          <span class="feature-tag">🌐 OpenRouter</span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  <!-- Custom Model Input (shown when custom is selected) -->
+                  <div v-if="refinementIcdVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
+                    <label for="refinement-icd-custom-model" class="form-label">
+                      Custom OpenRouter Model Name:
+                    </label>
+                    <input
+                      id="refinement-icd-custom-model"
+                      v-model="refinementIcdCustomModel"
+                      type="text"
+                      class="form-input"
+                      placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
+                      style="margin-top: 8px"
+                    />
+                    <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
+                      Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -8571,11 +8847,13 @@ export default {
       visionPageCount: 49,
       isVisionZipDragActive: false,
       cptVisionModel: "openai/gpt-5.2:online",
+      cptCustomModel: "", // Custom OpenRouter model input
       cptVisionCustomInstructions: "",
       // ICD prediction functionality
       icdZipFile: null,
       icdPageCount: 49,
       icdVisionModel: "openai/gpt-5.2:online",
+      icdCustomModel: "", // Custom OpenRouter model input
       icdJobId: null,
       icdJobStatus: null,
       isPredictingIcd: false,
@@ -8684,6 +8962,7 @@ export default {
       unifiedCptCustomInstructions: "",
       unifiedCptVisionPages: 49, // For vision mode
       unifiedCptVisionModel: "gemini-3-flash-preview", // Vision model selection
+      unifiedCptCustomModel: "", // Custom OpenRouter model input
       unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
       unifiedUseCptTemplate: false, // For non-vision mode template toggle
       unifiedSelectedCptInstructionId: null, // For non-vision mode template
@@ -8691,6 +8970,7 @@ export default {
       unifiedIcdPages: 49,
       unifiedIcdMaxWorkers: 50,
       unifiedIcdVisionModel: "gemini-3-flash-preview", // Vision model selection
+      unifiedIcdCustomModel: "", // Custom OpenRouter model input
       unifiedIcdCustomInstructions: "",
       unifiedUseIcdTemplate: false,
       unifiedSelectedIcdInstructionId: null,
@@ -8714,7 +8994,9 @@ export default {
       refinementSelectedCptInstructionId: null,
       refinementSelectedIcdInstructionId: null,
       refinementCptVisionModel: "openai/gpt-5.2:online", // CPT vision model selection
+      refinementCptCustomModel: "", // Custom OpenRouter model input
       refinementIcdVisionModel: "openai/gpt-5.2:online", // ICD vision model selection
+      refinementIcdCustomModel: "", // Custom OpenRouter model input
       refinementTargetCptAccuracy: 0.95,
       refinementTargetIcdAccuracy: 0.95,
       refinementMaxIterations: 10,
@@ -10170,7 +10452,9 @@ export default {
       formData.append("cpt_vision_mode", this.unifiedCptVisionMode);
       if (this.unifiedCptVisionMode) {
         formData.append("cpt_vision_pages", this.unifiedCptVisionPages);
-        formData.append("cpt_vision_model", this.unifiedCptVisionModel);
+        // Use custom model if "custom" is selected, otherwise use the selected model
+        const cptModelToUse = this.unifiedCptVisionModel === 'custom' ? this.unifiedCptCustomModel : this.unifiedCptVisionModel;
+        formData.append("cpt_vision_model", cptModelToUse);
         formData.append(
           "cpt_include_code_list",
           this.unifiedCptIncludeCodeList
@@ -10194,7 +10478,9 @@ export default {
       // ICD parameters
       formData.append("enable_icd", this.unifiedEnableIcd);
       formData.append("icd_n_pages", this.unifiedIcdPages);
-      formData.append("icd_vision_model", this.unifiedIcdVisionModel);
+      // Use custom model if "custom" is selected, otherwise use the selected model
+      const icdModelToUse = this.unifiedIcdVisionModel === 'custom' ? this.unifiedIcdCustomModel : this.unifiedIcdVisionModel;
+      formData.append("icd_vision_model", icdModelToUse);
       formData.append("icd_max_workers", this.unifiedIcdMaxWorkers);
       formData.append(
         "icd_custom_instructions",
@@ -10373,7 +10659,9 @@ export default {
         formData.append("cpt_vision_mode", true); // Use vision mode for PDF-based prediction
         formData.append("cpt_client", "uni");
         formData.append("cpt_vision_pages", 49); // Analyze 49 pages for better accuracy
-        formData.append("cpt_vision_model", this.refinementCptVisionModel);
+        // Use custom model if "custom" is selected, otherwise use the selected model
+        const refinementCptModelToUse = this.refinementCptVisionModel === 'custom' ? this.refinementCptCustomModel : this.refinementCptVisionModel;
+        formData.append("cpt_vision_model", refinementCptModelToUse);
         formData.append("cpt_include_code_list", true);
         formData.append("cpt_max_workers", 200);
         formData.append(
@@ -10387,7 +10675,9 @@ export default {
       formData.append("enable_icd", this.refinementEnableIcd);
       if (this.refinementEnableIcd) {
         formData.append("icd_n_pages", 49); // Analyze 49 pages for better accuracy (same as CPT)
-        formData.append("icd_vision_model", this.refinementIcdVisionModel);
+        // Use custom model if "custom" is selected, otherwise use the selected model
+        const refinementIcdModelToUse = this.refinementIcdVisionModel === 'custom' ? this.refinementIcdCustomModel : this.refinementIcdVisionModel;
+        formData.append("icd_vision_model", refinementIcdModelToUse);
         formData.append("icd_max_workers", 200);
         formData.append(
           "icd_instruction_template_id",
@@ -10655,6 +10945,7 @@ export default {
       this.unifiedCptSelectedClient = "uni";
       this.unifiedCptVisionPages = 49;
       this.unifiedCptVisionModel = "gemini-3-flash-preview";
+      this.unifiedCptCustomModel = "";
       this.unifiedCptIncludeCodeList = true;
       this.unifiedCptMaxWorkers = 50;
       this.unifiedCptCustomInstructions = "";
@@ -10663,6 +10954,7 @@ export default {
       // ICD settings
       this.unifiedIcdPages = 49;
       this.unifiedIcdVisionModel = "gemini-3-flash-preview";
+      this.unifiedIcdCustomModel = "";
       this.unifiedIcdMaxWorkers = 50;
       this.unifiedIcdCustomInstructions = "";
       this.unifiedUseIcdTemplate = false;
@@ -10922,7 +11214,9 @@ export default {
         uploadUrl = joinUrl(API_BASE_URL, "predict-cpt-from-pdfs");
         formData.append("zip_file", this.visionZipFile);
         formData.append("n_pages", this.visionPageCount);
-        formData.append("model", this.cptVisionModel);
+        // Use custom model if "custom" is selected, otherwise use the selected model
+        const cptModelToUse = this.cptVisionModel === 'custom' ? this.cptCustomModel : this.cptVisionModel;
+        formData.append("model", cptModelToUse);
         formData.append("max_workers", "5");
 
         // Use template or manual instructions (vision and non-vision share same templates)
@@ -11068,6 +11362,7 @@ export default {
       this.useVisionPrediction = false;
       this.visionPageCount = 49;
       this.cptVisionModel = "openai/gpt-5.2:online";
+      this.cptCustomModel = "";
       this.cptVisionCustomInstructions = "";
       this.useCptTemplateInsteadOfText = false;
       this.selectedCptInstructionId = null;
@@ -11195,7 +11490,9 @@ export default {
       const formData = new FormData();
       formData.append("zip_file", this.icdZipFile);
       formData.append("n_pages", this.icdPageCount);
-      formData.append("model", this.icdVisionModel);
+      // Use custom model if "custom" is selected, otherwise use the selected model
+      const icdModelToUse = this.icdVisionModel === 'custom' ? this.icdCustomModel : this.icdVisionModel;
+      formData.append("model", icdModelToUse);
       formData.append("max_workers", "5");
 
       // Use template or manual instructions
@@ -11304,6 +11601,7 @@ export default {
       this.icdZipFile = null;
       this.icdPageCount = 49;
       this.icdVisionModel = "openai/gpt-5.2:online";
+      this.icdCustomModel = "";
       this.icdCustomInstructions = "";
       this.icdJobId = null;
       this.icdJobStatus = null;

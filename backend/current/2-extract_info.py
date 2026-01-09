@@ -204,10 +204,18 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         "X-Title": "Medical Data Processor"
     }
     
-    # Ensure DeepSeek model uses exact format
+    # Ensure DeepSeek model uses correct OpenRouter format
     openrouter_model = model
     if "deepseek" in model.lower():
-        openrouter_model = "deepseek/deepseek-v3.2"
+        model_lower = model.lower()
+        if "reasoner" in model_lower:
+            openrouter_model = "deepseek/deepseek-reasoner"
+        elif "chat" in model_lower or "v3" in model_lower or "v3.2" in model_lower:
+            openrouter_model = "deepseek/deepseek-chat"
+        elif model.startswith("deepseek/"):
+            openrouter_model = model
+        else:
+            openrouter_model = "deepseek/deepseek-chat"  # Default to most common model
     
     for attempt in range(max_retries):
         try:
@@ -305,8 +313,12 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
             # Google Search grounding disabled for extraction (only enabled for CPT/ICD prediction)
             # tools = []  # No tools needed for extraction
             
-            # Use thinking_level="MEDIUM" for Gemini 3 models only, thinking_budget=-1 for others (including gemini-flash-latest and gemini-flash-lite-latest)
-            if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+            # Use thinking_level="HIGH" for gemini-3-pro-preview, "MEDIUM" for gemini-3-flash-preview, thinking_budget=-1 for others
+            if model == "gemini-3-pro-preview":
+                thinking_config = types.ThinkingConfig(
+                    thinking_level="HIGH",
+                )
+            elif model == "gemini-3-flash-preview":
                 thinking_config = types.ThinkingConfig(
                     thinking_level="MEDIUM",
                 )

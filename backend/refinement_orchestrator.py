@@ -472,6 +472,7 @@ def run_refinement_job(
         temp_dir.mkdir(exist_ok=True)
         
         # Extract ZIP for processing
+        logger.info(f"[Refinement {job_id}] Extracting ZIP file to {temp_dir / 'input'}...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir / "input")
         
@@ -479,6 +480,15 @@ def run_refinement_job(
         # This ensures account IDs match between predictions CSV and PDF mapping
         pdf_mapping = {}  # account_id -> pdf_path
         pdf_folder = temp_dir / "input"
+        
+        # Log what was extracted for debugging
+        extracted_files = list(pdf_folder.rglob("*"))
+        pdf_files = [f for f in extracted_files if f.is_file() and f.suffix.lower() == '.pdf']
+        logger.info(f"[Refinement {job_id}] Extracted {len(extracted_files)} total items, {len(pdf_files)} PDF files to {pdf_folder}")
+        if pdf_files:
+            logger.info(f"[Refinement {job_id}] Sample PDF files: {[f.name for f in pdf_files[:5]]}")
+        else:
+            logger.warning(f"[Refinement {job_id}] ⚠️  No PDF files found in extracted ZIP! This will cause refinement to fail.")
         
         logger.info(f"[Refinement {job_id}] PDF mapping will be built from extraction results")
         
@@ -592,15 +602,45 @@ def run_refinement_job(
                         source_file_col = col
                 
                 if account_id_col and source_file_col:
+                    # Build index of all PDF files in pdf_folder for fast lookup
+                    logger.info(f"[Refinement {job_id}] Scanning for PDF files in {pdf_folder}...")
+                    all_pdfs = {}  # basename -> full_path
+                    for pdf_file in pdf_folder.rglob("*.pdf"):
+                        all_pdfs[pdf_file.name.lower()] = str(pdf_file)
+                    for pdf_file in pdf_folder.rglob("*.PDF"):
+                        all_pdfs[pdf_file.name.lower()] = str(pdf_file)
+                    logger.info(f"[Refinement {job_id}] Found {len(all_pdfs)} PDF files in total")
+                    
+                    not_found_count = 0
                     for idx, row in results_df.iterrows():
                         account_id = str(row[account_id_col]).strip()
                         source_file = str(row[source_file_col]).strip()
                         
+                        # Try 1: Direct path (pdf_folder / source_file)
                         pdf_path = pdf_folder / source_file
                         if pdf_path.exists():
                             pdf_mapping[account_id] = str(pdf_path)
+                            continue
+                        
+                        # Try 2: Just the basename (in case source_file has extra path components)
+                        basename = Path(source_file).name
+                        if basename.lower() in all_pdfs:
+                            pdf_mapping[account_id] = all_pdfs[basename.lower()]
+                            continue
+                        
+                        # Try 3: Search by account ID in filename (common pattern: includes account ID)
+                        found = False
+                        for pdf_basename, pdf_full_path in all_pdfs.items():
+                            if account_id.lower() in pdf_basename.lower():
+                                pdf_mapping[account_id] = pdf_full_path
+                                found = True
+                                break
+                        
+                        if not found:
+                            not_found_count += 1
+                            logger.warning(f"[Refinement {job_id}] Could not find PDF for account {account_id} (source_file: {source_file})")
                     
-                    logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs")
+                    logger.info(f"[Refinement {job_id}] Built PDF mapping with {len(pdf_mapping)} account IDs ({not_found_count} PDFs not found)")
                 else:
                     logger.warning(f"[Refinement {job_id}] Could not find account ID or source file columns")
             except Exception as e:
@@ -875,6 +915,25 @@ def run_refinement_job(
                             expected_code = error_case.get('expected', 'N/A')
                             
                             logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_cpt_errors)}: Account {account_id}, Predicted '{predicted_code}' -> Expected '{expected_code}'")
+                            
+                            # Check if PDF exists
+                            if not pdf_path or not os.path.exists(pdf_path):
+                                logger.error(f"[Refinement {job_id}] ❌ PDF not found for account {account_id}! Checked path: {pdf_path}")
+                                logger.error(f"[Refinement {job_id}] Available PDFs in mapping: {list(pdf_mapping.keys())[:10]}")
+                                # Skip this error
+                                case_status = {
+                                    "case_number": error_idx,
+                                    "account_id": account_id,
+                                    "pdf_filename": "NOT FOUND",
+                                    "predicted": predicted_code,
+                                    "expected": expected_code,
+                                    "status": "pdf_not_found",
+                                    "attempts": [],
+                                    "final_status": "pdf_not_found",
+                                    "final_predicted": None
+                                }
+                                case_statuses.append(case_status)
+                                continue
                             
                             # Initialize case status
                             case_status = {
@@ -1404,6 +1463,25 @@ def run_refinement_job(
                             expected_icd1 = error_case.get('expected_icd1', error_case.get('expected', 'N/A'))
                             
                             logger.info(f"[Refinement {job_id}] Processing error {error_idx}/{len(all_icd_errors)}: Account {account_id}, Predicted '{predicted_icd1}' -> Expected '{expected_icd1}'")
+                            
+                            # Check if PDF exists
+                            if not pdf_path or not os.path.exists(pdf_path):
+                                logger.error(f"[Refinement {job_id}] ❌ PDF not found for account {account_id}! Checked path: {pdf_path}")
+                                logger.error(f"[Refinement {job_id}] Available PDFs in mapping: {list(pdf_mapping.keys())[:10]}")
+                                # Skip this error
+                                case_status = {
+                                    "case_number": error_idx,
+                                    "account_id": account_id,
+                                    "pdf_filename": "NOT FOUND",
+                                    "predicted": predicted_icd1,
+                                    "expected": expected_icd1,
+                                    "status": "pdf_not_found",
+                                    "attempts": [],
+                                    "final_status": "pdf_not_found",
+                                    "final_predicted": None
+                                }
+                                case_statuses.append(case_status)
+                                continue
                             
                             # Initialize case status
                             case_status = {

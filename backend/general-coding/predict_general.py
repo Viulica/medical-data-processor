@@ -174,7 +174,9 @@ Respond with ONLY the JSON object, nothing else."""
     contents = [types.Content(role="user", parts=parts)]
     
     # Configure thinking for Gemini 3 models
-    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+    if model == "gemini-3-pro-preview":
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+    elif model == "gemini-3-flash-preview":
         thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
@@ -592,18 +594,24 @@ Respond with ONLY the JSON object, nothing else."""
         "X-Title": "Medical Data Processor"
     }
     
-    # Ensure DeepSeek model uses exact format - try multiple possible formats
+    # Ensure DeepSeek model uses correct OpenRouter format
     openrouter_model = model
     if "deepseek" in model.lower():
-        # Try the exact format first
-        if model.lower() == "deepseek/deepseek-v3.2" or "deepseek-v3.2" in model.lower():
-            openrouter_model = "deepseek/deepseek-v3.2"
-        # If it's already in the correct format, use it as-is
+        # Map common DeepSeek model names to OpenRouter format
+        model_lower = model.lower()
+        if "v3.2" in model_lower or "v3" in model_lower:
+            # Try deepseek-chat or deepseek-reasoner for v3 models
+            openrouter_model = "deepseek/deepseek-chat"  # Most common DeepSeek model on OpenRouter
+        elif "reasoner" in model_lower:
+            openrouter_model = "deepseek/deepseek-reasoner"
+        elif "chat" in model_lower:
+            openrouter_model = "deepseek/deepseek-chat"
         elif model.startswith("deepseek/"):
+            # Already in correct format, use as-is
             openrouter_model = model
         else:
-            # Default to v3.2 format
-            openrouter_model = "deepseek/deepseek-v3.2"
+            # Default to deepseek-chat (most commonly available)
+            openrouter_model = "deepseek/deepseek-chat"
         logger.info(f"DeepSeek model - Original: '{model}', Using: '{openrouter_model}'")
     
     payload = {
@@ -711,14 +719,21 @@ Respond with ONLY the JSON object, nothing else."""
             
             # Build descriptive error message
             if status_code:
-                error_message = f"HTTP {status_code}: {error_detail}"
+                if status_code == 404:
+                    error_message = f"HTTP 404: Model '{openrouter_model}' not found. {error_detail}. Please check if the model name is correct or if it's available on OpenRouter."
+                else:
+                    error_message = f"HTTP {status_code}: {error_detail}"
             else:
                 error_message = f"HTTP Error: {error_detail}"
             
-            # Retry on all errors
+            # Retry on all errors except 404 (model not found)
             if attempt < max_retries - 1:
+                # Don't retry 404 errors - model name is wrong
+                if status_code == 404:
+                    logger.error(f"Model '{openrouter_model}' not found (404). Stopping retries. Error: {error_detail}")
+                    break
                 # Use exponential backoff for rate limits, shorter delay for other errors
-                if status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
+                elif status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
                     wait_time = 2 ** attempt
                     logger.warning(f"Rate limit error (429) on image prediction, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
                 else:
@@ -875,7 +890,9 @@ Respond with ONLY the JSON object, nothing else."""
     contents = [types.Content(role="user", parts=parts)]
     
     # Configure thinking for Gemini 3 models
-    if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+    if model == "gemini-3-pro-preview":
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+    elif model == "gemini-3-flash-preview":
         thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
@@ -1117,18 +1134,24 @@ Respond with ONLY the JSON object, nothing else."""
         "X-Title": "Medical Data Processor"
     }
     
-    # Ensure DeepSeek model uses exact format - try multiple possible formats
+    # Ensure DeepSeek model uses correct OpenRouter format
     openrouter_model = model
     if "deepseek" in model.lower():
-        # Try the exact format first
-        if model.lower() == "deepseek/deepseek-v3.2" or "deepseek-v3.2" in model.lower():
-            openrouter_model = "deepseek/deepseek-v3.2"
-        # If it's already in the correct format, use it as-is
+        # Map common DeepSeek model names to OpenRouter format
+        model_lower = model.lower()
+        if "v3.2" in model_lower or "v3" in model_lower:
+            # Try deepseek-chat or deepseek-reasoner for v3 models
+            openrouter_model = "deepseek/deepseek-chat"  # Most common DeepSeek model on OpenRouter
+        elif "reasoner" in model_lower:
+            openrouter_model = "deepseek/deepseek-reasoner"
+        elif "chat" in model_lower:
+            openrouter_model = "deepseek/deepseek-chat"
         elif model.startswith("deepseek/"):
+            # Already in correct format, use as-is
             openrouter_model = model
         else:
-            # Default to v3.2 format
-            openrouter_model = "deepseek/deepseek-v3.2"
+            # Default to deepseek-chat (most commonly available)
+            openrouter_model = "deepseek/deepseek-chat"
         logger.info(f"DeepSeek model - Original: '{model}', Using: '{openrouter_model}'")
     
     payload = {

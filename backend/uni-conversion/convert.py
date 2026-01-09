@@ -305,6 +305,7 @@ CRITICAL RULES:
                 response_mime_type="application/json",
                 temperature=0.3,  # Lower temperature for more consistent output
                 tools=tools,
+                thinking_config=types.ThinkingConfig(thinking_level="HIGH"),  # Use HIGH thinking level for gemini-3-pro-preview
             )
 
             # Get AI response

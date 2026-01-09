@@ -355,10 +355,18 @@ Respond with ONLY the JSON object, nothing else."""
             "X-Title": "Medical Data Processor"
         }
         
-        # Ensure DeepSeek model uses exact format
+        # Ensure DeepSeek model uses correct OpenRouter format
         openrouter_model = model
         if "deepseek" in model.lower():
-            openrouter_model = "deepseek/deepseek-v3.2"
+            model_lower = model.lower()
+            if "reasoner" in model_lower:
+                openrouter_model = "deepseek/deepseek-reasoner"
+            elif "chat" in model_lower or "v3" in model_lower or "v3.2" in model_lower:
+                openrouter_model = "deepseek/deepseek-chat"
+            elif model.startswith("deepseek/"):
+                openrouter_model = model
+            else:
+                openrouter_model = "deepseek/deepseek-chat"  # Default to most common model
         
         payload = {
             "model": openrouter_model,
@@ -450,7 +458,9 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        if model == "gemini-3-pro-preview":
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
@@ -717,10 +727,18 @@ Respond with ONLY the JSON object, nothing else."""
             "X-Title": "Medical Data Processor"
         }
         
-        # Ensure DeepSeek model uses exact format
+        # Ensure DeepSeek model uses correct OpenRouter format
         openrouter_model = model
         if "deepseek" in model.lower():
-            openrouter_model = "deepseek/deepseek-v3.2"
+            model_lower = model.lower()
+            if "reasoner" in model_lower:
+                openrouter_model = "deepseek/deepseek-reasoner"
+            elif "chat" in model_lower or "v3" in model_lower or "v3.2" in model_lower:
+                openrouter_model = "deepseek/deepseek-chat"
+            elif model.startswith("deepseek/"):
+                openrouter_model = model
+            else:
+                openrouter_model = "deepseek/deepseek-chat"  # Default to most common model
         
         payload = {
             "model": openrouter_model,
@@ -794,7 +812,9 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        if model == "gemini-3-pro-preview":
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
@@ -1150,10 +1170,18 @@ Respond with ONLY the JSON object, nothing else."""
             "X-Title": "Medical Data Processor"
         }
         
-        # Ensure DeepSeek model uses exact format
+        # Ensure DeepSeek model uses correct OpenRouter format
         openrouter_model = model
         if "deepseek" in model.lower():
-            openrouter_model = "deepseek/deepseek-v3.2"
+            model_lower = model.lower()
+            if "reasoner" in model_lower:
+                openrouter_model = "deepseek/deepseek-reasoner"
+            elif "chat" in model_lower or "v3" in model_lower or "v3.2" in model_lower:
+                openrouter_model = "deepseek/deepseek-chat"
+            elif model.startswith("deepseek/"):
+                openrouter_model = model
+            else:
+                openrouter_model = "deepseek/deepseek-chat"  # Default to most common model
         
         payload = {
             "model": openrouter_model,
@@ -1275,7 +1303,9 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        if model == "gemini-3-pro-preview":
+            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+        elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
         else:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)

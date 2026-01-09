@@ -100,8 +100,12 @@ Example: If pages 2 and 4 in this batch match, return:
             )
         ]
         
-        # Use thinking_level="MEDIUM" for Gemini 3 models
-        if model in ["gemini-3-pro-preview", "gemini-3-flash-preview"]:
+        # Use thinking_level="HIGH" for gemini-3-pro-preview, "MEDIUM" for gemini-3-flash-preview
+        if model == "gemini-3-pro-preview":
+            thinking_config = types.ThinkingConfig(
+                thinking_level="HIGH",
+            )
+        elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(
                 thinking_level="MEDIUM",
             )

@@ -7150,7 +7150,14 @@ def process_unified_background(
                 max_pages_needed = max(cpt_vision_pages, icd_n_pages)
                 logger.info(f"[Unified {job_id}] ⚡ SPEED OPTIMIZATION: Pre-extracting PDF images (max {max_pages_needed} pages) to share between CPT and ICD...")
                 
-                pdf_files = list((temp_dir / "input").glob("**/*.pdf"))
+                # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
+                import glob as glob_module
+                input_path_str = str(temp_dir / "input")
+                pdf_files_list = glob_module.glob(os.path.join(input_path_str, "*.pdf"))
+                pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
+                pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
+                pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
+                pdf_files = [Path(f) for f in set(pdf_files_list)]  # Deduplicate (matches extraction script logic)
                 pdf_files = sorted(pdf_files, key=lambda x: x.name)
                 
                 # Pre-extract images in parallel
@@ -7244,7 +7251,14 @@ def process_unified_background(
                     logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
                     
                     # Estimate total (rough guess based on number of PDFs)
-                    pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
+                    # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
+                    import glob as glob_module
+                    input_path_str = str(temp_dir / "input")
+                    pdf_files_list = glob_module.glob(os.path.join(input_path_str, "*.pdf"))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
+                    pdf_count = len(set(pdf_files_list))  # Deduplicate (matches extraction script logic)
                     logger.info(f"[Unified {job_id}] Found {pdf_count} PDFs to extract")
                     with lock:
                         extraction_total[0] = pdf_count
@@ -7543,7 +7557,14 @@ def process_unified_background(
                     cmd.append(str(progress_file_path))
                     
                     # Estimate total
-                    pdf_count = len(list((temp_dir / "input").glob("**/*.pdf")))
+                    # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
+                    import glob as glob_module
+                    input_path_str = str(temp_dir / "input")
+                    pdf_files_list = glob_module.glob(os.path.join(input_path_str, "*.pdf"))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
+                    pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
+                    pdf_count = len(set(pdf_files_list))  # Deduplicate (matches extraction script logic)
                     with lock:
                         extraction_total[0] = pdf_count
                     
@@ -7774,7 +7795,14 @@ def process_unified_background(
             max_pages_needed = max(cpt_vision_pages, icd_n_pages)
             logger.info(f"[Unified {job_id}] ⚡ SPEED OPTIMIZATION: Pre-extracting PDF images (max {max_pages_needed} pages) to share between CPT and ICD...")
             
-            pdf_files = list((temp_dir / "input").glob("**/*.pdf"))
+            # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
+            import glob as glob_module
+            input_path_str = str(temp_dir / "input")
+            pdf_files_list = glob_module.glob(os.path.join(input_path_str, "*.pdf"))
+            pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
+            pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
+            pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
+            pdf_files = [Path(f) for f in set(pdf_files_list)]  # Deduplicate (matches extraction script logic)
             pdf_files = sorted(pdf_files, key=lambda x: x.name)
             
             # Pre-extract images in parallel
