@@ -4359,6 +4359,26 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
                         output_zip.write(source_pdf_path, arcname)
                         logger.info(f"Added {pdf_file} to {error_type} folder")
         
+        job.message = "Creating Excel comparison report..."
+        job.progress = 80
+        
+        # Also run the full comparison to create Excel report
+        # Create a temporary job ID for the comparison
+        comparison_job_id = f"{job_id}_comparison"
+        comparison_job = ProcessingJob(comparison_job_id)
+        job_status[comparison_job_id] = comparison_job
+        
+        # Run the comparison in the current thread (not as a background task)
+        check_cpt_codes_background(comparison_job_id, predictions_path, ground_truth_path, charge_detail_path)
+        
+        # Get the Excel file from the comparison job
+        excel_report_path = None
+        if comparison_job.status == "completed" and comparison_job.result_file_xlsx:
+            excel_report_path = comparison_job.result_file_xlsx
+        
+        # Clean up the comparison job from status
+        del job_status[comparison_job_id]
+        
         job.message = "Cleaning up..."
         job.progress = 90
         
@@ -4373,7 +4393,9 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
         if charge_detail_path and os.path.exists(charge_detail_path):
             os.unlink(charge_detail_path)
         
-        job.result_file = output_zip_path
+        # Store both files
+        job.result_file = output_zip_path  # Error PDFs ZIP
+        job.result_file_xlsx = excel_report_path  # Excel comparison report
         job.status = "completed"
         job.progress = 100
         

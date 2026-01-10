@@ -5714,7 +5714,6 @@
                 </button>
                 <!-- Always show Excel download for comparison report -->
                 <button
-                  v-if="!cptPdfsZipFile"
                   @click="downloadCptCheckResults('xlsx')"
                   class="download-btn"
                 >
