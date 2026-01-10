@@ -31,8 +31,6 @@ def ensure_csv_file(input_file_path: str, output_file_path: str = None) -> str:
     Returns:
         str: Path to CSV file (either original or converted)
     """
-    import pandas as pd
-    
     input_path = Path(input_file_path)
     
     # If already CSV, return as-is
@@ -107,6 +105,7 @@ try:
     import json
     import time
     from typing import List, Optional
+    import pandas as pd
     logger.info("✅ Standard library modules imported successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import standard library module: {e}")
@@ -4776,12 +4775,20 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             return icd_list
         
         # Create a dictionary for ground truth lookup (store full row data)
-        # IMPORTANT: Only take the FIRST occurrence of each account ID
+        # Store FIRST occurrence and also all additional rows for BLOCK checking
         gt_dict = {}
         gt_row_dict = {}  # Store full row data for detailed reporting
+        gt_all_rows = {}  # Store ALL rows by account ID for BLOCK checking
+        
         for idx, row in ground_truth_df.iterrows():
             account_id = str(row[account_id_col_gt]).strip()
-            # Only add if we haven't seen this account ID before (take FIRST occurrence)
+            
+            # Store ALL rows for this account ID (for BLOCK checking)
+            if account_id not in gt_all_rows:
+                gt_all_rows[account_id] = []
+            gt_all_rows[account_id].append(row)
+            
+            # Only add FIRST occurrence to gt_dict (for main comparison)
             if account_id not in gt_dict:
                 gt_dict[account_id] = {
                     'cpt': str(row[cpt_col_gt]).strip() if pd.notna(row[cpt_col_gt]) else '',
@@ -4791,6 +4798,14 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'surgeon': str(row[surgeon_col_gt]).strip() if surgeon_col_gt and pd.notna(row[surgeon_col_gt]) else ''
                 }
                 gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
+        
+        # Group predictions by account ID (store ALL rows for each account)
+        pred_all_rows = {}
+        for idx, row in predictions_df.iterrows():
+            account_id = str(row[account_id_col_pred]).strip()
+            if account_id not in pred_all_rows:
+                pred_all_rows[account_id] = []
+            pred_all_rows[account_id].append(row)
         
         # Create a dictionary for charge detail report lookup (for time comparison)
         charge_detail_dict = {}
@@ -4841,9 +4856,22 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         icd1_mismatch_but_found_in_other_slots = 0
         icd1_critical_errors = 0
         not_found = 0
+        # BLOCK checking (for additional rows beyond first row)
+        block_matches = 0
+        block_mismatches = 0
+        block_total = 0
+        
+        # Track which account IDs have been processed (to only process first row in main loop)
+        processed_accounts = set()
         
         for idx, row in predictions_df.iterrows():
             account_id = str(row[account_id_col_pred]).strip()
+            
+            # Skip if we've already processed this account ID (only process first occurrence)
+            if account_id in processed_accounts:
+                continue
+            processed_accounts.add(account_id)
+            
             predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row[cpt_col_pred]) else ''
             
             # Get predicted ICD codes as a list (position-based)
@@ -5400,6 +5428,68 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'Status': 'Account Not Found'
                 })
             
+            # ========== BLOCK CHECKING ==========
+            # Check additional rows (beyond first row) for this account ID
+            # Compare CPT codes from additional rows as sets
+            if account_id in pred_all_rows and account_id in gt_all_rows:
+                pred_rows = pred_all_rows[account_id]
+                gt_rows = gt_all_rows[account_id]
+                
+                # Only check if there are additional rows (more than 1 row)
+                if len(pred_rows) > 1 or len(gt_rows) > 1:
+                    block_total += 1
+                    
+                    # Collect CPT codes from additional rows (skip first row, index 0)
+                    pred_additional_cpts = []
+                    for i in range(1, len(pred_rows)):
+                        cpt_val = str(pred_rows[i][cpt_col_pred]).strip() if pd.notna(pred_rows[i][cpt_col_pred]) else ''
+                        if cpt_val and cpt_val.upper() != 'NAN':
+                            pred_additional_cpts.append(cpt_val.upper())
+                    
+                    gt_additional_cpts = []
+                    for i in range(1, len(gt_rows)):
+                        cpt_val = str(gt_rows[i][cpt_col_gt]).strip() if pd.notna(gt_rows[i][cpt_col_gt]) else ''
+                        if cpt_val and cpt_val.upper() != 'NAN':
+                            gt_additional_cpts.append(cpt_val.upper())
+                    
+                    # Convert to sets for comparison (ignores duplicates and order)
+                    pred_cpt_set = set(pred_additional_cpts)
+                    gt_cpt_set = set(gt_additional_cpts)
+                    
+                    # Check if sets match
+                    block_match = pred_cpt_set == gt_cpt_set
+                    if block_match:
+                        block_matches += 1
+                        logger.info(f"BLOCK Match for Account {account_id}: Predicted additional CPTs {pred_cpt_set} == GT additional CPTs {gt_cpt_set}")
+                    else:
+                        block_mismatches += 1
+                        logger.info(f"BLOCK Mismatch for Account {account_id}: Predicted additional CPTs {pred_cpt_set} != GT additional CPTs {gt_cpt_set}")
+                    
+                    # Add BLOCK check result to case overview and detailed entry
+                    case_overview['Block Check'] = '✅' if block_match else '❌'
+                    case_overview['Block Predicted CPTs'] = ', '.join(sorted(pred_cpt_set)) if pred_cpt_set else '(none)'
+                    case_overview['Block Ground Truth CPTs'] = ', '.join(sorted(gt_cpt_set)) if gt_cpt_set else '(none)'
+                    detailed_entry['Block Check'] = 'Yes' if block_match else 'No'
+                    detailed_entry['Block Predicted CPTs'] = ', '.join(sorted(pred_cpt_set)) if pred_cpt_set else '(none)'
+                    detailed_entry['Block Ground Truth CPTs'] = ', '.join(sorted(gt_cpt_set)) if gt_cpt_set else '(none)'
+                else:
+                    # No additional rows, so no block check needed
+                    case_overview['Block Check'] = 'N/A'
+                    case_overview['Block Predicted CPTs'] = ''
+                    case_overview['Block Ground Truth CPTs'] = ''
+                    detailed_entry['Block Check'] = 'N/A'
+                    detailed_entry['Block Predicted CPTs'] = ''
+                    detailed_entry['Block Ground Truth CPTs'] = ''
+            else:
+                # Account not found in one of the files, so no block check
+                case_overview['Block Check'] = 'N/A'
+                case_overview['Block Predicted CPTs'] = ''
+                case_overview['Block Ground Truth CPTs'] = ''
+                detailed_entry['Block Check'] = 'N/A'
+                detailed_entry['Block Predicted CPTs'] = ''
+                detailed_entry['Block Ground Truth CPTs'] = ''
+            # ========== END BLOCK CHECKING ==========
+            
             detailed_report_data.append(detailed_entry)
             case_overview_data.append(case_overview)
         
@@ -5457,6 +5547,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Surgeon Matches',
                 'Surgeon Mismatches',
                 'Surgeon Accuracy (%)',
+                'Block Checks (Accounts with Additional Rows)',
+                'Block Matches',
+                'Block Mismatches',
+                'Block Accuracy (%)',
                 'Start Time Matches',
                 'Start Time Mismatches',
                 'Start Time Accuracy (%)',
@@ -5491,6 +5585,10 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 surgeon_matches,
                 surgeon_mismatches,
                 f'{(surgeon_matches / (surgeon_matches + surgeon_mismatches) * 100):.2f}%' if (surgeon_matches + surgeon_mismatches) > 0 else 'N/A',
+                block_total,
+                block_matches,
+                block_mismatches,
+                f'{(block_matches / block_total * 100):.2f}%' if block_total > 0 else 'N/A',
                 start_time_matches,
                 start_time_mismatches,
                 f'{(start_time_matches / (start_time_matches + start_time_mismatches) * 100):.2f}%' if (start_time_matches + start_time_mismatches) > 0 else 'N/A',
@@ -5563,7 +5661,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.progress = 100
         provider_accuracy_str = f'{(provider_matches / (provider_matches + provider_mismatches) * 100):.2f}%' if (provider_matches + provider_mismatches) > 0 else 'N/A'
         surgeon_accuracy_str = f'{(surgeon_matches / (surgeon_matches + surgeon_mismatches) * 100):.2f}%' if (surgeon_matches + surgeon_mismatches) > 0 else 'N/A'
-        job.message = f"Comparison completed! CPT: {cpt_accuracy:.2f}% | ICD: {icd_accuracy:.2f}% | Provider: {provider_accuracy_str} | Surgeon: {surgeon_accuracy_str} | Overall: {overall_accuracy:.2f}%"
+        block_accuracy_str = f'{(block_matches / block_total * 100):.2f}%' if block_total > 0 else 'N/A'
+        job.message = f"Comparison completed! CPT: {cpt_accuracy:.2f}% | ICD: {icd_accuracy:.2f}% | Block: {block_accuracy_str} | Provider: {provider_accuracy_str} | Surgeon: {surgeon_accuracy_str} | Overall: {overall_accuracy:.2f}%"
         
         # Clean up input files
         if os.path.exists(predictions_path):
@@ -5573,7 +5672,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         if charge_detail_path and os.path.exists(charge_detail_path):
             os.unlink(charge_detail_path)
         
-        logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Provider {provider_accuracy_str}, Surgeon {surgeon_accuracy_str}, Overall {overall_accuracy:.2f}%")
+        logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Block {block_accuracy_str}, Provider {provider_accuracy_str}, Surgeon {surgeon_accuracy_str}, Overall {overall_accuracy:.2f}%")
+        logger.info(f"Block Checking: {block_total} accounts with additional rows, {block_matches} matches, {block_mismatches} mismatches")
         logger.info(f"ICD1 Mismatch Analysis: {icd1_mismatches_total} total mismatches, {icd1_critical_errors} critical errors ({icd1_critical_error_rate:.2f}%), {icd1_mismatch_but_found_in_other_slots} found in ICD2-4 ({icd1_mismatch_percentage_found_in_other_slots:.2f}%), Theoretical ICD accuracy: {theoretical_icd_accuracy:.2f}%")
         
     except Exception as e:
