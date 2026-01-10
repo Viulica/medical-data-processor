@@ -5702,7 +5702,19 @@
               </div>
 
               <div class="download-format-group">
+                <!-- Show ZIP download if PDFs were uploaded -->
                 <button
+                  v-if="cptPdfsZipFile"
+                  @click="downloadCptCheckErrorPdfs()"
+                  class="download-btn"
+                  style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+                >
+                  <span class="btn-icon">📦</span>
+                  Download Error PDFs ZIP
+                </button>
+                <!-- Always show Excel download for comparison report -->
+                <button
+                  v-if="!cptPdfsZipFile"
                   @click="downloadCptCheckResults('xlsx')"
                   class="download-btn"
                 >
@@ -12435,6 +12447,39 @@ export default {
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results");
+      }
+    },
+
+    async downloadCptCheckErrorPdfs() {
+      if (!this.cptCheckJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.cptCheckJobId}`
+          ),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `error_pdfs_${this.cptCheckJobId}.zip`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Error PDFs ZIP download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download error PDFs");
       }
     },
 

@@ -4258,6 +4258,14 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
             'surgeon_errors': set()
         }
         
+        # Track totals for accuracy calculation
+        total_accounts = 0
+        anesthesia_total = 0
+        cpt_total = 0
+        icd_total = 0
+        provider_total = 0
+        surgeon_total = 0
+        
         job.message = "Comparing predictions with ground truth..."
         job.progress = 50
         
@@ -4270,11 +4278,13 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
             if not source_file or account_id not in gt_dict:
                 continue
             
+            total_accounts += 1
             gt_data = gt_dict[account_id]
             
             # Check CPT
             predicted_cpt = str(row[cpt_col_pred]).strip() if cpt_col_pred and pd.notna(row[cpt_col_pred]) else ''
             gt_cpt = gt_data['cpt']
+            cpt_total += 1
             if predicted_cpt != gt_cpt:
                 error_pdfs['cpt_errors'].add(source_file)
             
@@ -4293,6 +4303,7 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
             # Check if ICD1 matches
             icd_match = True
             if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
+                icd_total += 1
                 if predicted_icd_list[0] != gt_icd_list[0]:
                     icd_match = False
             
@@ -4304,6 +4315,7 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
                 predicted_anesthesia = str(row[anesthesia_type_col_pred]).strip() if pd.notna(row[anesthesia_type_col_pred]) else ''
                 gt_anesthesia = gt_data['anesthesia_type']
                 if predicted_anesthesia and gt_anesthesia:
+                    anesthesia_total += 1
                     if predicted_anesthesia.upper() != gt_anesthesia.upper():
                         error_pdfs['anesthesia_type_errors'].add(source_file)
             
@@ -4312,6 +4324,7 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
                 predicted_provider = str(row[responsible_provider_col_pred]).strip() if pd.notna(row[responsible_provider_col_pred]) else ''
                 gt_provider = gt_data['provider']
                 if predicted_provider and gt_provider:
+                    provider_total += 1
                     normalized_predicted = normalize_provider_name(predicted_provider, is_ground_truth=False)
                     normalized_gt = normalize_provider_name(gt_provider, is_ground_truth=True)
                     if normalized_predicted != normalized_gt:
@@ -4322,6 +4335,7 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
                 predicted_surgeon = str(row[surgeon_col_pred]).strip() if pd.notna(row[surgeon_col_pred]) else ''
                 gt_surgeon = gt_data['surgeon']
                 if predicted_surgeon and gt_surgeon:
+                    surgeon_total += 1
                     normalized_predicted = normalize_provider_name(predicted_surgeon, is_ground_truth=False)
                     normalized_gt = normalize_provider_name(gt_surgeon, is_ground_truth=True)
                     if normalized_predicted != normalized_gt:
@@ -4363,13 +4377,40 @@ def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, gro
         job.status = "completed"
         job.progress = 100
         
-        # Create summary message
+        # Create summary message with totals and accuracies
         summary_parts = []
-        for error_type, pdf_files in error_pdfs.items():
-            if len(pdf_files) > 0:
-                summary_parts.append(f"{error_type.replace('_', ' ').title()}: {len(pdf_files)}")
         
-        job.message = f"Error PDFs extracted! {' | '.join(summary_parts) if summary_parts else 'No errors found'}"
+        # Anesthesia Type
+        if anesthesia_total > 0:
+            anesthesia_errors = len(error_pdfs['anesthesia_type_errors'])
+            anesthesia_accuracy = ((anesthesia_total - anesthesia_errors) / anesthesia_total * 100)
+            summary_parts.append(f"Anesthesia: {anesthesia_errors}/{anesthesia_total} errors ({anesthesia_accuracy:.1f}% accurate)")
+        
+        # CPT
+        if cpt_total > 0:
+            cpt_errors = len(error_pdfs['cpt_errors'])
+            cpt_accuracy = ((cpt_total - cpt_errors) / cpt_total * 100)
+            summary_parts.append(f"CPT: {cpt_errors}/{cpt_total} errors ({cpt_accuracy:.1f}% accurate)")
+        
+        # ICD
+        if icd_total > 0:
+            icd_errors = len(error_pdfs['icd_errors'])
+            icd_accuracy = ((icd_total - icd_errors) / icd_total * 100)
+            summary_parts.append(f"ICD: {icd_errors}/{icd_total} errors ({icd_accuracy:.1f}% accurate)")
+        
+        # Provider
+        if provider_total > 0:
+            provider_errors = len(error_pdfs['provider_errors'])
+            provider_accuracy = ((provider_total - provider_errors) / provider_total * 100)
+            summary_parts.append(f"Provider: {provider_errors}/{provider_total} errors ({provider_accuracy:.1f}% accurate)")
+        
+        # Surgeon
+        if surgeon_total > 0:
+            surgeon_errors = len(error_pdfs['surgeon_errors'])
+            surgeon_accuracy = ((surgeon_total - surgeon_errors) / surgeon_total * 100)
+            summary_parts.append(f"Surgeon: {surgeon_errors}/{surgeon_total} errors ({surgeon_accuracy:.1f}% accurate)")
+        
+        job.message = f"Error PDFs extracted! Total: {total_accounts} | {' | '.join(summary_parts) if summary_parts else 'No errors found'}"
         
         logger.info(f"CPT codes check with PDFs completed for job {job_id}")
         
