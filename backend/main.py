@@ -4032,6 +4032,355 @@ async def merge_by_csn(
         logger.error(f"Merge by CSN upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+def check_cpt_codes_with_pdfs_background(job_id: str, predictions_path: str, ground_truth_path: str, pdfs_zip_path: str, charge_detail_path: str = None):
+    """Background task to check CPT codes and extract error PDFs grouped by error type"""
+    job = job_status[job_id]
+    
+    try:
+        import zipfile
+        import tempfile
+        
+        job.status = "processing"
+        job.message = "Extracting PDFs from ZIP..."
+        job.progress = 5
+        
+        # Create temporary directory for extracted PDFs
+        pdfs_temp_dir = tempfile.mkdtemp()
+        
+        # Extract PDFs from ZIP
+        with zipfile.ZipFile(pdfs_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(pdfs_temp_dir)
+        
+        logger.info(f"Extracted PDFs to {pdfs_temp_dir}")
+        
+        # Create a mapping from source_file (PDF filename) to full path
+        pdf_mapping = {}
+        for root, dirs, files in os.walk(pdfs_temp_dir):
+            for file in files:
+                if file.lower().endswith('.pdf'):
+                    full_path = os.path.join(root, file)
+                    # Store with just the filename as key (without path)
+                    pdf_mapping[file] = full_path
+        
+        logger.info(f"Found {len(pdf_mapping)} PDFs in ZIP")
+        
+        job.message = "Running CPT/ICD comparison..."
+        job.progress = 10
+        
+        # Run the normal CPT codes check (reuse existing logic)
+        # We'll call the existing function but capture the results differently
+        
+        # Load predictions file
+        try:
+            predictions_df = pd.read_excel(predictions_path) if predictions_path.endswith(('.xlsx', '.xls')) else pd.read_csv(predictions_path, encoding='utf-8', dtype=str)
+        except UnicodeDecodeError:
+            predictions_df = pd.read_csv(predictions_path, encoding='latin-1', dtype=str)
+        
+        # Load ground truth file
+        try:
+            ground_truth_df = pd.read_excel(ground_truth_path) if ground_truth_path.endswith(('.xlsx', '.xls')) else pd.read_csv(ground_truth_path, encoding='utf-8', dtype=str)
+        except UnicodeDecodeError:
+            ground_truth_df = pd.read_csv(ground_truth_path, encoding='latin-1', dtype=str)
+        
+        # Load charge detail file if provided
+        charge_detail_df = None
+        if charge_detail_path:
+            try:
+                charge_detail_df = pd.read_excel(charge_detail_path) if charge_detail_path.endswith(('.xlsx', '.xls')) else pd.read_csv(charge_detail_path, encoding='utf-8', dtype=str)
+            except UnicodeDecodeError:
+                charge_detail_df = pd.read_csv(charge_detail_path, encoding='latin-1', dtype=str)
+        
+        job.message = "Analyzing errors and grouping PDFs..."
+        job.progress = 30
+        
+        # Find source_file column in predictions
+        source_file_col = None
+        for col in predictions_df.columns:
+            if col.lower().strip() in ['source_file', 'source file', 'sourcefile', 'pdf_file', 'pdf file', 'filename', 'file_name']:
+                source_file_col = col
+                break
+        
+        if not source_file_col:
+            raise Exception("Could not find 'source_file' column in predictions file")
+        
+        # Find AccountId column in predictions
+        account_id_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT_ID', 'ACCOUNT #', 'ACCOUNT#']:
+                account_id_col_pred = col
+                break
+        
+        if not account_id_col_pred:
+            raise Exception("Could not find AccountId column in predictions file")
+        
+        # Find AccountId column in ground truth
+        account_id_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ACCOUNT #', 'ACCOUNT#', 'ACCOUNTID', 'ACCOUNT ID', 'ACCOUNT_ID']:
+                account_id_col_gt = col
+                break
+        
+        if not account_id_col_gt:
+            raise Exception("Could not find Account # column in ground truth file")
+        
+        # Find CPT columns
+        cpt_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['CPT', 'ASA CODE', 'ASACODE', 'ASA_CODE', 'PROCEDURE CODE']:
+                cpt_col_pred = col
+                break
+        
+        cpt_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['CPT', 'ASA CODE', 'ASACODE', 'ASA_CODE']:
+                cpt_col_gt = col
+                break
+        
+        # Find ICD columns in predictions
+        icd_cols_pred = {}
+        for i in range(1, 5):
+            for col in predictions_df.columns:
+                col_upper = col.upper().strip()
+                if col_upper == f'ICD{i}' or col_upper == f'ICD {i}' or col_upper == f'ICD_{i}':
+                    icd_cols_pred[i] = col
+                    break
+        
+        # Find ICD column in ground truth (comma-separated)
+        icd_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ICD', 'ICD CODES', 'ICD_CODES', 'ICDCODES']:
+                icd_col_gt = col
+                break
+        
+        # Find Anesthesia Type columns
+        anesthesia_type_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ANESTHESIA TYPE', 'ANESTHESIATYPE', 'ANESTHESIA_TYPE']:
+                anesthesia_type_col_pred = col
+                break
+        
+        anesthesia_type_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper in ['ANESTHESIA TYPE', 'ANESTHESIATYPE', 'ANESTHESIA_TYPE']:
+                anesthesia_type_col_gt = col
+                break
+        
+        # Find Provider columns
+        responsible_provider_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'RESPONSIBLE PROVIDER':
+                responsible_provider_col_pred = col
+                break
+        
+        provider_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'PROVIDER':
+                provider_col_gt = col
+                break
+        
+        # Find Surgeon columns
+        surgeon_col_pred = None
+        for col in predictions_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'SURGEON':
+                surgeon_col_pred = col
+                break
+        
+        surgeon_col_gt = None
+        for col in ground_truth_df.columns:
+            col_upper = col.upper().strip()
+            if col_upper == 'SURGEON':
+                surgeon_col_gt = col
+                break
+        
+        # Create ground truth lookup dictionary
+        gt_dict = {}
+        for idx, row in ground_truth_df.iterrows():
+            account_id = str(row[account_id_col_gt]).strip()
+            if account_id and account_id.upper() != 'NAN':
+                gt_dict[account_id] = {
+                    'cpt': str(row[cpt_col_gt]).strip() if cpt_col_gt and pd.notna(row[cpt_col_gt]) else '',
+                    'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else '',
+                    'anesthesia_type': str(row[anesthesia_type_col_gt]).strip() if anesthesia_type_col_gt and pd.notna(row[anesthesia_type_col_gt]) else '',
+                    'provider': str(row[provider_col_gt]).strip() if provider_col_gt and pd.notna(row[provider_col_gt]) else '',
+                    'surgeon': str(row[surgeon_col_gt]).strip() if surgeon_col_gt and pd.notna(row[surgeon_col_gt]) else ''
+                }
+        
+        # Helper function to normalize provider names
+        def normalize_provider_name(provider_string, is_ground_truth=False):
+            if pd.isna(provider_string) or not str(provider_string).strip():
+                return ''
+            
+            provider_str = str(provider_string).strip()
+            
+            if ',' in provider_str:
+                parts = [p.strip() for p in provider_str.split(',')]
+                if len(parts) >= 1:
+                    last_name = parts[0].strip()
+                    if len(parts) >= 2:
+                        first_middle = parts[1].strip()
+                        name_parts = first_middle.split()
+                        titles = {'MD', 'DO', 'DDS', 'DMD', 'RN', 'NP', 'PA', 'CRNA', 'M.D.', 'D.O.', 'MD.', 'DO.'}
+                        name_parts = [p for p in name_parts if p.upper().rstrip('.') not in [t.rstrip('.') for t in titles]]
+                        if len(name_parts) >= 1:
+                            first_name = name_parts[0]
+                            normalized = f"{last_name} {first_name}".strip()
+                            return normalized.upper()
+                        else:
+                            return last_name.upper()
+                    else:
+                        return last_name.upper()
+                else:
+                    return ''
+            else:
+                parts = provider_str.split()
+                if len(parts) >= 2:
+                    return f"{parts[0]} {parts[1]}".upper()
+                elif len(parts) == 1:
+                    return parts[0].upper()
+                else:
+                    return ''
+        
+        # Dictionaries to store error PDFs by error type
+        error_pdfs = {
+            'anesthesia_type_errors': set(),
+            'cpt_errors': set(),
+            'icd_errors': set(),
+            'provider_errors': set(),
+            'surgeon_errors': set()
+        }
+        
+        job.message = "Comparing predictions with ground truth..."
+        job.progress = 50
+        
+        # Process each prediction
+        for idx, row in predictions_df.iterrows():
+            account_id = str(row[account_id_col_pred]).strip()
+            source_file = str(row[source_file_col]).strip() if pd.notna(row[source_file_col]) else ''
+            
+            # Skip if no source file or account not in ground truth
+            if not source_file or account_id not in gt_dict:
+                continue
+            
+            gt_data = gt_dict[account_id]
+            
+            # Check CPT
+            predicted_cpt = str(row[cpt_col_pred]).strip() if cpt_col_pred and pd.notna(row[cpt_col_pred]) else ''
+            gt_cpt = gt_data['cpt']
+            if predicted_cpt != gt_cpt:
+                error_pdfs['cpt_errors'].add(source_file)
+            
+            # Check ICD
+            predicted_icd_list = []
+            for i in range(1, 5):
+                if i in icd_cols_pred:
+                    icd_val = str(row[icd_cols_pred[i]]).strip() if pd.notna(row[icd_cols_pred[i]]) else ''
+                    if icd_val and icd_val.upper() != 'NAN':
+                        predicted_icd_list.append(icd_val)
+            
+            gt_icd_list = []
+            if gt_data['icd']:
+                gt_icd_list = [code.strip() for code in gt_data['icd'].split(',') if code.strip()]
+            
+            # Check if ICD1 matches
+            icd_match = True
+            if len(predicted_icd_list) > 0 and len(gt_icd_list) > 0:
+                if predicted_icd_list[0] != gt_icd_list[0]:
+                    icd_match = False
+            
+            if not icd_match:
+                error_pdfs['icd_errors'].add(source_file)
+            
+            # Check Anesthesia Type
+            if anesthesia_type_col_pred and anesthesia_type_col_gt:
+                predicted_anesthesia = str(row[anesthesia_type_col_pred]).strip() if pd.notna(row[anesthesia_type_col_pred]) else ''
+                gt_anesthesia = gt_data['anesthesia_type']
+                if predicted_anesthesia and gt_anesthesia:
+                    if predicted_anesthesia.upper() != gt_anesthesia.upper():
+                        error_pdfs['anesthesia_type_errors'].add(source_file)
+            
+            # Check Provider
+            if responsible_provider_col_pred and provider_col_gt:
+                predicted_provider = str(row[responsible_provider_col_pred]).strip() if pd.notna(row[responsible_provider_col_pred]) else ''
+                gt_provider = gt_data['provider']
+                if predicted_provider and gt_provider:
+                    normalized_predicted = normalize_provider_name(predicted_provider, is_ground_truth=False)
+                    normalized_gt = normalize_provider_name(gt_provider, is_ground_truth=True)
+                    if normalized_predicted != normalized_gt:
+                        error_pdfs['provider_errors'].add(source_file)
+            
+            # Check Surgeon
+            if surgeon_col_pred and surgeon_col_gt:
+                predicted_surgeon = str(row[surgeon_col_pred]).strip() if pd.notna(row[surgeon_col_pred]) else ''
+                gt_surgeon = gt_data['surgeon']
+                if predicted_surgeon and gt_surgeon:
+                    normalized_predicted = normalize_provider_name(predicted_surgeon, is_ground_truth=False)
+                    normalized_gt = normalize_provider_name(gt_surgeon, is_ground_truth=True)
+                    if normalized_predicted != normalized_gt:
+                        error_pdfs['surgeon_errors'].add(source_file)
+        
+        job.message = "Creating error PDFs ZIP..."
+        job.progress = 70
+        
+        # Create output ZIP with error PDFs grouped by error type
+        output_zip_path = f"/tmp/results/{job_id}_error_pdfs.zip"
+        os.makedirs("/tmp/results", exist_ok=True)
+        
+        with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as output_zip:
+            for error_type, pdf_files in error_pdfs.items():
+                logger.info(f"Found {len(pdf_files)} PDFs with {error_type}")
+                for pdf_file in pdf_files:
+                    if pdf_file in pdf_mapping:
+                        source_pdf_path = pdf_mapping[pdf_file]
+                        # Add to ZIP in appropriate folder
+                        arcname = f"{error_type}/{pdf_file}"
+                        output_zip.write(source_pdf_path, arcname)
+                        logger.info(f"Added {pdf_file} to {error_type} folder")
+        
+        job.message = "Cleaning up..."
+        job.progress = 90
+        
+        # Clean up temporary files
+        shutil.rmtree(pdfs_temp_dir, ignore_errors=True)
+        if os.path.exists(predictions_path):
+            os.unlink(predictions_path)
+        if os.path.exists(ground_truth_path):
+            os.unlink(ground_truth_path)
+        if os.path.exists(pdfs_zip_path):
+            os.unlink(pdfs_zip_path)
+        if charge_detail_path and os.path.exists(charge_detail_path):
+            os.unlink(charge_detail_path)
+        
+        job.result_file = output_zip_path
+        job.status = "completed"
+        job.progress = 100
+        
+        # Create summary message
+        summary_parts = []
+        for error_type, pdf_files in error_pdfs.items():
+            if len(pdf_files) > 0:
+                summary_parts.append(f"{error_type.replace('_', ' ').title()}: {len(pdf_files)}")
+        
+        job.message = f"Error PDFs extracted! {' | '.join(summary_parts) if summary_parts else 'No errors found'}"
+        
+        logger.info(f"CPT codes check with PDFs completed for job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"CPT codes check with PDFs background error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        job.status = "failed"
+        job.error = str(e)
+
 def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_path: str, charge_detail_path: str = None):
     """Background task to compare predictions vs ground truth and calculate accuracy
     
@@ -4269,22 +4618,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 surgeon_col_gt = col
                 break
         
-        # Find Location column in predictions (if exists)
-        location_col_pred = None
-        for col in predictions_df.columns:
-            col_upper = col.upper().strip()
-            if col_upper == 'LOCATION':
-                location_col_pred = col
-                break
-        
-        # Find Location column in ground truth (if exists)
-        location_col_gt = None
-        for col in ground_truth_df.columns:
-            col_upper = col.upper().strip()
-            if col_upper == 'LOCATION':
-                location_col_gt = col
-                break
-        
         # Find An Start and An Stop columns in predictions (if exists)
         an_start_col_pred = None
         an_stop_col_pred = None
@@ -4455,8 +4788,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else '',
                     'anesthesia_type': str(row[anesthesia_type_col_gt]).strip() if anesthesia_type_col_gt and pd.notna(row[anesthesia_type_col_gt]) else '',
                     'provider': str(row[provider_col_gt]).strip() if provider_col_gt and pd.notna(row[provider_col_gt]) else '',
-                    'surgeon': str(row[surgeon_col_gt]).strip() if surgeon_col_gt and pd.notna(row[surgeon_col_gt]) else '',
-                    'location': str(row[location_col_gt]).strip() if location_col_gt and pd.notna(row[location_col_gt]) else ''
+                    'surgeon': str(row[surgeon_col_gt]).strip() if surgeon_col_gt and pd.notna(row[surgeon_col_gt]) else ''
                 }
                 gt_row_dict[account_id] = row.to_dict()  # Store full row for detailed report
         
@@ -4500,8 +4832,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         provider_mismatches = 0
         surgeon_matches = 0
         surgeon_mismatches = 0
-        location_matches = 0
-        location_mismatches = 0
         start_time_matches = 0
         start_time_mismatches = 0
         stop_time_matches = 0
@@ -4533,11 +4863,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
             predicted_surgeon = ''
             if surgeon_col_pred:
                 predicted_surgeon = str(row[surgeon_col_pred]).strip() if pd.notna(row[surgeon_col_pred]) else ''
-            
-            # Get predicted Location
-            predicted_location = ''
-            if location_col_pred:
-                predicted_location = str(row[location_col_pred]).strip() if pd.notna(row[location_col_pred]) else ''
             
             # Get predicted An Start and An Stop times (store raw and parsed)
             predicted_start_time_raw = ''
@@ -4583,9 +4908,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Predicted Surgeon': predicted_surgeon,
                 'Ground Truth Surgeon': '',
                 'Surgeon Match': '',
-                'Predicted Location': predicted_location,
-                'Ground Truth Location': '',
-                'Location Match': '',
                 'Predicted An Start': predicted_start_time_raw if an_start_col_pred and pd.notna(row[an_start_col_pred]) else '',
                 'Predicted An Stop': predicted_stop_time_raw if an_stop_col_pred and pd.notna(row[an_stop_col_pred]) else '',
                 'Ground Truth Start Time': '',
@@ -4626,9 +4948,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Predicted Surgeon': predicted_surgeon,
                 'Ground Truth Surgeon': '',
                 'Surgeon Match': '',
-                'Predicted Location': predicted_location,
-                'Ground Truth Location': '',
-                'Location Match': '',
                 'Result': '',
                 'Notes': '',
             }
@@ -4642,8 +4961,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 excluded_cols.add(responsible_provider_col_pred)
             if surgeon_col_pred:
                 excluded_cols.add(surgeon_col_pred)
-            if location_col_pred:
-                excluded_cols.add(location_col_pred)
             
             for col in predictions_df.columns:
                 if col not in excluded_cols:
@@ -4781,26 +5098,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                         surgeon_match = False
                         surgeon_mismatches += 1
                 
-                # Compare Location (if present in both)
-                location_match = None
-                if location_col_pred and location_col_gt:
-                    gt_location = str(gt_row[location_col_gt]).strip() if pd.notna(gt_row[location_col_gt]) else ''
-                    if predicted_location and gt_location:
-                        # Simple string matching (case-insensitive)
-                        location_match = predicted_location.upper() == gt_location.upper()
-                        if location_match:
-                            location_matches += 1
-                        else:
-                            location_mismatches += 1
-                    elif not predicted_location and not gt_location:
-                        # Both empty - consider as match
-                        location_match = True
-                        location_matches += 1
-                    else:
-                        # One is empty, one is not - mismatch
-                        location_match = False
-                        location_mismatches += 1
-                
                 # Compare Start Time and Stop Time (if charge detail report is provided)
                 start_time_match = None
                 stop_time_match = None
@@ -4886,12 +5183,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     else:
                         status_parts.append('❌ SURGEON')
                 
-                if location_match is not None:
-                    if location_match:
-                        status_parts.append('✅ LOCATION')
-                    else:
-                        status_parts.append('❌ LOCATION')
-                
                 if start_time_match is not None:
                     if start_time_match:
                         status_parts.append('✅ START TIME')
@@ -4930,9 +5221,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                         notes_parts.append(f'Provider: predicted {predicted_provider} vs ground truth {gt_data["provider"]}')
                     if surgeon_match is False:
                         notes_parts.append(f'Surgeon: predicted {predicted_surgeon} vs ground truth {gt_data["surgeon"]}')
-                    if location_match is False:
-                        gt_location = str(gt_row[location_col_gt]).strip() if location_col_gt and pd.notna(gt_row[location_col_gt]) else ''
-                        notes_parts.append(f'Location: predicted {predicted_location} vs ground truth {gt_location}')
                     if start_time_match is False:
                         notes_parts.append(f'Start Time: predicted {predicted_start_time or "N/A"} vs ground truth {gt_start_time or "N/A"}')
                     if stop_time_match is False:
@@ -4984,13 +5272,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     case_overview['Ground Truth Surgeon'] = gt_data['surgeon']
                     case_overview['Surgeon Match'] = '✅' if surgeon_match else '❌'
                 
-                if location_col_pred and location_col_gt:
-                    gt_location = str(gt_row[location_col_gt]).strip() if pd.notna(gt_row[location_col_gt]) else ''
-                    detailed_entry['Ground Truth Location'] = gt_location
-                    detailed_entry['Location Match'] = 'Yes' if location_match else 'No'
-                    case_overview['Ground Truth Location'] = gt_location
-                    case_overview['Location Match'] = '✅' if location_match else '❌'
-                
                 detailed_entry['Notes'] = notes
                 case_overview['Notes'] = notes
                 
@@ -5035,9 +5316,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'Predicted Surgeon': predicted_surgeon,
                     'Ground Truth Surgeon': gt_data['surgeon'] if surgeon_col_gt else '',
                     'Surgeon Match': 'Yes' if surgeon_match else ('N/A' if surgeon_match is None else 'No'),
-                    'Predicted Location': predicted_location,
-                    'Ground Truth Location': str(gt_row[location_col_gt]).strip() if location_col_gt and pd.notna(gt_row[location_col_gt]) else '',
-                    'Location Match': 'Yes' if location_match else ('N/A' if location_match is None else 'No'),
                     'Predicted An Start': predicted_start_time_raw if an_start_col_pred and pd.notna(row[an_start_col_pred]) else '',
                     'Predicted An Stop': predicted_stop_time_raw if an_stop_col_pred and pd.notna(row[an_stop_col_pred]) else '',
                     'Ground Truth Start Time': charge_detail_dict[account_id]['start_time'] if charge_detail_dict and account_id in charge_detail_dict else '',
@@ -5079,8 +5357,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     excluded_gt_cols.add(provider_col_gt)
                 if surgeon_col_gt:
                     excluded_gt_cols.add(surgeon_col_gt)
-                if location_col_gt:
-                    excluded_gt_cols.add(location_col_gt)
                 
                 for col in ground_truth_df.columns:
                     if col not in excluded_gt_cols:
@@ -5114,9 +5390,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                     'Predicted Surgeon': predicted_surgeon,
                     'Ground Truth Surgeon': 'NOT FOUND',
                     'Surgeon Match': 'No',
-                    'Predicted Location': predicted_location,
-                    'Ground Truth Location': 'NOT FOUND',
-                    'Location Match': 'No',
                     'Predicted An Start': predicted_start_time_raw if an_start_col_pred and pd.notna(row[an_start_col_pred]) else '',
                     'Predicted An Stop': predicted_stop_time_raw if an_stop_col_pred and pd.notna(row[an_stop_col_pred]) else '',
                     'Ground Truth Start Time': 'NOT FOUND',
@@ -5184,9 +5457,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 'Surgeon Matches',
                 'Surgeon Mismatches',
                 'Surgeon Accuracy (%)',
-                'Location Matches',
-                'Location Mismatches',
-                'Location Accuracy (%)',
                 'Start Time Matches',
                 'Start Time Mismatches',
                 'Start Time Accuracy (%)',
@@ -5221,9 +5491,6 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
                 surgeon_matches,
                 surgeon_mismatches,
                 f'{(surgeon_matches / (surgeon_matches + surgeon_mismatches) * 100):.2f}%' if (surgeon_matches + surgeon_mismatches) > 0 else 'N/A',
-                location_matches,
-                location_mismatches,
-                f'{(location_matches / (location_matches + location_mismatches) * 100):.2f}%' if (location_matches + location_mismatches) > 0 else 'N/A',
                 start_time_matches,
                 start_time_mismatches,
                 f'{(start_time_matches / (start_time_matches + start_time_mismatches) * 100):.2f}%' if (start_time_matches + start_time_mismatches) > 0 else 'N/A',
@@ -5295,8 +5562,8 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         job.status = "completed"
         job.progress = 100
         provider_accuracy_str = f'{(provider_matches / (provider_matches + provider_mismatches) * 100):.2f}%' if (provider_matches + provider_mismatches) > 0 else 'N/A'
-        location_accuracy_str = f'{(location_matches / (location_matches + location_mismatches) * 100):.2f}%' if (location_matches + location_mismatches) > 0 else 'N/A'
-        job.message = f"Comparison completed! CPT: {cpt_accuracy:.2f}% | ICD: {icd_accuracy:.2f}% | Provider: {provider_accuracy_str} | Location: {location_accuracy_str} | Overall: {overall_accuracy:.2f}%"
+        surgeon_accuracy_str = f'{(surgeon_matches / (surgeon_matches + surgeon_mismatches) * 100):.2f}%' if (surgeon_matches + surgeon_mismatches) > 0 else 'N/A'
+        job.message = f"Comparison completed! CPT: {cpt_accuracy:.2f}% | ICD: {icd_accuracy:.2f}% | Provider: {provider_accuracy_str} | Surgeon: {surgeon_accuracy_str} | Overall: {overall_accuracy:.2f}%"
         
         # Clean up input files
         if os.path.exists(predictions_path):
@@ -5306,7 +5573,7 @@ def check_cpt_codes_background(job_id: str, predictions_path: str, ground_truth_
         if charge_detail_path and os.path.exists(charge_detail_path):
             os.unlink(charge_detail_path)
         
-        logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Provider {provider_accuracy_str}, Location {location_accuracy_str}, Overall {overall_accuracy:.2f}%")
+        logger.info(f"CPT+ICD codes check completed for job {job_id}: CPT {cpt_accuracy:.2f}%, ICD {icd_accuracy:.2f}%, Provider {provider_accuracy_str}, Surgeon {surgeon_accuracy_str}, Overall {overall_accuracy:.2f}%")
         logger.info(f"ICD1 Mismatch Analysis: {icd1_mismatches_total} total mismatches, {icd1_critical_errors} critical errors ({icd1_critical_error_rate:.2f}%), {icd1_mismatch_but_found_in_other_slots} found in ICD2-4 ({icd1_mismatch_percentage_found_in_other_slots:.2f}%), Theoretical ICD accuracy: {theoretical_icd_accuracy:.2f}%")
         
     except Exception as e:
@@ -5378,6 +5645,78 @@ async def check_cpt_codes(
         
     except Exception as e:
         logger.error(f"CPT codes check upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/check-cpt-codes-with-pdfs")
+async def check_cpt_codes_with_pdfs_route(
+    background_tasks: BackgroundTasks,
+    predictions_file: UploadFile = File(...),
+    ground_truth_file: UploadFile = File(...),
+    pdfs_zip: UploadFile = File(...),
+    charge_detail_file: UploadFile = File(None)
+):
+    """Check CPT codes and return error PDFs grouped by error type
+    
+    Args:
+        predictions_file: Predictions file (Demo Detail Report) - required
+        ground_truth_file: Ground truth file (Demo Detail Report) - required
+        pdfs_zip: ZIP file containing all PDFs - required
+        charge_detail_file: Charge Detail Report with Start Time and Stop Time - optional
+    
+    Returns:
+        A ZIP file containing error PDFs grouped by error type in separate folders
+    """
+    
+    try:
+        logger.info(f"Received CPT codes check with PDFs request - predictions: {predictions_file.filename}, ground_truth: {ground_truth_file.filename}, pdfs_zip: {pdfs_zip.filename}")
+        
+        # Validate file types
+        if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Predictions file must be a CSV or XLSX")
+        if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Ground truth file must be a CSV or XLSX")
+        if not pdfs_zip.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="PDFs file must be a ZIP")
+        if charge_detail_file and not charge_detail_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Charge detail file must be a CSV or XLSX")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created CPT codes check with PDFs job {job_id}")
+        
+        # Save uploaded files
+        predictions_path = f"/tmp/{job_id}_predictions{Path(predictions_file.filename).suffix}"
+        ground_truth_path = f"/tmp/{job_id}_ground_truth{Path(ground_truth_file.filename).suffix}"
+        pdfs_zip_path = f"/tmp/{job_id}_pdfs.zip"
+        
+        with open(predictions_path, "wb") as f:
+            shutil.copyfileobj(predictions_file.file, f)
+        with open(ground_truth_path, "wb") as f:
+            shutil.copyfileobj(ground_truth_file.file, f)
+        with open(pdfs_zip_path, "wb") as f:
+            shutil.copyfileobj(pdfs_zip.file, f)
+        
+        charge_detail_path = None
+        if charge_detail_file:
+            charge_detail_path = f"/tmp/{job_id}_charge_detail{Path(charge_detail_file.filename).suffix}"
+            with open(charge_detail_path, "wb") as f:
+                shutil.copyfileobj(charge_detail_file.file, f)
+            logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}, pdfs_zip: {pdfs_zip_path}, charge_detail: {charge_detail_path}")
+        else:
+            logger.info(f"Files saved - predictions: {predictions_path}, ground_truth: {ground_truth_path}, pdfs_zip: {pdfs_zip_path}")
+        
+        # Start background processing
+        background_tasks.add_task(check_cpt_codes_with_pdfs_background, job_id, predictions_path, ground_truth_path, pdfs_zip_path, charge_detail_path)
+        
+        logger.info(f"Background CPT codes check with PDFs task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Files uploaded and CPT codes comparison with PDF extraction started"}
+        
+    except Exception as e:
+        logger.error(f"CPT codes check with PDFs upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/generate-modifiers")

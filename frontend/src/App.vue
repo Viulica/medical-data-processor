@@ -5391,9 +5391,9 @@
               codes, ICD codes, and other fields. 
               <strong>Demo Detail Report</strong> (required): Predictions file should
               have columns: AccountId, Cpt (or ASA Code), ICD1, ICD2, ICD3, ICD4
-              (and optionally Anesthesia Type, Responsible Provider, Location, An Start, An Stop). 
+              (and optionally Anesthesia Type, Responsible Provider, Surgeon, An Start, An Stop). 
               Ground truth file should have columns: Account # (or AccountId/Account ID), Cpt, Icd
-              (comma-separated), and optionally Anesthesia Type, Provider, Location.
+              (comma-separated), and optionally Anesthesia Type, Provider, Surgeon.
               <br/><br/>
               <strong>Charge Detail Report</strong> (optional): Upload this report to compare 
               Start Time and Stop Time. Should have columns: Account # (or AccountId), Start Time, Stop Time.
@@ -5537,10 +5537,56 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- PDFs ZIP Upload (Optional) -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">4</div>
+                <h3>PDFs ZIP (Optional)</h3>
+                <span class="optional-badge">Optional</span>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isCptPdfsZipDragActive,
+                  'has-file': cptPdfsZipFile,
+                }"
+                @drop="onCptPdfsZipDrop"
+                @dragover.prevent
+                @dragenter.prevent="isCptPdfsZipDragActive = true"
+                @dragleave.prevent="isCptPdfsZipDragActive = false"
+                @click="triggerCptPdfsZipUpload"
+              >
+                <input
+                  ref="cptPdfsZipInput"
+                  type="file"
+                  accept=".zip"
+                  @change="onCptPdfsZipFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📦</div>
+                  <div v-if="cptPdfsZipFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ cptPdfsZipFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(cptPdfsZipFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop ZIP file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>ZIP file containing all PDFs</strong></p>
+                <p class="optional-note">Upload this to get error PDFs grouped by error type (CPT errors, ICD errors, Provider errors, etc.)</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">5</div>
                 <h3>How it works</h3>
               </div>
               <div class="settings-content">
@@ -8883,7 +8929,9 @@ export default {
       cptPredictionsFile: null,
       cptGroundTruthFile: null,
       cptChargeDetailFile: null,
+      cptPdfsZipFile: null,
       isCptChargeDetailDragActive: false,
+      isCptPdfsZipDragActive: false,
       cptCheckJobId: null,
       cptCheckJobStatus: null,
       isCheckingCptCodes: false,
@@ -12245,6 +12293,32 @@ export default {
       }
     },
 
+    onCptPdfsZipDrop(e) {
+      e.preventDefault();
+      this.isCptPdfsZipDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith('.zip')) {
+        this.cptPdfsZipFile = files[0];
+        this.toast.success("PDFs ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid ZIP file");
+      }
+    },
+
+    triggerCptPdfsZipUpload() {
+      this.$refs.cptPdfsZipInput.click();
+    },
+
+    onCptPdfsZipFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && file.name.endsWith('.zip')) {
+        this.cptPdfsZipFile = file;
+        this.toast.success("PDFs ZIP file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid ZIP file");
+      }
+    },
+
     async startCptCodesCheck() {
       if (!this.canCheckCptCodes) {
         this.toast.error("Please upload both files");
@@ -12261,8 +12335,18 @@ export default {
         formData.append("charge_detail_file", this.cptChargeDetailFile);
       }
 
-      const uploadUrl = joinUrl(API_BASE_URL, "check-cpt-codes");
-      console.log("🔧 CPT Check Upload URL:", uploadUrl);
+      // Determine which endpoint to use based on whether PDFs ZIP is provided
+      let uploadUrl;
+      if (this.cptPdfsZipFile) {
+        // Use the new endpoint that returns error PDFs
+        formData.append("pdfs_zip", this.cptPdfsZipFile);
+        uploadUrl = joinUrl(API_BASE_URL, "check-cpt-codes-with-pdfs");
+        console.log("🔧 CPT Check with PDFs Upload URL:", uploadUrl);
+      } else {
+        // Use the regular endpoint
+        uploadUrl = joinUrl(API_BASE_URL, "check-cpt-codes");
+        console.log("🔧 CPT Check Upload URL:", uploadUrl);
+      }
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -12358,12 +12442,14 @@ export default {
       this.cptPredictionsFile = null;
       this.cptGroundTruthFile = null;
       this.cptChargeDetailFile = null;
+      this.cptPdfsZipFile = null;
       this.cptCheckJobId = null;
       this.cptCheckJobStatus = null;
       this.isCheckingCptCodes = false;
       this.isCptPredictionsDragActive = false;
       this.isCptGroundTruthDragActive = false;
       this.isCptChargeDetailDragActive = false;
+      this.isCptPdfsZipDragActive = false;
     },
 
     // Provider Mapping methods
