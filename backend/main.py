@@ -6895,6 +6895,196 @@ Example (End Time Found)
         raise HTTPException(status_code=500, detail=f"Failed to add charge fields: {str(e)}")
 
 
+@app.post("/api/templates/{template_id}/add-peripheral-blocks-field")
+async def add_peripheral_blocks_field_to_template(template_id: int):
+    """
+    Add peripheral_blocks field to an existing template.
+    Reads instructions from peripheral_blocks.txt file in the backend directory.
+    If a field with name 'peripheral_blocks' already exists, it will be overridden.
+    """
+    try:
+        from db_utils import get_template, update_template as update_template_in_db
+        from pathlib import Path
+        
+        # Check if template exists
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Read peripheral_blocks.txt file
+        backend_dir = Path(__file__).parent
+        peripheral_blocks_file = backend_dir / "peripheral_blocks.txt"
+        
+        if not peripheral_blocks_file.exists():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"peripheral_blocks.txt not found at {peripheral_blocks_file}. Please create this file with the field description."
+            )
+        
+        # Read the file content
+        try:
+            with open(peripheral_blocks_file, 'r', encoding='utf-8') as f:
+                peripheral_blocks_description = f.read().strip()
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to read peripheral_blocks.txt: {str(e)}"
+            )
+        
+        if not peripheral_blocks_description:
+            raise HTTPException(
+                status_code=400,
+                detail="peripheral_blocks.txt is empty. Please add the field description."
+            )
+        
+        # Define the peripheral_blocks field
+        peripheral_blocks_field = {
+            'name': 'peripheral_blocks',
+            'description': peripheral_blocks_description,
+            'location': 'N/A - See description',
+            'output_format': 'See description'
+        }
+        
+        # Get existing fields from template
+        existing_fields = existing_template['template_data'].get('fields', [])
+        
+        # Check if peripheral_blocks field already exists
+        field_exists = any(
+            field.get('name') == 'peripheral_blocks' 
+            for field in existing_fields
+        )
+        
+        # Remove existing peripheral_blocks field if it exists (override)
+        filtered_existing_fields = [
+            field for field in existing_fields 
+            if field.get('name') != 'peripheral_blocks'
+        ]
+        
+        # Add the peripheral_blocks field
+        updated_fields = filtered_existing_fields + [peripheral_blocks_field]
+        
+        # Update template with new field
+        template_data = {'fields': updated_fields}
+        success = update_template_in_db(
+            template_id=template_id,
+            template_data=template_data
+        )
+        
+        if success:
+            updated_template = get_template(template_id=template_id)
+            
+            if field_exists:
+                message = "Successfully updated peripheral_blocks field in template (overridden existing field)"
+            else:
+                message = "Successfully added peripheral_blocks field to template"
+            
+            return {
+                "message": message,
+                "template": updated_template,
+                "field_overridden": field_exists
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template with peripheral_blocks field")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add peripheral_blocks field to template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add peripheral_blocks field: {str(e)}")
+
+
+@app.post("/api/templates/{template_id}/add-colonoscopy-fields")
+async def add_colonoscopy_fields_to_template(template_id: int):
+    """
+    Add colonoscopy-related fields to an existing template.
+    Adds/overrides three fields: is_colonoscopy, colonoscopy_is_screening, and Polyps found.
+    """
+    try:
+        from db_utils import get_template, update_template as update_template_in_db
+        
+        # Check if template exists
+        existing_template = get_template(template_id=template_id)
+        if not existing_template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        # Define the colonoscopy fields
+        colonoscopy_fields = [
+            {
+                "name": "is_colonoscopy",
+                "location": "",
+                "priority": False,
+                "description": "in this field please indicate if the procedure was a colonoscopy (TRUE) or anything else (FALSE)",
+                "output_format": ""
+            },
+            {
+                "name": "colonoscopy_is_screening",
+                "location": "",
+                "priority": False,
+                "description": "here indicate if the colonoscopy description includes the word screening, it it was a screening colonoscopy put here TRUE otherwise put FALSE (if it was just standard diagnosit colonoscopy OR it was any other procedure), maybe it doesnt say in the pdf it was screening explicitly but if it says it is the patients first time also then indicate screening with TRUE, SOMETIMES they mention that it was screening in lower pages of the pdf also... check thouroughly",
+                "output_format": ""
+            },
+            {
+                "name": "Polyps found",
+                "location": "",
+                "priority": False,
+                "description": "IF the procedure was *colonoscopy* AND somewhere in the pdf they indicated that they FOUND polyps, then put \"FOUND\" here, otherwise leave this field EMPTY just \"\"",
+                "output_format": ""
+            }
+        ]
+        
+        # Get existing fields from template
+        existing_fields = existing_template['template_data'].get('fields', [])
+        
+        # Get list of colonoscopy field names to check for duplicates
+        colonoscopy_field_names = {field['name'] for field in colonoscopy_fields}
+        
+        # Find existing fields that will be overridden
+        existing_field_names = {field.get('name') for field in existing_fields if field.get('name')}
+        overridden_fields = existing_field_names & colonoscopy_field_names
+        
+        # Remove existing fields that have the same name as colonoscopy fields (override them)
+        filtered_existing_fields = [
+            field for field in existing_fields 
+            if field.get('name') not in colonoscopy_field_names
+        ]
+        
+        # Add colonoscopy fields to filtered existing fields (this will override any duplicates)
+        updated_fields = filtered_existing_fields + colonoscopy_fields
+        
+        # Update template with new fields
+        template_data = {'fields': updated_fields}
+        success = update_template_in_db(
+            template_id=template_id,
+            template_data=template_data
+        )
+        
+        if success:
+            updated_template = get_template(template_id=template_id)
+            override_count = len(overridden_fields)
+            new_count = len(colonoscopy_fields) - override_count
+            
+            if override_count > 0:
+                message = f"Successfully processed {len(colonoscopy_fields)} colonoscopy fields: {new_count} added, {override_count} overridden"
+            else:
+                message = f"Successfully added {len(colonoscopy_fields)} colonoscopy fields to template"
+            
+            return {
+                "message": message,
+                "template": updated_template,
+                "fields_added": len(colonoscopy_fields),
+                "fields_overridden": override_count,
+                "fields_new": new_count
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update template with colonoscopy fields")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add colonoscopy fields to template {template_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add colonoscopy fields: {str(e)}")
+
+
 @app.post("/api/templates/{template_id}/export")
 async def export_template_as_excel(template_id: int):
     """Export a template back to Excel format for download"""

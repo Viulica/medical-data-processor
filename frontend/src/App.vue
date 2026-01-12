@@ -157,6 +157,8 @@
                   'insurance-config',
                   'templates',
                   'add-charge-fields',
+                  'add-peripheral-blocks-field',
+                  'add-colonoscopy-fields',
                   'prediction-instructions',
                   'special-cases-templates',
                 ].includes(activeTab),
@@ -194,6 +196,18 @@
                 class="dropdown-item"
               >
                 ⚡ Add Charge Fields
+              </button>
+              <button
+                @click="selectTabAndLoad('add-peripheral-blocks-field', 'loadTemplatesForPeripheralBlocks')"
+                class="dropdown-item"
+              >
+                🔌 Add Peripheral Blocks Field
+              </button>
+              <button
+                @click="selectTabAndLoad('add-colonoscopy-fields', 'loadTemplatesForColonoscopyFields')"
+                class="dropdown-item"
+              >
+                🔍 Add Colonoscopy Fields
               </button>
               <button
                 @click="
@@ -8390,6 +8404,165 @@
           </div>
         </div>
 
+        <!-- Add Peripheral Blocks Field Tab -->
+        <div v-if="activeTab === 'add-peripheral-blocks-field'" class="upload-section">
+          <div class="section-header">
+            <h2>🔌 Add Peripheral Blocks Field to Template</h2>
+            <p>
+              Add the peripheral_blocks field to an existing template. 
+              The field description is read from <code>backend/peripheral_blocks.txt</code>.
+              If a field with this name already exists, it will be overridden.
+            </p>
+          </div>
+
+          <div class="charge-fields-form">
+            <div class="form-group">
+              <label>Select Template *</label>
+              <select
+                v-model="peripheralBlocksTemplateId"
+                class="form-select"
+                @change="onPeripheralBlocksTemplateChange"
+              >
+                <option :value="null" disabled>Choose a template...</option>
+                <option
+                  v-for="template in allTemplatesForPeripheralBlocks"
+                  :key="template.id"
+                  :value="template.id"
+                >
+                  {{ template.name }}
+                </option>
+              </select>
+              <p v-if="peripheralBlocksTemplateId" class="field-hint">
+                Selected: {{ getSelectedPeripheralBlocksTemplateName() }}
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Field Description Source</label>
+              <p class="field-hint">
+                The field description will be read from: <code>backend/peripheral_blocks.txt</code>
+              </p>
+              <p class="field-hint" style="margin-top: 10px;">
+                <strong>Note:</strong> Make sure the file exists and contains the field description text.
+                If a field named "peripheral_blocks" already exists in the template, it will be overridden.
+              </p>
+            </div>
+
+            <div class="form-actions">
+              <button
+                @click="addPeripheralBlocksFieldToTemplate"
+                class="btn-primary btn-large"
+                :disabled="!peripheralBlocksTemplateId || isAddingPeripheralBlocksField"
+              >
+                <span v-if="isAddingPeripheralBlocksField">Adding Field...</span>
+                <span v-else>🔌 Add Peripheral Blocks Field</span>
+              </button>
+            </div>
+
+            <div v-if="peripheralBlocksResult" class="result-section">
+              <div class="success-message">
+                <h3>✅ Success!</h3>
+                <p>{{ peripheralBlocksResult.message }}</p>
+                <p v-if="peripheralBlocksResult.field_overridden" class="override-info">
+                  ℹ️ The existing peripheral_blocks field was overridden with the new description.
+                </p>
+                <button
+                  @click="viewTemplateAfterPeripheralBlocks"
+                  class="btn-secondary"
+                  style="margin-top: 10px"
+                >
+                  View Updated Template
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Colonoscopy Fields Tab -->
+        <div v-if="activeTab === 'add-colonoscopy-fields'" class="upload-section">
+          <div class="section-header">
+            <h2>🔍 Add Colonoscopy Fields to Template</h2>
+            <p>
+              Add colonoscopy-related fields to an existing template. 
+              This will add or override three fields: <code>is_colonoscopy</code>, 
+              <code>colonoscopy_is_screening</code>, and <code>Polyps found</code>.
+              If any of these fields already exist, they will be overridden.
+            </p>
+          </div>
+
+          <div class="charge-fields-form">
+            <div class="form-group">
+              <label>Select Template *</label>
+              <select
+                v-model="colonoscopyFieldsTemplateId"
+                class="form-select"
+                @change="onColonoscopyFieldsTemplateChange"
+              >
+                <option :value="null" disabled>Choose a template...</option>
+                <option
+                  v-for="template in allTemplatesForColonoscopyFields"
+                  :key="template.id"
+                  :value="template.id"
+                >
+                  {{ template.name }}
+                </option>
+              </select>
+              <p v-if="colonoscopyFieldsTemplateId" class="field-hint">
+                Selected: {{ getSelectedColonoscopyFieldsTemplateName() }}
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Fields to be Added</label>
+              <div class="field-list">
+                <div class="field-item">
+                  <strong>is_colonoscopy</strong>
+                  <p class="field-description">Indicates if the procedure was a colonoscopy (TRUE) or anything else (FALSE)</p>
+                </div>
+                <div class="field-item">
+                  <strong>colonoscopy_is_screening</strong>
+                  <p class="field-description">Indicates if the colonoscopy was a screening colonoscopy (TRUE) or diagnostic (FALSE)</p>
+                </div>
+                <div class="field-item">
+                  <strong>Polyps found</strong>
+                  <p class="field-description">Indicates if polyps were found during colonoscopy ("FOUND" or empty)</p>
+                </div>
+              </div>
+              <p class="field-hint" style="margin-top: 10px;">
+                <strong>Note:</strong> If any of these fields already exist in the template, they will be overridden with the new definitions.
+              </p>
+            </div>
+
+            <div class="form-actions">
+              <button
+                @click="addColonoscopyFieldsToTemplate"
+                class="btn-primary btn-large"
+                :disabled="!colonoscopyFieldsTemplateId || isAddingColonoscopyFields"
+              >
+                <span v-if="isAddingColonoscopyFields">Adding Fields...</span>
+                <span v-else>🔍 Add Colonoscopy Fields</span>
+              </button>
+            </div>
+
+            <div v-if="colonoscopyFieldsResult" class="result-section">
+              <div class="success-message">
+                <h3>✅ Success!</h3>
+                <p>{{ colonoscopyFieldsResult.message }}</p>
+                <p v-if="colonoscopyFieldsResult.fields_overridden > 0" class="override-info">
+                  ℹ️ {{ colonoscopyFieldsResult.fields_overridden }} existing field(s) were overridden with new definitions.
+                </p>
+                <button
+                  @click="viewTemplateAfterColonoscopyFields"
+                  class="btn-secondary"
+                  style="margin-top: 10px"
+                >
+                  View Updated Template
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Prediction Instructions Manager Tab -->
         <div
           v-if="activeTab === 'prediction-instructions'"
@@ -9175,6 +9348,16 @@ export default {
       isAddingChargeFields: false,
       chargeFieldsResult: null,
       allTemplatesForChargeFields: [],
+      // Add Peripheral Blocks Field functionality
+      peripheralBlocksTemplateId: null,
+      isAddingPeripheralBlocksField: false,
+      peripheralBlocksResult: null,
+      allTemplatesForPeripheralBlocks: [],
+      // Add Colonoscopy Fields functionality
+      colonoscopyFieldsTemplateId: null,
+      isAddingColonoscopyFields: false,
+      colonoscopyFieldsResult: null,
+      allTemplatesForColonoscopyFields: [],
       // Prediction Instructions Manager functionality
       predictionInstructions: [],
       predictionInstructionsLoading: false,
@@ -14540,6 +14723,162 @@ export default {
       }
     },
 
+    // Add Peripheral Blocks Field Methods
+    // ========================================================================
+
+    async loadTemplatesForPeripheralBlocks() {
+      this.activeTab = "add-peripheral-blocks-field";
+      try {
+        // Load all templates without pagination for dropdown
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/templates"),
+          {
+            params: {
+              page: 1,
+              page_size: 1000, // Get a large number to include all templates
+            },
+          }
+        );
+        this.allTemplatesForPeripheralBlocks = response.data.templates;
+      } catch (error) {
+        console.error("Failed to load templates for peripheral blocks:", error);
+        this.toast.error("Failed to load templates");
+      }
+    },
+
+    onPeripheralBlocksTemplateChange() {
+      // Reset result when template changes
+      this.peripheralBlocksResult = null;
+    },
+
+    getSelectedPeripheralBlocksTemplateName() {
+      const template = this.allTemplatesForPeripheralBlocks.find(
+        (t) => t.id === this.peripheralBlocksTemplateId
+      );
+      return template ? template.name : "";
+    },
+
+    async addPeripheralBlocksFieldToTemplate() {
+      if (!this.peripheralBlocksTemplateId) {
+        this.toast.error("Please select a template");
+        return;
+      }
+
+      this.isAddingPeripheralBlocksField = true;
+      this.peripheralBlocksResult = null;
+
+      try {
+        const response = await axios.post(
+          joinUrl(
+            API_BASE_URL,
+            `api/templates/${this.peripheralBlocksTemplateId}/add-peripheral-blocks-field`
+          )
+        );
+
+        this.peripheralBlocksResult = response.data;
+        this.toast.success(response.data.message);
+
+        // Reset form
+        this.peripheralBlocksTemplateId = null;
+      } catch (error) {
+        console.error("Failed to add peripheral blocks field:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to add peripheral blocks field"
+        );
+      } finally {
+        this.isAddingPeripheralBlocksField = false;
+      }
+    },
+
+    async viewTemplateAfterPeripheralBlocks() {
+      if (this.peripheralBlocksResult && this.peripheralBlocksResult.template) {
+        this.viewingTemplate = this.peripheralBlocksResult.template;
+        this.editingFields = JSON.parse(
+          JSON.stringify(this.viewingTemplate.template_data.fields)
+        );
+        this.showViewTemplateModal = true;
+        this.activeTab = "templates";
+      }
+    },
+
+    // Add Colonoscopy Fields Methods
+    // ========================================================================
+
+    async loadTemplatesForColonoscopyFields() {
+      this.activeTab = "add-colonoscopy-fields";
+      try {
+        // Load all templates without pagination for dropdown
+        const response = await axios.get(
+          joinUrl(API_BASE_URL, "api/templates"),
+          {
+            params: {
+              page: 1,
+              page_size: 1000, // Get a large number to include all templates
+            },
+          }
+        );
+        this.allTemplatesForColonoscopyFields = response.data.templates;
+      } catch (error) {
+        console.error("Failed to load templates for colonoscopy fields:", error);
+        this.toast.error("Failed to load templates");
+      }
+    },
+
+    onColonoscopyFieldsTemplateChange() {
+      // Reset result when template changes
+      this.colonoscopyFieldsResult = null;
+    },
+
+    getSelectedColonoscopyFieldsTemplateName() {
+      const template = this.allTemplatesForColonoscopyFields.find(
+        (t) => t.id === this.colonoscopyFieldsTemplateId
+      );
+      return template ? template.name : "";
+    },
+
+    async addColonoscopyFieldsToTemplate() {
+      if (!this.colonoscopyFieldsTemplateId) {
+        this.toast.error("Please select a template");
+        return;
+      }
+
+      this.isAddingColonoscopyFields = true;
+      this.colonoscopyFieldsResult = null;
+
+      try {
+        const response = await axios.post(
+          joinUrl(
+            API_BASE_URL,
+            `api/templates/${this.colonoscopyFieldsTemplateId}/add-colonoscopy-fields`
+          )
+        );
+
+        this.colonoscopyFieldsResult = response.data;
+        this.toast.success(response.data.message);
+
+        // Reset form
+        this.colonoscopyFieldsTemplateId = null;
+      } catch (error) {
+        console.error("Failed to add colonoscopy fields:", error);
+        this.toast.error(
+          error.response?.data?.detail || "Failed to add colonoscopy fields"
+        );
+      } finally {
+        this.isAddingColonoscopyFields = false;
+      }
+    },
+
+    async viewTemplateAfterColonoscopyFields() {
+      if (this.colonoscopyFieldsResult && this.colonoscopyFieldsResult.template) {
+        this.viewingTemplate = this.colonoscopyFieldsResult.template;
+        this.editingFields = JSON.parse(
+          JSON.stringify(this.viewingTemplate.template_data.fields)
+        );
+        this.showViewTemplateModal = true;
+        this.activeTab = "templates";
+      }
+    },
+
     // ========================================================================
     // Manual PDF Split Methods
     // ========================================================================
@@ -17575,6 +17914,35 @@ input:checked + .slider:hover {
 .upload-instructions strong {
   color: #1e40af;
   font-weight: 600;
+}
+
+.field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.field-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.field-item strong {
+  display: block;
+  color: #1e40af;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.field-description {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.5;
 }
 
 .form-actions {

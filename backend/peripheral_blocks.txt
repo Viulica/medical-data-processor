@@ -1,0 +1,6 @@
+Add your peripheral blocks field description here.
+
+This text will be used as the description for the peripheral_blocks field when adding it to a template.
+
+Replace this placeholder text with your actual field description/instructions.
+
