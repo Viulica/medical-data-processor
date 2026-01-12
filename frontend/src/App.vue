@@ -9680,6 +9680,10 @@ export default {
         this.loadTemplates(true);
       } else if (methodName === "loadTemplatesForChargeFields") {
         this.loadTemplatesForChargeFields();
+      } else if (methodName === "loadTemplatesForPeripheralBlocks") {
+        this.loadTemplatesForPeripheralBlocks();
+      } else if (methodName === "loadTemplatesForColonoscopyFields") {
+        this.loadTemplatesForColonoscopyFields();
       } else if (methodName === "loadPredictionInstructions") {
         this.loadPredictionInstructions(true);
       } else if (methodName === "loadSpecialCasesTemplates") {

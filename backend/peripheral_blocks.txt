@@ -1,6 +1,103 @@
-Add your peripheral blocks field description here.
+In this field i need you to list out all blocks used here like this: |cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier|cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier|cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier you can list as many blocks as are used in the patient records, in order to place a block in your json output be very sure that the block was actually used on the patient (each block placed will have its own entire section with time of placement, people that took part in it and what laterality it was and what the type of the block was) there might be MULTIPLE though in one pdf obviously)
 
-This text will be used as the description for the peripheral_blocks field when adding it to a template.
+RULES FOR PICKING the cpt code and modifiers (LT = left, RT = right, 50 = bilateral)
 
-Replace this placeholder text with your actual field description/instructions.
+SCIATIC PERIPHERAL BLOCK
 
+IF single injection: -> use 64445
+
+IF continuous infusion catheter: -> use 64446
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+INTERSCALENE PERIPHERAL BLOCK
+
+IF single injection: -> use 64415
+
+IF continuous infusion catheter: -> use 64416
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+AXILLARY PERIPHERAL BLOCK
+
+IF single injection: -> use 64417
+
+IF continuous infusion catheter: -> use 64418
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+FEMORAL PERIPHERAL NERVE BLOCK
+
+IF single injection: -> use 64447
+
+IF continuous infusion catheter: -> use 64448
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+ERECTOR SPINAE PLANE (ESP) BLOCK
+
+IF single injection (Unilateral): -> use 64466
+
+IF continuous infusion catheter (Unilateral): -> use 64467
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left.
+
+IF single injection (Bilateral): -> use 64468 (Modifier: 59 in M1).
+
+IF continuous infusion catheter (Bilateral): -> use 64469 (Modifier: 59 in M1).
+
+TRANSVERSUS ABDOMINIS PLANE (TAP) BLOCK
+
+IF Bilateral single shots: -> use 64488 (Modifier: 59 in M1).
+
+IF Unilateral single shot: -> use 64486 (Modifiers: 59 in M1 + LT/RT in M2).
+
+LATERAL FEMORAL CUTANEOUS NERVE (LFCN) BLOCK
+
+IF single injection: -> use 64450
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+iPACK OR PENG BLOCK
+
+Use code: 64473
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+NEURAXIAL (SPINAL/EPIDURAL) FOR POST-OP PAIN
+
+Lumbar (L1-L5) Single Shot (Landmark): 62322 (Modifier: 59 in M1).
+
+Lumbar (L1-L5) Single Shot (WITH Ultrasound): 62323 (Modifier: 59 in M1).
+
+Cervical or Thoracic Single Shot: 62320 (Modifier: 59 in M1).
+
+VASCULAR LINES
+
+Arterial line (A-line): -> use 36620 (No modifiers).
+
+Central venal catheter (CVP): -> use 36556 (No modifiers).
+
+IF Pulmonary vein/artery (Swan-Ganz) catheterized: -> use 93503 (No modifiers).
+
+SPECIAL RULE: ULTRASOUND GUIDANCE
+
+IF Arterial line or CVP was ULTRASOUND guided: -> add another line with code 76937.
+
+IF first line with US: No modifiers.
+
+IF second or third line with US: Put 59 in M1.
+
+(The 76937 line goes right after the A-line or CVP line it is indicated for).
+
+FINAL FORMATTING RULES:
+
+If anything is empty, put two semicolons ;; to indicate the section is empty.
+
+NEVER put something in M2 but nothing in M1. It is sequential. 59 is always in M1.
+
+Use same provider mapping strings as given; do not deviate.
+
+If no blocks or lines were done, say: NONE DONE.
+
+Example output format: |36620;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|36556;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;|64447;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;RT|
