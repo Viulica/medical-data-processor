@@ -73,8 +73,10 @@ TEE (Transesophageal Echocardiogram) Row Generation:
 Emergent Case Row Generation:
 - When "emergent_case" = TRUE
 - Creates a single duplicate row for the emergent case procedure
+- IMPORTANT: Code 99140 is ONLY added for commercial insurance (NOT Medicare, Medicare replacement, or Medicaid)
+- Insurance check: If Insurance Name OR Insurance Plan contains "medicare" or "medicaid" (case-insensitive), 99140 is NOT added
 - Each emergent_case row:
-  * ASA Code and Procedure Code = 99140 (hardcoded)
+  * ASA Code and Procedure Code = 99140 (hardcoded, commercial insurance only)
   * M1, M2, M3, M4 = cleared
   * ICD1-ICD4 = copied from original row (not changed)
   * Concurrent Providers cleared
@@ -1119,44 +1121,63 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # Conditions:
             # 1. emergent_case column exists
             # 2. emergent_case = TRUE
+            # 3. Insurance is NOT Medicare, Medicare replacement, or Medicaid (commercial insurance only)
             if has_emergent_case:
                 emergent_case_value = str(row.get('emergent_case', '')).strip().upper()
                 
                 if emergent_case_value == 'TRUE':
-                    # Create a copy of the original input row (not the modified new_row)
-                    emergent_row = row.copy()
+                    # Check if insurance is Medicare or Medicaid
+                    # Check both Insurance Name and Insurance Plan fields
+                    is_medicare_or_medicaid = False
+                    if primary_mednet_code and not insurances_df.empty:
+                        # Find the insurance plan by MedNet Code
+                        insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
+                        if not insurance_match.empty:
+                            # Check Insurance Plan field
+                            insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip().upper()
+                            # Check Insurance Name field
+                            insurance_name = str(insurance_match.iloc[0].get('Name', '')).strip().upper()
+                            # Check if either field contains "medicare" or "medicaid" (case-insensitive)
+                            if ('MEDICARE' in insurance_plan or 'MEDICAID' in insurance_plan or
+                                'MEDICARE' in insurance_name or 'MEDICAID' in insurance_name):
+                                is_medicare_or_medicaid = True
                     
-                    # Set ASA Code and Procedure Code to 99140
-                    emergent_row['ASA Code'] = '99140'
-                    emergent_row['Procedure Code'] = '99140'
-                    
-                    # Clear all modifiers (M1-M4)
-                    emergent_row['M1'] = ''
-                    emergent_row['M2'] = ''
-                    emergent_row['M3'] = ''
-                    emergent_row['M4'] = ''
-                    
-                    # Keep ICD1-ICD4 from original row (don't clear them)
-                    # ICD codes are already copied from row.copy(), so they're preserved
-                    
-                    # Clear Concurrent Providers
-                    if 'Concurrent Providers' in emergent_row:
-                        emergent_row['Concurrent Providers'] = ''
-                    
-                    # Clear An Start and An Stop columns (keep only in original row)
-                    if 'An Start' in emergent_row:
-                        emergent_row['An Start'] = ''
-                    if 'An Stop' in emergent_row:
-                        emergent_row['An Stop'] = ''
-                    
-                    # Keep SRNA field (don't clear it for emergent_case)
-                    
-                    # Clear Anesthesia Type field
-                    if 'Anesthesia Type' in emergent_row:
-                        emergent_row['Anesthesia Type'] = ''
-                    
-                    # Add the emergent_case row to results
-                    result_rows.append(emergent_row)
+                    # Only add 99140 for commercial insurance (NOT Medicare/Medicaid)
+                    if not is_medicare_or_medicaid:
+                        # Create a copy of the original input row (not the modified new_row)
+                        emergent_row = row.copy()
+                        
+                        # Set ASA Code and Procedure Code to 99140
+                        emergent_row['ASA Code'] = '99140'
+                        emergent_row['Procedure Code'] = '99140'
+                        
+                        # Clear all modifiers (M1-M4)
+                        emergent_row['M1'] = ''
+                        emergent_row['M2'] = ''
+                        emergent_row['M3'] = ''
+                        emergent_row['M4'] = ''
+                        
+                        # Keep ICD1-ICD4 from original row (don't clear them)
+                        # ICD codes are already copied from row.copy(), so they're preserved
+                        
+                        # Clear Concurrent Providers
+                        if 'Concurrent Providers' in emergent_row:
+                            emergent_row['Concurrent Providers'] = ''
+                        
+                        # Clear An Start and An Stop columns (keep only in original row)
+                        if 'An Start' in emergent_row:
+                            emergent_row['An Start'] = ''
+                        if 'An Stop' in emergent_row:
+                            emergent_row['An Stop'] = ''
+                        
+                        # Keep SRNA field (don't clear it for emergent_case)
+                        
+                        # Clear Anesthesia Type field
+                        if 'Anesthesia Type' in emergent_row:
+                            emergent_row['Anesthesia Type'] = ''
+                        
+                        # Add the emergent_case row to results
+                        result_rows.append(emergent_row)
             
             # Check if we need to create peripheral block rows
             # Conditions depend on peripheral_blocks_mode:

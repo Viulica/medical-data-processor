@@ -103,6 +103,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
 
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -139,6 +142,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
+
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
 
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
@@ -324,6 +330,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
 
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
+
 IMPORTANT: The Procedure field is REQUIRED. Pre-operative and Post-operative diagnoses are SUPPLEMENTARY only.
 If only the procedure is present and any other information is not available, do your best to determine the correct anesthesia CPT code based on the procedure text alone.
 
@@ -501,6 +510,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
 
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -537,6 +549,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
      * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
      * NO screening indicators present
    - When uncertain: If ANY screening indicator exists, use 00812
+
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
 
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
