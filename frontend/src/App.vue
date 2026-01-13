@@ -5728,6 +5728,44 @@
                   Download Excel Report
                 </button>
               </div>
+
+              <!-- AI Error Analysis Section -->
+              <div v-if="cptPdfsZipFile" class="error-analysis-section" style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                <h4 style="color: white; margin-bottom: 15px; font-size: 1.3em;">🤖 AI-Powered Error Analysis</h4>
+                <p style="color: rgba(255,255,255,0.9); margin-bottom: 20px; font-size: 0.95em;">
+                  Select fields below to get detailed error explanations from Gemini Flash AI. 
+                  It will analyze each error, explain why it happened, and identify patterns.
+                </p>
+                
+                <div class="field-selection-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                  <label v-for="field in errorAnalysisFields" :key="field" class="field-checkbox" style="display: flex; align-items: center; padding: 12px 15px; background: white; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                    <input 
+                      type="checkbox" 
+                      :value="field" 
+                      v-model="selectedErrorFields"
+                      style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;"
+                    />
+                    <span style="font-weight: 500; color: #333;">{{ field }}</span>
+                  </label>
+                </div>
+
+                <button
+                  @click="startErrorAnalysis"
+                  :disabled="selectedErrorFields.length === 0 || isAnalyzingErrors"
+                  class="process-btn"
+                  style="background: white; color: #f5576c; border: none; width: 100%; font-weight: 600;"
+                >
+                  <span v-if="isAnalyzingErrors" class="spinner"></span>
+                  <span v-else class="btn-icon">🔬</span>
+                  {{
+                    isAnalyzingErrors
+                      ? "Analyzing Errors with AI..."
+                      : selectedErrorFields.length === 0
+                      ? "Select Fields to Analyze"
+                      : `Analyze ${selectedErrorFields.length} Field${selectedErrorFields.length > 1 ? 's' : ''} with Gemini Flash`
+                  }}
+                </button>
+              </div>
             </div>
 
             <div
@@ -5739,6 +5777,73 @@
               <div class="error-message">
                 <span class="error-icon">⚠️</span>
                 <span>{{ cptCheckJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error Analysis Status -->
+        <div v-if="errorAnalysisJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="errorAnalysisJobStatus.status">
+                <span class="status-icon">{{ getErrorAnalysisStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getErrorAnalysisStatusTitle() }}</h3>
+                <p class="status-message">{{ errorAnalysisJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="errorAnalysisJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${errorAnalysisJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ errorAnalysisJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkErrorAnalysisJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="errorAnalysisJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadErrorAnalysisResults('txt')"
+                  class="download-btn"
+                  style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"
+                >
+                  <span class="btn-icon">📄</span>
+                  Download Analysis Report (Text)
+                </button>
+                <button
+                  @click="downloadErrorAnalysisResults('json')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download Analysis Data (JSON)
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="errorAnalysisJobStatus.status === 'failed' && errorAnalysisJobStatus.error"
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ errorAnalysisJobStatus.error }}</span>
               </div>
             </div>
           </div>
@@ -9114,6 +9219,13 @@ export default {
       isCheckingCptCodes: false,
       isCptPredictionsDragActive: false,
       isCptGroundTruthDragActive: false,
+      // Error Analysis functionality
+      errorAnalysisFields: ['CPT', 'ICD', 'Anesthesia Type', 'Provider', 'Surgeon', 'An Start', 'An Stop'],
+      selectedErrorFields: [],
+      errorAnalysisJobId: null,
+      errorAnalysisJobStatus: null,
+      isAnalyzingErrors: false,
+      errorAnalysisPollingInterval: null,
       // Provider Mapping functionality
       providerMappingExcelFile: null,
       providerMappingJobId: null,
@@ -9601,6 +9713,20 @@ export default {
     activeTab(newTab) {
       if (newTab === 'unified-results') {
         this.loadUnifiedResults();
+      }
+    },
+    
+    // Poll for error analysis status
+    isAnalyzingErrors(newVal) {
+      if (newVal && this.errorAnalysisJobId) {
+        this.errorAnalysisPollingInterval = setInterval(() => {
+          this.checkErrorAnalysisJobStatus();
+        }, 2000); // Poll every 2 seconds
+      } else {
+        if (this.errorAnalysisPollingInterval) {
+          clearInterval(this.errorAnalysisPollingInterval);
+          this.errorAnalysisPollingInterval = null;
+        }
       }
     }
   },
@@ -12674,6 +12800,156 @@ export default {
       this.isCptGroundTruthDragActive = false;
       this.isCptChargeDetailDragActive = false;
       this.isCptPdfsZipDragActive = false;
+      // Reset error analysis as well
+      this.selectedErrorFields = [];
+      this.errorAnalysisJobId = null;
+      this.errorAnalysisJobStatus = null;
+      this.isAnalyzingErrors = false;
+    },
+
+    // Error Analysis methods
+    async startErrorAnalysis() {
+      if (this.selectedErrorFields.length === 0) {
+        this.toast.error("Please select at least one field to analyze");
+        return;
+      }
+
+      if (!this.cptPredictionsFile || !this.cptGroundTruthFile || !this.cptPdfsZipFile) {
+        this.toast.error("Please upload predictions, ground truth, and PDFs ZIP files first");
+        return;
+      }
+
+      this.isAnalyzingErrors = true;
+      this.errorAnalysisJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("predictions_file", this.cptPredictionsFile);
+      formData.append("ground_truth_file", this.cptGroundTruthFile);
+      formData.append("pdfs_zip", this.cptPdfsZipFile);
+      formData.append("selected_fields", JSON.stringify(this.selectedErrorFields));
+
+      const uploadUrl = joinUrl(API_BASE_URL, "analyze-field-errors");
+      console.log("🔧 Error Analysis Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.errorAnalysisJobId = response.data.job_id;
+        this.toast.success(
+          `AI error analysis started for ${this.selectedErrorFields.length} field(s)!`
+        );
+
+        // Set initial status
+        this.errorAnalysisJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Analyzing errors with Gemini Flash...",
+        };
+      } catch (error) {
+        console.error("Error analysis error:", error);
+        this.toast.error(
+          "Failed to start error analysis. Please try again."
+        );
+        this.isAnalyzingErrors = false;
+      }
+    },
+
+    async checkErrorAnalysisJobStatus() {
+      if (!this.errorAnalysisJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.errorAnalysisJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.errorAnalysisJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("Error analysis completed!");
+          this.isAnalyzingErrors = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `Error analysis failed: ${
+              response.data.error || "Unknown error"
+            }`
+          );
+          this.isAnalyzingErrors = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check job status");
+      }
+    },
+
+    async downloadErrorAnalysisResults(format) {
+      if (!this.errorAnalysisJobId) return;
+
+      try {
+        const fileType = format === 'json' ? 'result_file_json' : 'result_file';
+        const response = await axios.get(
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.errorAnalysisJobId}?file_type=${fileType}`
+          ),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        const ext = format === 'json' ? 'json' : 'txt';
+        link.setAttribute(
+          "download",
+          `error_analysis_${this.errorAnalysisJobId}.${ext}`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success(`${format.toUpperCase()} download started!`);
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download error analysis");
+      }
+    },
+
+    getErrorAnalysisStatusIcon() {
+      if (!this.errorAnalysisJobStatus) return "";
+
+      switch (this.errorAnalysisJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "🔬";
+        default:
+          return "⏸️";
+      }
+    },
+
+    getErrorAnalysisStatusTitle() {
+      if (!this.errorAnalysisJobStatus) return "";
+
+      switch (this.errorAnalysisJobStatus.status) {
+        case "completed":
+          return "Error Analysis Complete";
+        case "failed":
+          return "Error Analysis Failed";
+        case "processing":
+          return "Analyzing Errors with AI";
+        default:
+          return "Error Analysis Status";
+      }
     },
 
     // Provider Mapping methods

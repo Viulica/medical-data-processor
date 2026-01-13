@@ -106,6 +106,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
 
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -146,6 +149,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
 
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -183,7 +189,7 @@ Respond with ONLY the JSON object, nothing else."""
     if model == "gemini-3-pro-preview":
         thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     elif model == "gemini-3-flash-preview":
-        thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
     
@@ -332,6 +338,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
+
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
 
 IMPORTANT: The Procedure field is REQUIRED. Pre-operative and Post-operative diagnoses are SUPPLEMENTARY only.
 If only the procedure is present and any other information is not available, do your best to determine the correct anesthesia CPT code based on the procedure text alone.
@@ -513,6 +522,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
 
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -552,6 +564,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
+
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
 
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
@@ -908,7 +923,7 @@ Respond with ONLY the JSON object, nothing else."""
     if model == "gemini-3-pro-preview":
         thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     elif model == "gemini-3-flash-preview":
-        thinking_config = types.ThinkingConfig(thinking_level="MEDIUM")
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
     

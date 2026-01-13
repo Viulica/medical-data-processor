@@ -107,7 +107,7 @@ Example: If pages 2 and 4 in this batch match, return:
             )
         elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(
-                thinking_level="MEDIUM",
+                thinking_level="HIGH",
             )
         else:
             thinking_config = types.ThinkingConfig(

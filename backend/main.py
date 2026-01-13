@@ -188,6 +188,7 @@ class ProcessingJob:
         self.message = "Job created"
         self.result_file = None
         self.result_file_xlsx = None  # Store XLSX version
+        self.result_file_json = None  # Store JSON version
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
@@ -1287,7 +1288,7 @@ answer ONLY with the code, nothing else"""
                     top_p=0.9,
                     max_output_tokens=50,
                     thinking_config=types.ThinkingConfig(
-                        thinking_level="MEDIUM",
+                        thinking_level="HIGH",
                     ),
                 )
                 
@@ -1985,6 +1986,14 @@ async def cleanup_job(job_id: str):
             logger.info(f"Cleaned up XLSX result file: {job.result_file_xlsx}")
         except Exception as e:
             logger.error(f"Failed to clean up XLSX result file: {e}")
+    
+    # Clean up JSON result file if it exists
+    if hasattr(job, 'result_file_json') and job.result_file_json and os.path.exists(job.result_file_json):
+        try:
+            os.unlink(job.result_file_json)
+            logger.info(f"Cleaned up JSON result file: {job.result_file_json}")
+        except Exception as e:
+            logger.error(f"Failed to clean up JSON result file: {e}")
     
     # Remove job from memory
     del job_status[job_id]
@@ -2761,12 +2770,13 @@ async def split_pdf_manual(
         raise HTTPException(status_code=500, detail=f"Failed to split PDF: {str(e)}")
 
 @app.get("/download/{job_id}")
-async def download_result(job_id: str, format: str = "csv"):
-    """Download the processed file in CSV or XLSX format
+async def download_result(job_id: str, format: str = "csv", file_type: str = "result_file"):
+    """Download the processed file in CSV, XLSX, or JSON format
     
     Args:
         job_id: The job identifier
         format: File format - 'csv' or 'xlsx' (default: 'csv')
+        file_type: Which file to download - 'result_file', 'result_file_xlsx', or 'result_file_json' (default: 'result_file')
     """
     if job_id not in job_status:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -2776,8 +2786,16 @@ async def download_result(job_id: str, format: str = "csv"):
     if job.status != "completed":
         raise HTTPException(status_code=400, detail="Job not completed yet")
     
-    # Determine which file to download based on format parameter
-    if format.lower() == "xlsx":
+    # Determine which file to download based on file_type and format parameters
+    if file_type == "result_file_json":
+        # User wants JSON file
+        if hasattr(job, 'result_file_json') and job.result_file_json and os.path.exists(job.result_file_json):
+            result_file = job.result_file_json
+            filename_suffix = "json"
+            media_type = "application/json"
+        else:
+            raise HTTPException(status_code=404, detail="JSON result file not available")
+    elif format.lower() == "xlsx" or file_type == "result_file_xlsx":
         # User wants XLSX format
         if not job.result_file_xlsx or not os.path.exists(job.result_file_xlsx):
             # XLSX not available, fallback to CSV
@@ -2802,6 +2820,12 @@ async def download_result(job_id: str, format: str = "csv"):
     if result_file.endswith('.zip'):
         filename = f"split_pdfs_{job_id}.zip"
         media_type = "application/zip"
+    elif result_file.endswith('.json'):
+        filename = f"error_analysis_{job_id}.json"
+        media_type = "application/json"
+    elif result_file.endswith('.txt'):
+        filename = f"error_analysis_{job_id}.txt"
+        media_type = "text/plain"
     elif result_file.endswith('.xlsx'):
         filename = f"processed_data_{job_id}.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -5880,6 +5904,507 @@ async def check_cpt_codes_with_pdfs_route(
         
     except Exception as e:
         logger.error(f"CPT codes check with PDFs upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+def analyze_field_errors_background(job_id: str, predictions_path: str, ground_truth_path: str, pdfs_zip_path: str, selected_fields: List[str], model: str = "gemini-3-flash-preview"):
+    """Background task to analyze errors for selected fields using Gemini Flash
+    
+    Args:
+        job_id: Unique job identifier
+        predictions_path: Path to predictions file
+        ground_truth_path: Path to ground truth file
+        pdfs_zip_path: Path to ZIP file containing PDFs
+        selected_fields: List of field names to analyze (e.g., ['CPT', 'ICD', 'Anesthesia Type'])
+        model: Gemini model to use for analysis
+    """
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading files..."
+        job.progress = 5
+        
+        import pandas as pd
+        from google import genai
+        from google.genai import types
+        
+        # Initialize Gemini client
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise Exception("Google API key not found")
+        
+        client = genai.Client(api_key=api_key)
+        
+        # Read predictions and ground truth files
+        predictions_df = None
+        ground_truth_df = None
+        
+        # Read predictions file
+        predictions_path_obj = Path(predictions_path)
+        if predictions_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            if predictions_path_obj.suffix.lower() == '.xlsx':
+                predictions_df = pd.read_excel(predictions_path, dtype=str, engine='openpyxl')
+            else:
+                try:
+                    predictions_df = pd.read_excel(predictions_path, dtype=str, engine='xlrd')
+                except:
+                    predictions_df = pd.read_excel(predictions_path, dtype=str, engine=None)
+        else:
+            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            for enc in encodings:
+                try:
+                    predictions_df = pd.read_csv(predictions_path, dtype=str, encoding=enc)
+                    break
+                except:
+                    continue
+        
+        if predictions_df is None:
+            raise Exception("Could not read predictions file")
+        
+        # Read ground truth file
+        ground_truth_path_obj = Path(ground_truth_path)
+        if ground_truth_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            if ground_truth_path_obj.suffix.lower() == '.xlsx':
+                ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='openpyxl')
+            else:
+                try:
+                    ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='xlrd')
+                except:
+                    ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine=None)
+        else:
+            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            for enc in encodings:
+                try:
+                    ground_truth_df = pd.read_csv(ground_truth_path, dtype=str, encoding=enc)
+                    break
+                except:
+                    continue
+        
+        if ground_truth_df is None:
+            raise Exception("Could not read ground truth file")
+        
+        job.message = "Extracting PDFs..."
+        job.progress = 10
+        
+        # Extract PDFs to temporary directory
+        pdfs_temp_dir = f"/tmp/{job_id}_pdfs_extracted"
+        os.makedirs(pdfs_temp_dir, exist_ok=True)
+        
+        with zipfile.ZipFile(pdfs_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(pdfs_temp_dir)
+        
+        # Create PDF mapping (filename -> path)
+        pdf_mapping = {}
+        for root, dirs, files in os.walk(pdfs_temp_dir):
+            for file in files:
+                if file.lower().endswith('.pdf'):
+                    pdf_mapping[file] = os.path.join(root, file)
+        
+        job.message = "Finding columns..."
+        job.progress = 15
+        
+        # Find columns in both dataframes
+        def find_column(df, possible_names):
+            for col in df.columns:
+                if col.upper().strip() in [name.upper() for name in possible_names]:
+                    return col
+            return None
+        
+        # Predictions columns
+        account_id_col_pred = find_column(predictions_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID'])
+        source_file_col = find_column(predictions_df, ['Source File', 'SourceFile', 'Filename'])
+        cpt_col_pred = find_column(predictions_df, ['CPT', 'Cpt', 'ASA Code'])
+        anesthesia_type_col_pred = find_column(predictions_df, ['Anesthesia Type'])
+        provider_col_pred = find_column(predictions_df, ['Responsible Provider'])
+        surgeon_col_pred = find_column(predictions_df, ['Surgeon'])
+        an_start_col_pred = find_column(predictions_df, ['An Start'])
+        an_stop_col_pred = find_column(predictions_df, ['An Stop'])
+        
+        icd_cols_pred = {}
+        for i in range(1, 5):
+            col = find_column(predictions_df, [f'ICD{i}'])
+            if col:
+                icd_cols_pred[i] = col
+        
+        # Ground truth columns
+        account_id_col_gt = find_column(ground_truth_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID'])
+        cpt_col_gt = find_column(ground_truth_df, ['CPT', 'Cpt'])
+        icd_col_gt = find_column(ground_truth_df, ['ICD', 'Icd'])
+        anesthesia_type_col_gt = find_column(ground_truth_df, ['Anesthesia Type'])
+        provider_col_gt = find_column(ground_truth_df, ['Provider'])
+        surgeon_col_gt = find_column(ground_truth_df, ['Surgeon'])
+        
+        if not account_id_col_pred or not account_id_col_gt:
+            raise Exception("Account ID columns not found in files")
+        
+        if not source_file_col:
+            raise Exception("Source File column not found in predictions file")
+        
+        job.message = "Building ground truth lookup..."
+        job.progress = 20
+        
+        # Build ground truth lookup
+        gt_dict = {}
+        for idx, row in ground_truth_df.iterrows():
+            account_id = str(row[account_id_col_gt]).strip()
+            if account_id not in gt_dict:
+                gt_dict[account_id] = {
+                    'cpt': str(row[cpt_col_gt]).strip() if cpt_col_gt and pd.notna(row[cpt_col_gt]) else '',
+                    'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else '',
+                    'anesthesia_type': str(row[anesthesia_type_col_gt]).strip() if anesthesia_type_col_gt and pd.notna(row[anesthesia_type_col_gt]) else '',
+                    'provider': str(row[provider_col_gt]).strip() if provider_col_gt and pd.notna(row[provider_col_gt]) else '',
+                    'surgeon': str(row[surgeon_col_gt]).strip() if surgeon_col_gt and pd.notna(row[surgeon_col_gt]) else ''
+                }
+        
+        job.message = "Collecting errors for selected fields..."
+        job.progress = 25
+        
+        # Collect errors for each selected field
+        field_errors = {field: [] for field in selected_fields}
+        
+        for idx, row in predictions_df.iterrows():
+            account_id = str(row[account_id_col_pred]).strip()
+            source_file = str(row[source_file_col]).strip() if pd.notna(row[source_file_col]) else ''
+            
+            if not source_file or account_id not in gt_dict:
+                continue
+            
+            gt_data = gt_dict[account_id]
+            pdf_path = pdf_mapping.get(source_file)
+            
+            if not pdf_path or not os.path.exists(pdf_path):
+                continue
+            
+            # Check each selected field for errors
+            if 'CPT' in selected_fields and cpt_col_pred and cpt_col_gt:
+                predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row[cpt_col_pred]) else ''
+                gt_cpt = gt_data['cpt']
+                if predicted_cpt != gt_cpt:
+                    field_errors['CPT'].append({
+                        'account_id': account_id,
+                        'predicted': predicted_cpt,
+                        'ground_truth': gt_cpt,
+                        'pdf_path': pdf_path,
+                        'source_file': source_file
+                    })
+            
+            if 'ICD' in selected_fields and icd_col_gt:
+                # Get ICD1 (first ICD code)
+                predicted_icd1 = ''
+                if 1 in icd_cols_pred:
+                    predicted_icd1 = str(row[icd_cols_pred[1]]).strip() if pd.notna(row[icd_cols_pred[1]]) else ''
+                
+                gt_icd_codes = [code.strip() for code in gt_data['icd'].split(',') if code.strip()]
+                gt_icd1 = gt_icd_codes[0] if gt_icd_codes else ''
+                
+                if predicted_icd1 and gt_icd1 and predicted_icd1 != gt_icd1:
+                    field_errors['ICD'].append({
+                        'account_id': account_id,
+                        'predicted': predicted_icd1,
+                        'ground_truth': gt_icd1,
+                        'pdf_path': pdf_path,
+                        'source_file': source_file
+                    })
+            
+            if 'Anesthesia Type' in selected_fields and anesthesia_type_col_pred and anesthesia_type_col_gt:
+                predicted_anes = str(row[anesthesia_type_col_pred]).strip() if pd.notna(row[anesthesia_type_col_pred]) else ''
+                gt_anes = gt_data['anesthesia_type']
+                if predicted_anes and gt_anes and predicted_anes.upper() != gt_anes.upper():
+                    field_errors['Anesthesia Type'].append({
+                        'account_id': account_id,
+                        'predicted': predicted_anes,
+                        'ground_truth': gt_anes,
+                        'pdf_path': pdf_path,
+                        'source_file': source_file
+                    })
+            
+            if 'Provider' in selected_fields and provider_col_pred and provider_col_gt:
+                predicted_prov = str(row[provider_col_pred]).strip() if pd.notna(row[provider_col_pred]) else ''
+                gt_prov = gt_data['provider']
+                if predicted_prov and gt_prov and predicted_prov.upper() != gt_prov.upper():
+                    field_errors['Provider'].append({
+                        'account_id': account_id,
+                        'predicted': predicted_prov,
+                        'ground_truth': gt_prov,
+                        'pdf_path': pdf_path,
+                        'source_file': source_file
+                    })
+            
+            if 'Surgeon' in selected_fields and surgeon_col_pred and surgeon_col_gt:
+                predicted_surg = str(row[surgeon_col_pred]).strip() if pd.notna(row[surgeon_col_pred]) else ''
+                gt_surg = gt_data['surgeon']
+                if predicted_surg and gt_surg and predicted_surg.upper() != gt_surg.upper():
+                    field_errors['Surgeon'].append({
+                        'account_id': account_id,
+                        'predicted': predicted_surg,
+                        'ground_truth': gt_surg,
+                        'pdf_path': pdf_path,
+                        'source_file': source_file
+                    })
+        
+        job.message = "Analyzing errors with Gemini..."
+        job.progress = 30
+        
+        # Analyze each field's errors with Gemini
+        analysis_results = {}
+        progress_per_field = 60 / max(len(selected_fields), 1)
+        
+        for field_idx, field_name in enumerate(selected_fields):
+            errors = field_errors.get(field_name, [])
+            
+            if not errors:
+                analysis_results[field_name] = {
+                    'total_errors': 0,
+                    'error_analyses': [],
+                    'pattern_summary': 'No errors found for this field.'
+                }
+                continue
+            
+            job.message = f"Analyzing {field_name} errors ({len(errors)} errors)..."
+            job.progress = 30 + int(field_idx * progress_per_field)
+            
+            error_analyses = []
+            
+            # Analyze each error (limit to first 20 to avoid excessive API calls)
+            for error_idx, error in enumerate(errors[:20]):
+                try:
+                    # Convert PDF to images for Gemini
+                    from pdf2image import convert_from_path
+                    import base64
+                    
+                    images = convert_from_path(error['pdf_path'], dpi=150, first_page=1, last_page=5)
+                    image_data_list = []
+                    
+                    for img in images:
+                        import io
+                        buffer = io.BytesIO()
+                        img.save(buffer, format='PNG')
+                        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                        image_data_list.append(img_base64)
+                    
+                    # Build prompt for Gemini
+                    prompt = f"""You are a medical coding expert analyzing prediction errors.
+
+Field: {field_name}
+Account ID: {error['account_id']}
+
+AI Predicted: {error['predicted']}
+Ground Truth: {error['ground_truth']}
+
+Please analyze the PDF images provided and explain:
+1. Why did the AI make this specific error?
+2. What information in the PDF led to the incorrect prediction?
+3. What information should have led to the correct answer?
+
+Provide a concise explanation (2-3 sentences max)."""
+
+                    # Create Gemini request
+                    parts = [types.Part.from_text(prompt)]
+                    for img_data in image_data_list:
+                        parts.append(types.Part.from_bytes(
+                            data=base64.b64decode(img_data),
+                            mime_type="image/png"
+                        ))
+                    
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=types.Content(
+                            role="user",
+                            parts=parts
+                        )
+                    )
+                    
+                    explanation = response.text.strip() if response.text else "No explanation generated"
+                    
+                    error_analyses.append({
+                        'account_id': error['account_id'],
+                        'predicted': error['predicted'],
+                        'ground_truth': error['ground_truth'],
+                        'explanation': explanation
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error analyzing {field_name} for account {error['account_id']}: {str(e)}")
+                    error_analyses.append({
+                        'account_id': error['account_id'],
+                        'predicted': error['predicted'],
+                        'ground_truth': error['ground_truth'],
+                        'explanation': f"Analysis failed: {str(e)}"
+                    })
+            
+            # Generate pattern summary for this field
+            if len(error_analyses) > 0:
+                job.message = f"Generating pattern summary for {field_name}..."
+                
+                # Build summary prompt
+                error_summary = "\n\n".join([
+                    f"Account {err['account_id']}: Predicted '{err['predicted']}', Expected '{err['ground_truth']}'\nExplanation: {err['explanation']}"
+                    for err in error_analyses
+                ])
+                
+                pattern_prompt = f"""Based on the following error analyses for the {field_name} field, provide a high-level summary of error patterns:
+
+{error_summary}
+
+Please identify:
+1. Common patterns in the errors (e.g., specific types of misclassifications)
+2. Root causes (e.g., OCR issues, ambiguous documentation, specific medical terms causing confusion)
+3. Recommendations for improvement
+
+Provide a concise summary (3-5 sentences)."""
+
+                try:
+                    pattern_response = client.models.generate_content(
+                        model=model,
+                        contents=pattern_prompt
+                    )
+                    pattern_summary = pattern_response.text.strip() if pattern_response.text else "No pattern summary generated"
+                except Exception as e:
+                    logger.error(f"Error generating pattern summary for {field_name}: {str(e)}")
+                    pattern_summary = f"Pattern analysis failed: {str(e)}"
+            else:
+                pattern_summary = "No errors were successfully analyzed."
+            
+            analysis_results[field_name] = {
+                'total_errors': len(errors),
+                'errors_analyzed': len(error_analyses),
+                'error_analyses': error_analyses,
+                'pattern_summary': pattern_summary
+            }
+        
+        job.message = "Creating analysis report..."
+        job.progress = 95
+        
+        # Create output report (JSON and human-readable text)
+        output_json_path = f"/tmp/results/{job_id}_error_analysis.json"
+        output_txt_path = f"/tmp/results/{job_id}_error_analysis.txt"
+        os.makedirs("/tmp/results", exist_ok=True)
+        
+        # Save JSON report
+        with open(output_json_path, 'w') as f:
+            json.dump(analysis_results, f, indent=2)
+        
+        # Create human-readable text report
+        with open(output_txt_path, 'w') as f:
+            f.write("=" * 80 + "\n")
+            f.write("FIELD ERROR ANALYSIS REPORT\n")
+            f.write("=" * 80 + "\n\n")
+            
+            for field_name, results in analysis_results.items():
+                f.write(f"\n{'='*80}\n")
+                f.write(f"FIELD: {field_name}\n")
+                f.write(f"{'='*80}\n")
+                f.write(f"Total Errors: {results['total_errors']}\n")
+                f.write(f"Errors Analyzed: {results.get('errors_analyzed', 0)}\n\n")
+                
+                f.write("PATTERN SUMMARY:\n")
+                f.write("-" * 80 + "\n")
+                f.write(results['pattern_summary'] + "\n\n")
+                
+                f.write("INDIVIDUAL ERROR ANALYSES:\n")
+                f.write("-" * 80 + "\n")
+                for err in results.get('error_analyses', []):
+                    f.write(f"\nAccount ID: {err['account_id']}\n")
+                    f.write(f"Predicted: {err['predicted']}\n")
+                    f.write(f"Ground Truth: {err['ground_truth']}\n")
+                    f.write(f"Explanation: {err['explanation']}\n")
+                    f.write("-" * 80 + "\n")
+        
+        # Clean up
+        shutil.rmtree(pdfs_temp_dir, ignore_errors=True)
+        if os.path.exists(predictions_path):
+            os.unlink(predictions_path)
+        if os.path.exists(ground_truth_path):
+            os.unlink(ground_truth_path)
+        if os.path.exists(pdfs_zip_path):
+            os.unlink(pdfs_zip_path)
+        
+        job.status = "completed"
+        job.result_file = output_txt_path
+        job.result_file_json = output_json_path
+        job.progress = 100
+        job.message = f"Analysis complete! Analyzed {sum(r['total_errors'] for r in analysis_results.values())} total errors across {len(selected_fields)} field(s)"
+        
+        logger.info(f"Field error analysis completed for job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"Field error analysis error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        job.status = "failed"
+        job.error = str(e)
+
+
+@app.post("/analyze-field-errors")
+async def analyze_field_errors(
+    background_tasks: BackgroundTasks,
+    predictions_file: UploadFile = File(...),
+    ground_truth_file: UploadFile = File(...),
+    pdfs_zip: UploadFile = File(...),
+    selected_fields: str = Form(...)  # JSON string array
+):
+    """Analyze errors for selected fields using Gemini Flash
+    
+    Args:
+        predictions_file: Predictions file (Demo Detail Report)
+        ground_truth_file: Ground truth file (Demo Detail Report)
+        pdfs_zip: ZIP file containing all PDFs
+        selected_fields: JSON string array of field names (e.g., '["CPT", "ICD", "Anesthesia Type"]')
+    """
+    
+    try:
+        logger.info(f"Received field error analysis request")
+        
+        # Parse selected fields
+        fields_list = json.loads(selected_fields)
+        if not isinstance(fields_list, list) or len(fields_list) == 0:
+            raise HTTPException(status_code=400, detail="selected_fields must be a non-empty JSON array")
+        
+        logger.info(f"Selected fields: {fields_list}")
+        
+        # Validate file types
+        if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Predictions file must be CSV or XLSX")
+        if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Ground truth file must be CSV or XLSX")
+        if not pdfs_zip.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="PDFs file must be a ZIP")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        # Save uploaded files
+        predictions_path = f"/tmp/{job_id}_predictions{Path(predictions_file.filename).suffix}"
+        ground_truth_path = f"/tmp/{job_id}_ground_truth{Path(ground_truth_file.filename).suffix}"
+        pdfs_zip_path = f"/tmp/{job_id}_pdfs.zip"
+        
+        with open(predictions_path, "wb") as f:
+            shutil.copyfileobj(predictions_file.file, f)
+        with open(ground_truth_path, "wb") as f:
+            shutil.copyfileobj(ground_truth_file.file, f)
+        with open(pdfs_zip_path, "wb") as f:
+            shutil.copyfileobj(pdfs_zip.file, f)
+        
+        # Start background analysis
+        background_tasks.add_task(
+            analyze_field_errors_background,
+            job_id,
+            predictions_path,
+            ground_truth_path,
+            pdfs_zip_path,
+            fields_list
+        )
+        
+        logger.info(f"Background field error analysis task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "Field error analysis started"}
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="selected_fields must be valid JSON")
+    except Exception as e:
+        logger.error(f"Field error analysis upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/generate-modifiers")

@@ -320,7 +320,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 )
             elif model == "gemini-3-flash-preview":
                 thinking_config = types.ThinkingConfig(
-                    thinking_level="MEDIUM",
+                    thinking_level="HIGH",
                 )
             else:
                 thinking_config = types.ThinkingConfig(
