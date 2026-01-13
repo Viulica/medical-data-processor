@@ -6012,7 +6012,7 @@ def analyze_field_errors_background(job_id: str, predictions_path: str, ground_t
         
         # Predictions columns
         account_id_col_pred = find_column(predictions_df, ['Account #', 'AccountId', 'Account ID', 'Account', 'ID'])
-        source_file_col = find_column(predictions_df, ['Source File', 'SourceFile', 'Filename'])
+        source_file_col = find_column(predictions_df, ['Source File', 'SourceFile', 'Filename', 'File Name', 'PDF', 'PDF File'])
         cpt_col_pred = find_column(predictions_df, ['CPT', 'Cpt', 'ASA Code'])
         anesthesia_type_col_pred = find_column(predictions_df, ['Anesthesia Type'])
         provider_col_pred = find_column(predictions_df, ['Responsible Provider'])
