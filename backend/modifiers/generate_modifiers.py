@@ -1146,20 +1146,20 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if not is_medicare_or_medicaid:
                         # Create a copy of the original input row (not the modified new_row)
                         emergent_row = row.copy()
-                        
+                    
                         # Set ASA Code and Procedure Code to 99140
                         emergent_row['ASA Code'] = '99140'
                         emergent_row['Procedure Code'] = '99140'
-                        
+                    
                         # Clear all modifiers (M1-M4)
                         emergent_row['M1'] = ''
                         emergent_row['M2'] = ''
                         emergent_row['M3'] = ''
                         emergent_row['M4'] = ''
-                        
+                    
                         # Keep ICD1-ICD4 from original row (don't clear them)
                         # ICD codes are already copied from row.copy(), so they're preserved
-                        
+                    
                         # Clear Concurrent Providers
                         if 'Concurrent Providers' in emergent_row:
                             emergent_row['Concurrent Providers'] = ''
@@ -1175,7 +1175,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         # Clear Anesthesia Type field
                         if 'Anesthesia Type' in emergent_row:
                             emergent_row['Anesthesia Type'] = ''
-                        
+                    
                         # Add the emergent_case row to results
                         result_rows.append(emergent_row)
             

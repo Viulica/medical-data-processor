@@ -1227,9 +1227,6 @@
                     v-model="unifiedExtractionModel"
                     class="form-select"
                   >
-                    <option value="gemini-flash-latest">
-                      Gemini Flash Latest (Default)
-                    </option>
                     <option value="gemini-3-flash-preview">
                       Gemini 3 Flash Preview
                     </option>
@@ -1237,7 +1234,6 @@
                       Gemini Flash Lite (Fastest & Cheapest)
                     </option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                    <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
                   </select>
                 </div>
                 <div class="setting-group" style="margin-top: 15px">
@@ -4548,9 +4544,6 @@
                     v-model="refinementExtractionModel"
                     class="form-select"
                   >
-                    <option value="gemini-flash-latest">
-                      Gemini Flash Latest (Default)
-                    </option>
                     <option value="gemini-3-flash-preview">
                       Gemini 3 Flash Preview
                     </option>
@@ -9181,7 +9174,7 @@ export default {
       isUnifiedPdfDragActive: false,
       // Unified - Extraction settings
       unifiedExtractionPages: 49,
-      unifiedExtractionModel: "gemini-flash-latest",
+      unifiedExtractionModel: "gemini-3-flash-preview",
       unifiedExtractionMaxWorkers: 50,
       unifiedWorktrackerGroup: "",
       unifiedWorktrackerBatch: "",
@@ -9220,7 +9213,7 @@ export default {
       refinementGroundTruthFile: null,
       refinementUseExtractionTemplate: false,
       refinementSelectedExtractionTemplateId: null,
-      refinementExtractionModel: "gemini-flash-latest", // Extraction model selection
+      refinementExtractionModel: "gemini-3-flash-preview", // Extraction model selection
       refinementEnableCpt: true, // Enable CPT refinement
       refinementEnableIcd: true, // Enable ICD refinement
       refinementSelectedCptInstructionId: null,
@@ -11180,7 +11173,7 @@ export default {
       this.unifiedSplitDetectionShift = 0;
       // Extraction settings
       this.unifiedExtractionPages = 49;
-      this.unifiedExtractionModel = "gemini-flash-latest";
+      this.unifiedExtractionModel = "gemini-3-flash-preview";
       this.unifiedExtractionMaxWorkers = 50;
       this.unifiedWorktrackerGroup = "";
       this.unifiedWorktrackerBatch = "";
