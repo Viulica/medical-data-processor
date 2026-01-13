@@ -117,6 +117,7 @@
                   'instructions',
                   'merge-csn',
                   'check-cpt',
+                  'cpt-consistency',
                   'provider-mapping',
                 ].includes(activeTab),
               }"
@@ -139,6 +140,9 @@
               </button>
               <button @click="selectTab('check-cpt')" class="dropdown-item">
                 ✅ Check CPT & ICD Codes
+              </button>
+              <button @click="selectTab('cpt-consistency')" class="dropdown-item">
+                📊 CPT Consistency Analysis
               </button>
               <button @click="selectTab('provider-mapping')" class="dropdown-item">
                 👥 Provider Mapping List Creation
@@ -5782,6 +5786,231 @@
           </div>
         </div>
 
+        <!-- CPT Consistency Analysis Tab -->
+        <div v-if="activeTab === 'cpt-consistency'" class="upload-section">
+          <div class="section-header">
+            <h2>CPT Code Consistency Analysis</h2>
+            <p>
+              Identify which CPT codes consistently meet all validation criteria:
+              <br/><br/>
+              <strong>This analysis checks for CPT codes where ALL instances have:</strong>
+              <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>✅ CPT code is always correct (predicted = ground truth)</li>
+                <li>✅ Anesthesia type is always correct (predicted = ground truth)</li>
+                <li>✅ ICD1 is either fully correct OR will not get denied (non-critical error)</li>
+              </ul>
+              <br/>
+              <strong>Demo Detail Report</strong> (required): Predictions file should
+              have columns: AccountId, Cpt (or ASA Code), Anesthesia Type, ICD1. 
+              Ground truth file should have columns: Account # (or AccountId/Account ID), Cpt, Anesthesia Type, Icd
+              (comma-separated).
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- Predictions File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>Predictions File (Demo Detail Report)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isConsistencyPredictionsDragActive,
+                  'has-file': consistencyPredictionsFile,
+                }"
+                @drop="onConsistencyPredictionsDrop"
+                @dragover.prevent
+                @dragenter.prevent="isConsistencyPredictionsDragActive = true"
+                @dragleave.prevent="isConsistencyPredictionsDragActive = false"
+                @click="triggerConsistencyPredictionsUpload"
+              >
+                <input
+                  ref="consistencyPredictionsInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onConsistencyPredictionsFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="consistencyPredictionsFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ consistencyPredictionsFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(consistencyPredictionsFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop XLSX/CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required columns:</strong> AccountId, ASA Code, Anesthesia Type, ICD1</p>
+              </div>
+            </div>
+
+            <!-- Ground Truth File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>Ground Truth File (Demo Detail Report)</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isConsistencyGroundTruthDragActive,
+                  'has-file': consistencyGroundTruthFile,
+                }"
+                @drop="onConsistencyGroundTruthDrop"
+                @dragover.prevent
+                @dragenter.prevent="isConsistencyGroundTruthDragActive = true"
+                @dragleave.prevent="isConsistencyGroundTruthDragActive = false"
+                @click="triggerConsistencyGroundTruthUpload"
+              >
+                <input
+                  ref="consistencyGroundTruthInput"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  @change="onConsistencyGroundTruthFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">✅</div>
+                  <div v-if="consistencyGroundTruthFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{ consistencyGroundTruthFile.name }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(consistencyGroundTruthFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop XLSX/CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required columns:</strong> Acc. #, ASA Code, Anesthesia Type, Icd</p>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">3</div>
+                <h3>How it works</h3>
+              </div>
+              <div class="settings-content">
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔍</span>
+                    <span>Groups cases by CPT code</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">✅</span>
+                    <span>Checks if all instances meet criteria</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📊</span>
+                    <span>Identifies consistent vs inconsistent CPT codes</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📥</span>
+                    <span>Downloads Excel report with analysis</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startConsistencyAnalysis"
+              :disabled="!canRunConsistencyAnalysis || isRunningConsistencyAnalysis"
+              class="process-btn"
+            >
+              <span v-if="isRunningConsistencyAnalysis" class="spinner"></span>
+              <span v-else class="btn-icon">📊</span>
+              {{
+                isRunningConsistencyAnalysis
+                  ? "Analyzing CPT Consistency..."
+                  : "Start CPT Consistency Analysis"
+              }}
+            </button>
+
+            <button
+              v-if="consistencyPredictionsFile || consistencyGroundTruthFile || consistencyJobId"
+              @click="resetConsistencyForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- CPT Consistency Analysis Status -->
+        <div v-if="consistencyJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="consistencyJobStatus.status">
+                <span class="status-icon">{{ getConsistencyStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getConsistencyStatusTitle() }}</h3>
+                <p class="status-message">{{ consistencyJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="consistencyJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${consistencyJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ consistencyJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkConsistencyJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="consistencyJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="success-message">
+                <span class="success-icon">✅</span>
+                <span>Analysis complete!</span>
+              </div>
+              <button @click="downloadConsistencyResults" class="download-btn">
+                <span class="btn-icon">📥</span>
+                Download Analysis Report (XLSX)
+              </button>
+            </div>
+
+            <div
+              v-if="
+                consistencyJobStatus.status === 'failed' && consistencyJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ consistencyJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Error Analysis Status -->
         <div v-if="errorAnalysisJobStatus" class="status-section">
           <div class="status-card">
@@ -9226,6 +9455,14 @@ export default {
       errorAnalysisJobStatus: null,
       isAnalyzingErrors: false,
       errorAnalysisPollingInterval: null,
+      // CPT Consistency Analysis functionality
+      consistencyPredictionsFile: null,
+      consistencyGroundTruthFile: null,
+      consistencyJobId: null,
+      consistencyJobStatus: null,
+      isRunningConsistencyAnalysis: false,
+      isConsistencyPredictionsDragActive: false,
+      isConsistencyGroundTruthDragActive: false,
       // Provider Mapping functionality
       providerMappingExcelFile: null,
       providerMappingJobId: null,
@@ -9638,6 +9875,11 @@ export default {
     canCheckCptCodes() {
       return (
         this.cptPredictionsFile !== null && this.cptGroundTruthFile !== null
+      );
+    },
+    canRunConsistencyAnalysis() {
+      return (
+        this.consistencyPredictionsFile !== null && this.consistencyGroundTruthFile !== null
       );
     },
     canProcessProviderMapping() {
@@ -12805,6 +13047,190 @@ export default {
       this.errorAnalysisJobId = null;
       this.errorAnalysisJobStatus = null;
       this.isAnalyzingErrors = false;
+    },
+
+    // CPT Consistency Analysis methods
+    triggerConsistencyPredictionsUpload() {
+      this.$refs.consistencyPredictionsInput.click();
+    },
+    onConsistencyPredictionsFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.consistencyPredictionsFile = file;
+      }
+    },
+    onConsistencyPredictionsDrop(event) {
+      event.preventDefault();
+      this.isConsistencyPredictionsDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && (file.name.endsWith('.csv') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+        this.consistencyPredictionsFile = file;
+      } else {
+        this.toast.error('Please upload a CSV or XLSX file');
+      }
+    },
+
+    triggerConsistencyGroundTruthUpload() {
+      this.$refs.consistencyGroundTruthInput.click();
+    },
+    onConsistencyGroundTruthFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.consistencyGroundTruthFile = file;
+      }
+    },
+    onConsistencyGroundTruthDrop(event) {
+      event.preventDefault();
+      this.isConsistencyGroundTruthDragActive = false;
+      const file = event.dataTransfer.files[0];
+      if (file && (file.name.endsWith('.csv') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+        this.consistencyGroundTruthFile = file;
+      } else {
+        this.toast.error('Please upload a CSV or XLSX file');
+      }
+    },
+
+    async startConsistencyAnalysis() {
+      if (!this.canRunConsistencyAnalysis) {
+        this.toast.error("Please upload both predictions and ground truth files");
+        return;
+      }
+
+      this.isRunningConsistencyAnalysis = true;
+      this.consistencyJobStatus = null;
+
+      const formData = new FormData();
+      formData.append("predictions_file", this.consistencyPredictionsFile);
+      formData.append("ground_truth_file", this.consistencyGroundTruthFile);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "analyze-cpt-code-consistency");
+      console.log("🔧 CPT Consistency Analysis Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.consistencyJobId = response.data.job_id;
+        this.toast.success(
+          "CPT consistency analysis started! Check the status section below."
+        );
+
+        // Set initial status
+        this.consistencyJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Analyzing CPT code consistency...",
+        };
+      } catch (error) {
+        console.error("CPT consistency analysis error:", error);
+        this.toast.error(
+          "Failed to start CPT consistency analysis. Please try again."
+        );
+        this.isRunningConsistencyAnalysis = false;
+      }
+    },
+
+    async checkConsistencyJobStatus() {
+      if (!this.consistencyJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(API_BASE_URL, `status/${this.consistencyJobId}`);
+        const response = await axios.get(statusUrl);
+
+        this.consistencyJobStatus = response.data;
+
+        if (response.data.status === "completed") {
+          this.toast.success("CPT consistency analysis completed!");
+          this.isRunningConsistencyAnalysis = false;
+        } else if (response.data.status === "failed") {
+          this.toast.error(
+            `CPT consistency analysis failed: ${
+              response.data.error || "Unknown error"
+            }`
+          );
+          this.isRunningConsistencyAnalysis = false;
+        }
+      } catch (error) {
+        console.error("Status check error:", error);
+        this.toast.error("Failed to check status");
+      }
+    },
+
+    async downloadConsistencyResults() {
+      if (!this.consistencyJobId) return;
+
+      try {
+        const response = await axios.get(
+          joinUrl(
+            API_BASE_URL,
+            `download/${this.consistencyJobId}?format=xlsx`
+          ),
+          {
+            responseType: "blob",
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute(
+          "download",
+          `cpt_consistency_analysis_${this.consistencyJobId}.xlsx`
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Analysis report download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download analysis report");
+      }
+    },
+
+    resetConsistencyForm() {
+      this.consistencyPredictionsFile = null;
+      this.consistencyGroundTruthFile = null;
+      this.consistencyJobId = null;
+      this.consistencyJobStatus = null;
+      this.isRunningConsistencyAnalysis = false;
+      this.isConsistencyPredictionsDragActive = false;
+      this.isConsistencyGroundTruthDragActive = false;
+    },
+
+    getConsistencyStatusIcon() {
+      if (!this.consistencyJobStatus) return '⏳';
+      switch (this.consistencyJobStatus.status) {
+        case 'processing':
+          return '⏳';
+        case 'completed':
+          return '✅';
+        case 'failed':
+          return '❌';
+        default:
+          return '⏳';
+      }
+    },
+
+    getConsistencyStatusTitle() {
+      if (!this.consistencyJobStatus) return 'Analyzing...';
+      switch (this.consistencyJobStatus.status) {
+        case 'processing':
+          return 'Analyzing CPT Code Consistency...';
+        case 'completed':
+          return 'Analysis Complete!';
+        case 'failed':
+          return 'Analysis Failed';
+        default:
+          return 'Analyzing...';
+      }
     },
 
     // Error Analysis methods

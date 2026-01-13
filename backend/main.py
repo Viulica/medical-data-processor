@@ -5906,6 +5906,376 @@ async def check_cpt_codes_with_pdfs_route(
         logger.error(f"CPT codes check with PDFs upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+@app.post("/analyze-cpt-code-consistency")
+async def analyze_cpt_code_consistency(
+    background_tasks: BackgroundTasks,
+    predictions_file: UploadFile = File(...),
+    ground_truth_file: UploadFile = File(...)
+):
+    """Analyze CPT codes to find which ones consistently meet all validation criteria
+    
+    Identifies CPT codes where ALL instances have:
+    1. Correct CPT code (predicted = ground truth)
+    2. Correct anesthesia type (predicted = ground truth)
+    3. ICD1 either fully correct OR will not get denied (non-critical error)
+    
+    Args:
+        predictions_file: Predictions file (Demo Detail Report)
+        ground_truth_file: Ground truth file (Demo Detail Report)
+    
+    Returns:
+        Job ID for tracking the analysis progress
+    """
+    
+    try:
+        logger.info(f"Received CPT code consistency analysis request")
+        
+        # Validate file types
+        if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Predictions file must be CSV or XLSX")
+        if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Ground truth file must be CSV or XLSX")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+        
+        logger.info(f"Created CPT code consistency analysis job {job_id}")
+        
+        # Save uploaded files
+        predictions_path = f"/tmp/{job_id}_predictions{Path(predictions_file.filename).suffix}"
+        ground_truth_path = f"/tmp/{job_id}_ground_truth{Path(ground_truth_file.filename).suffix}"
+        
+        with open(predictions_path, "wb") as f:
+            shutil.copyfileobj(predictions_file.file, f)
+        with open(ground_truth_path, "wb") as f:
+            shutil.copyfileobj(ground_truth_file.file, f)
+        
+        # Start background analysis
+        background_tasks.add_task(
+            analyze_cpt_code_consistency_background,
+            job_id,
+            predictions_path,
+            ground_truth_path
+        )
+        
+        logger.info(f"Background CPT code consistency analysis task started for job {job_id}")
+        
+        return {"job_id": job_id, "message": "CPT code consistency analysis started"}
+        
+    except Exception as e:
+        logger.error(f"CPT code consistency analysis upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, ground_truth_path: str):
+    """Background task to analyze CPT code consistency
+    
+    For each CPT code in ground truth, checks if ALL instances meet:
+    1. CPT code is correct (predicted = ground truth)
+    2. Anesthesia type is correct (predicted = ground truth)
+    3. ICD1 is either fully correct OR will not get denied (non-critical error)
+    
+    Args:
+        job_id: Unique job identifier
+        predictions_path: Path to predictions file
+        ground_truth_path: Path to ground truth file
+    """
+    job = job_status[job_id]
+    
+    try:
+        job.status = "processing"
+        job.message = "Reading files..."
+        job.progress = 10
+        
+        import pandas as pd
+        from accuracy_utils import is_critical_error, parse_icd_codes
+        
+        # Read files
+        predictions_path_obj = Path(predictions_path)
+        ground_truth_path_obj = Path(ground_truth_path)
+        
+        # Read predictions file
+        if predictions_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            if predictions_path_obj.suffix.lower() == '.xlsx':
+                predictions_df = pd.read_excel(predictions_path, dtype=str, engine='openpyxl')
+            else:
+                predictions_df = pd.read_excel(predictions_path, dtype=str, engine='xlrd')
+        else:
+            predictions_df = pd.read_csv(predictions_path, dtype=str)
+        
+        # Read ground truth file
+        if ground_truth_path_obj.suffix.lower() in ('.xlsx', '.xls'):
+            if ground_truth_path_obj.suffix.lower() == '.xlsx':
+                ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='openpyxl')
+            else:
+                ground_truth_df = pd.read_excel(ground_truth_path, dtype=str, engine='xlrd')
+        else:
+            ground_truth_df = pd.read_csv(ground_truth_path, dtype=str)
+        
+        logger.info(f"Read {len(predictions_df)} predictions and {len(ground_truth_df)} ground truth records")
+        
+        job.message = "Finding columns..."
+        job.progress = 20
+        
+        # Helper function to find columns (case insensitive)
+        def find_column(df, possible_names):
+            for col in df.columns:
+                col_upper = col.upper().strip()
+                for name in possible_names:
+                    if col_upper == name.upper().strip():
+                        return col
+            return None
+        
+        # Find required columns in predictions
+        account_id_col_pred = find_column(predictions_df, ['AccountId', 'Account ID', 'Account #'])
+        cpt_col_pred = find_column(predictions_df, ['Cpt', 'ASA Code', 'CPT'])
+        anesthesia_type_col_pred = find_column(predictions_df, ['Anesthesia Type'])
+        
+        # Find ICD columns in predictions (ICD1, ICD2, ICD3, ICD4)
+        icd_cols_pred = {}
+        for i in range(1, 5):
+            col = find_column(predictions_df, [f'Icd{i}', f'ICD{i}', f'ICD {i}'])
+            if col:
+                icd_cols_pred[i] = col
+        
+        # Find required columns in ground truth
+        account_id_col_gt = find_column(ground_truth_df, ['AccountId', 'Account ID', 'Account #'])
+        cpt_col_gt = find_column(ground_truth_df, ['Cpt', 'CPT'])
+        anesthesia_type_col_gt = find_column(ground_truth_df, ['Anesthesia Type'])
+        icd_col_gt = find_column(ground_truth_df, ['Icd', 'ICD'])
+        
+        # Validate required columns
+        if account_id_col_pred is None:
+            raise Exception("Predictions file must have an 'AccountId' or 'Account ID' column")
+        if cpt_col_pred is None:
+            raise Exception("Predictions file must have a 'Cpt' or 'ASA Code' column")
+        if account_id_col_gt is None:
+            raise Exception("Ground truth file must have an 'AccountId', 'Account ID', or 'Account #' column")
+        if cpt_col_gt is None:
+            raise Exception("Ground truth file must have a 'Cpt' column")
+        
+        logger.info(f"Found columns - Predictions: {account_id_col_pred}, {cpt_col_pred}, {anesthesia_type_col_pred}")
+        logger.info(f"Found columns - Ground Truth: {account_id_col_gt}, {cpt_col_gt}, {anesthesia_type_col_gt}")
+        
+        job.message = "Building ground truth lookup..."
+        job.progress = 30
+        
+        # Build ground truth lookup by account ID
+        gt_dict = {}
+        for idx, row in ground_truth_df.iterrows():
+            account_id = str(row[account_id_col_gt]).strip()
+            gt_dict[account_id] = {
+                'cpt': str(row[cpt_col_gt]).strip() if pd.notna(row[cpt_col_gt]) else '',
+                'anesthesia_type': str(row[anesthesia_type_col_gt]).strip() if anesthesia_type_col_gt and pd.notna(row[anesthesia_type_col_gt]) else '',
+                'icd': str(row[icd_col_gt]).strip() if icd_col_gt and pd.notna(row[icd_col_gt]) else ''
+            }
+        
+        logger.info(f"Built ground truth lookup with {len(gt_dict)} accounts")
+        
+        job.message = "Analyzing CPT code consistency..."
+        job.progress = 40
+        
+        # Dictionary to store results by CPT code
+        # cpt_code -> { 'instances': [], 'all_criteria_met': bool }
+        cpt_analysis = {}
+        
+        # Process each prediction
+        for idx, row in predictions_df.iterrows():
+            if idx % 100 == 0:
+                progress = 40 + int((idx / len(predictions_df)) * 50)
+                job.progress = min(progress, 90)
+                job.message = f"Analyzing records... {idx}/{len(predictions_df)}"
+            
+            account_id = str(row[account_id_col_pred]).strip()
+            
+            # Skip if account not in ground truth
+            if account_id not in gt_dict:
+                continue
+            
+            gt_data = gt_dict[account_id]
+            gt_cpt = gt_data['cpt']
+            
+            # Skip if no ground truth CPT
+            if not gt_cpt:
+                continue
+            
+            # Initialize CPT code entry if not exists
+            if gt_cpt not in cpt_analysis:
+                cpt_analysis[gt_cpt] = {
+                    'total_instances': 0,
+                    'instances': []
+                }
+            
+            cpt_analysis[gt_cpt]['total_instances'] += 1
+            
+            # Check criterion 1: CPT code is correct
+            predicted_cpt = str(row[cpt_col_pred]).strip() if pd.notna(row[cpt_col_pred]) else ''
+            cpt_correct = (predicted_cpt == gt_cpt)
+            
+            # Check criterion 2: Anesthesia type is correct
+            anesthesia_correct = None  # None means not available for comparison
+            if anesthesia_type_col_pred and anesthesia_type_col_gt:
+                predicted_anes = str(row[anesthesia_type_col_pred]).strip() if pd.notna(row[anesthesia_type_col_pred]) else ''
+                gt_anes = gt_data['anesthesia_type']
+                anesthesia_correct = (predicted_anes == gt_anes)
+            
+            # Check criterion 3: ICD1 is either correct OR non-critical
+            icd1_acceptable = None  # None means not available for comparison
+            if icd_col_gt and 1 in icd_cols_pred:
+                gt_icd_list = parse_icd_codes(gt_data['icd'])
+                predicted_icd1 = str(row[icd_cols_pred[1]]).strip() if pd.notna(row[icd_cols_pred[1]]) else ''
+                
+                if len(gt_icd_list) > 0 and predicted_icd1:
+                    gt_icd1 = gt_icd_list[0]
+                    
+                    # ICD1 is acceptable if it's correct OR it's a non-critical error
+                    if predicted_icd1 == gt_icd1:
+                        icd1_acceptable = True  # Fully correct
+                    else:
+                        # Check if it's a critical error
+                        is_critical = is_critical_error(predicted_icd1, gt_icd1)
+                        icd1_acceptable = not is_critical  # Acceptable if NOT critical
+            
+            # Store instance details
+            instance = {
+                'account_id': account_id,
+                'cpt_correct': cpt_correct,
+                'anesthesia_correct': anesthesia_correct,
+                'icd1_acceptable': icd1_acceptable,
+                'predicted_cpt': predicted_cpt,
+                'predicted_anes': predicted_anes if anesthesia_type_col_pred else 'N/A',
+                'predicted_icd1': predicted_icd1 if icd_col_gt and 1 in icd_cols_pred else 'N/A'
+            }
+            
+            cpt_analysis[gt_cpt]['instances'].append(instance)
+        
+        logger.info(f"Analyzed {len(cpt_analysis)} unique CPT codes")
+        
+        job.message = "Generating report..."
+        job.progress = 95
+        
+        # Determine which CPT codes meet ALL criteria for ALL instances
+        consistent_cpt_codes = []
+        inconsistent_cpt_codes = []
+        
+        for cpt_code, data in cpt_analysis.items():
+            instances = data['instances']
+            total = data['total_instances']
+            
+            # Check if ALL instances meet ALL three criteria
+            all_meet_criteria = True
+            cpt_correct_count = 0
+            anes_correct_count = 0
+            anes_available_count = 0
+            icd1_acceptable_count = 0
+            icd1_available_count = 0
+            
+            for inst in instances:
+                # Count successes
+                if inst['cpt_correct']:
+                    cpt_correct_count += 1
+                
+                if inst['anesthesia_correct'] is not None:
+                    anes_available_count += 1
+                    if inst['anesthesia_correct']:
+                        anes_correct_count += 1
+                
+                if inst['icd1_acceptable'] is not None:
+                    icd1_available_count += 1
+                    if inst['icd1_acceptable']:
+                        icd1_acceptable_count += 1
+                
+                # Check if this instance meets all criteria
+                # For anesthesia and ICD1, if data not available (None), we consider it as "pass"
+                cpt_ok = inst['cpt_correct']
+                anes_ok = inst['anesthesia_correct'] if inst['anesthesia_correct'] is not None else True
+                icd1_ok = inst['icd1_acceptable'] if inst['icd1_acceptable'] is not None else True
+                
+                if not (cpt_ok and anes_ok and icd1_ok):
+                    all_meet_criteria = False
+                    # Don't break - we want to collect stats for all instances
+            
+            result = {
+                'cpt_code': cpt_code,
+                'total_instances': total,
+                'cpt_correct_count': cpt_correct_count,
+                'cpt_accuracy': f"{(cpt_correct_count/total*100):.1f}%" if total > 0 else "0.0%",
+                'anesthesia_correct_count': anes_correct_count if anes_available_count > 0 else 'N/A',
+                'anesthesia_accuracy': f"{(anes_correct_count/anes_available_count*100):.1f}%" if anes_available_count > 0 else 'N/A',
+                'icd1_acceptable_count': icd1_acceptable_count if icd1_available_count > 0 else 'N/A',
+                'icd1_acceptable_rate': f"{(icd1_acceptable_count/icd1_available_count*100):.1f}%" if icd1_available_count > 0 else 'N/A',
+                'all_criteria_met': all_meet_criteria
+            }
+            
+            if all_meet_criteria:
+                consistent_cpt_codes.append(result)
+            else:
+                inconsistent_cpt_codes.append(result)
+        
+        # Sort by total instances (descending)
+        consistent_cpt_codes.sort(key=lambda x: x['total_instances'], reverse=True)
+        inconsistent_cpt_codes.sort(key=lambda x: x['total_instances'], reverse=True)
+        
+        logger.info(f"Found {len(consistent_cpt_codes)} consistent CPT codes and {len(inconsistent_cpt_codes)} inconsistent CPT codes")
+        
+        # Create output files
+        output_path = f"/tmp/{job_id}_cpt_consistency_analysis.xlsx"
+        
+        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            # Sheet 1: Consistent CPT codes (meet all criteria)
+            if consistent_cpt_codes:
+                consistent_df = pd.DataFrame(consistent_cpt_codes)
+                consistent_df.to_excel(writer, sheet_name='Consistent CPT Codes', index=False)
+            else:
+                pd.DataFrame([{'Note': 'No CPT codes meet all criteria for all instances'}]).to_excel(
+                    writer, sheet_name='Consistent CPT Codes', index=False
+                )
+            
+            # Sheet 2: Inconsistent CPT codes (at least one instance fails)
+            if inconsistent_cpt_codes:
+                inconsistent_df = pd.DataFrame(inconsistent_cpt_codes)
+                inconsistent_df.to_excel(writer, sheet_name='Inconsistent CPT Codes', index=False)
+            else:
+                pd.DataFrame([{'Note': 'All CPT codes are consistent'}]).to_excel(
+                    writer, sheet_name='Inconsistent CPT Codes', index=False
+                )
+            
+            # Sheet 3: Summary
+            summary_data = {
+                'Metric': [
+                    'Total Unique CPT Codes',
+                    'Consistent CPT Codes (all criteria met)',
+                    'Inconsistent CPT Codes',
+                    'Consistency Rate'
+                ],
+                'Value': [
+                    len(cpt_analysis),
+                    len(consistent_cpt_codes),
+                    len(inconsistent_cpt_codes),
+                    f"{(len(consistent_cpt_codes)/len(cpt_analysis)*100):.1f}%" if len(cpt_analysis) > 0 else "0.0%"
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        
+        logger.info(f"Created output file: {output_path}")
+        
+        # Store result
+        job.output_file = output_path
+        job.status = "completed"
+        job.progress = 100
+        job.message = f"Analysis complete! Found {len(consistent_cpt_codes)} consistent CPT codes out of {len(cpt_analysis)} total"
+        
+        logger.info(f"CPT code consistency analysis completed for job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"CPT code consistency analysis error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        job.status = "failed"
+        job.error = str(e)
+
 def analyze_field_errors_background(job_id: str, predictions_path: str, ground_truth_path: str, pdfs_zip_path: str, selected_fields: List[str], model: str = "gemini-3-flash-preview"):
     """Background task to analyze errors for selected fields using Gemini Flash
     
