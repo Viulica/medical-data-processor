@@ -6261,8 +6261,8 @@ def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, 
         
         logger.info(f"Created output file: {output_path}")
         
-        # Store result
-        job.output_file = output_path
+        # Store result (use result_file_xlsx to match the download endpoint)
+        job.result_file_xlsx = output_path
         job.status = "completed"
         job.progress = 100
         job.message = f"Analysis complete! Found {len(consistent_cpt_codes)} consistent CPT codes out of {len(cpt_analysis)} total"

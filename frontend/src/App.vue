@@ -9463,6 +9463,7 @@ export default {
       isRunningConsistencyAnalysis: false,
       isConsistencyPredictionsDragActive: false,
       isConsistencyGroundTruthDragActive: false,
+      consistencyPollingInterval: null,
       // Provider Mapping functionality
       providerMappingExcelFile: null,
       providerMappingJobId: null,
@@ -9968,6 +9969,25 @@ export default {
         if (this.errorAnalysisPollingInterval) {
           clearInterval(this.errorAnalysisPollingInterval);
           this.errorAnalysisPollingInterval = null;
+        }
+      }
+    },
+    
+    // Poll for consistency analysis status
+    isRunningConsistencyAnalysis(newVal) {
+      if (newVal && this.consistencyJobId) {
+        // Start polling when analysis begins
+        const pollingInterval = setInterval(() => {
+          this.checkConsistencyJobStatus();
+        }, 2000); // Poll every 2 seconds
+        
+        // Store interval ID so we can clear it later
+        this.consistencyPollingInterval = pollingInterval;
+      } else {
+        // Stop polling when analysis completes or fails
+        if (this.consistencyPollingInterval) {
+          clearInterval(this.consistencyPollingInterval);
+          this.consistencyPollingInterval = null;
         }
       }
     }
@@ -13203,6 +13223,11 @@ export default {
       this.isRunningConsistencyAnalysis = false;
       this.isConsistencyPredictionsDragActive = false;
       this.isConsistencyGroundTruthDragActive = false;
+      // Clear polling interval
+      if (this.consistencyPollingInterval) {
+        clearInterval(this.consistencyPollingInterval);
+        this.consistencyPollingInterval = null;
+      }
     },
 
     getConsistencyStatusIcon() {
