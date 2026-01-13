@@ -6208,7 +6208,7 @@ Please analyze the PDF images provided and explain:
 Provide a concise explanation (2-3 sentences max)."""
 
                     # Create Gemini request
-                    parts = [types.Part.from_text(prompt)]
+                    parts = [types.Part.from_text(text=prompt)]
                     for img_data in image_data_list:
                         parts.append(types.Part.from_bytes(
                             data=base64.b64decode(img_data),
