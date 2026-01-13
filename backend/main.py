@@ -6168,19 +6168,28 @@ def analyze_field_errors_background(job_id: str, predictions_path: str, ground_t
             # Analyze each error (limit to first 20 to avoid excessive API calls)
             for error_idx, error in enumerate(errors[:20]):
                 try:
-                    # Convert PDF to images for Gemini
-                    from pdf2image import convert_from_path
+                    # Convert PDF to images for Gemini using PyMuPDF
+                    import fitz  # PyMuPDF
                     import base64
+                    import io
+                    from PIL import Image
                     
-                    images = convert_from_path(error['pdf_path'], dpi=150, first_page=1, last_page=5)
+                    # Open PDF with PyMuPDF
+                    pdf_doc = fitz.open(error['pdf_path'])
                     image_data_list = []
                     
-                    for img in images:
-                        import io
+                    # Convert first 5 pages to images
+                    for page_num in range(min(5, len(pdf_doc))):
+                        page = pdf_doc[page_num]
+                        pix = page.get_pixmap(dpi=150)
+                        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        
                         buffer = io.BytesIO()
                         img.save(buffer, format='PNG')
                         img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
                         image_data_list.append(img_base64)
+                    
+                    pdf_doc.close()
                     
                     # Build prompt for Gemini
                     prompt = f"""You are a medical coding expert analyzing prediction errors.
