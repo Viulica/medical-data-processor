@@ -767,6 +767,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             medicare_modifiers = False
             has_md = False
             has_crna = False
+            enable_qs = True  # Default to True if not set
             
             # Determine M1 modifier (AA/QK/QZ) based on mednet code
             if primary_mednet_code and primary_mednet_code != '' and primary_mednet_code.lower() != 'nan':
@@ -775,16 +776,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     # Code found in definition - increment successful matches
                     successful_matches += 1
                     
-                    # Get the modifiers settings (ignore enable_qs for now)
+                    # Get the modifiers settings
                     modifiers_tuple = modifiers_dict[primary_mednet_code]
                     medicare_modifiers = modifiers_tuple[0]
                     medical_direction = modifiers_tuple[1]
-                    # enable_qs = modifiers_tuple[2] if len(modifiers_tuple) > 2 else True  # Ignored for now
+                    enable_qs = modifiers_tuple[2] if len(modifiers_tuple) > 2 else True  # Default to True if not set
                     
                     # DEBUG LOGGING for specific codes
                     if primary_mednet_code in ['3136', '003']:
                         print(f"\n🔍 DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
-                        print(f"   From DB: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}")
+                        print(f"   From DB: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}, enable_qs={enable_qs}")
                     
                     # Override medical direction if turn_off_medical_direction is enabled
                     if turn_off_medical_direction:
@@ -864,15 +865,19 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if primary_mednet_code in ['3136', '003']:
                         print(f"   GC modifier added (Resident: '{resident_value}')")
             
-            # Determine QS modifier based on Anesthesia Type AND medicare modifiers
+            # Determine QS modifier based on Anesthesia Type AND medicare modifiers AND enable_qs setting
             if has_anesthesia_type and medicare_modifiers:
-                anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
-                if anesthesia_type == 'MAC':
-                    qs_modifier = 'QS'
+                if enable_qs:
+                    anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
+                    if anesthesia_type == 'MAC':
+                        qs_modifier = 'QS'
+                        if primary_mednet_code in ['3136', '003']:
+                            print(f"   QS modifier added (Anesthesia Type: MAC, enable_qs=True)")
+                    elif primary_mednet_code in ['3136', '003']:
+                        print(f"   QS modifier NOT added (Anesthesia Type: '{anesthesia_type}', expected 'MAC')")
+                else:
                     if primary_mednet_code in ['3136', '003']:
-                        print(f"   QS modifier added (Anesthesia Type: MAC)")
-                elif primary_mednet_code in ['3136', '003']:
-                    print(f"   QS modifier NOT added (Anesthesia Type: '{anesthesia_type}', expected 'MAC')")
+                        print(f"   QS modifier NOT added (enable_qs=False for this insurance)")
             
             # Determine P modifier based on Physical Status
             if has_physical_status:

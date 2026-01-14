@@ -5910,31 +5910,47 @@ async def check_cpt_codes_with_pdfs_route(
 async def analyze_cpt_code_consistency(
     background_tasks: BackgroundTasks,
     predictions_file: UploadFile = File(...),
-    ground_truth_file: UploadFile = File(...)
+    ground_truth_file: UploadFile = File(...),
+    check_cpt: bool = Form(True),
+    check_anesthesia: bool = Form(False),
+    check_icd1: bool = Form(False),
+    threshold: float = Form(100.0)
 ):
-    """Analyze CPT codes to find which ones consistently meet all validation criteria
+    """Analyze CPT codes to find which ones consistently meet validation criteria
     
-    Identifies CPT codes where ALL instances have:
-    1. Correct CPT code (predicted = ground truth)
-    2. Correct anesthesia type (predicted = ground truth)
-    3. ICD1 either fully correct OR will not get denied (non-critical error)
+    Identifies CPT codes where instances meet selected criteria above the threshold:
+    1. Correct CPT code (predicted = ground truth) - if check_cpt=True
+    2. Correct anesthesia type (predicted = ground truth) - if check_anesthesia=True
+    3. ICD1 either fully correct OR will not get denied (non-critical error) - if check_icd1=True
     
     Args:
         predictions_file: Predictions file (Demo Detail Report)
         ground_truth_file: Ground truth file (Demo Detail Report)
+        check_cpt: Whether to check CPT code correctness (default: True)
+        check_anesthesia: Whether to check anesthesia type correctness (default: False)
+        check_icd1: Whether to check ICD1 correctness/acceptability (default: False)
+        threshold: Minimum percentage of instances that must meet criteria (default: 100.0 for 100%)
     
     Returns:
         Job ID for tracking the analysis progress
     """
     
     try:
-        logger.info(f"Received CPT code consistency analysis request")
+        logger.info(f"Received CPT code consistency analysis request - CPT: {check_cpt}, Anesthesia: {check_anesthesia}, ICD1: {check_icd1}, Threshold: {threshold}%")
         
         # Validate file types
         if not predictions_file.filename.endswith(('.csv', '.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Predictions file must be CSV or XLSX")
         if not ground_truth_file.filename.endswith(('.csv', '.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Ground truth file must be CSV or XLSX")
+        
+        # Validate threshold
+        if threshold < 0 or threshold > 100:
+            raise HTTPException(status_code=400, detail="Threshold must be between 0 and 100")
+        
+        # Validate at least one check is enabled
+        if not check_cpt and not check_anesthesia and not check_icd1:
+            raise HTTPException(status_code=400, detail="At least one check option must be enabled")
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -5957,7 +5973,11 @@ async def analyze_cpt_code_consistency(
             analyze_cpt_code_consistency_background,
             job_id,
             predictions_path,
-            ground_truth_path
+            ground_truth_path,
+            check_cpt,
+            check_anesthesia,
+            check_icd1,
+            threshold
         )
         
         logger.info(f"Background CPT code consistency analysis task started for job {job_id}")
@@ -5968,18 +5988,30 @@ async def analyze_cpt_code_consistency(
         logger.error(f"CPT code consistency analysis upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, ground_truth_path: str):
+def analyze_cpt_code_consistency_background(
+    job_id: str, 
+    predictions_path: str, 
+    ground_truth_path: str,
+    check_cpt: bool = True,
+    check_anesthesia: bool = False,
+    check_icd1: bool = False,
+    threshold: float = 100.0
+):
     """Background task to analyze CPT code consistency
     
-    For each CPT code in ground truth, checks if ALL instances meet:
-    1. CPT code is correct (predicted = ground truth)
-    2. Anesthesia type is correct (predicted = ground truth)
-    3. ICD1 is either fully correct OR will not get denied (non-critical error)
+    For each CPT code in ground truth, checks if instances meet selected criteria above threshold:
+    1. CPT code is correct (predicted = ground truth) - if check_cpt=True
+    2. Anesthesia type is correct (predicted = ground truth) - if check_anesthesia=True
+    3. ICD1 is either fully correct OR will not get denied (non-critical error) - if check_icd1=True
     
     Args:
         job_id: Unique job identifier
         predictions_path: Path to predictions file
         ground_truth_path: Path to ground truth file
+        check_cpt: Whether to check CPT code correctness
+        check_anesthesia: Whether to check anesthesia type correctness
+        check_icd1: Whether to check ICD1 correctness/acceptability
+        threshold: Minimum percentage of instances that must meet criteria (0-100)
     """
     job = job_status[job_id]
     
@@ -6155,60 +6187,105 @@ def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, 
         job.message = "Generating report..."
         job.progress = 95
         
-        # Determine which CPT codes meet ALL criteria for ALL instances
+        # Determine which CPT codes meet selected criteria above threshold
         consistent_cpt_codes = []
         inconsistent_cpt_codes = []
+        
+        # Build criteria description for report
+        criteria_list = []
+        if check_cpt:
+            criteria_list.append("CPT Code")
+        if check_anesthesia:
+            criteria_list.append("Anesthesia Type")
+        if check_icd1:
+            criteria_list.append("ICD1")
+        criteria_description = " + ".join(criteria_list) if criteria_list else "None"
         
         for cpt_code, data in cpt_analysis.items():
             instances = data['instances']
             total = data['total_instances']
             
-            # Check if ALL instances meet ALL three criteria
-            all_meet_criteria = True
+            # Count successes for each enabled criterion
             cpt_correct_count = 0
             anes_correct_count = 0
             anes_available_count = 0
             icd1_acceptable_count = 0
             icd1_available_count = 0
             
+            # Count instances that meet ALL selected criteria
+            instances_meeting_all_criteria = 0
+            evaluable_instances = 0  # Instances where we can evaluate all required criteria
+            
             for inst in instances:
-                # Count successes
-                if inst['cpt_correct']:
-                    cpt_correct_count += 1
+                # Track individual criterion success
+                if check_cpt:
+                    if inst['cpt_correct']:
+                        cpt_correct_count += 1
                 
-                if inst['anesthesia_correct'] is not None:
-                    anes_available_count += 1
-                    if inst['anesthesia_correct']:
-                        anes_correct_count += 1
+                if check_anesthesia:
+                    if inst['anesthesia_correct'] is not None:
+                        anes_available_count += 1
+                        if inst['anesthesia_correct']:
+                            anes_correct_count += 1
                 
-                if inst['icd1_acceptable'] is not None:
-                    icd1_available_count += 1
-                    if inst['icd1_acceptable']:
-                        icd1_acceptable_count += 1
+                if check_icd1:
+                    if inst['icd1_acceptable'] is not None:
+                        icd1_available_count += 1
+                        if inst['icd1_acceptable']:
+                            icd1_acceptable_count += 1
                 
-                # Check if this instance meets all criteria
-                # For anesthesia and ICD1, if data not available (None), we consider it as "pass"
-                cpt_ok = inst['cpt_correct']
-                anes_ok = inst['anesthesia_correct'] if inst['anesthesia_correct'] is not None else True
-                icd1_ok = inst['icd1_acceptable'] if inst['icd1_acceptable'] is not None else True
+                # Check if we can evaluate all required criteria for this instance
+                can_evaluate = True
+                if check_anesthesia and inst['anesthesia_correct'] is None:
+                    can_evaluate = False
+                if check_icd1 and inst['icd1_acceptable'] is None:
+                    can_evaluate = False
                 
-                if not (cpt_ok and anes_ok and icd1_ok):
-                    all_meet_criteria = False
-                    # Don't break - we want to collect stats for all instances
+                if can_evaluate:
+                    evaluable_instances += 1
+                    
+                    # Check if this instance meets ALL selected criteria
+                    cpt_ok = inst['cpt_correct'] if check_cpt else True
+                    anes_ok = inst['anesthesia_correct'] if check_anesthesia else True
+                    icd1_ok = inst['icd1_acceptable'] if check_icd1 else True
+                    
+                    if cpt_ok and anes_ok and icd1_ok:
+                        instances_meeting_all_criteria += 1
+            
+            if evaluable_instances == 0:
+                # No evaluable instances, mark as inconsistent
+                criteria_met_percentage = 0.0
+            else:
+                criteria_met_percentage = (instances_meeting_all_criteria / evaluable_instances) * 100
+            
+            # Check if meets threshold
+            meets_threshold = criteria_met_percentage >= threshold
             
             result = {
                 'cpt_code': cpt_code,
                 'total_instances': total,
-                'cpt_correct_count': cpt_correct_count,
-                'cpt_accuracy': f"{(cpt_correct_count/total*100):.1f}%" if total > 0 else "0.0%",
-                'anesthesia_correct_count': anes_correct_count if anes_available_count > 0 else 'N/A',
-                'anesthesia_accuracy': f"{(anes_correct_count/anes_available_count*100):.1f}%" if anes_available_count > 0 else 'N/A',
-                'icd1_acceptable_count': icd1_acceptable_count if icd1_available_count > 0 else 'N/A',
-                'icd1_acceptable_rate': f"{(icd1_acceptable_count/icd1_available_count*100):.1f}%" if icd1_available_count > 0 else 'N/A',
-                'all_criteria_met': all_meet_criteria
+                'evaluable_instances': evaluable_instances,
+                'instances_meeting_criteria': instances_meeting_all_criteria,
+                'criteria_met_percentage': f"{criteria_met_percentage:.1f}%",
+                'meets_threshold': 'Yes' if meets_threshold else 'No',
+                'threshold_used': f"{threshold:.1f}%",
+                'criteria_checked': criteria_description
             }
             
-            if all_meet_criteria:
+            # Add individual criterion stats if checked
+            if check_cpt:
+                result['cpt_correct_count'] = cpt_correct_count
+                result['cpt_accuracy'] = f"{(cpt_correct_count/total*100):.1f}%" if total > 0 else "0.0%"
+            
+            if check_anesthesia:
+                result['anesthesia_correct_count'] = anes_correct_count if anes_available_count > 0 else 'N/A'
+                result['anesthesia_accuracy'] = f"{(anes_correct_count/anes_available_count*100):.1f}%" if anes_available_count > 0 else 'N/A'
+            
+            if check_icd1:
+                result['icd1_acceptable_count'] = icd1_acceptable_count if icd1_available_count > 0 else 'N/A'
+                result['icd1_acceptable_rate'] = f"{(icd1_acceptable_count/icd1_available_count*100):.1f}%" if icd1_available_count > 0 else 'N/A'
+            
+            if meets_threshold:
                 consistent_cpt_codes.append(result)
             else:
                 inconsistent_cpt_codes.append(result)
@@ -6245,15 +6322,19 @@ def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, 
             summary_data = {
                 'Metric': [
                     'Total Unique CPT Codes',
-                    'Consistent CPT Codes (all criteria met)',
+                    'Consistent CPT Codes (meets threshold)',
                     'Inconsistent CPT Codes',
-                    'Consistency Rate'
+                    'Consistency Rate',
+                    'Criteria Checked',
+                    'Threshold Used'
                 ],
                 'Value': [
                     len(cpt_analysis),
                     len(consistent_cpt_codes),
                     len(inconsistent_cpt_codes),
-                    f"{(len(consistent_cpt_codes)/len(cpt_analysis)*100):.1f}%" if len(cpt_analysis) > 0 else "0.0%"
+                    f"{(len(consistent_cpt_codes)/len(cpt_analysis)*100):.1f}%" if len(cpt_analysis) > 0 else "0.0%",
+                    criteria_description,
+                    f"{threshold:.1f}%"
                 ]
             }
             summary_df = pd.DataFrame(summary_data)
@@ -6265,7 +6346,7 @@ def analyze_cpt_code_consistency_background(job_id: str, predictions_path: str, 
         job.result_file_xlsx = output_path
         job.status = "completed"
         job.progress = 100
-        job.message = f"Analysis complete! Found {len(consistent_cpt_codes)} consistent CPT codes out of {len(cpt_analysis)} total"
+        job.message = f"Analysis complete! Found {len(consistent_cpt_codes)} consistent CPT codes (≥{threshold}%) out of {len(cpt_analysis)} total (Criteria: {criteria_description})"
         
         logger.info(f"CPT code consistency analysis completed for job {job_id}")
         

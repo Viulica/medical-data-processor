@@ -5791,13 +5791,13 @@
           <div class="section-header">
             <h2>CPT Code Consistency Analysis</h2>
             <p>
-              Identify which CPT codes consistently meet all validation criteria:
+              Identify which CPT codes consistently meet validation criteria above a threshold:
               <br/><br/>
-              <strong>This analysis checks for CPT codes where ALL instances have:</strong>
+              <strong>Select which criteria to check:</strong>
               <ul style="margin: 10px 0; padding-left: 20px;">
-                <li>✅ CPT code is always correct (predicted = ground truth)</li>
-                <li>✅ Anesthesia type is always correct (predicted = ground truth)</li>
-                <li>✅ ICD1 is either fully correct OR will not get denied (non-critical error)</li>
+                <li>✅ CPT code correctness (predicted = ground truth)</li>
+                <li>✅ Anesthesia type correctness (predicted = ground truth)</li>
+                <li>✅ ICD1 acceptability (either fully correct OR will not get denied)</li>
               </ul>
               <br/>
               <strong>Demo Detail Report</strong> (required): Predictions file should
@@ -5896,10 +5896,72 @@
               </div>
             </div>
 
-            <!-- Instructions -->
+            <!-- Analysis Settings -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">3</div>
+                <h3>Analysis Settings</h3>
+              </div>
+              <div class="settings-content" style="padding: 20px;">
+                <!-- Criteria Selection -->
+                <div style="margin-bottom: 20px;">
+                  <h4 style="margin-bottom: 12px; font-size: 16px; font-weight: 600;">Select Criteria to Check:</h4>
+                  <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <label class="checkbox-label" style="display: flex; align-items: center; padding: 8px; background: #f5f5f5; border-radius: 6px; cursor: pointer;">
+                      <input
+                        type="checkbox"
+                        v-model="consistencyCheckCpt"
+                        class="checkbox-input"
+                        style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;"
+                      />
+                      <span class="checkbox-text">✅ CPT Code Correctness</span>
+                    </label>
+                    <label class="checkbox-label" style="display: flex; align-items: center; padding: 8px; background: #f5f5f5; border-radius: 6px; cursor: pointer;">
+                      <input
+                        type="checkbox"
+                        v-model="consistencyCheckAnesthesia"
+                        class="checkbox-input"
+                        style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;"
+                      />
+                      <span class="checkbox-text">✅ Anesthesia Type Correctness</span>
+                    </label>
+                    <label class="checkbox-label" style="display: flex; align-items: center; padding: 8px; background: #f5f5f5; border-radius: 6px; cursor: pointer;">
+                      <input
+                        type="checkbox"
+                        v-model="consistencyCheckIcd1"
+                        class="checkbox-input"
+                        style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;"
+                      />
+                      <span class="checkbox-text">✅ ICD1 Acceptability</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Threshold Input -->
+                <div style="margin-bottom: 10px;">
+                  <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                    Threshold (%):
+                  </label>
+                  <input
+                    type="number"
+                    v-model.number="consistencyThreshold"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
+                    placeholder="100.0"
+                  />
+                  <p style="margin-top: 6px; font-size: 12px; color: #666;">
+                    Minimum percentage of instances that must meet all selected criteria (0-100)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">4</div>
                 <h3>How it works</h3>
               </div>
               <div class="settings-content">
@@ -5910,7 +5972,7 @@
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">✅</span>
-                    <span>Checks if all instances meet criteria</span>
+                    <span>Checks if instances meet selected criteria above threshold</span>
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">📊</span>
@@ -7289,6 +7351,7 @@
                   <th>MedNet Code</th>
                   <th>Medicare Modifiers</th>
                   <th>Bill Medical Direction</th>
+                  <th>Enable QS</th>
                   <th>Last Updated</th>
                   <th>Actions</th>
                 </tr>
@@ -7316,6 +7379,15 @@
                       "
                     >
                       {{ modifier.bill_medical_direction ? "YES" : "NO" }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      :class="
+                        modifier.enable_qs !== false ? 'badge-yes' : 'badge-no'
+                      "
+                    >
+                      {{ modifier.enable_qs !== false ? "YES" : "NO" }}
                     </span>
                   </td>
                   <td>{{ formatDate(modifier.updated_at) }}</td>
@@ -9288,6 +9360,19 @@
                   Bill Medical Direction
                 </label>
               </div>
+              <div class="form-group">
+                <label>
+                  <input
+                    v-model="currentModifier.enable_qs"
+                    type="checkbox"
+                    class="form-checkbox"
+                  />
+                  Enable QS Modifier
+                </label>
+                <p class="field-hint">
+                  When enabled, QS modifier will be added for MAC anesthesia type. When disabled, QS modifier will not be generated for this insurance.
+                </p>
+              </div>
             </div>
             <div class="modal-footer">
               <button @click="closeModals" class="btn-secondary">Cancel</button>
@@ -9464,6 +9549,10 @@ export default {
       isConsistencyPredictionsDragActive: false,
       isConsistencyGroundTruthDragActive: false,
       consistencyPollingInterval: null,
+      consistencyCheckCpt: true,
+      consistencyCheckAnesthesia: false,
+      consistencyCheckIcd1: false,
+      consistencyThreshold: 100.0,
       // Provider Mapping functionality
       providerMappingExcelFile: null,
       providerMappingJobId: null,
@@ -9605,6 +9694,7 @@ export default {
         mednet_code: "",
         medicare_modifiers: false,
         bill_medical_direction: false,
+        enable_qs: true,
       },
       // Insurance Mappings Config functionality
       insuranceMappings: [],
@@ -9880,7 +9970,11 @@ export default {
     },
     canRunConsistencyAnalysis() {
       return (
-        this.consistencyPredictionsFile !== null && this.consistencyGroundTruthFile !== null
+        this.consistencyPredictionsFile !== null && 
+        this.consistencyGroundTruthFile !== null &&
+        (this.consistencyCheckCpt || this.consistencyCheckAnesthesia || this.consistencyCheckIcd1) &&
+        this.consistencyThreshold >= 0 && 
+        this.consistencyThreshold <= 100
       );
     },
     canProcessProviderMapping() {
@@ -13112,7 +13206,13 @@ export default {
 
     async startConsistencyAnalysis() {
       if (!this.canRunConsistencyAnalysis) {
-        this.toast.error("Please upload both predictions and ground truth files");
+        if (!this.consistencyPredictionsFile || !this.consistencyGroundTruthFile) {
+          this.toast.error("Please upload both predictions and ground truth files");
+        } else if (!this.consistencyCheckCpt && !this.consistencyCheckAnesthesia && !this.consistencyCheckIcd1) {
+          this.toast.error("Please select at least one criterion to check");
+        } else {
+          this.toast.error("Please enter a valid threshold (0-100)");
+        }
         return;
       }
 
@@ -13122,9 +13222,14 @@ export default {
       const formData = new FormData();
       formData.append("predictions_file", this.consistencyPredictionsFile);
       formData.append("ground_truth_file", this.consistencyGroundTruthFile);
+      formData.append("check_cpt", this.consistencyCheckCpt);
+      formData.append("check_anesthesia", this.consistencyCheckAnesthesia);
+      formData.append("check_icd1", this.consistencyCheckIcd1);
+      formData.append("threshold", this.consistencyThreshold);
 
       const uploadUrl = joinUrl(API_BASE_URL, "analyze-cpt-code-consistency");
       console.log("🔧 CPT Consistency Analysis Upload URL:", uploadUrl);
+      console.log("🔧 Criteria - CPT:", this.consistencyCheckCpt, "Anesthesia:", this.consistencyCheckAnesthesia, "ICD1:", this.consistencyCheckIcd1, "Threshold:", this.consistencyThreshold);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -13223,6 +13328,11 @@ export default {
       this.isRunningConsistencyAnalysis = false;
       this.isConsistencyPredictionsDragActive = false;
       this.isConsistencyGroundTruthDragActive = false;
+      // Reset to defaults
+      this.consistencyCheckCpt = true;
+      this.consistencyCheckAnesthesia = false;
+      this.consistencyCheckIcd1 = false;
+      this.consistencyThreshold = 100.0;
       // Clear polling interval
       if (this.consistencyPollingInterval) {
         clearInterval(this.consistencyPollingInterval);
@@ -14310,6 +14420,7 @@ export default {
         mednet_code: modifier.mednet_code,
         medicare_modifiers: modifier.medicare_modifiers,
         bill_medical_direction: modifier.bill_medical_direction,
+        enable_qs: modifier.enable_qs !== false, // Default to true if not set
       };
       this.showEditModal = true;
     },
@@ -14330,6 +14441,10 @@ export default {
         formData.append(
           "bill_medical_direction",
           this.currentModifier.bill_medical_direction
+        );
+        formData.append(
+          "enable_qs",
+          this.currentModifier.enable_qs !== false
         );
 
         if (this.showEditModal) {
@@ -14382,6 +14497,7 @@ export default {
         mednet_code: "",
         medicare_modifiers: false,
         bill_medical_direction: false,
+        enable_qs: true,
       };
     },
 
