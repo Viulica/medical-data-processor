@@ -7246,7 +7246,9 @@ async def get_template_by_name(template_name: str):
 async def upload_template(
     name: str = Form(...),
     description: str = Form(""),
-    excel_file: UploadFile = File(...)
+    excel_file: UploadFile = File(...),
+    provider_mapping: str = Form(default=""),
+    extract_providers_from_annotations: bool = Form(default=False)
 ):
     """Upload an Excel file and save it as an instruction template"""
     import pandas as pd
@@ -7277,7 +7279,9 @@ async def upload_template(
             template_id = create_template(
                 name=name,
                 description=description,
-                template_data={'fields': field_definitions}
+                template_data={'fields': field_definitions},
+                provider_mapping=provider_mapping if provider_mapping else None,
+                extract_providers_from_annotations=extract_providers_from_annotations
             )
             
             if template_id:
@@ -7285,7 +7289,9 @@ async def upload_template(
                     "message": "Template uploaded successfully",
                     "template_id": template_id,
                     "name": name,
-                    "fields_count": len(field_definitions)
+                    "fields_count": len(field_definitions),
+                    "has_provider_mapping": bool(provider_mapping),
+                    "extract_providers_enabled": extract_providers_from_annotations
                 }
             else:
                 raise HTTPException(status_code=500, detail="Failed to save template to database")
@@ -7309,7 +7315,9 @@ async def update_template(
     template_id: int,
     name: str = Form(None),
     description: str = Form(None),
-    excel_file: UploadFile = File(None)
+    excel_file: UploadFile = File(None),
+    provider_mapping: str = Form(None),
+    extract_providers_from_annotations: bool = Form(None)
 ):
     """Update an existing instruction template"""
     import pandas as pd
@@ -7357,7 +7365,9 @@ async def update_template(
             template_id=template_id,
             name=name,
             description=description,
-            template_data=template_data
+            template_data=template_data,
+            provider_mapping=provider_mapping,
+            extract_providers_from_annotations=extract_providers_from_annotations
         )
         
         if success:

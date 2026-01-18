@@ -41,6 +41,44 @@ def get_db_connection():
             conn.close()
 
 
+def migrate_provider_mapping_columns():
+    """
+    Add provider_mapping and extract_providers_from_annotations columns to instruction_templates if they don't exist.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Check if columns exist
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='instruction_templates' 
+                    AND column_name IN ('provider_mapping', 'extract_providers_from_annotations')
+                """)
+                existing_columns = {row[0] for row in cur.fetchall()}
+                
+                # Add provider_mapping column if it doesn't exist
+                if 'provider_mapping' not in existing_columns:
+                    cur.execute("""
+                        ALTER TABLE instruction_templates 
+                        ADD COLUMN provider_mapping TEXT
+                    """)
+                    logger.info("✅ Added provider_mapping column to instruction_templates")
+                
+                # Add extract_providers_from_annotations column if it doesn't exist
+                if 'extract_providers_from_annotations' not in existing_columns:
+                    cur.execute("""
+                        ALTER TABLE instruction_templates 
+                        ADD COLUMN extract_providers_from_annotations BOOLEAN NOT NULL DEFAULT FALSE
+                    """)
+                    logger.info("✅ Added extract_providers_from_annotations column to instruction_templates")
+                
+                return True
+    except Exception as e:
+        logger.error(f"Failed to migrate provider mapping columns: {e}")
+        return False
+
+
 def init_database():
     """
     Initialize the database schema.
@@ -62,6 +100,8 @@ def init_database():
         name VARCHAR(255) NOT NULL UNIQUE,
         description TEXT,
         template_data JSONB NOT NULL,
+        provider_mapping TEXT,
+        extract_providers_from_annotations BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -170,7 +210,11 @@ def init_database():
             with conn.cursor() as cur:
                 cur.execute(create_table_sql)
                 logger.info("✅ Database schema initialized successfully")
-                return True
+        
+        # Run migrations
+        migrate_provider_mapping_columns()
+        
+        return True
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
         return False
@@ -457,13 +501,13 @@ def get_template(template_id=None, template_name=None):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if template_id:
                     cur.execute("""
-                        SELECT id, name, description, template_data, created_at, updated_at
+                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at
                         FROM instruction_templates
                         WHERE id = %s
                     """, (template_id,))
                 elif template_name:
                     cur.execute("""
-                        SELECT id, name, description, template_data, created_at, updated_at
+                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at
                         FROM instruction_templates
                         WHERE name = %s
                     """, (template_name,))
@@ -477,7 +521,7 @@ def get_template(template_id=None, template_name=None):
         return None
 
 
-def create_template(name, description, template_data):
+def create_template(name, description, template_data, provider_mapping=None, extract_providers_from_annotations=False):
     """
     Create a new instruction template.
     Returns the created template ID on success, None on failure.
@@ -486,6 +530,8 @@ def create_template(name, description, template_data):
         name: Template name (unique)
         description: Template description
         template_data: Dictionary/JSON containing the template field definitions
+        provider_mapping: Optional provider mapping text
+        extract_providers_from_annotations: Whether to extract providers from PDF annotations
     """
     import json
     
@@ -493,10 +539,10 @@ def create_template(name, description, template_data):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    INSERT INTO instruction_templates (name, description, template_data, created_at, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO instruction_templates (name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     RETURNING id
-                """, (name, description, json.dumps(template_data)))
+                """, (name, description, json.dumps(template_data), provider_mapping, extract_providers_from_annotations))
                 result = cur.fetchone()
                 return result['id'] if result else None
     except Exception as e:
@@ -504,7 +550,7 @@ def create_template(name, description, template_data):
         return None
 
 
-def update_template(template_id, name=None, description=None, template_data=None):
+def update_template(template_id, name=None, description=None, template_data=None, provider_mapping=None, extract_providers_from_annotations=None):
     """
     Update an existing instruction template.
     Returns True on success, False on failure.
@@ -514,6 +560,8 @@ def update_template(template_id, name=None, description=None, template_data=None
         name: New name (optional)
         description: New description (optional)
         template_data: New template data (optional)
+        provider_mapping: New provider mapping text (optional, pass empty string to clear)
+        extract_providers_from_annotations: Whether to extract providers from annotations (optional)
     """
     import json
     
@@ -532,6 +580,14 @@ def update_template(template_id, name=None, description=None, template_data=None
     if template_data is not None:
         updates.append("template_data = %s")
         params.append(json.dumps(template_data))
+    
+    if provider_mapping is not None:
+        updates.append("provider_mapping = %s")
+        params.append(provider_mapping if provider_mapping else None)
+    
+    if extract_providers_from_annotations is not None:
+        updates.append("extract_providers_from_annotations = %s")
+        params.append(extract_providers_from_annotations)
     
     if not updates:
         return True  # Nothing to update

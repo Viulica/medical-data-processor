@@ -400,7 +400,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index = args
+    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index, provider_mapping, extract_providers_from_annotations = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
@@ -473,16 +473,46 @@ def process_single_patient_pdf_task(args):
             else:
                 print(f"    ❌ Failed to extract priority field '{field_name}' for {pdf_filename}")
     
+    # Extract providers from PDF annotations if enabled
+    if extract_providers_from_annotations and provider_mapping:
+        try:
+            # Import the provider annotation utility
+            import sys
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
+            from provider_annotation_utils import extract_and_match_providers
+            
+            # Extract and match providers from the original PDF (not the temp one)
+            responsible, md, crna = extract_and_match_providers(pdf_file_path, provider_mapping)
+            
+            # Override provider fields if we found matches
+            if responsible or md or crna:
+                if responsible:
+                    merged_data['Responsible Provider'] = responsible
+                    print(f"    ✅ Set Responsible Provider from annotation: {responsible}")
+                
+                if md:
+                    merged_data['MD'] = md
+                    print(f"    ✅ Set MD from annotation: {md}")
+                
+                if crna:
+                    merged_data['CRNA'] = crna
+                    print(f"    ✅ Set CRNA from annotation: {crna}")
+        
+        except Exception as e:
+            print(f"    ⚠️  Failed to extract providers from annotations for {pdf_filename}: {e}")
+    
     # Convert merged data back to JSON string for compatibility with existing code
     merged_response = json.dumps(merged_data)
     
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
-    print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}")
+    print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}, extract_providers_from_annotations={extract_providers_from_annotations}")
     
     # Check if Excel file exists
     if not os.path.exists(excel_file_path):
@@ -591,7 +621,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index, provider_mapping, extract_providers_from_annotations))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
@@ -632,7 +662,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 pdf_file_path = task[1]  # PDF file path from task
-                order_index = task[8]    # Order index from task
+                order_index = task[8]    # Order index from task (still at index 8)
                 pdf_filename = os.path.basename(pdf_file_path)
                 
                 try:
@@ -823,6 +853,8 @@ if __name__ == "__main__":
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
     extract_csn = False  # Extract CSN from PDF filenames
+    provider_mapping = None  # Optional provider mapping text
+    extract_providers_from_annotations = False  # Extract providers from PDF annotations
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -849,6 +881,10 @@ if __name__ == "__main__":
     progress_file = None  # Optional progress file path
     if len(sys.argv) > 9:
         progress_file = sys.argv[9] if sys.argv[9].strip() else None
+    if len(sys.argv) > 10:
+        provider_mapping = sys.argv[10] if sys.argv[10].strip() else None
+    if len(sys.argv) > 11:
+        extract_providers_from_annotations = sys.argv[11].lower() == "true" if sys.argv[11].strip() else False
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
@@ -865,6 +901,10 @@ if __name__ == "__main__":
         print(f"   Extract CSN: Enabled")
     if progress_file:
         print(f"   Progress file: {progress_file}")
+    if extract_providers_from_annotations:
+        print(f"   Extract Providers from Annotations: Enabled")
+        if provider_mapping:
+            print(f"   Provider Mapping: Loaded ({len(provider_mapping)} characters)")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations) 
