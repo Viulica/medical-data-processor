@@ -8545,10 +8545,51 @@ Johnson, Robert, MD (MedNet Code: 1)"
                     placeholder="e.g., Hospital A - General Surgery"
                   />
                 </div>
-                <div class="template-detail-section">
-                  <p class="template-description">
-                    {{ viewingTemplate.description || "No description" }}
+                <div class="form-group">
+                  <label>Description</label>
+                  <textarea
+                    v-model="viewingTemplate.description"
+                    class="form-textarea"
+                    rows="2"
+                    placeholder="Optional description..."
+                  ></textarea>
+                </div>
+
+                <div class="form-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      v-model="viewingTemplate.extract_providers_from_annotations"
+                      style="margin-right: 8px;"
+                    />
+                    Extract providers from PDF annotated (pasted) providers
+                  </label>
+                  <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                    When enabled, the system will extract provider codes from PDF annotations (pasted text) and match them against the provider mapping below.
                   </p>
+                </div>
+
+                <div class="form-group" v-if="viewingTemplate.extract_providers_from_annotations">
+                  <label>Provider Mapping (from Provider Mapping tool)</label>
+                  <textarea
+                    v-model="viewingTemplate.provider_mapping"
+                    class="form-textarea"
+                    rows="8"
+                    placeholder="Paste output from Provider Mapping tool here...
+Example:
+Billable CRNA providers:
+Smith, John, CRNA (MedNet Code: 7)
+Doe, Jane M, CRNA (MedNet Code: 12)
+
+Billable MD providers:
+Johnson, Robert, MD (MedNet Code: 1)"
+                  ></textarea>
+                  <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                    Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
+                  </p>
+                </div>
+
+                <div class="template-detail-section">
                   <div class="template-meta">
                     <span
                       >📅 Created:
@@ -15114,6 +15155,13 @@ export default {
           joinUrl(API_BASE_URL, `api/templates/${template.id}`)
         );
         this.viewingTemplate = response.data;
+        // Ensure provider fields exist (for backwards compatibility)
+        if (!this.viewingTemplate.provider_mapping) {
+          this.viewingTemplate.provider_mapping = "";
+        }
+        if (this.viewingTemplate.extract_providers_from_annotations === undefined) {
+          this.viewingTemplate.extract_providers_from_annotations = false;
+        }
         // Create a deep copy of fields for editing
         this.editingFields = JSON.parse(
           JSON.stringify(this.viewingTemplate.template_data.fields)
@@ -15167,16 +15215,19 @@ export default {
 
       this.isSavingFields = true;
       try {
-        // First update the template name
+        // First update the template name, description, and provider settings
+        const formData = new FormData();
+        formData.append("name", this.viewingTemplate.name);
+        formData.append("description", this.viewingTemplate.description || "");
+        formData.append("provider_mapping", this.viewingTemplate.provider_mapping || "");
+        formData.append("extract_providers_from_annotations", this.viewingTemplate.extract_providers_from_annotations || false);
+
         await axios.put(
           joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}`),
-          {
-            name: this.viewingTemplate.name,
-            description: this.viewingTemplate.description || "",
-          },
+          formData,
           {
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type": "multipart/form-data",
             },
           }
         );
