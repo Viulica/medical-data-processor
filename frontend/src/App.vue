@@ -8139,11 +8139,11 @@
         <!-- Templates Manager Tab -->
         <div v-if="activeTab === 'templates'" class="upload-section">
           <div class="section-header">
-            <h2>📝 Instruction Templates Manager</h2>
+            <h2>📝 Field Templates Manager</h2>
             <p>
-              Manage instruction templates for PDF extraction. Upload Excel
+              Manage field templates for PDF extraction. Upload Excel
               files as reusable templates or use existing templates for
-              processing.
+              processing. You can also configure provider extraction from PDF annotations.
             </p>
           </div>
 
@@ -15353,6 +15353,8 @@ export default {
         name: "",
         description: "",
         file: null,
+        provider_mapping: "",
+        extract_providers_from_annotations: false,
       };
       this.viewingTemplate = null;
       this.editingFields = [];
