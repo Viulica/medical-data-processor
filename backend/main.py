@@ -8749,6 +8749,8 @@ def process_unified_background(
     worktracker_group: str,
     worktracker_batch: str,
     extract_csn: bool,
+    provider_mapping: Optional[str],
+    extract_providers_from_annotations: bool,
     # CPT params
     enable_cpt: bool,
     cpt_vision_mode: bool,
@@ -8934,6 +8936,17 @@ def process_unified_background(
                     # Create progress file for extraction script to write to
                     progress_file_path = temp_dir / "extraction_progress.txt"
                     cmd.append(str(progress_file_path))
+                    
+                    # Add provider mapping and extraction flag
+                    if provider_mapping:
+                        cmd.append(provider_mapping)
+                    else:
+                        cmd.append("")
+                    
+                    if extract_providers_from_annotations:
+                        cmd.append("true")
+                    else:
+                        cmd.append("false")
                     
                     logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
                     
@@ -9242,6 +9255,17 @@ def process_unified_background(
                     # Create progress file for extraction script to write to
                     progress_file_path = temp_dir / "extraction_progress.txt"
                     cmd.append(str(progress_file_path))
+                    
+                    # Add provider mapping and extraction flag
+                    if provider_mapping:
+                        cmd.append(provider_mapping)
+                    else:
+                        cmd.append("")
+                    
+                    if extract_providers_from_annotations:
+                        cmd.append("true")
+                    else:
+                        cmd.append("false")
                     
                     # Estimate total
                     # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
@@ -10268,6 +10292,8 @@ async def process_unified(
         # Handle excel file or template
         excel_path = None
         excel_filename = None
+        provider_mapping = None
+        extract_providers_from_annotations = False
         
         if template_id:
             # Export template to temporary Excel file
@@ -10277,6 +10303,17 @@ async def process_unified(
                 raise HTTPException(status_code=404, detail=f"Template with ID {template_id} not found")
             
             logger.info(f"Using template '{template['name']}' (ID: {template_id}) for extraction")
+            
+            # Extract provider mapping settings from template
+            provider_mapping = template.get('provider_mapping')
+            extract_providers_from_annotations = template.get('extract_providers_from_annotations', False)
+            
+            if extract_providers_from_annotations:
+                logger.info(f"Provider extraction from annotations: ENABLED")
+                if provider_mapping:
+                    logger.info(f"Provider mapping loaded: {len(provider_mapping)} characters")
+                else:
+                    logger.warning(f"Provider extraction enabled but no provider mapping found in template")
             
             # Create temporary Excel file from template
             import pandas as pd
@@ -10343,6 +10380,8 @@ async def process_unified(
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
             extract_csn=extract_csn,
+            provider_mapping=provider_mapping,
+            extract_providers_from_annotations=extract_providers_from_annotations,
             enable_cpt=enable_cpt,
             cpt_vision_mode=cpt_vision_mode,
             cpt_client=cpt_client,

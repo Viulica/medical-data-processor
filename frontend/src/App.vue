@@ -8363,6 +8363,38 @@
                 ></textarea>
               </div>
               <div class="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    v-model="currentTemplate.extract_providers_from_annotations"
+                    style="margin-right: 8px;"
+                  />
+                  Extract providers from PDF annotated (pasted) providers
+                </label>
+                <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                  When enabled, the system will extract provider codes from PDF annotations (pasted text) and match them against the provider mapping below.
+                </p>
+              </div>
+              <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
+                <label>Provider Mapping (from Provider Mapping tool)</label>
+                <textarea
+                  v-model="currentTemplate.provider_mapping"
+                  class="form-textarea"
+                  rows="8"
+                  placeholder="Paste output from Provider Mapping tool here...
+Example:
+Billable CRNA providers:
+Smith, John, CRNA (MedNet Code: 7)
+Doe, Jane M, CRNA (MedNet Code: 12)
+
+Billable MD providers:
+Johnson, Robert, MD (MedNet Code: 1)"
+                ></textarea>
+                <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                  Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
+                </p>
+              </div>
+              <div class="form-group">
                 <label>Excel File *</label>
                 <input
                   ref="templateExcelInput"
@@ -8425,6 +8457,38 @@
                   rows="3"
                   placeholder="Optional description of this template..."
                 ></textarea>
+              </div>
+              <div class="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    v-model="currentTemplate.extract_providers_from_annotations"
+                    style="margin-right: 8px;"
+                  />
+                  Extract providers from PDF annotated (pasted) providers
+                </label>
+                <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                  When enabled, the system will extract provider codes from PDF annotations (pasted text) and match them against the provider mapping below.
+                </p>
+              </div>
+              <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
+                <label>Provider Mapping (from Provider Mapping tool)</label>
+                <textarea
+                  v-model="currentTemplate.provider_mapping"
+                  class="form-textarea"
+                  rows="8"
+                  placeholder="Paste output from Provider Mapping tool here...
+Example:
+Billable CRNA providers:
+Smith, John, CRNA (MedNet Code: 7)
+Doe, Jane M, CRNA (MedNet Code: 12)
+
+Billable MD providers:
+Johnson, Robert, MD (MedNet Code: 1)"
+                ></textarea>
+                <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                  Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
+                </p>
               </div>
               <div class="form-group">
                 <label>Replace Excel File (Optional)</label>
@@ -9760,6 +9824,8 @@ export default {
         name: "",
         description: "",
         file: null,
+        provider_mapping: "",
+        extract_providers_from_annotations: false,
       },
       viewingTemplate: null,
       editingFields: [],
@@ -14964,9 +15030,11 @@ export default {
         formData.append("name", this.currentTemplate.name);
         formData.append("description", this.currentTemplate.description || "");
         formData.append("excel_file", this.currentTemplate.file);
+        formData.append("provider_mapping", this.currentTemplate.provider_mapping || "");
+        formData.append("extract_providers_from_annotations", this.currentTemplate.extract_providers_from_annotations || false);
 
         await axios.post(
-          joinUrl(API_BASE_URL, "api/templates/upload"),
+          joinUrl(API_BASE_URL, "api/templates"),
           formData,
           {
             headers: {
@@ -14994,6 +15062,8 @@ export default {
         name: template.name,
         description: template.description || "",
         file: null,
+        provider_mapping: template.provider_mapping || "",
+        extract_providers_from_annotations: template.extract_providers_from_annotations || false,
       };
       this.showEditTemplateModal = true;
     },
@@ -15012,6 +15082,8 @@ export default {
         if (this.currentTemplate.file) {
           formData.append("excel_file", this.currentTemplate.file);
         }
+        formData.append("provider_mapping", this.currentTemplate.provider_mapping || "");
+        formData.append("extract_providers_from_annotations", this.currentTemplate.extract_providers_from_annotations || false);
 
         await axios.put(
           joinUrl(API_BASE_URL, `api/templates/${this.currentTemplate.id}`),
