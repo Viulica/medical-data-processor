@@ -15075,7 +15075,7 @@ export default {
         formData.append("extract_providers_from_annotations", this.currentTemplate.extract_providers_from_annotations || false);
 
         await axios.post(
-          joinUrl(API_BASE_URL, "api/templates"),
+          joinUrl(API_BASE_URL, "api/templates/upload"),
           formData,
           {
             headers: {
