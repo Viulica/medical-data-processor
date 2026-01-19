@@ -188,6 +188,7 @@ def parse_peripheral_blocks(peripheral_blocks_str):
     return blocks
 
 
+
 def parse_tee_diagnosis(tee_diagnosis_str):
     """
     Parse the tee_diagnosis field string into a list of diagnosis codes.
@@ -216,6 +217,51 @@ def parse_tee_diagnosis(tee_diagnosis_str):
     codes = [code.strip() for code in tee_diagnosis_str.split(',') if code.strip()]
     
     return codes
+
+
+def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'):
+    """
+    Filter concurrent providers to keep only MD or CRNA providers.
+    
+    Format: NESLER, SARA M, MD; 2025-09-01 12:25;2025-09-01 13:12|SOGHIKIAN, MAX, CRNA; 2025-09-01 12:30; 2025-09-01 13:02
+    
+    Args:
+        concurrent_providers_str: Pipe-separated list of provider entries
+        keep_type: 'MD' to keep only MDs, 'CRNA' to keep only CRNAs
+    
+    Returns:
+        Filtered string with only the requested provider type, or empty string if none found
+    """
+    if not concurrent_providers_str or pd.isna(concurrent_providers_str):
+        return ''
+    
+    concurrent_providers_str = str(concurrent_providers_str).strip()
+    if not concurrent_providers_str:
+        return ''
+    
+    # Split by pipe to get individual provider entries
+    provider_entries = [entry.strip() for entry in concurrent_providers_str.split('|') if entry.strip()]
+    
+    # Filter entries based on provider type
+    filtered_entries = []
+    for entry in provider_entries:
+        # Check if this entry contains the provider type we want to keep
+        # Format is: "LAST, FIRST, TYPE; timestamp; timestamp"
+        # We look for ", MD;" or ", CRNA;" in the entry
+        if keep_type == 'MD':
+            # Keep if it contains ", MD;" (MD provider)
+            if ', MD;' in entry or ', MD ' in entry or entry.endswith(', MD'):
+                filtered_entries.append(entry)
+        elif keep_type == 'CRNA':
+            # Keep if it contains ", CRNA;" (CRNA provider)
+            if ', CRNA;' in entry or ', CRNA ' in entry or entry.endswith(', CRNA'):
+                filtered_entries.append(entry)
+    
+    # Join filtered entries back with pipe separator
+    return '|'.join(filtered_entries) if filtered_entries else ''
+
+
+
 
 
 def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=480):
@@ -1043,6 +1089,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # 2. M1 modifier is QK
             # 3. CRNA field has a value
             if generate_qk_duplicate and m1_modifier == 'QK' and has_crna:
+                # Filter concurrent providers for medical direction lines
+                # First line (QK - MD line): Keep only MD providers
+                # Second line (QX - CRNA line): Keep only CRNA providers
+                if 'Concurrent Providers' in new_row:
+                    concurrent_providers_value = row.get('Concurrent Providers', '')
+                    # Filter to keep only MD providers for the first line (QK)
+                    new_row['Concurrent Providers'] = filter_concurrent_providers_by_type(concurrent_providers_value, keep_type='MD')
+                
                 # Create a duplicate row
                 qk_duplicate_row = new_row.copy()
                 
@@ -1055,6 +1109,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 # Change M1 modifier from QK to QX
                 qk_duplicate_row['M1'] = 'QX'
+                
+                # Filter concurrent providers to keep only CRNA providers for the second line (QX)
+                if 'Concurrent Providers' in qk_duplicate_row:
+                    concurrent_providers_value = row.get('Concurrent Providers', '')
+                    qk_duplicate_row['Concurrent Providers'] = filter_concurrent_providers_by_type(concurrent_providers_value, keep_type='CRNA')
                 
                 # Add the duplicate row to results
                 result_rows.append(qk_duplicate_row)
