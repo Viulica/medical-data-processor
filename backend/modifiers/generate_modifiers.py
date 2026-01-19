@@ -1306,17 +1306,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                     if icd_col in block_row:
                                         block_row[icd_col] = ''
                             
-                            # Set Type Of Service based on block type
-                            if 'Type Of Service' in block_row:
-                                if cpt_code in peripheral_nerve_blocks:
-                                    # Peripheral nerve blocks: SURGERY
-                                    block_row['Type Of Service'] = 'SURGERY'
-                                elif cpt_code == '36620':
-                                    # Arterial line: SURGERY
-                                    block_row['Type Of Service'] = 'SURGERY'
-                                elif cpt_code == '76937':
-                                    # Ultrasound guidance: DIAGNOSTIC RADIOLOGY
-                                    block_row['Type Of Service'] = 'DIAGNOSTIC RADIOLOGY'
+                            # Set Type Of Service based on block type (create column if it doesn't exist)
+                            if cpt_code in peripheral_nerve_blocks:
+                                # Peripheral nerve blocks: SURGERY
+                                block_row['Type Of Service'] = 'SURGERY'
+                            elif cpt_code == '36620':
+                                # Arterial line: SURGERY
+                                block_row['Type Of Service'] = 'SURGERY'
+                            elif cpt_code == '76937':
+                                # Ultrasound guidance: DIAGNOSTIC RADIOLOGY
+                                block_row['Type Of Service'] = 'DIAGNOSTIC RADIOLOGY'
                             
                             # Clear Concurrent Providers
                             if 'Concurrent Providers' in block_row:
