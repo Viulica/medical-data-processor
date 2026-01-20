@@ -8668,32 +8668,62 @@ Johnson, Robert, MD (MedNet Code: 1)"
 
                         <div class="form-group full-width">
                           <label>Output Format</label>
-                          <textarea
-                            v-model="field.output_format"
-                            class="form-textarea"
-                            rows="3"
-                            placeholder="e.g., String, MM/DD/YYYY"
-                          ></textarea>
+                          <div class="textarea-with-expand">
+                            <textarea
+                              v-model="field.output_format"
+                              class="form-textarea"
+                              rows="3"
+                              placeholder="e.g., String, MM/DD/YYYY"
+                            ></textarea>
+                            <button
+                              @click="openFullscreenTextarea(idx, 'output_format', 'Output Format')"
+                              class="expand-btn"
+                              type="button"
+                              title="Expand to fullscreen"
+                            >
+                              ⛶
+                            </button>
+                          </div>
                         </div>
 
                         <div class="form-group full-width">
                           <label>Description</label>
-                          <textarea
-                            v-model="field.description"
-                            class="form-textarea"
-                            rows="3"
-                            placeholder="Description of this field"
-                          ></textarea>
+                          <div class="textarea-with-expand">
+                            <textarea
+                              v-model="field.description"
+                              class="form-textarea"
+                              rows="3"
+                              placeholder="Description of this field"
+                            ></textarea>
+                            <button
+                              @click="openFullscreenTextarea(idx, 'description', 'Description')"
+                              class="expand-btn"
+                              type="button"
+                              title="Expand to fullscreen"
+                            >
+                              ⛶
+                            </button>
+                          </div>
                         </div>
 
                         <div class="form-group full-width">
                           <label>Location Hint</label>
-                          <textarea
-                            v-model="field.location"
-                            class="form-textarea"
-                            rows="3"
-                            placeholder="Where to find this field in the document"
-                          ></textarea>
+                          <div class="textarea-with-expand">
+                            <textarea
+                              v-model="field.location"
+                              class="form-textarea"
+                              rows="3"
+                              placeholder="Where to find this field in the document"
+                            ></textarea>
+                            <button
+                              @click="openFullscreenTextarea(idx, 'location', 'Location Hint')"
+                              class="expand-btn"
+                              type="button"
+                              title="Expand to fullscreen"
+                            >
+                              ⛶
+                            </button>
+                          </div>
                         </div>
 
                         <div class="form-group priority-group">
@@ -8731,6 +8761,38 @@ Johnson, Robert, MD (MedNet Code: 1)"
               >
                 <span v-if="isSavingFields">Saving...</span>
                 <span v-else>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fullscreen Textarea Modal -->
+        <div
+          v-if="showFullscreenTextarea"
+          class="modal-overlay fullscreen-overlay"
+          @click="closeFullscreenTextarea"
+        >
+          <div class="modal-content fullscreen-textarea-modal" @click.stop>
+            <div class="modal-header">
+              <h3>{{ fullscreenTextareaLabel }}</h3>
+              <button @click="closeFullscreenTextarea" class="close-btn">
+                ✕
+              </button>
+            </div>
+            <div class="modal-body fullscreen-textarea-body">
+              <textarea
+                v-model="fullscreenTextareaContent"
+                class="fullscreen-textarea"
+                placeholder="Enter content here..."
+                autofocus
+              ></textarea>
+            </div>
+            <div class="modal-footer">
+              <button @click="closeFullscreenTextarea" class="btn-secondary">
+                Cancel
+              </button>
+              <button @click="saveFullscreenTextarea" class="btn-primary">
+                Save Changes
               </button>
             </div>
           </div>
@@ -9898,6 +9960,12 @@ export default {
       isAddingColonoscopyFields: false,
       colonoscopyFieldsResult: null,
       allTemplatesForColonoscopyFields: [],
+      // Fullscreen textarea functionality
+      showFullscreenTextarea: false,
+      fullscreenTextareaContent: "",
+      fullscreenTextareaLabel: "",
+      fullscreenTextareaFieldIndex: null,
+      fullscreenTextareaFieldName: null,
       // Prediction Instructions Manager functionality
       predictionInstructions: [],
       predictionInstructionsLoading: false,
@@ -15412,6 +15480,32 @@ export default {
       this.isSavingFields = false;
     },
 
+    openFullscreenTextarea(fieldIndex, fieldName, label) {
+      // Store the current content and metadata
+      this.fullscreenTextareaFieldIndex = fieldIndex;
+      this.fullscreenTextareaFieldName = fieldName;
+      this.fullscreenTextareaLabel = label;
+      this.fullscreenTextareaContent = this.editingFields[fieldIndex][fieldName] || "";
+      this.showFullscreenTextarea = true;
+    },
+
+    closeFullscreenTextarea() {
+      this.showFullscreenTextarea = false;
+      this.fullscreenTextareaContent = "";
+      this.fullscreenTextareaLabel = "";
+      this.fullscreenTextareaFieldIndex = null;
+      this.fullscreenTextareaFieldName = null;
+    },
+
+    saveFullscreenTextarea() {
+      // Save the edited content back to the field
+      if (this.fullscreenTextareaFieldIndex !== null && this.fullscreenTextareaFieldName) {
+        this.editingFields[this.fullscreenTextareaFieldIndex][this.fullscreenTextareaFieldName] = this.fullscreenTextareaContent;
+      }
+      this.closeFullscreenTextarea();
+    },
+
+
     // ========================================================================
     // Add Charge Fields Methods
     // ========================================================================
@@ -18104,6 +18198,85 @@ input:checked + .slider:hover {
 
 .form-input:disabled {
   background-color: #f1f5f9;
+  cursor: not-allowed;
+}
+
+/* Textarea with Expand Button */
+.textarea-with-expand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.textarea-with-expand textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.expand-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.expand-btn:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.expand-btn:active {
+  transform: scale(0.98);
+}
+
+/* Fullscreen Textarea Modal */
+.fullscreen-overlay {
+  z-index: 2000;
+}
+
+.fullscreen-textarea-modal {
+  width: 95vw;
+  height: 90vh;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.fullscreen-textarea-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.fullscreen-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 1.5rem;
+  border: none;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  background: #f8fafc;
+}
+
+.fullscreen-textarea:focus {
+  background: white;
+}
+
   cursor: not-allowed;
 }
 
