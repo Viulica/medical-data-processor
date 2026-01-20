@@ -18277,9 +18277,6 @@ input:checked + .slider:hover {
   background: white;
 }
 
-  cursor: not-allowed;
-}
-
 .form-checkbox {
   width: 18px;
   height: 18px;
