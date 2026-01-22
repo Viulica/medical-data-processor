@@ -3545,46 +3545,65 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         from urllib.parse import unquote, urlparse
 
         # Parse the SharePoint URL to extract site and folder path
-        # Expected format: https://anesthesiapartners.sharepoint.com/:f:/r/sites/CodedWork9/Shared%20Documents/IAS/2025/MOR?...
+        # Supports two formats:
+        # 1. Long format: https://domain.sharepoint.com/:f:/r/sites/SiteName/Shared%20Documents/folder...
+        # 2. Short format: https://domain.sharepoint.com/:f:/s/SiteName/hash...
         try:
-            # Extract the site and path from the URL
-            url_parts = folder_url.split('/:f:/r/')
-            if len(url_parts) < 2:
-                raise Exception("Invalid SharePoint URL format. Expected format: https://domain.sharepoint.com/:f:/r/sites/...")
-
-            base_url = url_parts[0]
-            path_part = url_parts[1].split('?')[0]  # Remove query parameters
-
-            # Parse site and folder path
-            # Example: sites/CodedWork9/Shared%20Documents/IAS/2025/MOR
-            path_segments = path_part.split('/')
-
-            if len(path_segments) < 2 or path_segments[0] != 'sites':
-                raise Exception("URL must contain /sites/<site-name>/")
-
-            site_name = path_segments[1]
-
-            # Extract the folder path after "Shared Documents" or similar
-            # Find "Shared Documents" or "Shared%20Documents"
-            folder_path = None
-            for i, segment in enumerate(path_segments):
-                decoded_segment = unquote(segment)
-                if decoded_segment in ["Shared Documents", "Documents"]:
-                    # Everything after this is the folder path
-                    if i + 1 < len(path_segments):
-                        folder_path = "/" + "/".join(unquote(s) for s in path_segments[i+1:])
-                    else:
-                        folder_path = ""
-                    break
-
-            if folder_path is None:
-                # Assume everything after site name is the folder path
-                folder_path = "/" + "/".join(unquote(s) for s in path_segments[2:])
-
-            # Extract domain
-            parsed_url = urlparse(base_url)
+            parsed_url = urlparse(folder_url)
             sharepoint_site = parsed_url.netloc
-            site_path = f"/sites/{site_name}"
+
+            # Check if it's a long format URL (/:f:/r/) or short format (/:f:/s/)
+            if '/:f:/r/' in folder_url:
+                # Long format - parse directly
+                url_parts = folder_url.split('/:f:/r/')
+                base_url = url_parts[0]
+                path_part = url_parts[1].split('?')[0]  # Remove query parameters
+
+                # Parse site and folder path
+                # Example: sites/CodedWork9/Shared%20Documents/IAS/2025/MOR
+                path_segments = path_part.split('/')
+
+                if len(path_segments) < 2 or path_segments[0] != 'sites':
+                    raise Exception("Long format URL must contain /sites/<site-name>/")
+
+                site_name = path_segments[1]
+
+                # Extract the folder path after "Shared Documents" or similar
+                folder_path = None
+                for i, segment in enumerate(path_segments):
+                    decoded_segment = unquote(segment)
+                    if decoded_segment in ["Shared Documents", "Documents"]:
+                        # Everything after this is the folder path
+                        if i + 1 < len(path_segments):
+                            folder_path = "/" + "/".join(unquote(s) for s in path_segments[i+1:])
+                        else:
+                            folder_path = ""
+                        break
+
+                if folder_path is None:
+                    # Assume everything after site name is the folder path
+                    folder_path = "/" + "/".join(unquote(s) for s in path_segments[2:])
+
+                site_path = f"/sites/{site_name}"
+
+            elif '/:f:/s/' in folder_url:
+                # Short format - need to resolve via Graph API
+                # Extract site name from the short URL
+                url_parts = folder_url.split('/:f:/s/')
+                if len(url_parts) < 2:
+                    raise Exception("Invalid short URL format")
+
+                path_part = url_parts[1].split('/')[0]  # Get site name
+                site_name = path_part
+                site_path = f"/sites/{site_name}"
+
+                # For short URLs, we'll get the folder path from the sharing link
+                # We need to use Graph API to resolve the sharing link
+                logger.info(f"Short URL detected - will resolve via Graph API")
+                folder_path = None  # Will be resolved later
+
+            else:
+                raise Exception("Invalid SharePoint URL format. Expected format: https://domain.sharepoint.com/:f:/r/sites/... or https://domain.sharepoint.com/:f:/s/...")
 
             logger.info(f"Parsed SharePoint URL - site: {sharepoint_site}, path: {site_path}, folder: {folder_path}")
 
@@ -3640,36 +3659,83 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         except Exception as e:
             raise Exception(f"Failed to obtain access token: {str(e)}")
 
-        job.message = "Getting SharePoint site ID..."
-        job.progress = 40
-
-        # Get site ID
-        site_url = f"https://graph.microsoft.com/v1.0/sites/{sharepoint_site}:{site_path}"
         headers = {
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json'
         }
 
-        try:
-            response = requests.get(site_url, headers=headers)
-            response.raise_for_status()
-            site_id = response.json()['id']
-            logger.info(f"Got site ID: {site_id}")
-        except Exception as e:
-            raise Exception(f"Failed to get site ID: {str(e)}")
+        # Handle short URL format by resolving the sharing link
+        if folder_path is None:
+            job.message = "Resolving sharing link..."
+            job.progress = 35
 
-        job.message = "Fetching SharePoint folder contents..."
-        job.progress = 50
+            # Encode the sharing URL for Graph API
+            import base64
+            # Create the sharing URL identifier
+            share_url = folder_url.split('?')[0]  # Remove query parameters
+            share_url_bytes = share_url.encode('utf-8')
+            share_url_b64 = base64.b64encode(share_url_bytes).decode('utf-8')
+            # Graph API requires URL-safe base64 (replace + with - and / with _) and remove padding
+            share_id = 'u!' + share_url_b64.replace('/', '_').replace('+', '-').rstrip('=')
 
-        # List folder contents
-        folder_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+            logger.info(f"Resolving sharing link with ID: {share_id}")
 
-        try:
-            response = requests.get(folder_url, headers=headers)
-            response.raise_for_status()
-            items = response.json()
-        except Exception as e:
-            raise Exception(f"Failed to list folder contents: {str(e)}")
+            try:
+                # Get the shared item
+                share_url = f"https://graph.microsoft.com/v1.0/shares/{share_id}/driveItem"
+                response = requests.get(share_url, headers=headers)
+                response.raise_for_status()
+                shared_item = response.json()
+
+                # Get the drive item ID
+                drive_id = shared_item.get('parentReference', {}).get('driveId')
+                item_id = shared_item.get('id')
+
+                if not drive_id or not item_id:
+                    raise Exception("Could not extract drive ID and item ID from sharing link")
+
+                logger.info(f"Resolved sharing link - drive: {drive_id}, item: {item_id}")
+
+                # Now list the children of this item
+                job.message = "Fetching SharePoint folder contents..."
+                job.progress = 50
+
+                folder_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/children"
+                response = requests.get(folder_url, headers=headers)
+                response.raise_for_status()
+                items = response.json()
+
+            except Exception as e:
+                raise Exception(f"Failed to resolve sharing link: {str(e)}")
+
+        else:
+            # Long URL format - use the traditional site/folder path approach
+            job.message = "Getting SharePoint site ID..."
+            job.progress = 40
+
+            # Get site ID
+            site_url = f"https://graph.microsoft.com/v1.0/sites/{sharepoint_site}:{site_path}"
+
+            try:
+                response = requests.get(site_url, headers=headers)
+                response.raise_for_status()
+                site_id = response.json()['id']
+                logger.info(f"Got site ID: {site_id}")
+            except Exception as e:
+                raise Exception(f"Failed to get site ID: {str(e)}")
+
+            job.message = "Fetching SharePoint folder contents..."
+            job.progress = 50
+
+            # List folder contents
+            folder_url_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+
+            try:
+                response = requests.get(folder_url_endpoint, headers=headers)
+                response.raise_for_status()
+                items = response.json()
+            except Exception as e:
+                raise Exception(f"Failed to list folder contents: {str(e)}")
 
         job.message = "Matching files..."
         job.progress = 70
