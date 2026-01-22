@@ -562,6 +562,15 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     if 'source_file' not in fieldnames:
         fieldnames.append('source_file')
     
+    # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
+    # This ensures they appear in the CSV output even if not in the template
+    if extract_providers_from_annotations:
+        provider_fields = ['Responsible Provider', 'MD', 'CRNA']
+        for field in provider_fields:
+            if field not in fieldnames:
+                fieldnames.append(field)
+        print(f"📋 Provider annotation extraction enabled - added provider fields to output")
+    
     # Initialize Google AI client (only needed if not using OpenRouter)
     # Check if we're using Gemini models (use Gemini API) or OpenRouter models
     using_gemini = is_gemini_model(model) or is_gemini_model(priority_model)
