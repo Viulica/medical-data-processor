@@ -3531,6 +3531,214 @@ def surgeon_mapping_background(job_id: str, excel_path: str):
         # Clean up memory even on failure
         gc.collect()
 
+def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
+    """Background task to match CSV source files with SharePoint links"""
+    job = job_status[job_id]
+
+    try:
+        job.status = "processing"
+        job.message = "Parsing SharePoint URL..."
+        job.progress = 10
+
+        import pandas as pd
+        import requests
+        from urllib.parse import unquote, urlparse
+
+        # Parse the SharePoint URL to extract site and folder path
+        # Expected format: https://anesthesiapartners.sharepoint.com/:f:/r/sites/CodedWork9/Shared%20Documents/IAS/2025/MOR?...
+        try:
+            # Extract the site and path from the URL
+            url_parts = folder_url.split('/:f:/r/')
+            if len(url_parts) < 2:
+                raise Exception("Invalid SharePoint URL format. Expected format: https://domain.sharepoint.com/:f:/r/sites/...")
+
+            base_url = url_parts[0]
+            path_part = url_parts[1].split('?')[0]  # Remove query parameters
+
+            # Parse site and folder path
+            # Example: sites/CodedWork9/Shared%20Documents/IAS/2025/MOR
+            path_segments = path_part.split('/')
+
+            if len(path_segments) < 2 or path_segments[0] != 'sites':
+                raise Exception("URL must contain /sites/<site-name>/")
+
+            site_name = path_segments[1]
+
+            # Extract the folder path after "Shared Documents" or similar
+            # Find "Shared Documents" or "Shared%20Documents"
+            folder_path = None
+            for i, segment in enumerate(path_segments):
+                decoded_segment = unquote(segment)
+                if decoded_segment in ["Shared Documents", "Documents"]:
+                    # Everything after this is the folder path
+                    if i + 1 < len(path_segments):
+                        folder_path = "/" + "/".join(unquote(s) for s in path_segments[i+1:])
+                    else:
+                        folder_path = ""
+                    break
+
+            if folder_path is None:
+                # Assume everything after site name is the folder path
+                folder_path = "/" + "/".join(unquote(s) for s in path_segments[2:])
+
+            # Extract domain
+            parsed_url = urlparse(base_url)
+            sharepoint_site = parsed_url.netloc
+            site_path = f"/sites/{site_name}"
+
+            logger.info(f"Parsed SharePoint URL - site: {sharepoint_site}, path: {site_path}, folder: {folder_path}")
+
+        except Exception as e:
+            raise Exception(f"Failed to parse SharePoint URL: {str(e)}")
+
+        job.message = "Reading CSV file..."
+        job.progress = 20
+
+        # Read CSV file
+        encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
+
+        for encoding in encodings_to_try:
+            try:
+                df = pd.read_csv(csv_path, dtype=str, encoding=encoding)
+                logger.info(f"Successfully read CSV with encoding: {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if df is None:
+            raise Exception("Could not read CSV file with any standard encoding")
+
+        # Validate that source_file column exists
+        if 'source_file' not in df.columns:
+            raise Exception("CSV must contain a 'source_file' column")
+
+        job.message = "Authenticating with SharePoint..."
+        job.progress = 30
+
+        # Get Azure credentials from environment variables
+        client_id = os.getenv("AZURE_CLIENT_ID", "a54eaddf-654d-4f0e-9071-2b8c8ad26942")
+        tenant_id = os.getenv("AZURE_TENANT_ID", "0138a897-ff88-4dc2-933b-fad359609873")
+        client_secret = os.getenv("AZURE_CLIENT_SECRET")
+
+        if not client_secret:
+            raise Exception("AZURE_CLIENT_SECRET environment variable is not set")
+
+        # Get access token
+        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+        token_data = {
+            'grant_type': 'client_credentials',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'scope': 'https://graph.microsoft.com/.default'
+        }
+
+        try:
+            response = requests.post(token_url, data=token_data)
+            response.raise_for_status()
+            access_token = response.json()['access_token']
+        except Exception as e:
+            raise Exception(f"Failed to obtain access token: {str(e)}")
+
+        job.message = "Getting SharePoint site ID..."
+        job.progress = 40
+
+        # Get site ID
+        site_url = f"https://graph.microsoft.com/v1.0/sites/{sharepoint_site}:{site_path}"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+
+        try:
+            response = requests.get(site_url, headers=headers)
+            response.raise_for_status()
+            site_id = response.json()['id']
+            logger.info(f"Got site ID: {site_id}")
+        except Exception as e:
+            raise Exception(f"Failed to get site ID: {str(e)}")
+
+        job.message = "Fetching SharePoint folder contents..."
+        job.progress = 50
+
+        # List folder contents
+        folder_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+
+        try:
+            response = requests.get(folder_url, headers=headers)
+            response.raise_for_status()
+            items = response.json()
+        except Exception as e:
+            raise Exception(f"Failed to list folder contents: {str(e)}")
+
+        job.message = "Matching files..."
+        job.progress = 70
+
+        # Create a mapping of file names to web URLs
+        file_mapping = {}
+        for item in items.get('value', []):
+            if 'folder' not in item:  # Only process files, not folders
+                file_name = item.get('name', '')
+                web_url = item.get('webUrl', '')
+                if file_name and web_url:
+                    file_mapping[file_name] = web_url
+
+        logger.info(f"Found {len(file_mapping)} files in SharePoint folder")
+
+        # Add EhrPath column
+        def get_sharepoint_link(source_file):
+            if pd.isna(source_file) or source_file == '':
+                return ''
+
+            # Try exact match first
+            if source_file in file_mapping:
+                return file_mapping[source_file]
+
+            # Try case-insensitive match
+            source_file_lower = source_file.lower()
+            for file_name, web_url in file_mapping.items():
+                if file_name.lower() == source_file_lower:
+                    return web_url
+
+            # No match found
+            return 'NOT_FOUND'
+
+        df['EhrPath'] = df['source_file'].apply(get_sharepoint_link)
+
+        job.message = "Saving results..."
+        job.progress = 90
+
+        # Save output CSV
+        output_path = f"/tmp/{job_id}_sharepoint_output.csv"
+        df.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+        logger.info(f"SharePoint links job {job_id} completed successfully")
+
+        job.status = "completed"
+        job.message = "SharePoint links matched successfully!"
+        job.progress = 100
+        job.result = {"output_path": output_path}
+
+        # Clean up input CSV
+        if os.path.exists(csv_path):
+            os.unlink(csv_path)
+
+        # Clean up memory
+        gc.collect()
+
+    except Exception as e:
+        job.status = "failed"
+        job.error = str(e)
+        job.message = f"SharePoint links matching failed: {str(e)}"
+        logger.error(f"SharePoint links job {job_id} failed: {str(e)}")
+
+        # Clean up CSV file
+        if os.path.exists(csv_path):
+            os.unlink(csv_path)
+
+        # Clean up memory even on failure
+        gc.collect()
+
 def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
     """Background task to merge two CSV files by CSN column"""
     job = job_status[job_id]
@@ -3995,6 +4203,50 @@ async def surgeon_mapping(
         
     except Exception as e:
         logger.error(f"Surgeon mapping upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/sharepoint-links")
+async def sharepoint_links(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...),
+    folder_url: str = Form(...)
+):
+    """
+    Upload a CSV file with source_file column and SharePoint folder URL.
+    Matches each source file name with its SharePoint link and adds an EhrPath column.
+    """
+
+    try:
+        logger.info(f"Received SharePoint links request - csv: {csv_file.filename}, folder_url: {folder_url}")
+
+        # Validate file type
+        if not csv_file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV file (.csv)")
+
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        job = ProcessingJob(job_id)
+        job_status[job_id] = job
+
+        logger.info(f"Created SharePoint links job {job_id}")
+
+        # Save uploaded CSV file
+        csv_path = f"/tmp/{job_id}_sharepoint_input.csv"
+
+        with open(csv_path, "wb") as f:
+            shutil.copyfileobj(csv_file.file, f)
+
+        logger.info(f"SharePoint CSV saved - path: {csv_path}")
+
+        # Start background processing
+        background_tasks.add_task(sharepoint_links_background, job_id, csv_path, folder_url)
+
+        logger.info(f"Background SharePoint links task started for job {job_id}")
+
+        return {"job_id": job_id, "message": "CSV file uploaded and SharePoint link matching started"}
+
+    except Exception as e:
+        logger.error(f"SharePoint links upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/merge-by-csn")

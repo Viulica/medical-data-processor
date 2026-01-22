@@ -119,6 +119,8 @@
                   'check-cpt',
                   'cpt-consistency',
                   'provider-mapping',
+                  'surgeon-mapping',
+                  'sharepoint-links',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -149,6 +151,9 @@
               </button>
               <button @click="selectTab('surgeon-mapping')" class="dropdown-item">
                 🏥 Surgeon Mapping List Creation
+              </button>
+              <button @click="selectTab('sharepoint-links')" class="dropdown-item">
+                🔗 SharePoint Links Mapper
               </button>
             </div>
           </div>
@@ -6498,6 +6503,182 @@
           </div>
         </div>
 
+        <!-- SharePoint Links Mapper Tab -->
+        <div v-if="activeTab === 'sharepoint-links'" class="upload-section">
+          <div class="section-header">
+            <h2>SharePoint Links Mapper</h2>
+            <p>
+              Upload a CSV file with source_file column and provide a SharePoint folder URL.
+              The tool will match each source file name with its SharePoint link and add an "EhrPath" column.
+            </p>
+          </div>
+
+          <div class="upload-grid">
+            <!-- SharePoint Folder URL Input -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">1</div>
+                <h3>SharePoint Folder URL</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label for="sharepoint-url">Folder URL:</label>
+                  <input
+                    id="sharepoint-url"
+                    v-model="sharepointFolderUrl"
+                    type="text"
+                    placeholder="https://anesthesiapartners.sharepoint.com/:f:/r/sites/..."
+                    class="url-input"
+                  />
+                </div>
+                <div class="requirement-list">
+                  <div class="requirement-item">
+                    <span class="requirement-icon">🔗</span>
+                    <span>Paste the SharePoint folder URL from your browser</span>
+                  </div>
+                  <div class="requirement-item">
+                    <span class="requirement-icon">📁</span>
+                    <span>The URL should point to the folder containing the PDF files</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CSV File Upload -->
+            <div class="upload-card">
+              <div class="card-header">
+                <div class="step-number">2</div>
+                <h3>CSV File with source_file Column</h3>
+              </div>
+              <div
+                class="dropzone"
+                :class="{
+                  active: isSharepointCsvDragActive,
+                  'has-file': sharepointCsvFile,
+                }"
+                @drop="onSharepointCsvDrop"
+                @dragover.prevent
+                @dragenter.prevent="isSharepointCsvDragActive = true"
+                @dragleave.prevent="isSharepointCsvDragActive = false"
+                @click="triggerSharepointCsvUpload"
+              >
+                <input
+                  ref="sharepointCsvInput"
+                  type="file"
+                  accept=".csv"
+                  @change="onSharepointCsvFileSelect"
+                  style="display: none"
+                />
+                <div class="upload-content">
+                  <div class="upload-icon">📊</div>
+                  <div v-if="sharepointCsvFile" class="file-info">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">{{
+                      sharepointCsvFile.name
+                    }}</span>
+                    <span class="file-size">{{
+                      formatFileSize(sharepointCsvFile.size)
+                    }}</span>
+                  </div>
+                  <p v-else class="upload-text">
+                    Drag & drop CSV file here<br />or click to browse
+                  </p>
+                </div>
+              </div>
+              <div class="file-requirements">
+                <p><strong>Required:</strong> CSV must have a "source_file" column</p>
+                <p class="optional-note">The output will include an "EhrPath" column with SharePoint links</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="action-section">
+            <button
+              @click="startSharepointLinking"
+              :disabled="!canProcessSharepointLinks || isProcessingSharepoint"
+              class="process-btn"
+            >
+              <span v-if="isProcessingSharepoint" class="spinner"></span>
+              <span v-else class="btn-icon">🔗</span>
+              {{
+                isProcessingSharepoint
+                  ? "Processing SharePoint Links..."
+                  : "Process SharePoint Links"
+              }}
+            </button>
+
+            <button
+              v-if="sharepointCsvFile || sharepointJobId"
+              @click="resetSharepointForm"
+              class="reset-btn"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- SharePoint Links Status -->
+        <div v-if="sharepointJobStatus" class="status-section">
+          <div class="status-card">
+            <div class="status-header">
+              <div class="status-indicator" :class="sharepointJobStatus.status">
+                <span class="status-icon">{{ getSharepointStatusIcon() }}</span>
+              </div>
+              <div class="status-info">
+                <h3>{{ getSharepointStatusTitle() }}</h3>
+                <p class="status-message">{{ sharepointJobStatus.message }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="sharepointJobStatus.status === 'processing'"
+              class="progress-section"
+            >
+              <div class="progress-bar">
+                <div
+                  class="progress-fill"
+                  :style="{ width: `${sharepointJobStatus.progress}%` }"
+                ></div>
+              </div>
+              <div class="progress-text">
+                {{ sharepointJobStatus.progress }}% Complete
+              </div>
+              <button @click="checkSharepointJobStatus" class="check-status-btn">
+                <span class="btn-icon">🔄</span>
+                Check Status
+              </button>
+            </div>
+
+            <div
+              v-if="sharepointJobStatus.status === 'completed'"
+              class="success-section"
+            >
+              <div class="download-format-group">
+                <button
+                  @click="downloadSharepointResults"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV with Links
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                sharepointJobStatus.status === 'failed' && sharepointJobStatus.error
+              "
+              class="error-section"
+            >
+              <div class="error-message">
+                <span class="error-icon">⚠️</span>
+                <span>{{ sharepointJobStatus.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Instructions Conversion Status -->
         <div v-if="instructionsJobStatus" class="status-section">
           <div class="status-card">
@@ -9734,6 +9915,13 @@ export default {
       surgeonMappingOutput: null,
       isProcessingSurgeonMapping: false,
       isSurgeonMappingExcelDragActive: false,
+      // SharePoint Links functionality
+      sharepointFolderUrl: "",
+      sharepointCsvFile: null,
+      sharepointJobId: null,
+      sharepointJobStatus: null,
+      isProcessingSharepoint: false,
+      isSharepointCsvDragActive: false,
       // Modifiers generation functionality
       modifiersCsvFile: null,
       modifiersJobId: null,
@@ -10157,6 +10345,13 @@ export default {
     },
     canProcessSurgeonMapping() {
       return this.surgeonMappingExcelFile !== null;
+    },
+    canProcessSharepointLinks() {
+      return (
+        this.sharepointFolderUrl &&
+        this.sharepointFolderUrl.trim() !== "" &&
+        this.sharepointCsvFile !== null
+      );
     },
     canGenerateModifiers() {
       return this.modifiersCsvFile;
@@ -14021,6 +14216,181 @@ export default {
           return "⏳";
         default:
           return "🏥";
+      }
+    },
+
+    // SharePoint Links methods
+    onSharepointCsvDrop(e) {
+      e.preventDefault();
+      this.isSharepointCsvDragActive = false;
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && this.isValidCsvFile(files[0].name)) {
+        this.sharepointCsvFile = files[0];
+        this.toast.success("CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please upload a valid CSV file");
+      }
+    },
+
+    triggerSharepointCsvUpload() {
+      this.$refs.sharepointCsvInput.click();
+    },
+
+    onSharepointCsvFileSelect(e) {
+      const file = e.target.files[0];
+      if (file && this.isValidCsvFile(file.name)) {
+        this.sharepointCsvFile = file;
+        this.toast.success("CSV file uploaded successfully!");
+      } else {
+        this.toast.error("Please select a valid CSV file");
+      }
+    },
+
+    async startSharepointLinking() {
+      if (!this.canProcessSharepointLinks) {
+        this.toast.error("Please upload a CSV file and provide SharePoint folder URL");
+        return;
+      }
+
+      this.isProcessingSharepoint = true;
+
+      const formData = new FormData();
+      formData.append("csv_file", this.sharepointCsvFile);
+      formData.append("folder_url", this.sharepointFolderUrl);
+
+      const uploadUrl = joinUrl(API_BASE_URL, "sharepoint-links");
+      console.log("🔧 SharePoint Links Upload URL:", uploadUrl);
+
+      try {
+        const response = await axios.post(uploadUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        this.sharepointJobId = response.data.job_id;
+        this.toast.success(
+          "SharePoint link matching started! Check the status section below."
+        );
+
+        // Set initial status
+        this.sharepointJobStatus = {
+          status: "processing",
+          progress: 0,
+          message: "Processing SharePoint links...",
+        };
+
+        // Start polling for status
+        this.checkSharepointJobStatus();
+      } catch (error) {
+        console.error("SharePoint linking error:", error);
+        this.toast.error(
+          "Failed to start SharePoint link matching. Please try again."
+        );
+        this.isProcessingSharepoint = false;
+      }
+    },
+
+    async checkSharepointJobStatus() {
+      if (!this.sharepointJobId) {
+        this.toast.error("No job ID available");
+        return;
+      }
+
+      try {
+        const statusUrl = joinUrl(
+          API_BASE_URL,
+          `status/${this.sharepointJobId}`
+        );
+        const response = await axios.get(statusUrl);
+
+        this.sharepointJobStatus = response.data;
+
+        if (response.data.status === "processing") {
+          // Continue polling
+          setTimeout(() => {
+            this.checkSharepointJobStatus();
+          }, 2000);
+        } else if (response.data.status === "completed") {
+          this.isProcessingSharepoint = false;
+        } else if (response.data.status === "failed") {
+          this.isProcessingSharepoint = false;
+        }
+      } catch (error) {
+        console.error("Error checking SharePoint status:", error);
+        this.toast.error("Failed to check status. Please try again.");
+        this.isProcessingSharepoint = false;
+      }
+    },
+
+    async downloadSharepointResults() {
+      if (!this.sharepointJobId) {
+        this.toast.error("No results available to download");
+        return;
+      }
+
+      try {
+        const downloadUrl = joinUrl(
+          API_BASE_URL,
+          `download/${this.sharepointJobId}`
+        );
+        const response = await axios.get(downloadUrl, {
+          responseType: "blob",
+        });
+
+        const blob = new Blob([response.data], { type: "text/csv" });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `sharepoint_links_${new Date().getTime()}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("CSV with SharePoint links downloaded!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download results. Please try again.");
+      }
+    },
+
+    resetSharepointForm() {
+      this.sharepointFolderUrl = "";
+      this.sharepointCsvFile = null;
+      this.sharepointJobId = null;
+      this.sharepointJobStatus = null;
+      this.isProcessingSharepoint = false;
+      this.isSharepointCsvDragActive = false;
+    },
+
+    getSharepointStatusTitle() {
+      if (!this.sharepointJobStatus) return "";
+
+      switch (this.sharepointJobStatus.status) {
+        case "completed":
+          return "SharePoint Links Complete";
+        case "failed":
+          return "SharePoint Links Failed";
+        case "processing":
+          return "Processing SharePoint Links";
+        default:
+          return "SharePoint Links Status";
+      }
+    },
+
+    getSharepointStatusIcon() {
+      if (!this.sharepointJobStatus) return "";
+
+      switch (this.sharepointJobStatus.status) {
+        case "completed":
+          return "✅";
+        case "failed":
+          return "❌";
+        case "processing":
+          return "⏳";
+        default:
+          return "🔗";
       }
     },
 
@@ -18199,6 +18569,22 @@ input:checked + .slider:hover {
 .form-input:disabled {
   background-color: #f1f5f9;
   cursor: not-allowed;
+}
+
+.url-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.938rem;
+  font-family: 'Monaco', 'Courier New', monospace;
+  transition: all 0.3s ease;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 /* Textarea with Expand Button */
