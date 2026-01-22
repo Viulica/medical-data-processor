@@ -3771,17 +3771,18 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         job.message = "Saving results..."
         job.progress = 90
 
-        # Save output CSV
-        output_path = f"/tmp/{job_id}_sharepoint_output.csv"
-        df.to_csv(output_path, index=False, encoding='utf-8-sig')
+        # Save output in both CSV and XLSX formats
+        output_base = f"/tmp/{job_id}_sharepoint_output"
+        csv_path, xlsx_path = save_dataframe_dual_format(df, output_base)
 
         logger.info(f"SharePoint links job {job_id} completed successfully")
 
         job.status = "completed"
         job.message = "SharePoint links matched successfully!"
         job.progress = 100
-        job.result = {"output_path": output_path}
-        job.result_file = output_path  # Set for download endpoint compatibility
+        job.result = {"output_path": csv_path}
+        job.result_file = csv_path  # CSV for default download
+        job.result_file_xlsx = xlsx_path  # XLSX for format selection
 
         # Clean up input CSV
         if os.path.exists(csv_path):

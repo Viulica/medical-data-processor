@@ -6656,11 +6656,18 @@
             >
               <div class="download-format-group">
                 <button
-                  @click="downloadSharepointResults"
+                  @click="downloadSharepointResults('csv')"
                   class="download-btn"
                 >
                   <span class="btn-icon">📥</span>
-                  Download CSV with Links
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadSharepointResults('xlsx')"
+                  class="download-btn download-btn-alt"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download XLSX
                 </button>
               </div>
             </div>
@@ -14323,7 +14330,7 @@ export default {
       }
     },
 
-    async downloadSharepointResults() {
+    async downloadSharepointResults(format = 'csv') {
       if (!this.sharepointJobId) {
         this.toast.error("No results available to download");
         return;
@@ -14332,23 +14339,28 @@ export default {
       try {
         const downloadUrl = joinUrl(
           API_BASE_URL,
-          `download/${this.sharepointJobId}`
+          `download/${this.sharepointJobId}?format=${format}`
         );
         const response = await axios.get(downloadUrl, {
           responseType: "blob",
         });
 
-        const blob = new Blob([response.data], { type: "text/csv" });
+        const mimeType = format === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv';
+        const extension = format === 'xlsx' ? 'xlsx' : 'csv';
+
+        const blob = new Blob([response.data], { type: mimeType });
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `sharepoint_links_${new Date().getTime()}.csv`;
+        link.download = `sharepoint_links_${new Date().getTime()}.${extension}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
 
-        this.toast.success("CSV with SharePoint links downloaded!");
+        this.toast.success(`${format.toUpperCase()} with SharePoint links downloaded!`);
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download results. Please try again.");
