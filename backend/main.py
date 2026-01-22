@@ -3781,6 +3781,7 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         job.message = "SharePoint links matched successfully!"
         job.progress = 100
         job.result = {"output_path": output_path}
+        job.result_file = output_path  # Set for download endpoint compatibility
 
         # Clean up input CSV
         if os.path.exists(csv_path):
