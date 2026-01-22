@@ -215,7 +215,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, response, temp_patient_pdf
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-flash-latest"):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=5, model="gemini-flash-latest", extract_providers_from_annotations=False):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     # Check if Excel file exists
@@ -238,7 +238,16 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Remove system fields from CSV output
     fieldnames = [field for field in fieldnames if field not in ['source_file', 'page_number']]
-    
+
+    # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
+    # This ensures they appear in the CSV output even if not in the template
+    if extract_providers_from_annotations:
+        provider_fields = ['Responsible Provider', 'MD', 'CRNA']
+        for field in provider_fields:
+            if field not in fieldnames:
+                fieldnames.append(field)
+        print(f"📋 Provider annotation extraction enabled - added provider fields to output")
+
     # Initialize Google AI client
     client = genai.Client(
         api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
@@ -411,13 +420,14 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
 
 
 if __name__ == "__main__":
-    # Allow specifying input folder, Excel file, number of pages, max workers, and model as command line arguments
+    # Allow specifying input folder, Excel file, number of pages, max workers, model, and provider extraction as command line arguments
     input_folder = "input"  # Default input folder
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 5  # Default thread pool size
     model = "gemini-3-pro-preview"  # Default model
-    
+    extract_providers_from_annotations = False  # Default: provider extraction disabled
+
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
     if len(sys.argv) > 2:
@@ -434,13 +444,17 @@ if __name__ == "__main__":
             print("⚠️  Warning: Invalid max_workers value, using default of 5")
     if len(sys.argv) > 5:
         model = sys.argv[5]
-    
+    if len(sys.argv) > 6:
+        extract_providers_from_annotations = sys.argv[6].lower() in ['true', '1', 'yes', 'enabled']
+
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
     print(f"   Excel file: {excel_file}")
     print(f"   Pages per patient: {n_pages}")
     print(f"   Max workers: {max_workers}")
     print(f"   Model: {model}")
+    if extract_providers_from_annotations:
+        print(f"   Extract Providers from Annotations: Enabled")
     print()
-    
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model) 
+
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, extract_providers_from_annotations) 
