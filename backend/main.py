@@ -3638,10 +3638,7 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         # Get Azure credentials from environment variables
         client_id = os.getenv("AZURE_CLIENT_ID", "a54eaddf-654d-4f0e-9071-2b8c8ad26942")
         tenant_id = os.getenv("AZURE_TENANT_ID", "0138a897-ff88-4dc2-933b-fad359609873")
-        client_secret = os.getenv("AZURE_CLIENT_SECRET")
-
-        if not client_secret:
-            raise Exception("AZURE_CLIENT_SECRET environment variable is not set")
+        client_secret = os.getenv("AZURE_CLIENT_SECRET", "MlO8Q~6ARQrwWgbvb6v9qWOuHCWIU3m6MaKsTczK")
 
         # Get access token
         token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
