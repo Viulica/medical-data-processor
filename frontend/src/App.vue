@@ -6508,7 +6508,7 @@
           <div class="section-header">
             <h2>SharePoint Links Mapper</h2>
             <p>
-              Upload a CSV file with source_file column and provide a SharePoint folder URL.
+              Upload a CSV or XLSX file with source_file column and provide a SharePoint folder URL.
               The tool will match each source file name with its SharePoint link and add an "EhrPath" column.
             </p>
           </div>
@@ -6544,11 +6544,11 @@
               </div>
             </div>
 
-            <!-- CSV File Upload -->
+            <!-- CSV/XLSX File Upload -->
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">2</div>
-                <h3>CSV File with source_file Column</h3>
+                <h3>CSV/XLSX File with source_file Column</h3>
               </div>
               <div
                 class="dropzone"
@@ -6565,7 +6565,7 @@
                 <input
                   ref="sharepointCsvInput"
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   @change="onSharepointCsvFileSelect"
                   style="display: none"
                 />
@@ -6581,12 +6581,12 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop CSV file here<br />or click to browse
+                    Drag & drop CSV or XLSX file here<br />or click to browse
                   </p>
                 </div>
               </div>
               <div class="file-requirements">
-                <p><strong>Required:</strong> CSV must have a "source_file" column</p>
+                <p><strong>Required:</strong> File must have a "source_file" column</p>
                 <p class="optional-note">The output will include an "EhrPath" column with SharePoint links</p>
               </div>
             </div>
@@ -14224,11 +14224,11 @@ export default {
       e.preventDefault();
       this.isSharepointCsvDragActive = false;
       const files = e.dataTransfer.files;
-      if (files.length > 0 && this.isValidCsvFile(files[0].name)) {
+      if (files.length > 0 && this.isValidCsvOrXlsxFile(files[0].name)) {
         this.sharepointCsvFile = files[0];
-        this.toast.success("CSV file uploaded successfully!");
+        this.toast.success("File uploaded successfully!");
       } else {
-        this.toast.error("Please upload a valid CSV file");
+        this.toast.error("Please upload a valid CSV or XLSX file");
       }
     },
 
@@ -14238,11 +14238,11 @@ export default {
 
     onSharepointCsvFileSelect(e) {
       const file = e.target.files[0];
-      if (file && this.isValidCsvFile(file.name)) {
+      if (file && this.isValidCsvOrXlsxFile(file.name)) {
         this.sharepointCsvFile = file;
-        this.toast.success("CSV file uploaded successfully!");
+        this.toast.success("File uploaded successfully!");
       } else {
-        this.toast.error("Please select a valid CSV file");
+        this.toast.error("Please select a valid CSV or XLSX file");
       }
     },
 

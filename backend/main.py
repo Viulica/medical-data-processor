@@ -4212,16 +4212,16 @@ async def sharepoint_links(
     folder_url: str = Form(...)
 ):
     """
-    Upload a CSV file with source_file column and SharePoint folder URL.
+    Upload a CSV or XLSX file with source_file column and SharePoint folder URL.
     Matches each source file name with its SharePoint link and adds an EhrPath column.
     """
 
     try:
-        logger.info(f"Received SharePoint links request - csv: {csv_file.filename}, folder_url: {folder_url}")
+        logger.info(f"Received SharePoint links request - file: {csv_file.filename}, folder_url: {folder_url}")
 
         # Validate file type
-        if not csv_file.filename.endswith('.csv'):
-            raise HTTPException(status_code=400, detail="File must be a CSV file (.csv)")
+        if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="File must be a CSV or XLSX file (.csv, .xlsx, .xls)")
 
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -4230,20 +4230,30 @@ async def sharepoint_links(
 
         logger.info(f"Created SharePoint links job {job_id}")
 
-        # Save uploaded CSV file
-        csv_path = f"/tmp/{job_id}_sharepoint_input.csv"
+        # Save uploaded file (preserve original extension)
+        file_ext = Path(csv_file.filename).suffix.lower()
+        input_path = f"/tmp/{job_id}_sharepoint_input{file_ext}"
 
-        with open(csv_path, "wb") as f:
+        with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
 
-        logger.info(f"SharePoint CSV saved - path: {csv_path}")
+        logger.info(f"SharePoint file saved - path: {input_path}")
+
+        # Convert to CSV if needed
+        csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_sharepoint_input.csv")
+
+        # Clean up original file if it was converted
+        if csv_path != input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+
+        logger.info(f"SharePoint CSV ready - path: {csv_path}")
 
         # Start background processing
         background_tasks.add_task(sharepoint_links_background, job_id, csv_path, folder_url)
 
         logger.info(f"Background SharePoint links task started for job {job_id}")
 
-        return {"job_id": job_id, "message": "CSV file uploaded and SharePoint link matching started"}
+        return {"job_id": job_id, "message": "File uploaded and SharePoint link matching started"}
 
     except Exception as e:
         logger.error(f"SharePoint links upload error: {str(e)}")
