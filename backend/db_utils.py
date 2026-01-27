@@ -140,6 +140,7 @@ def init_database():
         filename VARCHAR(255),
         file_path_csv VARCHAR(500) NOT NULL,
         file_path_xlsx VARCHAR(500),
+        file_path_renamed_zip VARCHAR(500),
         file_size_bytes BIGINT,
         row_count INTEGER,
         enabled_extraction BOOLEAN DEFAULT FALSE,
@@ -152,6 +153,17 @@ def init_database():
         expires_at TIMESTAMP NOT NULL,
         status VARCHAR(50) DEFAULT 'completed'
     );
+
+    -- Migration: Add file_path_renamed_zip column if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'file_path_renamed_zip'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN file_path_renamed_zip VARCHAR(500);
+        END IF;
+    END $$;
     
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
@@ -1410,6 +1422,7 @@ def save_unified_result(
     filename: str,
     file_path_csv: str,
     file_path_xlsx: Optional[str] = None,
+    file_path_renamed_zip: Optional[str] = None,
     file_size_bytes: Optional[int] = None,
     row_count: Optional[int] = None,
     enabled_extraction: bool = False,
@@ -1422,12 +1435,13 @@ def save_unified_result(
 ):
     """
     Save unified processing result metadata to database.
-    
+
     Args:
         job_id: Unique job identifier
         filename: Display filename
         file_path_csv: Path to CSV result file
         file_path_xlsx: Optional path to XLSX result file
+        file_path_renamed_zip: Optional path to renamed PDFs ZIP file
         file_size_bytes: File size in bytes
         row_count: Number of rows in result
         enabled_extraction: Whether extraction was enabled
@@ -1437,31 +1451,32 @@ def save_unified_result(
         cpt_vision_model: Model used for CPT
         icd_vision_model: Model used for ICD
         status: Job status
-    
+
     Returns:
         Result ID on success, None on failure
     """
     try:
         from datetime import datetime, timedelta
-        
+
         # Calculate expiration date (3 days from now)
         expires_at = datetime.now() + timedelta(days=3)
-        
+
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     INSERT INTO unified_results (
-                        job_id, filename, file_path_csv, file_path_xlsx, file_size_bytes,
-                        row_count, enabled_extraction, enabled_cpt, enabled_icd,
+                        job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                        file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
                         status, expires_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (job_id) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (job_id)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
                         file_path_csv = EXCLUDED.file_path_csv,
                         file_path_xlsx = EXCLUDED.file_path_xlsx,
+                        file_path_renamed_zip = EXCLUDED.file_path_renamed_zip,
                         file_size_bytes = EXCLUDED.file_size_bytes,
                         row_count = EXCLUDED.row_count,
                         enabled_extraction = EXCLUDED.enabled_extraction,
@@ -1474,8 +1489,8 @@ def save_unified_result(
                         expires_at = EXCLUDED.expires_at
                     RETURNING id
                 """, (
-                    job_id, filename, file_path_csv, file_path_xlsx, file_size_bytes,
-                    row_count, enabled_extraction, enabled_cpt, enabled_icd,
+                    job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                    file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
                     status, expires_at
                 ))
@@ -1507,7 +1522,7 @@ def get_all_unified_results(page: int = 1, page_size: int = 50):
                 # Get paginated results (newest first)
                 offset = (page - 1) * page_size
                 cur.execute("""
-                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx,
+                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status
@@ -1543,7 +1558,7 @@ def get_unified_result(job_id: str):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx,
+                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status

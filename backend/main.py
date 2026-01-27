@@ -189,6 +189,7 @@ class ProcessingJob:
         self.result_file = None
         self.result_file_xlsx = None  # Store XLSX version
         self.result_file_json = None  # Store JSON version
+        self.renamed_pdfs_zip = None  # Store renamed PDFs ZIP path
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
@@ -1601,7 +1602,7 @@ def predict_cpt_general_background(job_id: str, csv_path: str, model: str = "gpt
         # Clean up memory even on failure
         gc.collect()
 
-def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 50, custom_instructions: str = None):
+def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 1, model: str = "openai/gpt-5.2:online", max_workers: int = 50, custom_instructions: str = None, web_search: bool = True):
     """Background task to predict CPT codes from PDF images using OpenAI vision model"""
     job = job_status[job_id]
     
@@ -1669,7 +1670,8 @@ def predict_cpt_from_pdfs_background(job_id: str, zip_path: str, n_pages: int = 
             api_key=api_key,
             max_workers=max_workers,
             progress_callback=progress_callback,
-            custom_instructions=custom_instructions
+            custom_instructions=custom_instructions,
+            web_search=web_search
         )
         
         if not success:
@@ -2253,12 +2255,13 @@ async def predict_cpt_from_pdfs(
     model: str = Form(default="openai/gpt-5.2:online"),
     max_workers: int = Form(default=50),
     custom_instructions: Optional[str] = Form(default=None),
-    instruction_template_id: Optional[int] = Form(default=None)
+    instruction_template_id: Optional[int] = Form(default=None),
+    web_search: bool = Form(default=True)
 ):
     """Upload a ZIP file containing PDFs to predict CPT codes using OpenAI vision model"""
-    
+
     try:
-        logger.info(f"Received vision-based CPT prediction request - zip: {zip_file.filename}, pages: {n_pages}, model: {model}, workers: {max_workers}")
+        logger.info(f"Received vision-based CPT prediction request - zip: {zip_file.filename}, pages: {n_pages}, model: {model}, workers: {max_workers}, web_search: {web_search}")
         
         # Validate file type
         if not zip_file.filename.endswith('.zip'):
@@ -2290,10 +2293,10 @@ async def predict_cpt_from_pdfs(
         logger.info(f"ZIP saved - path: {zip_path}")
         
         # Start background processing with vision model
-        background_tasks.add_task(predict_cpt_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers, custom_instructions)
-        
+        background_tasks.add_task(predict_cpt_from_pdfs_background, job_id, zip_path, n_pages, model, max_workers, custom_instructions, web_search)
+
         logger.info(f"Background vision-based CPT prediction task started for job {job_id}")
-        
+
         return {"job_id": job_id, "message": f"ZIP uploaded and OpenAI {model} vision prediction started"}
         
     except Exception as e:
@@ -10396,25 +10399,124 @@ def process_unified_background(
         
         job.result_file = result_csv
         job.result_file_xlsx = result_xlsx
+
+        # ==================== STEP 5: Create Renamed PDFs ZIP ====================
+        # Rename PDFs using Patient First Name + Last Name + Middle Name from extraction
+        renamed_zip_path = None
+        if enable_extraction and extraction_csv_path and os.path.exists(extraction_csv_path):
+            try:
+                job.message = "Creating renamed PDFs ZIP..."
+                logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data")
+
+                # Read extraction CSV to get patient names
+                extraction_df = pd.read_csv(extraction_csv_path, dtype=str)
+
+                # Check if we have the required columns
+                name_cols = ['Patient First Name', 'Patient Last Name', 'Patient Middle Name']
+                has_name_cols = all(col in extraction_df.columns for col in name_cols)
+
+                if has_name_cols and 'source_file' in extraction_df.columns:
+                    # Create output directory for renamed PDFs
+                    renamed_dir = Path(f"/tmp/results/{job_id}_renamed_pdfs")
+                    renamed_dir.mkdir(parents=True, exist_ok=True)
+
+                    input_dir = temp_dir / "input"
+                    renamed_count = 0
+
+                    for _, row in extraction_df.iterrows():
+                        source_file = str(row.get('source_file', '')).strip()
+                        first_name = str(row.get('Patient First Name', '')).strip()
+                        last_name = str(row.get('Patient Last Name', '')).strip()
+                        middle_name = str(row.get('Patient Middle Name', '')).strip()
+
+                        # Skip if source file is empty or NaN
+                        if not source_file or source_file.lower() == 'nan':
+                            continue
+
+                        # Build new filename: FirstName_LastName_MiddleName.pdf
+                        # Handle empty/nan values gracefully
+                        name_parts = []
+                        if first_name and first_name.lower() != 'nan':
+                            name_parts.append(first_name)
+                        if last_name and last_name.lower() != 'nan':
+                            name_parts.append(last_name)
+                        if middle_name and middle_name.lower() != 'nan':
+                            name_parts.append(middle_name)
+
+                        if name_parts:
+                            # Sanitize filename (remove invalid characters)
+                            new_name = '_'.join(name_parts)
+                            new_name = ''.join(c for c in new_name if c.isalnum() or c in '_ -').strip()
+                            new_name = new_name.replace(' ', '_')
+                            if not new_name:
+                                new_name = f"patient_{renamed_count + 1}"
+                            new_filename = f"{new_name}.pdf"
+                        else:
+                            # Fallback to original filename
+                            new_filename = source_file
+
+                        # Find the source PDF (might be in subdirectory)
+                        source_path = None
+                        for pdf_path in input_dir.rglob("*.pdf"):
+                            if pdf_path.name == source_file:
+                                source_path = pdf_path
+                                break
+                        for pdf_path in input_dir.rglob("*.PDF"):
+                            if pdf_path.name == source_file:
+                                source_path = pdf_path
+                                break
+
+                        if source_path and source_path.exists():
+                            # Handle duplicate filenames by appending a number
+                            dest_path = renamed_dir / new_filename
+                            counter = 1
+                            while dest_path.exists():
+                                name_base = new_filename.rsplit('.', 1)[0]
+                                dest_path = renamed_dir / f"{name_base}_{counter}.pdf"
+                                counter += 1
+
+                            shutil.copy2(source_path, dest_path)
+                            renamed_count += 1
+
+                    logger.info(f"[Unified {job_id}] Renamed {renamed_count} PDFs")
+
+                    # Create ZIP from renamed PDFs
+                    if renamed_count > 0:
+                        renamed_zip_path = f"/tmp/results/{job_id}_renamed_pdfs.zip"
+                        with zipfile.ZipFile(renamed_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for pdf_file in renamed_dir.glob("*.pdf"):
+                                zipf.write(pdf_file, pdf_file.name)
+
+                        job.renamed_pdfs_zip = renamed_zip_path
+                        logger.info(f"[Unified {job_id}] Created renamed PDFs ZIP: {renamed_zip_path}")
+
+                        # Clean up renamed directory
+                        shutil.rmtree(renamed_dir, ignore_errors=True)
+                else:
+                    logger.warning(f"[Unified {job_id}] Cannot create renamed PDFs: missing required columns. Has name cols: {has_name_cols}, has source_file: {'source_file' in extraction_df.columns}")
+            except Exception as e:
+                logger.warning(f"[Unified {job_id}] Failed to create renamed PDFs ZIP: {e}")
+
         job.status = "completed"
         job.message = "Unified processing completed successfully"
         job.progress = 100
-        
+
         logger.info(f"[Unified {job_id}] Processing completed: {result_csv}")
-        
+
         # Save result metadata to database
         try:
             from db_utils import save_unified_result
             import os
-            
+
             file_size = os.path.getsize(result_csv) if os.path.exists(result_csv) else None
             filename = output_filename if output_filename else f"unified_result_{job_id}"
-            
+
             save_unified_result(
                 job_id=job_id,
                 filename=filename,
                 file_path_csv=result_csv,
                 file_path_xlsx=result_xlsx,
+                file_path_renamed_zip=renamed_zip_path,
                 file_size_bytes=file_size,
                 row_count=len(base_df),
                 enabled_extraction=enable_extraction,
@@ -11110,6 +11212,49 @@ async def download_unified_result(job_id: str, format: str = "csv"):
         raise HTTPException(status_code=500, detail=f"Failed to download result: {str(e)}")
 
 
+@app.get("/api/unified-results/{job_id}/download-renamed-pdfs")
+async def download_renamed_pdfs(job_id: str):
+    """
+    Download the renamed PDFs ZIP file for a unified processing result.
+
+    The PDFs are renamed using Patient First Name + Last Name + Middle Name from extraction.
+
+    Args:
+        job_id: Job identifier
+    """
+    try:
+        from db_utils import get_unified_result
+
+        result = get_unified_result(job_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
+
+        file_path = result.get('file_path_renamed_zip')
+        if not file_path:
+            raise HTTPException(status_code=404, detail=f"Renamed PDFs ZIP not available for job {job_id}. This may be because extraction was not enabled or patient name fields were not found.")
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Renamed PDFs ZIP file not found: {file_path}")
+
+        # Determine filename
+        filename = result.get('filename', f"unified_result_{job_id}")
+        if filename.endswith('.csv') or filename.endswith('.xlsx'):
+            filename = filename.rsplit('.', 1)[0]
+        filename = f"{filename}_renamed_pdfs.zip"
+
+        # Return file
+        return FileResponse(
+            file_path,
+            media_type="application/zip",
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download renamed PDFs for {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download renamed PDFs: {str(e)}")
+
+
 @app.post("/api/unified-results/cleanup")
 async def cleanup_expired_unified_results():
     """
@@ -11117,9 +11262,9 @@ async def cleanup_expired_unified_results():
     """
     try:
         from db_utils import delete_expired_unified_results
-        
+
         deleted_count = delete_expired_unified_results()
-        
+
         return {
             "message": f"Cleanup completed",
             "deleted_count": deleted_count

@@ -42,10 +42,10 @@ def normalize_gemini_model(model_name):
     return clean_model
 
 
-def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, include_code_list=True):
+def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, include_code_list=True, web_search=True):
     """
     Predict ASA code using Google GenAI SDK from PDF page images
-    
+
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes (ignored if include_code_list=False)
@@ -53,7 +53,8 @@ def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="
         api_key: Google API key
         custom_instructions: Optional custom instructions to append to the prompt
         include_code_list: Whether to include the complete CPT code list in the prompt (default True)
-    
+        web_search: Whether to enable web search for code validation (default True)
+
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
     """
@@ -193,15 +194,17 @@ Respond with ONLY the JSON object, nothing else."""
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
     
-    # Enable web search for Gemini models
-    tools = [
-        types.Tool(googleSearch=types.GoogleSearch()),
-    ]
-    
+    # Conditionally enable web search for Gemini models (CPT prediction)
+    tools = None
+    if web_search:
+        tools = [
+            types.Tool(googleSearch=types.GoogleSearch()),
+        ]
+
     generate_content_config = types.GenerateContentConfig(
         response_mime_type="text/plain",
         thinking_config=thinking_config,
-        tools=tools
+        tools=tools if tools else None
     )
     
     # Retry mechanism with exponential backoff
@@ -465,10 +468,10 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True, web_search=True):
     """
     Predict ASA code using OpenRouter API or Google GenAI SDK from PDF page images
-    
+
     Args:
         image_data_list: List of base64 encoded image strings
         cpt_codes_text: Reference text containing all valid CPT codes (ignored if include_code_list=False)
@@ -476,13 +479,14 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
         api_key: API key (OpenRouter API key for OpenAI models, Google API key for Gemini models)
         custom_instructions: Optional custom instructions to append to the prompt
         include_code_list: Whether to include the complete CPT code list in the prompt (default True)
-    
+        web_search: Whether to enable web search for code validation (default True)
+
     Returns:
         tuple: (predicted_code, tokens_used, cost_estimate, error_message)
     """
     # Check if using Gemini model
     if is_gemini_model(model):
-        return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list)
+        return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
     
     # Use OpenRouter for non-Gemini models
     # Get API key
@@ -1554,10 +1558,10 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
-    
+
     Args:
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
@@ -1569,7 +1573,8 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         custom_instructions: Optional custom instructions to append to the prompt
         include_code_list: Whether to include the complete CPT code list in the prompt (default True)
         image_cache: Optional dict mapping PDF filename to list of base64 images (for speed optimization)
-    
+        web_search: Whether to enable web search for code validation (default True)
+
     Returns:
         bool: True if successful, False otherwise
     """
@@ -1633,7 +1638,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                 
                 # Predict ASA code from images
                 predicted_code, explanation, tokens, cost, error = predict_asa_code_from_images(
-                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list
+                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search
                 )
                 
                 # Determine model source

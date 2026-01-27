@@ -2217,6 +2217,14 @@
                   <span class="btn-icon">📊</span>
                   Download XLSX
                 </button>
+                <button
+                  @click="downloadUnifiedRenamedPdfs()"
+                  class="download-btn download-btn-secondary"
+                  title="Download PDFs renamed with patient names (First Name_Last Name_Middle Name)"
+                >
+                  <span class="btn-icon">📁</span>
+                  Download Renamed PDFs
+                </button>
               </div>
             </div>
 
@@ -2336,6 +2344,14 @@
                             title="Download XLSX"
                           >
                             📊
+                          </button>
+                          <button
+                            v-if="result.file_path_renamed_zip"
+                            @click="downloadUnifiedResultRenamedPdfs(result.job_id)"
+                            class="btn-icon-small"
+                            title="Download Renamed PDFs (First Name_Last Name_Middle Name)"
+                          >
+                            📁
                           </button>
                         </div>
                       </td>
@@ -3090,6 +3106,21 @@
                   />
                   <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
                     Enter any OpenRouter model name. GPT models are available as hardcoded options above.
+                  </p>
+                </div>
+
+                <!-- Web Search Toggle for CPT Vision -->
+                <div class="template-selection-toggle" style="margin-top: 15px">
+                  <label class="toggle-label">
+                    <input
+                      v-model="cptWebSearchEnabled"
+                      type="checkbox"
+                      class="toggle-checkbox"
+                    />
+                    <span class="toggle-text">Enable web search for code validation</span>
+                  </label>
+                  <p class="form-hint" style="margin-top: 5px; color: #64748b; font-size: 0.8rem">
+                    When enabled, the model will use web search to verify CPT codes. Disable for faster predictions.
                   </p>
                 </div>
               </div>
@@ -9846,6 +9877,7 @@ export default {
       cptVisionModel: "openai/gpt-5.2:online",
       cptCustomModel: "", // Custom OpenRouter model input
       cptVisionCustomInstructions: "",
+      cptWebSearchEnabled: true, // Web search toggle for CPT prediction (default on)
       // ICD prediction functionality
       icdZipFile: null,
       icdPageCount: 49,
@@ -12014,6 +12046,43 @@ export default {
       }
     },
 
+    async downloadUnifiedRenamedPdfs() {
+      if (!this.unifiedJobId) return;
+
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await fetch(
+          `${backendUrl}/api/unified-results/${this.unifiedJobId}/download-renamed-pdfs`
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Download failed");
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+
+        // Use custom filename if provided, otherwise use default
+        const filename = this.unifiedOutputFileName.trim()
+          ? `${this.unifiedOutputFileName}_renamed_pdfs.zip`
+          : `unified_results_${this.unifiedJobId}_renamed_pdfs.zip`;
+        a.download = filename;
+
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        this.toast.success("Renamed PDFs downloaded");
+      } catch (error) {
+        console.error("Error downloading renamed PDFs:", error);
+        this.toast.error(error.message || "Failed to download renamed PDFs");
+      }
+    },
+
     resetUnifiedForm() {
       this.unifiedZipFile = null;
       this.unifiedExcelFile = null;
@@ -12130,6 +12199,53 @@ export default {
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download result");
+      }
+    },
+
+    async downloadUnifiedResultRenamedPdfs(jobId) {
+      try {
+        const backendUrl = this.getBackendUrl();
+        const response = await axios.get(
+          `${backendUrl}/api/unified-results/${jobId}/download-renamed-pdfs`,
+          {
+            responseType: "blob"
+          }
+        );
+
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement("a");
+        link.href = url;
+
+        // Get filename from Content-Disposition header or use default
+        let filename = `unified_result_${jobId}_renamed_pdfs.zip`;
+        try {
+          const contentDisposition = response.headers?.["content-disposition"] ||
+                                     response.headers?.get?.("content-disposition") ||
+                                     (response.headers && typeof response.headers === 'object' && response.headers["content-disposition"]);
+          if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+            if (filenameMatch) {
+              filename = filenameMatch[1];
+            }
+          }
+        } catch (e) {
+          console.log("Could not parse filename from headers, using default");
+        }
+
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        this.toast.success("Renamed PDFs download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        if (error.response?.status === 404) {
+          this.toast.error("Renamed PDFs not available. Extraction may not have been enabled or patient name fields were not found.");
+        } else {
+          this.toast.error("Failed to download renamed PDFs");
+        }
       }
     },
 
@@ -12316,6 +12432,8 @@ export default {
         const cptModelToUse = this.cptVisionModel === 'custom' ? this.cptCustomModel : this.cptVisionModel;
         formData.append("model", cptModelToUse);
         formData.append("max_workers", "5");
+        // Web search toggle for CPT code validation
+        formData.append("web_search", this.cptWebSearchEnabled);
 
         // Use template or manual instructions (vision and non-vision share same templates)
         if (this.useCptTemplateInsteadOfText && this.selectedCptInstructionId) {
