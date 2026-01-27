@@ -10372,58 +10372,32 @@ def process_unified_background(
         
         # Log final columns before saving
         logger.info(f"[Unified {job_id}] Final merged dataframe has {len(base_df)} rows and columns: {list(base_df.columns)}")
-        
-        # Save final result
-        result_base = Path(f"/tmp/results/{job_id}_unified_result")
-        result_base.parent.mkdir(exist_ok=True)
-        
-        # Save as both CSV and XLSX
-        result_csv = f"{result_base}.csv"
-        result_xlsx = f"{result_base}.xlsx"
-        
-        base_df.to_csv(result_csv, index=False)
-        
-        # Convert to XLSX with ID column protection
-        try:
-            # Explicitly set ID columns as text to prevent scientific notation in Excel
-            id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
-            for col in id_columns:
-                if col in base_df.columns:
-                    # Only convert non-empty values to string to avoid 'nan' text
-                    base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
-            
-            base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
-        except Exception as e:
-            logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")
-            result_xlsx = None
-        
-        job.result_file = result_csv
-        job.result_file_xlsx = result_xlsx
 
-        # ==================== STEP 5: Create Renamed PDFs ZIP ====================
+        # ==================== STEP 5: Create Renamed PDFs ZIP and Update source_file ====================
         # Rename PDFs using Patient First Name + Last Name + Middle Name from extraction
+        # Also update source_file column in base_df to match the renamed filenames
         renamed_zip_path = None
-        if enable_extraction and extraction_csv_path and os.path.exists(extraction_csv_path):
+        filename_mapping = {}  # old_filename -> new_filename
+
+        if enable_extraction and 'source_file' in base_df.columns:
             try:
                 job.message = "Creating renamed PDFs ZIP..."
                 logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data")
 
-                # Read extraction CSV to get patient names
-                extraction_df = pd.read_csv(extraction_csv_path, dtype=str)
-
                 # Check if we have the required columns
                 name_cols = ['Patient First Name', 'Patient Last Name', 'Patient Middle Name']
-                has_name_cols = all(col in extraction_df.columns for col in name_cols)
+                has_name_cols = all(col in base_df.columns for col in name_cols)
 
-                if has_name_cols and 'source_file' in extraction_df.columns:
+                if has_name_cols:
                     # Create output directory for renamed PDFs
                     renamed_dir = Path(f"/tmp/results/{job_id}_renamed_pdfs")
                     renamed_dir.mkdir(parents=True, exist_ok=True)
 
                     input_dir = temp_dir / "input"
                     renamed_count = 0
+                    used_filenames = set()  # Track used filenames to handle duplicates
 
-                    for _, row in extraction_df.iterrows():
+                    for idx, row in base_df.iterrows():
                         source_file = str(row.get('source_file', '')).strip()
                         first_name = str(row.get('Patient First Name', '')).strip()
                         last_name = str(row.get('Patient Last Name', '')).strip()
@@ -10455,30 +10429,43 @@ def process_unified_background(
                             # Fallback to original filename
                             new_filename = source_file
 
+                        # Handle duplicate filenames by appending a number
+                        final_filename = new_filename
+                        counter = 1
+                        while final_filename in used_filenames:
+                            name_base = new_filename.rsplit('.', 1)[0]
+                            final_filename = f"{name_base}_{counter}.pdf"
+                            counter += 1
+                        used_filenames.add(final_filename)
+
+                        # Store the mapping for updating source_file column
+                        filename_mapping[source_file] = final_filename
+
                         # Find the source PDF (might be in subdirectory)
                         source_path = None
                         for pdf_path in input_dir.rglob("*.pdf"):
                             if pdf_path.name == source_file:
                                 source_path = pdf_path
                                 break
-                        for pdf_path in input_dir.rglob("*.PDF"):
-                            if pdf_path.name == source_file:
-                                source_path = pdf_path
-                                break
+                        if not source_path:
+                            for pdf_path in input_dir.rglob("*.PDF"):
+                                if pdf_path.name == source_file:
+                                    source_path = pdf_path
+                                    break
 
                         if source_path and source_path.exists():
-                            # Handle duplicate filenames by appending a number
-                            dest_path = renamed_dir / new_filename
-                            counter = 1
-                            while dest_path.exists():
-                                name_base = new_filename.rsplit('.', 1)[0]
-                                dest_path = renamed_dir / f"{name_base}_{counter}.pdf"
-                                counter += 1
-
+                            dest_path = renamed_dir / final_filename
                             shutil.copy2(source_path, dest_path)
                             renamed_count += 1
 
                     logger.info(f"[Unified {job_id}] Renamed {renamed_count} PDFs")
+
+                    # Update source_file column in base_df with new filenames
+                    if filename_mapping:
+                        base_df['source_file'] = base_df['source_file'].apply(
+                            lambda x: filename_mapping.get(str(x).strip(), x) if pd.notna(x) else x
+                        )
+                        logger.info(f"[Unified {job_id}] Updated source_file column with {len(filename_mapping)} renamed filenames")
 
                     # Create ZIP from renamed PDFs
                     if renamed_count > 0:
@@ -10493,9 +10480,36 @@ def process_unified_background(
                         # Clean up renamed directory
                         shutil.rmtree(renamed_dir, ignore_errors=True)
                 else:
-                    logger.warning(f"[Unified {job_id}] Cannot create renamed PDFs: missing required columns. Has name cols: {has_name_cols}, has source_file: {'source_file' in extraction_df.columns}")
+                    logger.warning(f"[Unified {job_id}] Cannot create renamed PDFs: missing required columns. Has name cols: {has_name_cols}")
             except Exception as e:
                 logger.warning(f"[Unified {job_id}] Failed to create renamed PDFs ZIP: {e}")
+
+        # Save final result
+        result_base = Path(f"/tmp/results/{job_id}_unified_result")
+        result_base.parent.mkdir(exist_ok=True)
+
+        # Save as both CSV and XLSX
+        result_csv = f"{result_base}.csv"
+        result_xlsx = f"{result_base}.xlsx"
+
+        base_df.to_csv(result_csv, index=False)
+
+        # Convert to XLSX with ID column protection
+        try:
+            # Explicitly set ID columns as text to prevent scientific notation in Excel
+            id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
+            for col in id_columns:
+                if col in base_df.columns:
+                    # Only convert non-empty values to string to avoid 'nan' text
+                    base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
+
+            base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")
+            result_xlsx = None
+
+        job.result_file = result_csv
+        job.result_file_xlsx = result_xlsx
 
         job.status = "completed"
         job.message = "Unified processing completed successfully"
