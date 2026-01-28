@@ -3538,6 +3538,9 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
     """Background task to match CSV source files with SharePoint links"""
     job = job_status[job_id]
 
+    # Save input CSV path before it gets reassigned
+    input_csv_path = csv_path
+
     try:
         job.status = "processing"
         job.message = "Parsing SharePoint URL..."
@@ -3787,9 +3790,9 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         job.result_file = csv_path  # CSV for default download
         job.result_file_xlsx = xlsx_path  # XLSX for format selection
 
-        # Clean up input CSV
-        if os.path.exists(csv_path):
-            os.unlink(csv_path)
+        # Clean up input CSV (not the output files!)
+        if os.path.exists(input_csv_path):
+            os.unlink(input_csv_path)
 
         # Clean up memory
         gc.collect()
@@ -3800,9 +3803,9 @@ def sharepoint_links_background(job_id: str, csv_path: str, folder_url: str):
         job.message = f"SharePoint links matching failed: {str(e)}"
         logger.error(f"SharePoint links job {job_id} failed: {str(e)}")
 
-        # Clean up CSV file
-        if os.path.exists(csv_path):
-            os.unlink(csv_path)
+        # Clean up input CSV file
+        if os.path.exists(input_csv_path):
+            os.unlink(input_csv_path)
 
         # Clean up memory even on failure
         gc.collect()
