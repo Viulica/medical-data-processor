@@ -654,20 +654,14 @@
                 v-if="useTemplateInsteadOfExcelFast"
                 class="template-dropdown-section"
               >
-                <select
+                <SearchableSelect
                   v-model="selectedTemplateIdFast"
-                  class="template-select"
+                  :options="allTemplatesForDropdown"
+                  :reduce="template => template.id"
+                  label="name"
+                  placeholder="Select a template..."
                   @focus="ensureTemplatesLoaded"
-                >
-                  <option :value="null" disabled>Select a template...</option>
-                  <option
-                    v-for="template in allTemplatesForDropdown"
-                    :key="template.id"
-                    :value="template.id"
-                  >
-                    {{ template.name }}
-                  </option>
-                </select>
+                />
                 <p class="template-hint">
                   <a
                     href="#"
@@ -1142,20 +1136,14 @@
                 v-if="unifiedUseExtractionTemplate"
                 class="template-dropdown-section"
               >
-                <select
+                <SearchableSelect
                   v-model="unifiedSelectedExtractionTemplateId"
-                  class="template-select"
+                  :options="allTemplatesForDropdown"
+                  :reduce="template => template.id"
+                  label="name"
+                  placeholder="Select a template..."
                   @focus="ensureTemplatesLoaded"
-                >
-                  <option :value="null" disabled>Select a template...</option>
-                  <option
-                    v-for="template in allTemplatesForDropdown"
-                    :key="template.id"
-                    :value="template.id"
-                  >
-                    {{ template.name }}
-                  </option>
-                </select>
+                />
                 <p class="template-hint">
                   <a
                     href="#"
@@ -1619,24 +1607,14 @@
                       class="template-dropdown-section"
                       style="margin-top: 10px"
                     >
-                      <select
+                      <SearchableSelect
                         v-model="unifiedSelectedCptInstructionId"
-                        class="template-select"
+                        :options="predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                        :reduce="instruction => instruction.id"
+                        label="name"
+                        placeholder="Select CPT template..."
                         @focus="ensureCptInstructionsLoaded"
-                      >
-                        <option :value="null" disabled>
-                          Select CPT template...
-                        </option>
-                        <option
-                          v-for="instruction in predictionInstructions.filter(
-                            (i) => i.instruction_type === 'cpt'
-                          )"
-                          :key="instruction.id"
-                          :value="instruction.id"
-                        >
-                          {{ instruction.name }}
-                        </option>
-                      </select>
+                      />
                       <p class="template-hint">
                         <a
                           href="#"
@@ -1731,24 +1709,14 @@
                       class="template-dropdown-section"
                       style="margin-top: 10px"
                     >
-                      <select
+                      <SearchableSelect
                         v-model="unifiedSelectedCptInstructionId"
-                        class="template-select"
+                        :options="predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                        :reduce="instruction => instruction.id"
+                        label="name"
+                        placeholder="Select CPT template..."
                         @focus="ensureCptInstructionsLoaded"
-                      >
-                        <option :value="null" disabled>
-                          Select CPT template...
-                        </option>
-                        <option
-                          v-for="instruction in predictionInstructions.filter(
-                            (i) => i.instruction_type === 'cpt'
-                          )"
-                          :key="instruction.id"
-                          :value="instruction.id"
-                        >
-                          {{ instruction.name }}
-                        </option>
-                      </select>
+                      />
                       <p class="template-hint">
                         <a
                           href="#"
@@ -2054,24 +2022,14 @@
                     class="template-dropdown-section"
                     style="margin-top: 10px"
                   >
-                    <select
+                    <SearchableSelect
                       v-model="unifiedSelectedIcdInstructionId"
-                      class="template-select"
+                      :options="predictionInstructions.filter(i => i.instruction_type === 'icd')"
+                      :reduce="instruction => instruction.id"
+                      label="name"
+                      placeholder="Select ICD template..."
                       @focus="ensureIcdInstructionsLoaded"
-                    >
-                      <option :value="null" disabled>
-                        Select ICD template...
-                      </option>
-                      <option
-                        v-for="instruction in predictionInstructions.filter(
-                          (i) => i.instruction_type === 'icd'
-                        )"
-                        :key="instruction.id"
-                        :value="instruction.id"
-                      >
-                        {{ instruction.name }}
-                      </option>
-                    </select>
+                    />
                     <p class="template-hint">
                       <a
                         href="#"
@@ -3151,24 +3109,14 @@
                   class="template-dropdown-section"
                   style="margin-top: 10px"
                 >
-                  <select
+                  <SearchableSelect
                     v-model="selectedCptInstructionId"
-                    class="template-select"
+                    :options="predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                    :reduce="instruction => instruction.id"
+                    label="name"
+                    placeholder="Select CPT template..."
                     @focus="ensureCptInstructionsLoaded"
-                  >
-                    <option :value="null" disabled>
-                      Select CPT template...
-                    </option>
-                    <option
-                      v-for="instruction in predictionInstructions.filter(
-                        (i) => i.instruction_type === 'cpt'
-                      )"
-                      :key="instruction.id"
-                      :value="instruction.id"
-                    >
-                      {{ instruction.name }}
-                    </option>
-                  </select>
+                  />
                   <p class="template-hint">
                     <a
                       href="#"
@@ -3254,24 +3202,14 @@
                   v-if="useCptTemplateInsteadOfText"
                   class="template-dropdown-section"
                 >
-                  <select
+                  <SearchableSelect
                     v-model="selectedCptInstructionId"
-                    class="template-select"
+                    :options="predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                    :reduce="instruction => instruction.id"
+                    label="name"
+                    placeholder="Select CPT template..."
                     @focus="ensureCptInstructionsLoaded"
-                  >
-                    <option :value="null" disabled>
-                      Select CPT template...
-                    </option>
-                    <option
-                      v-for="instruction in predictionInstructions.filter(
-                        (i) => i.instruction_type === 'cpt'
-                      )"
-                      :key="instruction.id"
-                      :value="instruction.id"
-                    >
-                      {{ instruction.name }}
-                    </option>
-                  </select>
+                  />
                   <p class="template-hint">
                     <a
                       href="#"
@@ -3752,24 +3690,14 @@
                   v-if="useIcdTemplateInsteadOfText"
                   class="template-dropdown-section"
                 >
-                  <select
+                  <SearchableSelect
                     v-model="selectedIcdInstructionId"
-                    class="template-select"
+                    :options="predictionInstructions.filter(i => i.instruction_type === 'icd')"
+                    :reduce="instruction => instruction.id"
+                    label="name"
+                    placeholder="Select ICD template..."
                     @focus="ensureIcdInstructionsLoaded"
-                  >
-                    <option :value="null" disabled>
-                      Select ICD template...
-                    </option>
-                    <option
-                      v-for="instruction in predictionInstructions.filter(
-                        (i) => i.instruction_type === 'icd'
-                      )"
-                      :key="instruction.id"
-                      :value="instruction.id"
-                    >
-                      {{ instruction.name }}
-                    </option>
-                  </select>
+                  />
                   <p class="template-hint">
                     <a
                       href="#"
@@ -4468,20 +4396,14 @@
                 v-if="refinementUseExtractionTemplate"
                 class="template-dropdown-section"
               >
-                <select
+                <SearchableSelect
                   v-model="refinementSelectedExtractionTemplateId"
-                  class="template-select"
+                  :options="allTemplatesForDropdown"
+                  :reduce="template => template.id"
+                  label="name"
+                  placeholder="Select a template..."
                   @focus="ensureTemplatesLoaded"
-                >
-                  <option :value="null" disabled>Select a template...</option>
-                  <option
-                    v-for="template in allTemplatesForDropdown"
-                    :key="template.id"
-                    :value="template.id"
-                  >
-                    {{ template.name }}
-                  </option>
-                </select>
+                />
               </div>
               <div
                 v-else
@@ -4631,22 +4553,14 @@
                 <h3>CPT Instruction Template (Required)</h3>
               </div>
               <div class="settings-content">
-                <select
+                <SearchableSelect
                   v-model="refinementSelectedCptInstructionId"
-                  class="template-select"
+                  :options="predictionInstructions.filter(i => i.instruction_type === 'cpt')"
+                  :reduce="instruction => instruction.id"
+                  label="name"
+                  placeholder="Select CPT template..."
                   @focus="ensurePredictionInstructionsLoaded"
-                >
-                  <option :value="null" disabled>Select CPT template...</option>
-                  <option
-                    v-for="instruction in predictionInstructions.filter(
-                      (i) => i.instruction_type === 'cpt'
-                    )"
-                    :key="instruction.id"
-                    :value="instruction.id"
-                  >
-                    {{ instruction.name }}
-                  </option>
-                </select>
+                />
               </div>
             </div>
 
@@ -4904,22 +4818,14 @@
                 <h3>ICD Instruction Template (Required)</h3>
               </div>
               <div class="settings-content">
-                <select
+                <SearchableSelect
                   v-model="refinementSelectedIcdInstructionId"
-                  class="template-select"
+                  :options="predictionInstructions.filter(i => i.instruction_type === 'icd')"
+                  :reduce="instruction => instruction.id"
+                  label="name"
+                  placeholder="Select ICD template..."
                   @focus="ensurePredictionInstructionsLoaded"
-                >
-                  <option :value="null" disabled>Select ICD template...</option>
-                  <option
-                    v-for="instruction in predictionInstructions.filter(
-                      (i) => i.instruction_type === 'icd'
-                    )"
-                    :key="instruction.id"
-                    :value="instruction.id"
-                  >
-                    {{ instruction.name }}
-                  </option>
-                </select>
+                />
               </div>
             </div>
 
@@ -7326,20 +7232,16 @@
 
               <!-- Template Mode -->
               <div v-else class="template-selector">
-                <select
+                <SearchableSelect
                   v-model="selectedSpecialCasesTemplateId"
-                  class="template-select"
-                >
-                  <option :value="null">Select a template...</option>
-                  <option
-                    v-for="template in availableSpecialCasesTemplates"
-                    :key="template.id"
-                    :value="template.id"
-                  >
-                    {{ template.name }} ({{ template.mappings.length }}
-                    mappings)
-                  </option>
-                </select>
+                  :options="availableSpecialCasesTemplates.map(t => ({
+                    ...t,
+                    displayName: `${t.name} (${t.mappings.length} mappings)`
+                  }))"
+                  :reduce="template => template.id"
+                  label="displayName"
+                  placeholder="Select a template..."
+                />
                 <button
                   @click="loadAvailableSpecialCasesTemplates"
                   class="refresh-btn"
@@ -9789,6 +9691,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
 <script>
 import axios from "axios";
 import { useToast } from "vue-toastification";
+import SearchableSelect from "./components/SearchableSelect.vue";
 
 // Helper function to properly join URL parts without double slashes
 function joinUrl(base, path) {
@@ -9805,6 +9708,9 @@ const API_BASE_URL = (
 
 export default {
   name: "App",
+  components: {
+    SearchableSelect
+  },
   setup() {
     const toast = useToast();
     return { toast };
