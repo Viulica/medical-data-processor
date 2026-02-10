@@ -3372,10 +3372,21 @@
               <div class="progress-text">
                 {{ cptJobStatus.progress }}% Complete
               </div>
-              <button @click="checkCptJobStatus" class="check-status-btn">
-                <span class="btn-icon">🔄</span>
-                Check Status
-              </button>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button @click="checkCptJobStatus" class="check-status-btn">
+                  <span class="btn-icon">🔄</span>
+                  Check Status
+                </button>
+                <button
+                  v-if="cptJobStatus.progress > 30"
+                  @click="downloadCptResults('xlsx')"
+                  class="check-status-btn"
+                  style="background: #f59e0b; color: #fff;"
+                >
+                  <span class="btn-icon">📊</span>
+                  Download Partial Results
+                </button>
+              </div>
             </div>
 
             <div

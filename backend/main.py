@@ -1355,24 +1355,41 @@ answer ONLY with the code, nothing else"""
         job.progress = 30
         
         # Process predictions with threading
-        predictions = [None] * len(df)
-        model_sources = [None] * len(df)
+        predictions = [""] * len(df)
+        model_sources = ["pending"] * len(df)
         failure_reasons = [None] * len(df)
-        
+
+        # Prepare partial results path so users can download mid-processing
+        partial_base = Path(f"/tmp/results/{job_id}_with_codes")
+        partial_base.parent.mkdir(exist_ok=True)
+
+        def save_partial_results():
+            """Save current state of predictions as a downloadable file."""
+            try:
+                partial_df = df.copy()
+                insert_idx = partial_df.columns.get_loc("Procedure Description") + 1
+                partial_df.insert(insert_idx, "ASA Code", list(predictions))
+                partial_df.insert(insert_idx + 1, "Model Source", list(model_sources))
+                csv_path, xlsx_path = save_dataframe_dual_format(partial_df, partial_base)
+                job.result_file = csv_path
+                job.result_file_xlsx = xlsx_path
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Failed to save partial results: {e}")
+
         with ThreadPoolExecutor(max_workers=5) as executor:
             # Pass extracted description if available
             if has_extracted:
                 futures = {
                     executor.submit(
-                        get_prediction_and_review, 
-                        proc, 
+                        get_prediction_and_review,
+                        proc,
                         df.iloc[i].get("Procedure Description Extracted", None)
-                    ): i 
+                    ): i
                     for i, proc in enumerate(df["Procedure Description"])
                 }
             else:
                 futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
-            
+
             completed = 0
             timed_out = 0
             for future in as_completed(futures):
@@ -1404,6 +1421,10 @@ answer ONLY with the code, nothing else"""
                 completed += 1
                 job.progress = 30 + int((completed / len(df)) * 50)
                 job.message = f"Processed {completed}/{len(df)} procedures..."
+
+                # Save partial results every 5 completions so user can download early
+                if completed % 5 == 0 or completed == len(df):
+                    save_partial_results()
 
             if timed_out > 0:
                 logger.info(f"Job {job_id}: {timed_out}/{len(df)} predictions timed out and were left empty")
@@ -2802,8 +2823,12 @@ async def download_result(job_id: str, format: str = "csv", file_type: str = "re
     
     job = job_status[job_id]
     
-    if job.status != "completed":
+    if job.status not in ("completed", "processing"):
         raise HTTPException(status_code=400, detail="Job not completed yet")
+
+    # Allow partial download during processing if result files exist
+    if job.status == "processing" and not (job.result_file and os.path.exists(job.result_file)):
+        raise HTTPException(status_code=400, detail="Partial results not yet available, please try again shortly")
     
     # Determine which file to download based on file_type and format parameters
     if file_type == "result_file_json":
