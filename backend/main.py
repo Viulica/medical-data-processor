@@ -1374,23 +1374,39 @@ answer ONLY with the code, nothing else"""
                 futures = {executor.submit(get_prediction_and_review, proc): i for i, proc in enumerate(df["Procedure Description"])}
             
             completed = 0
+            timed_out = 0
             for future in as_completed(futures):
                 idx = futures[future]
-                result = future.result()
-                if isinstance(result, tuple) and len(result) == 3:
-                    predictions[idx], model_sources[idx], failure_reasons[idx] = result
-                elif isinstance(result, tuple) and len(result) == 2:
-                    # Handle old format for backward compatibility
-                    predictions[idx], model_sources[idx] = result
-                    failure_reasons[idx] = None
-                else:
-                    # Handle single return value
-                    predictions[idx] = result
-                    model_sources[idx] = "unknown"
-                    failure_reasons[idx] = None
+                try:
+                    result = future.result(timeout=60)
+                    if isinstance(result, tuple) and len(result) == 3:
+                        predictions[idx], model_sources[idx], failure_reasons[idx] = result
+                    elif isinstance(result, tuple) and len(result) == 2:
+                        # Handle old format for backward compatibility
+                        predictions[idx], model_sources[idx] = result
+                        failure_reasons[idx] = None
+                    else:
+                        # Handle single return value
+                        predictions[idx] = result
+                        model_sources[idx] = "unknown"
+                        failure_reasons[idx] = None
+                except TimeoutError:
+                    timed_out += 1
+                    predictions[idx] = ""
+                    model_sources[idx] = "timeout"
+                    failure_reasons[idx] = "Prediction timed out after 60 seconds"
+                    logger.warning(f"Job {job_id}: Prediction for row {idx} timed out after 60s, leaving CPT empty")
+                except Exception as e:
+                    predictions[idx] = ""
+                    model_sources[idx] = "error"
+                    failure_reasons[idx] = f"Prediction error: {str(e)}"
+                    logger.warning(f"Job {job_id}: Prediction for row {idx} failed: {str(e)}, leaving CPT empty")
                 completed += 1
                 job.progress = 30 + int((completed / len(df)) * 50)
                 job.message = f"Processed {completed}/{len(df)} procedures..."
+
+            if timed_out > 0:
+                logger.info(f"Job {job_id}: {timed_out}/{len(df)} predictions timed out and were left empty")
 
         job.message = "Applying colonoscopy corrections..."
         job.progress = 85
