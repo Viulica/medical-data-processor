@@ -146,124 +146,133 @@ def extract_annotations_from_pdf(pdf_path: str) -> List[str]:
 def match_providers_from_annotations(
     annotation_texts: List[str],
     provider_mapping: Dict[str, Dict[str, str]]
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
     """
     Match provider codes from annotation texts against the provider mapping.
-    
+
     Handles cases like:
     - Single code: "7" -> CRNA provider with code 7
     - Two providers: "7/1" -> CRNA (7) and MD (1)
-    
+    - With SRNA suffix: "1/SRNA" or "1/7/SRNA" -> providers + SRNA flag
+
     Args:
         annotation_texts: List of text strings extracted from annotations
         provider_mapping: Dict mapping mednet_code -> provider info
-    
+
     Returns:
-        Tuple of (responsible_provider, md_provider, crna_provider)
+        Tuple of (responsible_provider, md_provider, crna_provider, has_srna)
         - responsible_provider: The first provider found (or None)
         - md_provider: MD provider name (or None)
         - crna_provider: CRNA provider name (or None)
+        - has_srna: True if SRNA was present in the annotation
     """
     if not annotation_texts or not provider_mapping:
-        return None, None, None
-    
+        return None, None, None, False
+
     # Pattern to match:
     # - Single number: "7", "12", "509"
     # - Two numbers separated by /: "7/1", "12/5"
     # - Numbers can have leading zeros: "07", "01"
-    
+    # - Any pattern can end with /SRNA: "1/SRNA", "1/7/SRNA"
+
     for text in annotation_texts:
         text = text.strip()
-        
+
+        # Check for SRNA suffix and strip it
+        has_srna = False
+        if re.search(r'/\s*SRNA\s*$', text, re.IGNORECASE):
+            has_srna = True
+            text = re.sub(r'\s*/\s*SRNA\s*$', '', text, flags=re.IGNORECASE).strip()
+
         # Try to match "X/Y" pattern (two providers)
         match_two = re.match(r'^(\d+)\s*/\s*(\d+)$', text)
         if match_two:
             code1 = match_two.group(1).lstrip('0') or '0'
             code2 = match_two.group(2).lstrip('0') or '0'
-            
+
             provider1 = provider_mapping.get(code1)
             provider2 = provider_mapping.get(code2)
-            
+
             if provider1 or provider2:
                 # Determine which is MD and which is CRNA
                 md_provider = None
                 crna_provider = None
                 responsible_provider = None
-                
+
                 if provider1:
                     if provider1['title'] == 'MD':
                         md_provider = provider1['name']
                     elif provider1['title'] == 'CRNA':
                         crna_provider = provider1['name']
-                    
+
                     # First provider is responsible
                     responsible_provider = provider1['name']
-                
+
                 if provider2:
                     if provider2['title'] == 'MD':
                         md_provider = provider2['name']
                     elif provider2['title'] == 'CRNA':
                         crna_provider = provider2['name']
-                    
+
                     # If we didn't find a responsible provider yet, use provider2
                     if not responsible_provider:
                         responsible_provider = provider2['name']
-                
-                logger.info(f"Matched two providers from annotation '{text}': Responsible={responsible_provider}, MD={md_provider}, CRNA={crna_provider}")
-                return responsible_provider, md_provider, crna_provider
-        
+
+                logger.info(f"Matched two providers from annotation '{text}': Responsible={responsible_provider}, MD={md_provider}, CRNA={crna_provider}, SRNA={has_srna}")
+                return responsible_provider, md_provider, crna_provider, has_srna
+
         # Try to match single number
         match_one = re.match(r'^(\d+)$', text)
         if match_one:
             code = match_one.group(1).lstrip('0') or '0'
             provider = provider_mapping.get(code)
-            
+
             if provider:
                 responsible_provider = provider['name']
                 md_provider = provider['name'] if provider['title'] == 'MD' else None
                 crna_provider = provider['name'] if provider['title'] == 'CRNA' else None
-                
-                logger.info(f"Matched single provider from annotation '{text}': {responsible_provider} ({provider['title']})")
-                return responsible_provider, md_provider, crna_provider
-    
+
+                logger.info(f"Matched single provider from annotation '{text}': {responsible_provider} ({provider['title']}), SRNA={has_srna}")
+                return responsible_provider, md_provider, crna_provider, has_srna
+
     # No matches found
     logger.debug(f"No provider matches found in annotations: {annotation_texts}")
-    return None, None, None
+    return None, None, None, False
 
 
 def extract_and_match_providers(
     pdf_path: str,
     provider_mapping_text: Optional[str]
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
     """
     Extract annotations from a PDF and match them against provider mapping.
-    
+
     This is the main function to use for provider extraction from PDF annotations.
-    
+
     Args:
         pdf_path: Path to the PDF file
         provider_mapping_text: Provider mapping text (output from provider-mapping endpoint)
-    
+
     Returns:
-        Tuple of (responsible_provider, md_provider, crna_provider)
+        Tuple of (responsible_provider, md_provider, crna_provider, has_srna)
     """
     if not provider_mapping_text:
-        return None, None, None
-    
+        return None, None, None, False
+
     # Parse the provider mapping
     provider_mapping = parse_provider_mapping(provider_mapping_text)
-    
+
     if not provider_mapping:
         logger.warning("No providers parsed from mapping text")
-        return None, None, None
-    
+        return None, None, None, False
+
     # Extract annotations from PDF
     annotation_texts = extract_annotations_from_pdf(pdf_path)
-    
+
     if not annotation_texts:
         logger.debug(f"No annotations found in {pdf_path}")
-        return None, None, None
-    
+        return None, None, None, False
+
     # Match providers
     return match_providers_from_annotations(annotation_texts, provider_mapping)
 

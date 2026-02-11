@@ -484,21 +484,25 @@ def process_single_patient_pdf_task(args):
             from provider_annotation_utils import extract_and_match_providers
             
             # Extract and match providers from the original PDF (not the temp one)
-            responsible, md, crna = extract_and_match_providers(pdf_file_path, provider_mapping)
-            
+            responsible, md, crna, has_srna = extract_and_match_providers(pdf_file_path, provider_mapping)
+
             # Override provider fields if we found matches
-            if responsible or md or crna:
+            if responsible or md or crna or has_srna:
                 if responsible:
                     merged_data['Responsible Provider'] = responsible
                     print(f"    ✅ Set Responsible Provider from annotation: {responsible}")
-                
+
                 if md:
                     merged_data['MD'] = md
                     print(f"    ✅ Set MD from annotation: {md}")
-                
+
                 if crna:
                     merged_data['CRNA'] = crna
                     print(f"    ✅ Set CRNA from annotation: {crna}")
+
+                if has_srna:
+                    merged_data['SRNA'] = 'SRNA'
+                    print(f"    ✅ Set SRNA from annotation: SRNA")
         
         except Exception as e:
             print(f"    ⚠️  Failed to extract providers from annotations for {pdf_filename}: {e}")
@@ -565,7 +569,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
     # This ensures they appear in the CSV output even if not in the template
     if extract_providers_from_annotations:
-        provider_fields = ['Responsible Provider', 'MD', 'CRNA']
+        provider_fields = ['Responsible Provider', 'MD', 'CRNA', 'SRNA']
         for field in provider_fields:
             if field not in fieldnames:
                 fieldnames.append(field)
