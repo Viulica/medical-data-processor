@@ -501,8 +501,8 @@ def process_single_patient_pdf_task(args):
                     print(f"    ✅ Set CRNA from annotation: {crna}")
 
                 if has_srna:
-                    merged_data['SRNA'] = 'SRNA'
-                    print(f"    ✅ Set SRNA from annotation: SRNA")
+                    merged_data['SRNA'] = 'SRNA, SRNA, SRNA'
+                    print(f"    ✅ Set SRNA from annotation: SRNA, SRNA, SRNA")
         
         except Exception as e:
             print(f"    ⚠️  Failed to extract providers from annotations for {pdf_filename}: {e}")
