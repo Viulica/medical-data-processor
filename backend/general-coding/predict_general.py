@@ -661,19 +661,29 @@ Respond with ONLY the JSON object, nothing else."""
         "model": openrouter_model,
         "messages": messages
     }
-    
+
+    # Enable reasoning (thinking) for Gemini 3 models via OpenRouter
+    if "gemini-3" in openrouter_model:
+        payload["reasoning"] = {"effort": "high"}
+        logger.info(f"Enabled reasoning (effort=high) for Gemini 3 model via OpenRouter")
+
+    # Enable web search if requested (for CPT code validation)
+    if web_search:
+        payload["plugins"] = [{"id": "web"}]
+        logger.info(f"Enabled web search plugin for OpenRouter CPT prediction")
+
     # Log the model being used for debugging
     logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
-    
+
     # Retry mechanism with exponential backoff
     max_retries = 5
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=payload)
             response.raise_for_status()
-            
+
             response_data = response.json()
-            
+
             # Extract the predicted code and explanation from the response
             predicted_code = None
             explanation = ""
@@ -1210,19 +1220,28 @@ Respond with ONLY the JSON object, nothing else."""
         "model": openrouter_model,
         "messages": messages
     }
-    
+
+    # Enable reasoning (thinking) for Gemini 3 models via OpenRouter
+    if "gemini-3" in openrouter_model:
+        payload["reasoning"] = {"effort": "high"}
+        logger.info(f"Enabled reasoning (effort=high) for Gemini 3 model via OpenRouter")
+
+    # Enable web search for ICD code validation
+    payload["plugins"] = [{"id": "web"}]
+    logger.info(f"Enabled web search plugin for OpenRouter ICD prediction")
+
     # Log the model being used for debugging
     logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
-    
+
     # Retry mechanism with exponential backoff
     max_retries = 5
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=payload)
             response.raise_for_status()
-            
+
             response_data = response.json()
-            
+
             # Extract the predicted codes from the response
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 content_text = response_data["choices"][0]["message"]["content"]
