@@ -486,18 +486,27 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
     """
     # Check if using Gemini model
     if is_gemini_model(model):
-        return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
-    
-    # Use OpenRouter for non-Gemini models
+        # Use Google GenAI SDK directly if GOOGLE_API_KEY is available
+        google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if google_api_key and GOOGLE_GENAI_AVAILABLE:
+            logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
+            return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
+        else:
+            # Fall back to OpenRouter with google/ prefix
+            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
+            model = f"google/{normalize_gemini_model(model)}"
+            # Fall through to OpenRouter path below
+
+    # Use OpenRouter for non-Gemini models (or Gemini models without GOOGLE_API_KEY)
     # Get API key
     if api_key:
         api_key_value = api_key
     else:
         api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-    
+
     if not api_key_value:
         return None, 0, 0.0, "No API key provided"
-    
+
     # Prepare the prompt
     if include_code_list:
         prompt = f"""You are a medical anesthesia CPT coder.
@@ -1063,18 +1072,27 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
     """
     # Check if using Gemini model
     if is_gemini_model(model):
-        return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions)
-    
-    # Use OpenRouter for non-Gemini models
+        # Use Google GenAI SDK directly if GOOGLE_API_KEY is available
+        google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if google_api_key and GOOGLE_GENAI_AVAILABLE:
+            logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
+            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions)
+        else:
+            # Fall back to OpenRouter with google/ prefix
+            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
+            model = f"google/{normalize_gemini_model(model)}"
+            # Fall through to OpenRouter path below
+
+    # Use OpenRouter for non-Gemini models (or Gemini models without GOOGLE_API_KEY)
     # Get API key
     if api_key:
         api_key_value = api_key
     else:
         api_key_value = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-    
+
     if not api_key_value:
         return None, 0, 0.0, "No API key provided"
-    
+
     # Prepare the prompt
     prompt = """You are a medical coding specialist.
 

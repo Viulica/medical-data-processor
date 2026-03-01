@@ -283,12 +283,15 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
     
-    # Check if using OpenRouter (only if not a Gemini model)
-    if not is_gemini_model(model) and is_openrouter_model(model):
+    # Check if using OpenRouter (explicitly, or Gemini model without GOOGLE_API_KEY)
+    if is_openrouter_model(model) and not is_gemini_model(model):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
-    
-    # Normalize Gemini model name if needed
+
     if is_gemini_model(model):
+        # If no GOOGLE_API_KEY and no client, fall back to OpenRouter
+        if client is None and not os.environ.get("GOOGLE_API_KEY"):
+            openrouter_model = f"google/{normalize_gemini_model(model)}"
+            return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, openrouter_model, max_retries, field_name_for_log)
         model = normalize_gemini_model(model)
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
@@ -577,29 +580,42 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Initialize Google AI client (only needed if not using OpenRouter)
     # Check if we're using Gemini models (use Gemini API) or OpenRouter models
-    using_gemini = is_gemini_model(model) or is_gemini_model(priority_model)
-    using_openrouter = (not using_gemini) and (is_openrouter_model(model) or is_openrouter_model(priority_model))
-    
+    using_gemini = is_gemini_model(model) or (priority_model and is_gemini_model(priority_model))
+    using_openrouter = (not using_gemini) and (is_openrouter_model(model) or (priority_model and is_openrouter_model(priority_model)))
+
     client = None
     if using_gemini:
-        # Normalize Gemini model names
-        model = normalize_gemini_model(model)
-        if priority_model:
-            priority_model = normalize_gemini_model(priority_model)
-    
-    if not using_openrouter:
-        api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
-        if not api_key:
-            print("❌ GOOGLE_API_KEY environment variable not set!")
-            sys.exit(1)
-        client = genai.Client(api_key=api_key)
-    else:
+        # Check if GOOGLE_API_KEY is available; if not, fall back to OpenRouter
+        google_api_key = os.environ.get("GOOGLE_API_KEY")
+        if google_api_key:
+            # Normalize Gemini model names
+            model = normalize_gemini_model(model)
+            if priority_model:
+                priority_model = normalize_gemini_model(priority_model)
+            client = genai.Client(api_key=google_api_key)
+            print(f"🔑 Using Google GenAI SDK directly for Gemini model '{model}'")
+        else:
+            # Fall back to OpenRouter with google/ prefix
+            print(f"⚠️ No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
+            model = f"google/{normalize_gemini_model(model)}"
+            if priority_model:
+                priority_model = f"google/{normalize_gemini_model(priority_model)}"
+            using_gemini = False
+            using_openrouter = True
+
+    if using_openrouter:
         # Verify OpenRouter API key is available
         openrouter_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not openrouter_key:
             print("❌ OPENROUTER_API_KEY or OPENAI_API_KEY environment variable not set!")
             sys.exit(1)
         print("🤖 Using OpenRouter API for extraction")
+    elif not client:
+        api_key = os.environ.get("GOOGLE_API_KEY", "AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w")
+        if not api_key:
+            print("❌ GOOGLE_API_KEY environment variable not set!")
+            sys.exit(1)
+        client = genai.Client(api_key=api_key)
     
     # Find all PDF files in the input folder (both uppercase and lowercase extensions)
     # Search recursively to handle ZIP files with folder structures
