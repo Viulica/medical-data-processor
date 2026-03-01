@@ -662,6 +662,10 @@ Respond with ONLY the JSON object, nothing else."""
         "messages": messages
     }
 
+    # Enable reasoning for Gemini 3 models via OpenRouter
+    if "gemini-3" in openrouter_model:
+        payload["reasoning"] = {"effort": "medium"}
+
     # Enable web search if requested (for CPT code validation)
     if web_search:
         payload["plugins"] = [{"id": "web"}]
@@ -1215,6 +1219,10 @@ Respond with ONLY the JSON object, nothing else."""
         "model": openrouter_model,
         "messages": messages
     }
+
+    # Enable reasoning for Gemini 3 models via OpenRouter
+    if "gemini-3" in openrouter_model:
+        payload["reasoning"] = {"effort": "medium"}
 
     # Enable web search for ICD code validation
     payload["plugins"] = [{"id": "web"}]

@@ -224,6 +224,10 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 "messages": messages
             }
 
+            # Enable reasoning for Gemini 3 models via OpenRouter
+            if "gemini-3" in openrouter_model:
+                payload["reasoning"] = {"effort": "medium"}
+
             response = requests.post(url, headers=headers, json=payload, timeout=300)
             response.raise_for_status()
             
