@@ -623,8 +623,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     pdf_files += glob.glob(os.path.join(input_folder, "**", "*.pdf"), recursive=True)
     pdf_files += glob.glob(os.path.join(input_folder, "**", "*.PDF"), recursive=True)
     
-    # Remove duplicates (in case a file is found both ways)
-    pdf_files = list(set(pdf_files))
+    # Remove duplicates (in case a file is found both ways) and filter out __MACOSX metadata
+    pdf_files = [f for f in set(pdf_files) if '__MACOSX' not in f]
     
     if not pdf_files:
         print(f"❌ ERROR: No PDF files found in the '{input_folder}' folder.")

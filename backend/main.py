@@ -9332,7 +9332,8 @@ def process_unified_background(
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
-                    pdf_count = len(set(pdf_files_list))  # Deduplicate (matches extraction script logic)
+                    pdf_files_list = [f for f in set(pdf_files_list) if '__MACOSX' not in f]  # Deduplicate and filter macOS metadata
+                    pdf_count = len(pdf_files_list)
                     logger.info(f"[Unified {job_id}] Found {pdf_count} PDFs to extract")
                     with lock:
                         extraction_total[0] = pdf_count
@@ -9649,7 +9650,8 @@ def process_unified_background(
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "*.PDF")))
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.pdf"), recursive=True))
                     pdf_files_list.extend(glob_module.glob(os.path.join(input_path_str, "**", "*.PDF"), recursive=True))
-                    pdf_count = len(set(pdf_files_list))  # Deduplicate (matches extraction script logic)
+                    pdf_files_list = [f for f in set(pdf_files_list) if '__MACOSX' not in f]  # Deduplicate and filter macOS metadata
+                    pdf_count = len(pdf_files_list)
                     with lock:
                         extraction_total[0] = pdf_count
                     

@@ -1614,15 +1614,18 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         pdf_files = []
         for ext in ['*.pdf', '*.PDF']:
             pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
-        
+
         # Deduplicate PDF files (on case-insensitive filesystems like macOS, *.pdf and *.PDF match the same files)
         pdf_files = list(set(pdf_files))
-        
+
+        # Filter out __MACOSX metadata files
+        pdf_files = [f for f in pdf_files if '__MACOSX' not in str(f)]
+
         # Also check case-insensitive manually
         if not pdf_files:
             all_files = list(pdf_folder_path.rglob("*"))
-            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.pdf']
-        
+            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.pdf' and '__MACOSX' not in str(f)]
+
         if not pdf_files:
             # Log what files are actually in the directory for debugging
             all_files = list(pdf_folder_path.rglob("*"))
@@ -1630,22 +1633,22 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
             logger.error(f"No PDF files found in {pdf_folder}")
             logger.error(f"Files in directory: {files_list}")  # Show first 20 files
             return False
-        
+
         logger.info(f"Found {len(pdf_files)} PDF files to process")
-        
+
         # Sort PDF files to ensure consistent order
         pdf_files = sorted(pdf_files, key=lambda x: x.name)
-        
+
         # Initialize result dictionaries (use index to maintain order)
         results = {}
-        
+
         if progress_callback:
             progress_callback(0, len(pdf_files), "Starting PDF image extraction and predictions...")
-        
+
         # Process each PDF
         def process_pdf(idx, pdf_path):
             filename = pdf_path.name
-            
+
             try:
                 # Extract pages as base64 images
                 image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
@@ -1773,15 +1776,18 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         pdf_files = []
         for ext in ['*.pdf', '*.PDF']:
             pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
-        
+
         # Deduplicate PDF files (on case-insensitive filesystems like macOS, *.pdf and *.PDF match the same files)
         pdf_files = list(set(pdf_files))
-        
+
+        # Filter out __MACOSX metadata files
+        pdf_files = [f for f in pdf_files if '__MACOSX' not in str(f)]
+
         # Also check case-insensitive manually
         if not pdf_files:
             all_files = list(pdf_folder_path.rglob("*"))
-            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.pdf']
-        
+            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.pdf' and '__MACOSX' not in str(f)]
+
         if not pdf_files:
             # Log what files are actually in the directory for debugging
             all_files = list(pdf_folder_path.rglob("*"))
