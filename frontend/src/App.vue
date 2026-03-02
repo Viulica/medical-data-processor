@@ -8764,6 +8764,9 @@ Johnson, Robert, MD (MedNet Code: 1)"
                         @change="onJsonFileSelect"
                         style="display: none"
                       />
+                      <button @click="openReorderModal" class="reorder-fields-btn" title="Reorder fields via drag and drop">
+                        ↕️ Reorder
+                      </button>
                       <button @click="addNewField" class="add-field-btn">
                         ➕ Add Field
                       </button>
@@ -8894,6 +8897,44 @@ Johnson, Robert, MD (MedNet Code: 1)"
                 <span v-if="isSavingFields">Saving...</span>
                 <span v-else>Save Changes</span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reorder Fields Modal -->
+        <div
+          v-if="showReorderModal"
+          class="modal-overlay"
+          @click.self="showReorderModal = false"
+        >
+          <div class="modal-content reorder-modal">
+            <div class="modal-header">
+              <h3>↕️ Reorder Fields</h3>
+              <button @click="showReorderModal = false" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+              <p class="reorder-hint">Drag and drop to reorder fields</p>
+              <draggable
+                v-model="reorderFields"
+                item-key="id"
+                handle=".drag-handle"
+                ghost-class="reorder-ghost"
+                animation="200"
+                class="reorder-list"
+              >
+                <template #item="{ element, index }">
+                  <div class="reorder-item">
+                    <span class="drag-handle">☰</span>
+                    <span class="reorder-index">{{ index + 1 }}</span>
+                    <span class="reorder-name">{{ element.name || '(unnamed)' }}</span>
+                    <span v-if="element.priority" class="reorder-priority">★</span>
+                  </div>
+                </template>
+              </draggable>
+            </div>
+            <div class="modal-footer">
+              <button @click="showReorderModal = false" class="btn-secondary">Cancel</button>
+              <button @click="applyReorder" class="btn-primary">Apply Order</button>
             </div>
           </div>
         </div>
@@ -9703,6 +9744,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
 import axios from "axios";
 import { useToast } from "vue-toastification";
 import SearchableSelect from "./components/SearchableSelect.vue";
+import draggable from "vuedraggable";
 
 // Helper function to properly join URL parts without double slashes
 function joinUrl(base, path) {
@@ -9720,7 +9762,8 @@ const API_BASE_URL = (
 export default {
   name: "App",
   components: {
-    SearchableSelect
+    SearchableSelect,
+    draggable
   },
   setup() {
     const toast = useToast();
@@ -10076,6 +10119,8 @@ export default {
       },
       viewingTemplate: null,
       editingFields: [],
+      showReorderModal: false,
+      reorderFields: [],
       isSavingFields: false,
       // Template selection for processing tabs
       selectedTemplateIdFast: null,
@@ -15684,6 +15729,23 @@ export default {
       }
     },
 
+    openReorderModal() {
+      this.reorderFields = this.editingFields.map((f, i) => ({
+        ...JSON.parse(JSON.stringify(f)),
+        id: i,
+      }));
+      this.showReorderModal = true;
+    },
+
+    applyReorder() {
+      this.editingFields = this.reorderFields.map((f) => {
+        const field = { ...f };
+        delete field.id;
+        return field;
+      });
+      this.showReorderModal = false;
+    },
+
     async saveFieldEdits() {
       if (!this.canSaveFields) {
         this.toast.error("All fields must have a name");
@@ -19094,6 +19156,100 @@ input:checked + .slider:hover {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.reorder-fields-btn {
+  padding: 0.5rem 1rem;
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reorder-fields-btn:hover {
+  background: #d97706;
+  transform: translateY(-1px);
+}
+
+.reorder-modal {
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.reorder-hint {
+  color: #6b7280;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.reorder-list {
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reorder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: default;
+  transition: box-shadow 0.15s;
+}
+
+.reorder-item:hover {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: #9ca3af;
+  font-size: 1.1rem;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.reorder-index {
+  color: #9ca3af;
+  font-size: 0.8rem;
+  font-weight: 600;
+  min-width: 24px;
+  text-align: center;
+}
+
+.reorder-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reorder-priority {
+  color: #f59e0b;
+  font-size: 0.9rem;
+}
+
+.reorder-ghost {
+  opacity: 0.4;
+  background: #dbeafe;
+  border-color: #3b82f6;
 }
 
 .json-btn {
