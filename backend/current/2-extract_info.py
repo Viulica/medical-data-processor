@@ -294,7 +294,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     if is_gemini_model(model):
         # If no GOOGLE_API_KEY and no client, fall back to OpenRouter
         if client is None and not os.environ.get("GOOGLE_API_KEY"):
-            openrouter_model = f"google/{normalize_gemini_model(model)}"
+            openrouter_model = "google/gemini-3.1-pro-preview"
             return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, openrouter_model, max_retries, field_name_for_log)
         model = normalize_gemini_model(model)
     
@@ -600,10 +600,10 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             print(f"🔑 Using Google GenAI SDK directly for Gemini model '{model}'")
         else:
             # Fall back to OpenRouter with google/ prefix
-            print(f"⚠️ No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
-            model = f"google/{normalize_gemini_model(model)}"
+            print(f"⚠️ No GOOGLE_API_KEY found, routing Gemini models through OpenRouter as google/gemini-3.1-pro-preview")
+            model = "google/gemini-3.1-pro-preview"
             if priority_model:
-                priority_model = f"google/{normalize_gemini_model(priority_model)}"
+                priority_model = "google/gemini-3.1-pro-preview"
             using_gemini = False
             using_openrouter = True
 
