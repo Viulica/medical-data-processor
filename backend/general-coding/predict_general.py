@@ -493,8 +493,8 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
             return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
         else:
             # Fall back to OpenRouter with google/ prefix
-            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter as google/gemini-3.1-pro-preview")
-            model = "google/gemini-3.1-pro-preview"
+            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
+            model = f"google/{normalize_gemini_model(model)}"
             # Fall through to OpenRouter path below
 
     # Use OpenRouter for non-Gemini models (or Gemini models without GOOGLE_API_KEY)
@@ -1088,8 +1088,8 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
             return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions)
         else:
             # Fall back to OpenRouter with google/ prefix
-            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter as google/gemini-3.1-pro-preview")
-            model = "google/gemini-3.1-pro-preview"
+            logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
+            model = f"google/{normalize_gemini_model(model)}"
             # Fall through to OpenRouter path below
 
     # Use OpenRouter for non-Gemini models (or Gemini models without GOOGLE_API_KEY)

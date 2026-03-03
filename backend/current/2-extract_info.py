@@ -294,7 +294,11 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     if is_gemini_model(model):
         # If no GOOGLE_API_KEY and no client, fall back to OpenRouter
         if client is None and not os.environ.get("GOOGLE_API_KEY"):
-            openrouter_model = "google/gemini-3.1-pro-preview"
+            # Use gemini-3.1-pro-preview for standard tab (gemini-3-pro-preview), otherwise preserve selected model
+            if normalize_gemini_model(model) == "gemini-3-pro-preview":
+                openrouter_model = "google/gemini-3.1-pro-preview"
+            else:
+                openrouter_model = f"google/{normalize_gemini_model(model)}"
             return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, openrouter_model, max_retries, field_name_for_log)
         model = normalize_gemini_model(model)
     
@@ -600,10 +604,15 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             print(f"🔑 Using Google GenAI SDK directly for Gemini model '{model}'")
         else:
             # Fall back to OpenRouter with google/ prefix
-            print(f"⚠️ No GOOGLE_API_KEY found, routing Gemini models through OpenRouter as google/gemini-3.1-pro-preview")
-            model = "google/gemini-3.1-pro-preview"
+            # Use gemini-3.1-pro-preview for standard tab (gemini-3-pro-preview), otherwise preserve selected model
+            if normalize_gemini_model(model) == "gemini-3-pro-preview":
+                print(f"⚠️ No GOOGLE_API_KEY found, routing '{model}' through OpenRouter as google/gemini-3.1-pro-preview")
+                model = "google/gemini-3.1-pro-preview"
+            else:
+                print(f"⚠️ No GOOGLE_API_KEY found, routing '{model}' through OpenRouter")
+                model = f"google/{normalize_gemini_model(model)}"
             if priority_model:
-                priority_model = "google/gemini-3.1-pro-preview"
+                priority_model = f"google/{normalize_gemini_model(priority_model)}"
             using_gemini = False
             using_openrouter = True
 
