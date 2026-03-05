@@ -61,9 +61,10 @@ def parse_provider_mapping(provider_mapping_text: str) -> Dict[str, Dict[str, st
         
         # Extract provider info
         # Pattern: {name}, {title} (MedNet Code: {code})
-        match = re.search(r'\(MedNet Code:\s*(\d+)\)', line, re.IGNORECASE)
+        # Code can be numeric (013, 206) or alphanumeric (C19, R03, RU74)
+        match = re.search(r'\(MedNet Code:\s*([A-Z0-9]+)\)', line, re.IGNORECASE)
         if match:
-            mednet_code = match.group(1)
+            mednet_code = match.group(1).upper()
             
             # Extract the full name and title (everything before the MedNet Code part)
             name_part = line[:match.start()].strip()
@@ -170,10 +171,14 @@ def match_providers_from_annotations(
         return None, None, None, False
 
     # Pattern to match:
-    # - Single number: "7", "12", "509"
-    # - Two numbers separated by /: "7/1", "12/5"
-    # - Numbers can have leading zeros: "07", "01"
+    # - Single code: "7", "013", "C19", "RU74"
+    # - Two codes separated by /: "7/1", "013/C19"
     # - Any pattern can end with /SRNA: "1/SRNA", "1/7/SRNA"
+
+    def lookup_code(raw: str) -> Optional[Dict]:
+        """Look up a provider by code, normalizing to uppercase and matching as-is."""
+        key = raw.strip().upper()
+        return provider_mapping.get(key)
 
     for text in annotation_texts:
         text = text.strip()
@@ -184,14 +189,14 @@ def match_providers_from_annotations(
             has_srna = True
             text = re.sub(r'\s*/\s*SRNA\s*$', '', text, flags=re.IGNORECASE).strip()
 
-        # Try to match "X/Y" pattern (two providers)
-        match_two = re.match(r'^(\d+)\s*/\s*(\d+)$', text)
+        # Try to match "X/Y" pattern (two providers) — codes can be alphanumeric
+        match_two = re.match(r'^([A-Z0-9]+)\s*/\s*([A-Z0-9]+)$', text, re.IGNORECASE)
         if match_two:
-            code1 = match_two.group(1).lstrip('0') or '0'
-            code2 = match_two.group(2).lstrip('0') or '0'
+            code1 = match_two.group(1)
+            code2 = match_two.group(2)
 
-            provider1 = provider_mapping.get(code1)
-            provider2 = provider_mapping.get(code2)
+            provider1 = lookup_code(code1)
+            provider2 = lookup_code(code2)
 
             if provider1 or provider2:
                 # Determine which is MD and which is CRNA
@@ -221,11 +226,10 @@ def match_providers_from_annotations(
                 logger.info(f"Matched two providers from annotation '{text}': Responsible={responsible_provider}, MD={md_provider}, CRNA={crna_provider}, SRNA={has_srna}")
                 return responsible_provider, md_provider, crna_provider, has_srna
 
-        # Try to match single number
-        match_one = re.match(r'^(\d+)$', text)
+        # Try to match single code (numeric or alphanumeric)
+        match_one = re.match(r'^([A-Z0-9]+)$', text, re.IGNORECASE)
         if match_one:
-            code = match_one.group(1).lstrip('0') or '0'
-            provider = provider_mapping.get(code)
+            provider = lookup_code(match_one.group(1))
 
             if provider:
                 responsible_provider = provider['name']
