@@ -16,7 +16,7 @@ export default function PDFAnnotator() {
 
   useEffect(() => {
     import('pdfjs-dist').then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
       pdfjsRef.current = pdfjs;
     });
   }, []);

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/ && next build",
     "start": "next start"
   },
   "dependencies": {
