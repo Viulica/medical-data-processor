@@ -1990,3 +1990,459 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
     except Exception as e:
         logger.error(f"Error in predict_icd_codes_from_pdfs_api: {e}")
         return False
+
+
+# ==============================================================================
+# COMBINED CPT + ICD PREDICTION (single AI call)
+# ==============================================================================
+
+def predict_cpt_and_icd_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, cpt_custom_instructions=None, icd_custom_instructions=None, include_code_list=True):
+    """
+    Predict both CPT and ICD codes in a single Gemini API call.
+
+    Returns:
+        tuple: (cpt_code, cpt_explanation, icd_dict, tokens_used, cost_estimate, error_message)
+        icd_dict has keys ICD1..ICD4 and ICD1_Reasoning..ICD4_Reasoning
+    """
+    if not GOOGLE_GENAI_AVAILABLE:
+        return None, "", None, 0, 0.0, "Google GenAI SDK not available"
+
+    model = normalize_gemini_model(model)
+
+    api_key_value = api_key or os.getenv("GOOGLE_API_KEY")
+    if not api_key_value:
+        return None, "", None, 0, 0.0, "No Google API key provided"
+
+    try:
+        client = genai.Client(api_key=api_key_value)
+    except Exception as e:
+        return None, "", None, 0, 0.0, f"Failed to initialize Google GenAI client: {str(e)}"
+
+    cpt_code_section = f"""
+Here is the reference list of valid anesthesia CPT codes:
+
+{cpt_codes_text}
+""" if include_code_list and cpt_codes_text else ""
+
+    prompt = f"""You are a medical coding specialist with expertise in both anesthesia CPT coding and ICD-10 diagnosis coding.
+
+Your task is to analyze the provided medical document page(s) and return BOTH the anesthesia CPT code AND the ICD diagnosis codes in a single response.
+
+=== PART 1: CPT CODE ===
+{cpt_code_section}
+CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
+
+1. COLONOSCOPY CODING:
+   - Use 00812 (screening colonoscopy) if ANY of these are present:
+     * Document explicitly states "screening colonoscopy"
+     * Pre-op diagnosis: Z12.11, Z80.0, or Z86.010x
+     * Pre-op states "Colon cancer screening"
+   - Use 00811 (diagnostic colonoscopy) ONLY if investigating specific symptoms with NO screening indicators
+   - When uncertain: if ANY screening indicator exists, use 00812
+
+2. MRI/CT SCAN CODING:
+   - If the procedure is an MRI or CT scan -> use 01922
+
+3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
+   - If the main procedure was TEE -> use 01922
+
+=== PART 2: ICD DIAGNOSIS CODES ===
+
+CRITICAL ICD CODING RULES:
+
+1. Identify the PRIMARY diagnosis (ICD1) — main reason for the procedure
+2. If both pre-op and post-op diagnosis are listed, use the POST-OPERATIVE diagnosis for ICD1
+3. COLONOSCOPY RULES:
+   - General screening colonoscopy: Z12.11 ONLY in ICD1, leave ICD2-4 empty
+   - Screening colonoscopy with polyp removal: Z12.11 in ICD1, K63.5 in ICD2, ICD3-4 empty
+4. VAGINAL DELIVERY: CPT 01967 -> O80 ONLY in ICD1, leave ICD2-4 empty
+5. Include up to 3 secondary diagnoses (ICD2, ICD3, ICD4) sorted by relevance
+6. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+7. Check for Excludes1 conflicts before finalizing codes
+8. Use web search to verify all ICD codes are current as of 2025
+9. Also look for secondary diagnoses in text snippets (obesity, diabetes, hypertension, etc.) and convert to codes
+10. Leave unused ICD fields as empty strings
+
+=== OUTPUT FORMAT ===
+
+Respond with ONLY a JSON object in this exact format:
+{{
+  "CPT": "00840",
+  "CPT_Explanation": "Brief explanation of CPT code selection (1-2 sentences)",
+  "ICD1": "primary_diagnosis_code",
+  "ICD1_Reasoning": "Brief explanation (1-2 sentences)",
+  "ICD2": "secondary_code_or_empty",
+  "ICD2_Reasoning": "Brief explanation or empty string",
+  "ICD3": "tertiary_code_or_empty",
+  "ICD3_Reasoning": "Brief explanation or empty string",
+  "ICD4": "quaternary_code_or_empty",
+  "ICD4_Reasoning": "Brief explanation or empty string"
+}}
+
+Respond with ONLY the JSON object, nothing else."""
+
+    if cpt_custom_instructions and cpt_custom_instructions.strip():
+        prompt += f"\n\nCUSTOM CPT INSTRUCTIONS:\n{cpt_custom_instructions.strip()}"
+    if icd_custom_instructions and icd_custom_instructions.strip():
+        prompt += f"\n\nCUSTOM ICD INSTRUCTIONS:\n{icd_custom_instructions.strip()}"
+
+    parts = [types.Part.from_text(text=prompt)]
+    for img_data in image_data_list:
+        img_bytes = base64.b64decode(img_data)
+        parts.append(types.Part.from_bytes(mime_type="image/png", data=img_bytes))
+
+    contents = [types.Content(role="user", parts=parts)]
+
+    if model in ("gemini-3-pro-preview", "gemini-3-flash-preview"):
+        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
+    else:
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
+
+    tools = [types.Tool(googleSearch=types.GoogleSearch())]
+    generate_content_config = types.GenerateContentConfig(
+        response_mime_type="text/plain",
+        thinking_config=thinking_config,
+        tools=tools,
+    )
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            full_response = ""
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if chunk.text is not None:
+                    full_response += chunk.text
+
+            response_text = full_response.strip()
+            if not response_text:
+                raise ValueError("Empty response from API")
+
+            cleaned = response_text
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            result_dict = json.loads(cleaned)
+
+            cpt_code = result_dict.get("CPT", "")
+            cpt_explanation = result_dict.get("CPT_Explanation", "")
+            icd_dict = {
+                "ICD1": result_dict.get("ICD1", ""),
+                "ICD1_Reasoning": result_dict.get("ICD1_Reasoning", ""),
+                "ICD2": result_dict.get("ICD2", ""),
+                "ICD2_Reasoning": result_dict.get("ICD2_Reasoning", ""),
+                "ICD3": result_dict.get("ICD3", ""),
+                "ICD3_Reasoning": result_dict.get("ICD3_Reasoning", ""),
+                "ICD4": result_dict.get("ICD4", ""),
+                "ICD4_Reasoning": result_dict.get("ICD4_Reasoning", ""),
+            }
+
+            logger.info(f"Combined prediction: CPT={cpt_code}, ICD1={icd_dict['ICD1']}")
+            return cpt_code, cpt_explanation, icd_dict, 0, 0.0, None
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error (attempt {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return None, "", None, 0, 0.0, f"JSON parse error after {max_retries} attempts: {str(e)}"
+            time.sleep(2 ** attempt)
+        except Exception as e:
+            logger.warning(f"API error (attempt {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return None, "", None, 0, 0.0, str(e)
+            time.sleep(2 ** attempt)
+
+    return None, "", None, 0, 0.0, "All retries failed"
+
+
+def predict_cpt_and_icd_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, cpt_custom_instructions=None, icd_custom_instructions=None, include_code_list=True):
+    """
+    Route combined CPT+ICD prediction to Gemini or OpenRouter.
+
+    Returns:
+        tuple: (cpt_code, cpt_explanation, icd_dict, tokens_used, cost_estimate, error_message)
+    """
+    if is_gemini_model(model):
+        google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if google_api_key and GOOGLE_GENAI_AVAILABLE:
+            return predict_cpt_and_icd_from_images_gemini(
+                image_data_list, cpt_codes_text, model, google_api_key,
+                cpt_custom_instructions, icd_custom_instructions, include_code_list
+            )
+        else:
+            # Fall through to OpenRouter with google/ prefix
+            model = f"google/{normalize_gemini_model(model)}"
+
+    # OpenRouter path
+    api_key_value = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key_value:
+        return None, "", None, 0, 0.0, "No API key provided"
+
+    cpt_codes_text_loaded = load_cpt_codes() if include_code_list and not cpt_codes_text else cpt_codes_text
+
+    cpt_code_section = f"""
+Here is the reference list of valid anesthesia CPT codes:
+
+{cpt_codes_text_loaded}
+""" if include_code_list and cpt_codes_text_loaded else ""
+
+    prompt = f"""You are a medical coding specialist with expertise in both anesthesia CPT coding and ICD-10 diagnosis coding.
+
+Your task is to analyze the provided medical document page(s) and return BOTH the anesthesia CPT code AND the ICD diagnosis codes in a single response.
+
+=== PART 1: CPT CODE ==={cpt_code_section}
+CRITICAL CPT CODING RULES:
+1. COLONOSCOPY: Use 00812 for screening (any of: document says "screening", Z12.11, Z80.0, Z86.010x). Use 00811 only for diagnostic with specific symptoms.
+2. MRI/CT SCAN: use 01922
+3. TEE: use 01922
+
+=== PART 2: ICD DIAGNOSIS CODES ===
+CRITICAL ICD CODING RULES:
+1. ICD1 = primary diagnosis (use post-operative if both pre/post listed)
+2. Screening colonoscopy: Z12.11 in ICD1 only. With polypectomy: Z12.11 + K63.5.
+3. Vaginal delivery (01967): O80 in ICD1 only.
+4. Up to 3 secondary diagnoses (ICD2-4), sorted by relevance
+5. Standard ICD-10 format. Check Excludes1 conflicts.
+6. Look for secondary conditions in text (obesity, diabetes, hypertension, etc.)
+
+=== OUTPUT FORMAT ===
+Respond with ONLY a JSON object:
+{{
+  "CPT": "00840",
+  "CPT_Explanation": "Brief explanation (1-2 sentences)",
+  "ICD1": "primary_code",
+  "ICD1_Reasoning": "Brief explanation",
+  "ICD2": "",
+  "ICD2_Reasoning": "",
+  "ICD3": "",
+  "ICD3_Reasoning": "",
+  "ICD4": "",
+  "ICD4_Reasoning": ""
+}}"""
+
+    if cpt_custom_instructions and cpt_custom_instructions.strip():
+        prompt += f"\n\nCUSTOM CPT INSTRUCTIONS:\n{cpt_custom_instructions.strip()}"
+    if icd_custom_instructions and icd_custom_instructions.strip():
+        prompt += f"\n\nCUSTOM ICD INSTRUCTIONS:\n{icd_custom_instructions.strip()}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key_value}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://medical-data-processor.com",
+        "X-Title": "Medical Data Processor",
+    }
+
+    messages_content = [{"type": "text", "text": prompt}]
+    for img_data in image_data_list:
+        messages_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img_data}"},
+        })
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": messages_content}],
+        "temperature": 0,
+    }
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            content_text = data["choices"][0]["message"]["content"].strip()
+
+            cleaned = content_text
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            result_dict = json.loads(cleaned)
+            usage = data.get("usage", {})
+            tokens = usage.get("total_tokens", 0)
+            cost = tokens * 0.000015
+
+            cpt_code = result_dict.get("CPT", "")
+            cpt_explanation = result_dict.get("CPT_Explanation", "")
+            icd_dict = {
+                "ICD1": result_dict.get("ICD1", ""),
+                "ICD1_Reasoning": result_dict.get("ICD1_Reasoning", ""),
+                "ICD2": result_dict.get("ICD2", ""),
+                "ICD2_Reasoning": result_dict.get("ICD2_Reasoning", ""),
+                "ICD3": result_dict.get("ICD3", ""),
+                "ICD3_Reasoning": result_dict.get("ICD3_Reasoning", ""),
+                "ICD4": result_dict.get("ICD4", ""),
+                "ICD4_Reasoning": result_dict.get("ICD4_Reasoning", ""),
+            }
+            return cpt_code, cpt_explanation, icd_dict, tokens, cost, None
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error (attempt {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return None, "", None, 0, 0.0, f"JSON parse error: {str(e)}"
+            time.sleep(2 ** attempt)
+        except Exception as e:
+            logger.warning(f"API error (attempt {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return None, "", None, 0, 0.0, str(e)
+            time.sleep(2 ** attempt)
+
+    return None, "", None, 0, 0.0, "All retries failed"
+
+
+def predict_cpt_and_icd_from_pdfs_api(
+    pdf_folder,
+    output_file,
+    n_pages=1,
+    model="openai/gpt-5.2:online",
+    api_key=None,
+    max_workers=50,
+    progress_callback=None,
+    cpt_custom_instructions=None,
+    icd_custom_instructions=None,
+    include_code_list=True,
+    image_cache=None,
+):
+    """
+    Predict both CPT and ICD codes from PDFs in a single AI call per PDF.
+
+    Output CSV columns: Patient Filename, ASA Code, Procedure Code, Code Explanation,
+    ICD1, ICD1 Reasoning, ICD2, ICD2 Reasoning, ICD3, ICD3 Reasoning, ICD4, ICD4 Reasoning,
+    Model Source, Tokens Used, Cost (USD), Error Message
+    """
+    try:
+        logger.info(f"Starting combined CPT+ICD prediction with model: {model}")
+
+        cpt_codes_text = load_cpt_codes() if include_code_list else ""
+
+        pdf_folder_path = Path(pdf_folder)
+        pdf_files = []
+        for ext in ["*.pdf", "*.PDF"]:
+            pdf_files.extend(pdf_folder_path.glob(f"**/{ext}"))
+        pdf_files = list(set(pdf_files))
+        pdf_files = [f for f in pdf_files if "__MACOSX" not in str(f)]
+        if not pdf_files:
+            all_files = list(pdf_folder_path.rglob("*"))
+            pdf_files = [f for f in all_files if f.is_file() and f.suffix.lower() == ".pdf" and "__MACOSX" not in str(f)]
+        if not pdf_files:
+            logger.error(f"No PDF files found in {pdf_folder}")
+            return False
+
+        pdf_files = sorted(pdf_files, key=lambda x: x.name)
+        logger.info(f"Found {len(pdf_files)} PDF files to process (combined CPT+ICD)")
+
+        results = {}
+
+        if progress_callback:
+            progress_callback(0, len(pdf_files), "Starting combined CPT+ICD predictions...")
+
+        def process_pdf(idx, pdf_path):
+            filename = pdf_path.name
+            try:
+                if image_cache and filename in image_cache:
+                    image_data_list = image_cache[filename]
+                else:
+                    image_data_list = pdf_pages_to_base64_images(str(pdf_path), n_pages=n_pages)
+                    if image_cache is not None:
+                        image_cache[filename] = image_data_list
+
+                if not image_data_list:
+                    empty_icd = {k: "" for k in ["ICD1", "ICD1_Reasoning", "ICD2", "ICD2_Reasoning", "ICD3", "ICD3_Reasoning", "ICD4", "ICD4_Reasoning"]}
+                    return idx, filename, "ERROR", "", empty_icd, 0, 0.0, "Failed to extract PDF pages", "combined_vision"
+
+                cpt_code, cpt_explanation, icd_dict, tokens, cost, error = predict_cpt_and_icd_from_images(
+                    image_data_list, cpt_codes_text, model, api_key,
+                    cpt_custom_instructions, icd_custom_instructions, include_code_list
+                )
+                model_source = "gemini_vision" if is_gemini_model(model) else "openrouter_vision"
+
+                if not cpt_code and not icd_dict:
+                    empty_icd = {k: "" for k in ["ICD1", "ICD1_Reasoning", "ICD2", "ICD2_Reasoning", "ICD3", "ICD3_Reasoning", "ICD4", "ICD4_Reasoning"]}
+                    return idx, filename, f"ERROR: {error[:50] if error else 'No prediction'}", "", empty_icd, tokens, cost, error, model_source
+
+                return idx, filename, cpt_code or "", cpt_explanation or "", icd_dict or {k: "" for k in ["ICD1", "ICD1_Reasoning", "ICD2", "ICD2_Reasoning", "ICD3", "ICD3_Reasoning", "ICD4", "ICD4_Reasoning"]}, tokens, cost, error, model_source
+
+            except Exception as e:
+                error_msg = f"Unexpected error processing {filename}: {str(e)}"
+                logger.error(error_msg)
+                empty_icd = {k: "" for k in ["ICD1", "ICD1_Reasoning", "ICD2", "ICD2_Reasoning", "ICD3", "ICD3_Reasoning", "ICD4", "ICD4_Reasoning"]}
+                return idx, filename, f"ERROR: {type(e).__name__}", "", empty_icd, 0, 0.0, error_msg, "combined_vision"
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_pdf, idx, pdf_path): idx for idx, pdf_path in enumerate(pdf_files)}
+            completed = 0
+            for future in as_completed(futures):
+                idx, filename, cpt_code, cpt_explanation, icd_dict, tokens, cost, error, model_source = future.result()
+                results[idx] = {
+                    "filename": filename,
+                    "cpt_code": cpt_code,
+                    "cpt_explanation": cpt_explanation,
+                    "icd1": icd_dict.get("ICD1", ""),
+                    "icd1_reasoning": icd_dict.get("ICD1_Reasoning", ""),
+                    "icd2": icd_dict.get("ICD2", ""),
+                    "icd2_reasoning": icd_dict.get("ICD2_Reasoning", ""),
+                    "icd3": icd_dict.get("ICD3", ""),
+                    "icd3_reasoning": icd_dict.get("ICD3_Reasoning", ""),
+                    "icd4": icd_dict.get("ICD4", ""),
+                    "icd4_reasoning": icd_dict.get("ICD4_Reasoning", ""),
+                    "tokens": tokens,
+                    "cost": cost,
+                    "error": error,
+                    "model_source": model_source,
+                }
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(pdf_files), f"Processed {completed}/{len(pdf_files)} PDFs (CPT+ICD combined)...")
+
+        n = len(pdf_files)
+        df = pd.DataFrame({
+            "Patient Filename": [results[i]["filename"] for i in range(n)],
+            "ASA Code": [results[i]["cpt_code"] for i in range(n)],
+            "Procedure Code": [results[i]["cpt_code"] for i in range(n)],
+            "Code Explanation": [results[i]["cpt_explanation"] for i in range(n)],
+            "ICD1": [results[i]["icd1"] for i in range(n)],
+            "ICD1 Reasoning": [results[i]["icd1_reasoning"] for i in range(n)],
+            "ICD2": [results[i]["icd2"] for i in range(n)],
+            "ICD2 Reasoning": [results[i]["icd2_reasoning"] for i in range(n)],
+            "ICD3": [results[i]["icd3"] for i in range(n)],
+            "ICD3 Reasoning": [results[i]["icd3_reasoning"] for i in range(n)],
+            "ICD4": [results[i]["icd4"] for i in range(n)],
+            "ICD4 Reasoning": [results[i]["icd4_reasoning"] for i in range(n)],
+            "Model Source": [results[i]["model_source"] for i in range(n)],
+            "Tokens Used": [results[i]["tokens"] for i in range(n)],
+            "Cost (USD)": [results[i]["cost"] for i in range(n)],
+            "Error Message": [results[i]["error"] for i in range(n)],
+        })
+
+        total_tokens = sum(results[i]["tokens"] for i in range(n))
+        total_cost = sum(results[i]["cost"] for i in range(n))
+        logger.info(f"Combined CPT+ICD complete. Tokens: {total_tokens:,}, Cost: ${total_cost:.4f}")
+
+        df.to_csv(output_file, index=False)
+        logger.info(f"Saved combined results to {output_file}")
+
+        if progress_callback:
+            progress_callback(n, n, f"Combined CPT+ICD completed! Total cost: ${total_cost:.4f}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error in predict_cpt_and_icd_from_pdfs_api: {e}")
+        return False

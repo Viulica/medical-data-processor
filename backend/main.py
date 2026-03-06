@@ -9142,7 +9142,10 @@ def process_unified_background(
     icd_max_workers: int,
     icd_custom_instructions: str,
     icd_instruction_template_id: Optional[int],
-    output_filename: Optional[str] = None
+    output_filename: Optional[str] = None,
+    # Combined CPT+ICD params
+    enable_combined_cpt_icd: bool = False,
+    combined_cpt_icd_model: str = "openai/gpt-5.2:online",
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
@@ -10043,6 +10046,57 @@ def process_unified_background(
             job.progress = 85
             gc.collect()
         
+        # ==================== COMBINED CPT+ICD Prediction (single AI call) ====================
+        if enable_combined_cpt_icd and enable_cpt and enable_icd and not cpt_csv_path and not icd_csv_path:
+            job.message = 'Running combined CPT+ICD prediction (single AI call)...'
+            job.progress = 35
+            logger.info(f'[Unified {job_id}] Starting combined CPT+ICD prediction with model: {combined_cpt_icd_model}')
+
+            # Ensure PDFs are unzipped
+            if not (temp_dir / 'input').exists():
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir / 'input')
+
+            general_coding_path = Path(__file__).parent / 'general-coding'
+            sys.path.insert(0, str(general_coding_path))
+            from predict_general import predict_cpt_and_icd_from_pdfs_api, is_gemini_model
+
+            combined_csv_path = str(temp_dir / 'combined_cpt_icd.csv')
+            using_gemini = is_gemini_model(combined_cpt_icd_model)
+            api_key = os.environ.get('GOOGLE_API_KEY') if using_gemini else (os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY'))
+
+            def combined_progress(completed, total, message):
+                progress_pct = 35 + int((completed / total) * 50)
+                job.progress = min(progress_pct, 85)
+                job.message = f'Combined CPT+ICD: {message}'
+
+            success = predict_cpt_and_icd_from_pdfs_api(
+                pdf_folder=str(temp_dir / 'input'),
+                output_file=combined_csv_path,
+                n_pages=max(cpt_vision_pages, icd_n_pages),
+                model=combined_cpt_icd_model,
+                api_key=api_key,
+                max_workers=max(cpt_max_workers, icd_max_workers),
+                progress_callback=combined_progress,
+                cpt_custom_instructions=cpt_custom_instructions or None,
+                icd_custom_instructions=icd_custom_instructions or None,
+            )
+
+            if success and os.path.exists(combined_csv_path):
+                # Point both cpt and icd paths to the combined CSV.
+                # The merge logic will pick CPT columns from the CPT merge
+                # and ICD columns from the ICD merge — both reading the same file.
+                cpt_csv_path = combined_csv_path
+                icd_csv_path = combined_csv_path
+                # Force vision mode so CPT is treated as standalone base when no extraction
+                cpt_vision_mode = True
+                logger.info(f'[Unified {job_id}] Combined CPT+ICD prediction completed: {combined_csv_path}')
+                job.progress = 85
+                job.message = 'Combined CPT+ICD prediction done, merging results...'
+                gc.collect()
+            else:
+                raise Exception('Combined CPT+ICD prediction failed')
+
         # ==================== STEP 2: CPT Code Prediction (if not already done) ====================
         if enable_cpt and not cpt_csv_path:
             # CPT wasn't handled in parallel, so run it now
@@ -10653,7 +10707,10 @@ async def process_unified(
     icd_max_workers: int = Form(default=50),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
-    output_filename: Optional[str] = Form(default=None)  # Custom output filename (optional)
+    output_filename: Optional[str] = Form(default=None),  # Custom output filename (optional)
+    # Combined CPT+ICD params
+    enable_combined_cpt_icd: bool = Form(default=False),
+    combined_cpt_icd_model: str = Form(default="openai/gpt-5.2:online"),
 ):
     """
     Unified endpoint to run PDF splitting (optional) + data extraction + CPT prediction + ICD prediction
@@ -10885,7 +10942,9 @@ async def process_unified(
             icd_vision_model=icd_vision_model,
             icd_max_workers=icd_max_workers,
             icd_custom_instructions=icd_custom_instructions,
-            icd_instruction_template_id=icd_instruction_template_id
+            icd_instruction_template_id=icd_instruction_template_id,
+            enable_combined_cpt_icd=enable_combined_cpt_icd,
+            combined_cpt_icd_model=combined_cpt_icd_model,
         )
         
         logger.info(f"Background unified processing task started for job {job_id}")

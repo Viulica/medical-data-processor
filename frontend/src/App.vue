@@ -1277,8 +1277,54 @@
               </div>
             </div>
 
-            <!-- Step 3 or 4: CPT Settings (if enabled) -->
-            <div v-if="unifiedEnableCpt" class="upload-card">
+            <!-- Combined CPT+ICD toggle (shown when both are enabled) -->
+            <div v-if="unifiedEnableCpt && unifiedEnableIcd" class="upload-card" style="border: 2px solid #7c3aed; background: #faf5ff;">
+              <div class="card-header">
+                <h3 style="color: #7c3aed;">⚡ Combined CPT+ICD Extraction</h3>
+              </div>
+              <div class="settings-content">
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input
+                      type="checkbox"
+                      v-model="unifiedCombinedCptIcd"
+                      class="checkbox-input"
+                    />
+                    <span class="checkbox-text">
+                      <strong>Use combined CPT+ICD extraction (single AI call)</strong>
+                    </span>
+                  </label>
+                  <p class="setting-description" style="margin-top: 6px;">
+                    Predict both CPT and ICD codes in one AI call per PDF — faster and uses less tokens than separate calls.
+                  </p>
+                </div>
+
+                <div v-if="unifiedCombinedCptIcd" class="setting-group">
+                  <label class="form-label">Model</label>
+                  <div class="model-options">
+                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'openai/gpt-5.2:online' }">
+                      <input type="radio" v-model="unifiedCombinedModel" value="openai/gpt-5.2:online" class="radio-input" />
+                      <span>GPT-5.2 (Recommended)</span>
+                    </label>
+                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-flash-preview' }">
+                      <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-flash-preview" class="radio-input" />
+                      <span>Gemini 3 Flash</span>
+                    </label>
+                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-pro-preview' }">
+                      <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-pro-preview" class="radio-input" />
+                      <span>Gemini 3 Pro</span>
+                    </label>
+                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'openai/gpt-5-mini:online' }">
+                      <input type="radio" v-model="unifiedCombinedModel" value="openai/gpt-5-mini:online" class="radio-input" />
+                      <span>GPT-5 Mini</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3 or 4: CPT Settings (if enabled and NOT combined mode) -->
+            <div v-if="unifiedEnableCpt && !unifiedCombinedCptIcd" class="upload-card">
               <div class="card-header">
                 <div class="step-number">{{ unifiedEnableSplit ? 3 : 4 }}</div>
                 <h3>🏥 CPT Prediction Settings</h3>
@@ -1749,8 +1795,8 @@
               </div>
             </div>
 
-            <!-- Step 4 or 5: ICD Settings (if enabled) -->
-            <div v-if="unifiedEnableIcd" class="upload-card">
+            <!-- Step 4 or 5: ICD Settings (if enabled and NOT combined mode) -->
+            <div v-if="unifiedEnableIcd && !unifiedCombinedCptIcd" class="upload-card">
               <div class="card-header">
                 <div class="step-number">{{ unifiedEnableSplit ? 4 : 5 }}</div>
                 <h3>📋 ICD Prediction Settings</h3>
@@ -9959,6 +10005,8 @@ export default {
       unifiedEnableExtraction: true,
       unifiedEnableCpt: true,
       unifiedEnableIcd: true,
+      unifiedCombinedCptIcd: false,
+      unifiedCombinedModel: "openai/gpt-5.2:online",
       // Unified - Split settings (Step 0)
       unifiedSplitPdfFile: null, // Single PDF when splitting enabled
       unifiedSplitFilterString: "", // Text to search for splitting
@@ -11569,6 +11617,8 @@ export default {
 
       // ICD parameters
       formData.append("enable_icd", this.unifiedEnableIcd);
+      formData.append("enable_combined_cpt_icd", this.unifiedCombinedCptIcd && this.unifiedEnableCpt && this.unifiedEnableIcd);
+      formData.append("combined_cpt_icd_model", this.unifiedCombinedModel);
       formData.append("icd_n_pages", this.unifiedIcdPages);
       // Use custom model if "custom" is selected, otherwise use the selected model
       const icdModelToUse = this.unifiedIcdVisionModel === 'custom' ? this.unifiedIcdCustomModel : this.unifiedIcdVisionModel;
@@ -12056,6 +12106,8 @@ export default {
       this.unifiedEnableExtraction = true;
       this.unifiedEnableCpt = true;
       this.unifiedEnableIcd = true;
+      this.unifiedCombinedCptIcd = false;
+      this.unifiedCombinedModel = "openai/gpt-5.2:online";
       // Split settings
       this.unifiedSplitPdfFile = null;
       this.unifiedSplitFilterString = "";
