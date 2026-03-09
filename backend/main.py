@@ -1014,7 +1014,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         
         # Client model mapping
         client_models = {
-            "uni": "projects/835764687231/locations/us-central1/endpoints/4576355411292061696",
+            "uni": "projects/652841545322/locations/us-central1/endpoints/7590465877967896576",
             "sio-stl": "projects/835764687231/locations/us-central1/endpoints/6830407024790994944",
             "gap-fin": "projects/835764687231/locations/us-central1/endpoints/8077904121572622336",
             "apo-utp": "projects/835764687231/locations/us-central1/endpoints/8135325016821596160"
