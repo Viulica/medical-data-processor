@@ -992,25 +992,29 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
         from google.genai import types
         
         # Setup clients
-        # Use JSON string from environment variable (Option 1)
         import json
         import tempfile
+        from google.oauth2 import service_account
+
         credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
         if credentials_json:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                f.write(credentials_json)
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
-            
+            creds_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_info,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
             genai_client = genai.Client(
                 vertexai=True,
-                project="835764687231",
+                project="652841545322",
                 location="us-central1",
+                credentials=credentials,
             )
         else:
             # Fallback to API key method
             genai_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
         
-        fallback_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
+        fallback_client = genai_client  # Use same authenticated client for fallback
         
         # Client model mapping
         client_models = {
@@ -1164,12 +1168,12 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                             config=generate_content_config
                         )
                         result = response.text
-                        if result and result.strip().startswith("0"):
+                        if result and result.strip().isdigit():
                             initial_prediction = format_asa_code(result.strip())
                             model_source = "base_model"
                             break
                         else:
-                            failure_reason = f"Base model returned invalid format: '{result.strip()}'"
+                            failure_reason = f"Base model returned invalid format: '{result.strip() if result else 'None'}'"
                     except Exception as e:
                         last_error = str(e)
                         failure_reason = f"Base model error (attempt {attempt + 1}/{retries}): {str(e)}"
