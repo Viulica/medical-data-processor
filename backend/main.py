@@ -242,7 +242,7 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
                 str(temp_dir / "input"),
                 str(excel_dest),
                 str(n_pages),  # n_pages parameter
-                "7",  # max_workers
+                "90",  # max_workers
                 model  # model parameter
             ]
             
@@ -266,16 +266,42 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             # Add empty progress_file (not needed for sequential processing)
             cmd.append("")
             
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
-            
-            # Wait for process with timeout (30 minutes max)
-            stdout, stderr = process.communicate(timeout=1800)
-            
-            # Log stdout and stderr for debugging
-            logger.info(f"Script stdout: {stdout}")
-            if stderr:
-                logger.info(f"Script stderr: {stderr}")
-            
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env, bufsize=1)
+
+            # Read stdout line-by-line for real-time progress updates
+            import re as _re
+            stdout_lines = []
+            _completed = 0
+            _total = len(list((temp_dir / "input").glob("*.PDF"))) + len(list((temp_dir / "input").glob("*.pdf")))
+            if _total == 0:
+                _total = 1  # avoid division by zero
+
+            import threading
+            stderr_lines = []
+            def _read_stderr():
+                for line in process.stderr:
+                    stderr_lines.append(line)
+            stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+            stderr_thread.start()
+
+            for line in process.stdout:
+                stdout_lines.append(line)
+                line_stripped = line.strip()
+                # Log each line
+                if line_stripped:
+                    logger.info(f"[extract] {line_stripped}")
+                # Track progress from success/failure lines
+                if "Successfully added data for" in line or "All retries failed for" in line or "JSON parsing error for" in line or "Exception processing" in line:
+                    _completed += 1
+                    _pct = 30 + int((_completed / _total) * 60)  # Scale from 30% to 90%
+                    job.progress = min(_pct, 90)
+                    job.message = f"Extracting data... {_completed}/{_total} PDFs done"
+
+            process.wait(timeout=1800)
+            stderr_thread.join(timeout=5)
+            stdout = "".join(stdout_lines)
+            stderr = "".join(stderr_lines)
+
             if process.returncode != 0:
                 raise Exception(f"Processing failed: {stderr}")
         except subprocess.TimeoutExpired:

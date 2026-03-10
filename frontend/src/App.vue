@@ -11171,7 +11171,7 @@ export default {
       formData.append("n_pages", this.pageCount);
 
       // Use Google GenAI (no longer using OpenRouter for Gemini models)
-      const model = "gemini-3-pro-preview";
+      const model = "gemini-3-flash-preview";
       formData.append("model", model);
 
       // Add worktracker fields if provided

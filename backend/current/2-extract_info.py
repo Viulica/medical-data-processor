@@ -6,6 +6,9 @@ import tempfile
 import sys
 import time
 import random
+
+# Force unbuffered output for real-time progress
+sys.stdout.reconfigure(line_buffering=True)
 import pandas as pd
 import google.genai as genai
 from google.genai import types
@@ -146,7 +149,7 @@ def normalize_gemini_model(model_name):
     clean_model = clean_model.replace(' ', '-').lower()
     return clean_model
 
-def pdf_to_images_base64(pdf_path, max_pages=10):
+def pdf_to_images_base64(pdf_path, max_pages=100):
     """Convert PDF pages to base64 encoded images for OpenRouter"""
     try:
         # Use PyMuPDF (fitz) which is already in requirements
