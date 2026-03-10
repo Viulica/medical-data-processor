@@ -1107,33 +1107,36 @@ def get_header_mapping():
     }
 
 
-def load_mednet_mapping(mapping_file="mednet-maping.csv"):
+def load_mednet_mapping(mapping_file="mednet-maping.csv", client="uni"):
     """
     Load the mednet code mapping from database first, with CSV fallback.
-    Returns a dictionary mapping UNI codes to internal codes.
+    Args:
+        mapping_file: Fallback CSV filename
+        client: Client identifier (e.g. 'uni', 'pac') to load the correct mappings
+    Returns a dictionary mapping input codes to mednet codes.
     """
     try:
         # TRY 1: Load from database (preferred method)
         from db_utils import get_insurance_mappings_dict
-        mapping_dict = get_insurance_mappings_dict()
-        
+        mapping_dict = get_insurance_mappings_dict(client=client)
+
         if mapping_dict:
-            print(f"✅ Loaded {len(mapping_dict)} mednet code mappings from DATABASE")
+            print(f"✅ Loaded {len(mapping_dict)} mednet code mappings from DATABASE (client: {client})")
             return mapping_dict
         else:
-            print("⚠️  No mappings found in database, trying CSV fallback...")
+            print(f"⚠️  No mappings found in database for client '{client}', trying CSV fallback...")
     except Exception as e:
         print(f"⚠️  Could not load from database ({e}), trying CSV fallback...")
-    
+
     # TRY 2: Fallback to CSV file (legacy method)
     try:
         # Get the directory where this script is located
         script_dir = Path(__file__).parent
         mapping_path = script_dir / mapping_file
-        
+
         print(f"Loading mednet mapping from CSV: {mapping_path}")
         print(f"File exists: {mapping_path.exists()}")
-        
+
         # Read CSV with dtype=str to preserve leading zeros
         mapping_df = pd.read_csv(mapping_path, dtype=str)
         # Ensure both keys and values are strings for consistent lookup and preserve leading zeros
@@ -1150,13 +1153,17 @@ def load_mednet_mapping(mapping_file="mednet-maping.csv"):
         return {}
 
 
-def convert_data(input_file, output_file=None):
+def convert_data(input_file, output_file=None, client="uni"):
     """
     Main function to convert data according to Excel macro logic.
+    Args:
+        input_file: Path to input CSV/XLSX file
+        output_file: Path to output file (optional)
+        client: Client identifier for loading the correct insurance mappings
     """
     try:
-        # Load mednet mapping
-        mednet_mapping = load_mednet_mapping()
+        # Load mednet mapping for the specified client
+        mednet_mapping = load_mednet_mapping(client=client)
         
         # Initialize AI client for ICD code reordering
         ai_client = None

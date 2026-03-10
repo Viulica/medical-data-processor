@@ -2980,66 +2980,67 @@ async def health_check():
         logger.error(f"Health check error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-def convert_uni_background(job_id: str, csv_path: str):
-    """Background task to convert UNI CSV using the conversion script"""
+def convert_uni_background(job_id: str, csv_path: str, client: str = "uni"):
+    """Background task to convert CSV using the conversion script"""
     job = job_status[job_id]
-    
+    client_upper = client.upper()
+
     try:
         job.status = "processing"
-        job.message = "Starting UNI CSV conversion..."
+        job.message = f"Starting {client_upper} CSV conversion..."
         job.progress = 10
-        
+
         # Import the conversion functions
         import sys
         sys.path.append(str(Path(__file__).parent / "uni-conversion"))
         from convert import convert_data
-        
-        job.message = "Converting UNI CSV data..."
+
+        job.message = f"Converting {client_upper} CSV data..."
         job.progress = 50
-        
+
         # Create output file path
         result_base = Path(f"/tmp/results/{job_id}_converted")
         result_base.parent.mkdir(exist_ok=True)
-        
+
         output_file_csv = result_base.with_suffix('.csv')
-        
-        # Run the conversion
-        success = convert_data(csv_path, str(output_file_csv))
-        
+
+        # Run the conversion with the specified client mapping
+        success = convert_data(csv_path, str(output_file_csv), client=client)
+
         if not success:
-            raise Exception("UNI conversion failed")
-        
-        job.message = "UNI conversion complete, preparing results..."
+            raise Exception(f"{client_upper} conversion failed")
+
+        job.message = f"{client_upper} conversion complete, preparing results..."
         job.progress = 90
-        
+
         # Verify output file exists
         if not os.path.exists(output_file_csv):
             raise Exception("Output file was not created")
-        
+
         # Create XLSX version
         try:
             output_file_xlsx = convert_csv_to_xlsx(output_file_csv, result_base.with_suffix('.xlsx'))
             job.result_file_xlsx = output_file_xlsx
         except Exception as e:
             logger.warning(f"Could not create XLSX version: {e}")
-        
+
         job.result_file = str(output_file_csv)
         job.status = "completed"
         job.progress = 100
-        job.message = "UNI conversion completed successfully!"
-        
+        job.message = f"{client_upper} conversion completed successfully!"
+
         # Clean up input file
         os.unlink(csv_path)
-        
+
         # Force garbage collection to free memory
         gc.collect()
-        logger.info(f"Job {job_id}: Memory cleaned up after UNI conversion")
-        
+        logger.info(f"Job {job_id}: Memory cleaned up after {client_upper} conversion")
+
     except Exception as e:
         job.status = "failed"
         job.error = str(e)
-        job.message = f"UNI conversion failed: {str(e)}"
-        logger.error(f"UNI conversion job {job_id} failed: {str(e)}")
+        job.message = f"{client_upper} conversion failed: {str(e)}"
+        logger.error(f"{client_upper} conversion job {job_id} failed: {str(e)}")
         
         # Clean up memory even on failure
         gc.collect()
@@ -4142,50 +4143,51 @@ def predict_insurance_codes_background(job_id: str, data_csv_path: str, special_
 @app.post("/convert-uni")
 async def convert_uni(
     background_tasks: BackgroundTasks,
-    csv_file: UploadFile = File(...)
+    csv_file: UploadFile = File(...),
+    client: str = Form(default="uni")
 ):
-    """Upload a UNI CSV or XLSX file to convert using the conversion script"""
-    
+    """Upload a CSV or XLSX file to convert using the conversion script. Client selects which mapping to use."""
+
     try:
-        logger.info(f"Received UNI conversion request - file: {csv_file.filename}")
-        
+        logger.info(f"Received conversion request - file: {csv_file.filename}, client: {client}")
+
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="File must be a CSV or XLSX")
-        
+
         # Generate job ID
         job_id = str(uuid.uuid4())
         job = ProcessingJob(job_id)
         job_status[job_id] = job
-        
-        logger.info(f"Created UNI conversion job {job_id}")
-        
+
+        logger.info(f"Created conversion job {job_id} for client '{client}'")
+
         # Save uploaded file
         input_path = f"/tmp/{job_id}_uni_input{Path(csv_file.filename).suffix}"
-        
+
         with open(input_path, "wb") as f:
             shutil.copyfileobj(csv_file.file, f)
-        
+
         logger.info(f"File saved - path: {input_path}")
-        
+
         # Convert to CSV if needed
         csv_path = ensure_csv_file(input_path, f"/tmp/{job_id}_uni_input.csv")
-        
+
         # Clean up original file if it was converted
         if csv_path != input_path and os.path.exists(input_path):
             os.unlink(input_path)
-        
+
         logger.info(f"CSV ready - path: {csv_path}")
-        
+
         # Start background processing
-        background_tasks.add_task(convert_uni_background, job_id, csv_path)
-        
-        logger.info(f"Background UNI conversion task started for job {job_id}")
-        
-        return {"job_id": job_id, "message": "UNI file uploaded and conversion started"}
-        
+        background_tasks.add_task(convert_uni_background, job_id, csv_path, client)
+
+        logger.info(f"Background conversion task started for job {job_id} (client: {client})")
+
+        return {"job_id": job_id, "message": f"{client.upper()} file uploaded and conversion started"}
+
     except Exception as e:
-        logger.error(f"UNI conversion upload error: {str(e)}")
+        logger.error(f"Conversion upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/convert-instructions")
@@ -8775,11 +8777,11 @@ async def delete_prediction_instruction(instruction_id: int):
 # ============================================================================
 
 @app.get("/api/insurance-mappings")
-async def get_insurance_mappings(page: int = 1, page_size: int = 50, search: str = None):
-    """Get insurance mappings from database with pagination"""
+async def get_insurance_mappings(page: int = 1, page_size: int = 50, search: str = None, client: str = None):
+    """Get insurance mappings from database with pagination. Optionally filter by client (e.g. 'uni', 'pac')."""
     try:
         from db_utils import get_all_insurance_mappings
-        result = get_all_insurance_mappings(page=page, page_size=page_size, search=search)
+        result = get_all_insurance_mappings(page=page, page_size=page_size, search=search, client=client)
         return result
     except Exception as e:
         logger.error(f"Failed to get insurance mappings: {e}")
@@ -8807,12 +8809,13 @@ async def get_insurance_mapping(mapping_id: int):
 async def create_or_update_insurance_mapping(
     input_code: str = Form(...),
     output_code: str = Form(...),
-    description: str = Form(default="")
+    description: str = Form(default=""),
+    client: str = Form(default="uni")
 ):
     """Create or update an insurance mapping"""
     try:
         from db_utils import upsert_insurance_mapping
-        success = upsert_insurance_mapping(input_code, output_code, description)
+        success = upsert_insurance_mapping(input_code, output_code, description, client=client)
         if success:
             return {
                 "message": "Insurance mapping saved successfully",
@@ -8834,12 +8837,13 @@ async def update_insurance_mapping(
     mapping_id: int,
     input_code: str = Form(...),
     output_code: str = Form(...),
-    description: str = Form(default="")
+    description: str = Form(default=""),
+    client: str = Form(default="uni")
 ):
     """Update an existing insurance mapping"""
     try:
         from db_utils import upsert_insurance_mapping
-        success = upsert_insurance_mapping(input_code, output_code, description)
+        success = upsert_insurance_mapping(input_code, output_code, description, client=client)
         if success:
             return {
                 "message": "Insurance mapping updated successfully",
@@ -9035,62 +9039,85 @@ async def delete_special_cases_template_endpoint(template_id: int):
 @app.post("/api/insurance-mappings/bulk-import")
 async def bulk_import_insurance_mappings(
     csv_file: UploadFile = File(...),
-    clear_existing: bool = Form(default=False)
+    clear_existing: bool = Form(default=False),
+    client: str = Form(default="uni")
 ):
     """
-    Bulk import insurance mappings from CSV file.
-    CSV format: InputValue,OutputValue
-    
+    Bulk import insurance mappings from CSV or XLSX file.
+    CSV format: InputValue,OutputValue (or 'Input Value','Output Value')
+
     Args:
-        csv_file: CSV file with InputValue,OutputValue columns
-        clear_existing: If true, delete all existing mappings before importing
+        csv_file: CSV/XLSX file with InputValue,OutputValue columns
+        clear_existing: If true, delete all existing mappings for this client before importing
+        client: Client identifier (e.g. 'uni', 'pac')
     """
     try:
         from db_utils import bulk_import_insurance_mappings as bulk_import
         import pandas as pd
         import io
         
-        # Read CSV file
+        # Read file
         contents = await csv_file.read()
-        
-        # Try different encodings
-        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
-        df = None
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(io.BytesIO(contents), dtype=str, encoding=encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        
-        if df is None:
-            raise HTTPException(status_code=400, detail="Could not read CSV file with any standard encoding")
-        
+        filename = csv_file.filename or ""
+
+        # Determine if XLSX or CSV
+        if filename.endswith('.xlsx') or filename.endswith('.xls'):
+            df = pd.read_excel(io.BytesIO(contents), dtype=str)
+        else:
+            # Try different encodings for CSV
+            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'iso-8859-1', 'cp1252']
+            df = None
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(io.BytesIO(contents), dtype=str, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if df is None:
+                raise HTTPException(status_code=400, detail="Could not read CSV file with any standard encoding")
+
+        # Normalize column names - support both 'InputValue' and 'Input Value' formats
+        col_map = {}
+        for col in df.columns:
+            normalized = col.strip().lower().replace(' ', '')
+            if normalized == 'inputvalue':
+                col_map[col] = 'InputValue'
+            elif normalized == 'outputvalue':
+                col_map[col] = 'OutputValue'
+        df = df.rename(columns=col_map)
+
         # Validate columns
         if 'InputValue' not in df.columns or 'OutputValue' not in df.columns:
             raise HTTPException(
-                status_code=400, 
-                detail="CSV must have 'InputValue' and 'OutputValue' columns"
+                status_code=400,
+                detail=f"File must have 'InputValue' and 'OutputValue' columns. Found: {list(df.columns)}"
             )
-        
+
         # Prepare mappings data
         mappings_data = []
         for _, row in df.iterrows():
             input_val = str(row['InputValue']).strip() if pd.notna(row['InputValue']) else ''
             output_val = str(row['OutputValue']).strip() if pd.notna(row['OutputValue']) else ''
-            
+
+            # Clean up float-like strings (e.g. "1600012.0" -> "1600012")
+            if input_val.endswith('.0'):
+                input_val = input_val[:-2]
+            if output_val.endswith('.0'):
+                output_val = output_val[:-2]
+
             if input_val and output_val:
                 mappings_data.append({
                     'input_code': input_val,
                     'output_code': output_val,
-                    'description': f'Imported from CSV'
+                    'description': f'Imported from {filename}'
                 })
-        
+
         if not mappings_data:
-            raise HTTPException(status_code=400, detail="No valid mappings found in CSV")
-        
+            raise HTTPException(status_code=400, detail="No valid mappings found in file")
+
         # Bulk import
-        result = bulk_import(mappings_data, clear_existing=clear_existing)
+        result = bulk_import(mappings_data, clear_existing=clear_existing, client=client)
         
         if result['success']:
             return {

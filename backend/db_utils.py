@@ -124,15 +124,18 @@ def init_database():
     
     CREATE TABLE IF NOT EXISTS insurance_mappings (
         id SERIAL PRIMARY KEY,
-        input_code VARCHAR(255) NOT NULL UNIQUE,
+        input_code VARCHAR(255) NOT NULL,
         output_code VARCHAR(255) NOT NULL,
         description TEXT,
+        client VARCHAR(50) NOT NULL DEFAULT 'uni',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(input_code, client)
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_insurance_input_code ON insurance_mappings(input_code);
     CREATE INDEX IF NOT EXISTS idx_insurance_output_code ON insurance_mappings(output_code);
+    CREATE INDEX IF NOT EXISTS idx_insurance_client ON insurance_mappings(client);
     
     CREATE TABLE IF NOT EXISTS unified_results (
         id SERIAL PRIMARY KEY,
@@ -225,7 +228,8 @@ def init_database():
         
         # Run migrations
         migrate_provider_mapping_columns()
-        
+        migrate_insurance_mappings_client_column()
+
         return True
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
@@ -828,40 +832,81 @@ def delete_prediction_instruction(instruction_id):
 # Insurance Mappings Management
 # ============================================================
 
-def get_all_insurance_mappings(page=1, page_size=50, search=None):
+def migrate_insurance_mappings_client_column():
+    """
+    Add 'client' column to insurance_mappings table if it doesn't exist,
+    and update the unique constraint from (input_code) to (input_code, client).
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Check if client column exists
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='insurance_mappings' AND column_name='client'
+                """)
+                if not cur.fetchone():
+                    logger.info("Adding 'client' column to insurance_mappings table...")
+                    cur.execute("ALTER TABLE insurance_mappings ADD COLUMN client VARCHAR(50) NOT NULL DEFAULT 'uni'")
+                    # Drop old unique constraint on input_code alone
+                    cur.execute("""
+                        DO $$ BEGIN
+                            ALTER TABLE insurance_mappings DROP CONSTRAINT IF EXISTS insurance_mappings_input_code_key;
+                        EXCEPTION WHEN undefined_object THEN NULL;
+                        END $$;
+                    """)
+                    # Add new composite unique constraint
+                    cur.execute("""
+                        ALTER TABLE insurance_mappings
+                        ADD CONSTRAINT insurance_mappings_input_code_client_key UNIQUE (input_code, client)
+                    """)
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_insurance_client ON insurance_mappings(client)")
+                    conn.commit()
+                    logger.info("Successfully migrated insurance_mappings with client column")
+    except Exception as e:
+        logger.error(f"Failed to migrate insurance_mappings client column: {e}")
+
+
+def get_all_insurance_mappings(page=1, page_size=50, search=None, client=None):
     """
     Get insurance mappings from the database with pagination.
-    
+
     Args:
         page: Page number (1-indexed)
         page_size: Number of records per page
         search: Optional search term for input_code or output_code (exact match)
-    
+        client: Optional client filter (e.g. 'uni', 'pac'). If None, returns all.
+
     Returns:
         Dictionary with 'mappings', 'total', 'page', 'page_size', 'total_pages'
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Build WHERE clause for search (exact match on either field)
-                where_clause = ""
+                # Build WHERE clause
+                conditions = []
                 params = []
                 if search:
-                    where_clause = "WHERE input_code = %s OR output_code = %s"
+                    conditions.append("(input_code = %s OR output_code = %s)")
                     params.extend([search, search])
-                
+                if client:
+                    conditions.append("client = %s")
+                    params.append(client)
+
+                where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
                 # Get total count
                 count_query = f"SELECT COUNT(*) FROM insurance_mappings {where_clause}"
                 cur.execute(count_query, params)
                 total = cur.fetchone()['count']
-                
+
                 # Calculate pagination
                 offset = (page - 1) * page_size
                 total_pages = (total + page_size - 1) // page_size
-                
+
                 # Get paginated results
                 data_query = f"""
-                    SELECT id, input_code, output_code, description, updated_at
+                    SELECT id, input_code, output_code, description, client, updated_at
                     FROM insurance_mappings
                     {where_clause}
                     ORDER BY input_code
@@ -869,7 +914,7 @@ def get_all_insurance_mappings(page=1, page_size=50, search=None):
                 """
                 cur.execute(data_query, params + [page_size, offset])
                 results = cur.fetchall()
-                
+
                 return {
                     'mappings': [dict(row) for row in results],
                     'total': total,
@@ -888,7 +933,7 @@ def get_all_insurance_mappings(page=1, page_size=50, search=None):
         }
 
 
-def get_insurance_mapping(mapping_id=None, input_code=None):
+def get_insurance_mapping(mapping_id=None, input_code=None, client=None):
     """
     Get a single insurance mapping by ID or input_code.
     Returns a dictionary or None if not found.
@@ -898,19 +943,24 @@ def get_insurance_mapping(mapping_id=None, input_code=None):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if mapping_id:
                     cur.execute("""
-                        SELECT id, input_code, output_code, description, updated_at
+                        SELECT id, input_code, output_code, description, client, updated_at
                         FROM insurance_mappings
                         WHERE id = %s
                     """, (mapping_id,))
                 elif input_code:
-                    cur.execute("""
-                        SELECT id, input_code, output_code, description, updated_at
+                    query = """
+                        SELECT id, input_code, output_code, description, client, updated_at
                         FROM insurance_mappings
                         WHERE input_code = %s
-                    """, (input_code,))
+                    """
+                    params = [input_code]
+                    if client:
+                        query += " AND client = %s"
+                        params.append(client)
+                    cur.execute(query, params)
                 else:
                     return None
-                
+
                 result = cur.fetchone()
                 return dict(result) if result else None
     except Exception as e:
@@ -918,7 +968,7 @@ def get_insurance_mapping(mapping_id=None, input_code=None):
         return None
 
 
-def upsert_insurance_mapping(input_code, output_code, description=""):
+def upsert_insurance_mapping(input_code, output_code, description="", client="uni"):
     """
     Insert or update an insurance mapping.
     Returns True on success, False on failure.
@@ -927,14 +977,14 @@ def upsert_insurance_mapping(input_code, output_code, description=""):
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO insurance_mappings (input_code, output_code, description, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (input_code) 
-                    DO UPDATE SET 
+                    INSERT INTO insurance_mappings (input_code, output_code, description, client, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (input_code, client)
+                    DO UPDATE SET
                         output_code = EXCLUDED.output_code,
                         description = EXCLUDED.description,
                         updated_at = CURRENT_TIMESTAMP
-                """, (input_code, output_code, description))
+                """, (input_code, output_code, description, client))
                 return True
     except Exception as e:
         logger.error(f"Failed to upsert insurance mapping {input_code}: {e}")
@@ -956,13 +1006,15 @@ def delete_insurance_mapping(mapping_id):
         return False
 
 
-def get_insurance_mappings_dict():
+def get_insurance_mappings_dict(client="uni"):
     """
     Get insurance mappings as a dictionary for use in conversion scripts.
+    Args:
+        client: Client identifier (e.g. 'uni', 'pac')
     Returns: dict mapping input_code -> output_code
     """
     try:
-        result = get_all_insurance_mappings(page=1, page_size=10000)  # Get all
+        result = get_all_insurance_mappings(page=1, page_size=10000, client=client)
         mappings_dict = {}
         for mapping in result['mappings']:
             mappings_dict[mapping['input_code']] = mapping['output_code']
@@ -972,15 +1024,16 @@ def get_insurance_mappings_dict():
         return {}
 
 
-def bulk_import_insurance_mappings(mappings_data, clear_existing=False):
+def bulk_import_insurance_mappings(mappings_data, clear_existing=False, client="uni"):
     """
     Bulk import insurance mappings from a list of dictionaries.
     Each dictionary should have 'input_code' and 'output_code' keys.
-    
+
     Args:
         mappings_data: List of dicts with 'input_code', 'output_code', 'description' (optional)
-        clear_existing: If True, delete all existing mappings before importing
-    
+        clear_existing: If True, delete all existing mappings for this client before importing
+        client: Client identifier (e.g. 'uni', 'pac')
+
     Returns:
         Dictionary with 'success', 'imported', 'updated', 'skipped', 'errors'
     """
@@ -988,50 +1041,50 @@ def bulk_import_insurance_mappings(mappings_data, clear_existing=False):
     updated = 0
     skipped = 0
     errors = []
-    
+
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Clear existing mappings if requested
+                # Clear existing mappings for this client if requested
                 if clear_existing:
-                    cur.execute("DELETE FROM insurance_mappings")
-                    logger.info("Cleared all existing insurance mappings")
-                
+                    cur.execute("DELETE FROM insurance_mappings WHERE client = %s", (client,))
+                    logger.info(f"Cleared all existing insurance mappings for client '{client}'")
+
                 # Import each mapping
                 for idx, mapping in enumerate(mappings_data):
                     try:
                         input_code = mapping.get('input_code', '').strip()
                         output_code = mapping.get('output_code', '').strip()
                         description = mapping.get('description', '').strip()
-                        
+
                         if not input_code or not output_code:
                             skipped += 1
                             continue
-                        
+
                         # Use upsert logic (INSERT ... ON CONFLICT UPDATE)
                         cur.execute("""
-                            INSERT INTO insurance_mappings (input_code, output_code, description, created_at, updated_at)
-                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            ON CONFLICT (input_code) 
-                            DO UPDATE SET 
+                            INSERT INTO insurance_mappings (input_code, output_code, description, client, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ON CONFLICT (input_code, client)
+                            DO UPDATE SET
                                 output_code = EXCLUDED.output_code,
                                 description = EXCLUDED.description,
                                 updated_at = CURRENT_TIMESTAMP
                             RETURNING (xmax = 0) AS inserted
-                        """, (input_code, output_code, description))
-                        
+                        """, (input_code, output_code, description, client))
+
                         result = cur.fetchone()
                         if result and result[0]:  # xmax = 0 means it was an INSERT
                             imported += 1
                         else:
                             updated += 1
-                            
+
                     except Exception as e:
                         errors.append(f"Row {idx + 1}: {str(e)}")
                         logger.error(f"Error importing mapping row {idx + 1}: {e}")
-                
+
                 conn.commit()
-                
+
         return {
             'success': True,
             'imported': imported,
@@ -1040,7 +1093,7 @@ def bulk_import_insurance_mappings(mappings_data, clear_existing=False):
             'errors': errors,
             'total': len(mappings_data)
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to bulk import insurance mappings: {e}")
         return {

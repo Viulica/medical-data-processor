@@ -3916,14 +3916,34 @@
           </div>
         </div>
 
-        <!-- UNI Conversion Tab -->
+        <!-- UNI/PAC Conversion Tab -->
         <div v-if="activeTab === 'uni'" class="upload-section">
           <div class="section-header">
-            <h2>UNI CSV Conversion</h2>
+            <h2>{{ conversionClient.toUpperCase() }} CSV Conversion</h2>
             <p>
-              Upload a UNI CSV or XLSX file to convert it using the automated
+              Upload a CSV or XLSX file to convert it using the automated
               conversion script
             </p>
+          </div>
+
+          <!-- Client Selector -->
+          <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+            <button
+              @click="conversionClient = 'uni'"
+              :class="{ active: conversionClient === 'uni' }"
+              class="tab-btn"
+              style="padding: 8px 20px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; font-weight: 600;"
+            >
+              UNI
+            </button>
+            <button
+              @click="conversionClient = 'pac'"
+              :class="{ active: conversionClient === 'pac' }"
+              class="tab-btn"
+              style="padding: 8px 20px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; font-weight: 600;"
+            >
+              PAC
+            </button>
           </div>
 
           <div class="upload-grid">
@@ -3931,7 +3951,7 @@
             <div class="upload-card">
               <div class="card-header">
                 <div class="step-number">1</div>
-                <h3>UNI CSV/XLSX File</h3>
+                <h3>{{ conversionClient.toUpperCase() }} CSV/XLSX File</h3>
               </div>
               <div
                 class="dropzone"
@@ -3961,7 +3981,7 @@
                     }}</span>
                   </div>
                   <p v-else class="upload-text">
-                    Drag & drop UNI CSV or XLSX file here<br />or click to
+                    Drag & drop {{ conversionClient.toUpperCase() }} CSV or XLSX file here<br />or click to
                     browse
                   </p>
                 </div>
@@ -3978,7 +3998,7 @@
                 <div class="requirement-list">
                   <div class="requirement-item">
                     <span class="requirement-icon">📋</span>
-                    <span>CSV file with UNI data format</span>
+                    <span>CSV file with {{ conversionClient.toUpperCase() }} data format</span>
                   </div>
                   <div class="requirement-item">
                     <span class="requirement-icon">🔄</span>
@@ -7665,20 +7685,40 @@
           <div class="section-header">
             <h2>🏥 Insurance Mappings Configuration</h2>
             <p>
-              Manage insurance code mappings for UNI CSV conversion. Define how
+              Manage insurance code mappings for CSV conversion. Define how
               input insurance codes map to output codes.
             </p>
+          </div>
+
+          <!-- Client Filter -->
+          <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+            <button
+              @click="insuranceClientFilter = 'uni'; loadInsuranceMappings(true)"
+              :class="{ active: insuranceClientFilter === 'uni' }"
+              class="tab-btn"
+              style="padding: 8px 20px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; font-weight: 600;"
+            >
+              UNI
+            </button>
+            <button
+              @click="insuranceClientFilter = 'pac'; loadInsuranceMappings(true)"
+              :class="{ active: insuranceClientFilter === 'pac' }"
+              class="tab-btn"
+              style="padding: 8px 20px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; font-weight: 600;"
+            >
+              PAC
+            </button>
           </div>
 
           <!-- Bulk Import Section -->
           <div class="bulk-import-section">
             <div class="bulk-import-card">
-              <h3>📤 Bulk Import from CSV</h3>
+              <h3>📤 Bulk Import from CSV/XLSX</h3>
               <p>
-                Upload your mednet-mapping.csv file to populate the database
+                Upload your mapping file (CSV or XLSX) to populate the {{ insuranceClientFilter.toUpperCase() }} database
               </p>
               <div class="csv-format-info">
-                <strong>📋 Required CSV Format:</strong>
+                <strong>📋 Required Format (CSV or XLSX):</strong>
                 <div class="format-example">
                   <code>InputValue,OutputValue</code>
                   <br />
@@ -7689,8 +7729,8 @@
                   <code>510023,TRAN</code>
                 </div>
                 <p class="format-note">
-                  ℹ️ CSV must have headers: <strong>InputValue</strong> and
-                  <strong>OutputValue</strong>
+                  ℹ️ File must have columns: <strong>InputValue</strong> and
+                  <strong>OutputValue</strong> (or <strong>Input Value</strong> / <strong>Output Value</strong>)
                 </p>
               </div>
               <div class="bulk-import-controls">
@@ -7698,7 +7738,7 @@
                   type="file"
                   ref="bulkImportFileInput"
                   @change="handleBulkImportFileSelect"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   style="display: none"
                 />
                 <button
@@ -7706,14 +7746,14 @@
                   class="upload-btn"
                   :disabled="insuranceBulkImporting"
                 >
-                  📁 Select CSV File
+                  📁 Select CSV/XLSX File
                 </button>
                 <span v-if="insuranceBulkImportFile" class="file-name">
                   {{ insuranceBulkImportFile.name }}
                 </span>
                 <label class="checkbox-label" v-if="insuranceBulkImportFile">
                   <input type="checkbox" v-model="insuranceClearExisting" />
-                  Clear existing mappings before import
+                  Clear existing {{ insuranceClientFilter.toUpperCase() }} mappings before import
                 </label>
                 <button
                   v-if="insuranceBulkImportFile"
@@ -9894,7 +9934,8 @@ export default {
       isPredictingIcd: false,
       isIcdZipDragActive: false,
       icdCustomInstructions: "",
-      // UNI conversion functionality
+      // UNI/PAC conversion functionality
+      conversionClient: "uni",
       uniCsvFile: null,
       uniJobId: null,
       uniJobStatus: null,
@@ -10099,6 +10140,7 @@ export default {
         enable_qs: true,
       },
       // Insurance Mappings Config functionality
+      insuranceClientFilter: "uni",
       insuranceMappings: [],
       insuranceMappingsLoading: false,
       insuranceSearch: "",
@@ -12907,9 +12949,10 @@ export default {
 
       const formData = new FormData();
       formData.append("csv_file", this.uniCsvFile);
+      formData.append("client", this.conversionClient);
 
       const uploadUrl = joinUrl(API_BASE_URL, "convert-uni");
-      console.log("🔧 UNI Upload URL:", uploadUrl);
+      console.log(`🔧 ${this.conversionClient.toUpperCase()} Upload URL:`, uploadUrl);
 
       try {
         const response = await axios.post(uploadUrl, formData, {
@@ -12920,18 +12963,18 @@ export default {
 
         this.uniJobId = response.data.job_id;
         this.toast.success(
-          "UNI conversion started! Check the status section below."
+          `${this.conversionClient.toUpperCase()} conversion started! Check the status section below.`
         );
 
         // Set initial status
         this.uniJobStatus = {
           status: "processing",
           progress: 0,
-          message: "UNI conversion started...",
+          message: `${this.conversionClient.toUpperCase()} conversion started...`,
         };
       } catch (error) {
-        console.error("UNI conversion error:", error);
-        this.toast.error("Failed to start UNI conversion. Please try again.");
+        console.error("Conversion error:", error);
+        this.toast.error(`Failed to start ${this.conversionClient.toUpperCase()} conversion. Please try again.`);
         this.isConvertingUni = false;
       }
     },
@@ -12978,7 +13021,7 @@ export default {
         const link = document.createElement("a");
         link.href = url;
         const ext = format === "xlsx" ? "xlsx" : "csv";
-        link.setAttribute("download", `uni_converted_${this.uniJobId}.${ext}`);
+        link.setAttribute("download", `${this.conversionClient}_converted_${this.uniJobId}.${ext}`);
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -15205,6 +15248,7 @@ export default {
         const params = {
           page: this.insuranceCurrentPage,
           page_size: this.insurancePageSize,
+          client: this.insuranceClientFilter,
         };
 
         if (this.insuranceSearch) {
@@ -15272,6 +15316,7 @@ export default {
           "description",
           this.currentInsuranceMapping.description || ""
         );
+        formData.append("client", this.insuranceClientFilter);
 
         if (this.showEditInsuranceModal) {
           await axios.put(
@@ -15338,7 +15383,7 @@ export default {
 
     async bulkImportInsuranceMappings() {
       if (!this.insuranceBulkImportFile) {
-        this.toast.error("Please select a CSV file first");
+        this.toast.error("Please select a CSV or XLSX file first");
         return;
       }
 
@@ -15349,6 +15394,7 @@ export default {
         const formData = new FormData();
         formData.append("csv_file", this.insuranceBulkImportFile);
         formData.append("clear_existing", this.insuranceClearExisting);
+        formData.append("client", this.insuranceClientFilter);
 
         const response = await axios.post(
           joinUrl(API_BASE_URL, "api/insurance-mappings/bulk-import"),
