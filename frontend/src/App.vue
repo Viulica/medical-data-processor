@@ -2342,6 +2342,14 @@
                           >
                             📊
                           </button>
+                          <button
+                            v-if="result.input_zip_supabase_path"
+                            @click="downloadInputZip(result.job_id)"
+                            class="btn-icon-small"
+                            title="Download Input ZIP"
+                          >
+                            🗜️
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -12206,6 +12214,17 @@ export default {
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download result");
+      }
+    },
+
+    async downloadInputZip(jobId) {
+      try {
+        const backendUrl = this.getBackendUrl();
+        window.location.href = `${backendUrl}/api/unified-results/${jobId}/download-input-zip`;
+        this.toast.success("Input ZIP download started!");
+      } catch (error) {
+        console.error("Download error:", error);
+        this.toast.error("Failed to download input ZIP");
       }
     },
 

@@ -253,6 +253,17 @@ def init_database():
     EXCEPTION WHEN OTHERS THEN
         NULL;
     END $$;
+
+    -- Migration: Add input_zip_supabase_path column if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'input_zip_supabase_path'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN input_zip_supabase_path VARCHAR(500);
+        END IF;
+    END $$;
     
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
@@ -1563,6 +1574,7 @@ def save_unified_result(
     job_id: str,
     filename: str,
     supabase_path: str,
+    input_zip_supabase_path: Optional[str] = None,
     file_size_bytes: Optional[int] = None,
     row_count: Optional[int] = None,
     enabled_extraction: bool = False,
@@ -1588,16 +1600,17 @@ def save_unified_result(
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     INSERT INTO unified_results (
-                        job_id, filename, supabase_path,
+                        job_id, filename, supabase_path, input_zip_supabase_path,
                         file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
                         status, expires_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
                         supabase_path = EXCLUDED.supabase_path,
+                        input_zip_supabase_path = EXCLUDED.input_zip_supabase_path,
                         file_size_bytes = EXCLUDED.file_size_bytes,
                         row_count = EXCLUDED.row_count,
                         enabled_extraction = EXCLUDED.enabled_extraction,
@@ -1610,7 +1623,7 @@ def save_unified_result(
                         expires_at = EXCLUDED.expires_at
                     RETURNING id
                 """, (
-                    job_id, filename, supabase_path,
+                    job_id, filename, supabase_path, input_zip_supabase_path,
                     file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
                     status, expires_at
@@ -1643,7 +1656,7 @@ def get_all_unified_results(page: int = 1, page_size: int = 50):
                 # Get paginated results (newest first)
                 offset = (page - 1) * page_size
                 cur.execute("""
-                    SELECT id, job_id, filename, supabase_path,
+                    SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status
@@ -1679,7 +1692,7 @@ def get_unified_result(job_id: str):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, job_id, filename, supabase_path,
+                    SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status
@@ -1705,7 +1718,7 @@ def delete_expired_unified_results():
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, job_id, supabase_path
+                    SELECT id, job_id, supabase_path, input_zip_supabase_path
                     FROM unified_results
                     WHERE expires_at < CURRENT_TIMESTAMP
                 """)
@@ -1715,12 +1728,16 @@ def delete_expired_unified_results():
 
                 for result in expired_results:
                     # Delete from Supabase Storage
-                    if result.get('supabase_path'):
+                    paths_to_delete = [
+                        p for p in [result.get('supabase_path'), result.get('input_zip_supabase_path')]
+                        if p
+                    ]
+                    if paths_to_delete:
                         try:
-                            delete_from_supabase([result['supabase_path']])
-                            logger.info(f"Deleted Supabase file: {result['supabase_path']}")
+                            delete_from_supabase(paths_to_delete)
+                            logger.info(f"Deleted Supabase files: {paths_to_delete}")
                         except Exception as e:
-                            logger.warning(f"Failed to delete Supabase file {result['supabase_path']}: {e}")
+                            logger.warning(f"Failed to delete Supabase files {paths_to_delete}: {e}")
 
                     cur.execute("DELETE FROM unified_results WHERE id = %s", (result['id'],))
                     deleted_count += 1

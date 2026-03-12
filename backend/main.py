@@ -9171,6 +9171,7 @@ async def bulk_import_insurance_mappings(
 def process_unified_background(
     job_id: str,
     zip_path: str,
+    input_zip_supabase_path: Optional[str],
     excel_path: str,
     excel_filename: str,
     # Extraction params
@@ -10616,6 +10617,7 @@ def process_unified_background(
                 job_id=job_id,
                 filename=filename,
                 supabase_path=supabase_path,
+                input_zip_supabase_path=input_zip_supabase_path,
                 file_size_bytes=len(xlsx_bytes),
                 row_count=len(base_df),
                 enabled_extraction=enable_extraction,
@@ -10897,10 +10899,24 @@ async def process_unified(
                 logger.info(f"Using ICD instruction template '{template['name']}' for unified processing")
         
         # Start background processing
+        # Upload input ZIP to Supabase Storage before starting background task
+        input_zip_supabase_path = None
+        try:
+            from db_utils import upload_to_supabase as _upload_zip
+            with open(zip_path, 'rb') as f:
+                zip_bytes = f.read()
+            input_zip_supabase_path = f"{job_id}_input.zip"
+            _upload_zip(input_zip_supabase_path, zip_bytes, 'application/zip')
+            logger.info(f"Uploaded input ZIP to Supabase: {input_zip_supabase_path}")
+        except Exception as e:
+            logger.error(f"Failed to upload input ZIP to Supabase: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to store input ZIP: {str(e)}")
+
         background_tasks.add_task(
             process_unified_background,
             job_id=job_id,
             zip_path=zip_path,
+            input_zip_supabase_path=input_zip_supabase_path,
             excel_path=excel_path,
             excel_filename=excel_filename,
             output_filename=output_filename,
@@ -11292,6 +11308,32 @@ async def download_unified_result(job_id: str):
     except Exception as e:
         logger.error(f"Failed to download unified result {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to download result: {str(e)}")
+
+
+@app.get("/api/unified-results/{job_id}/download-input-zip")
+async def download_input_zip(job_id: str):
+    """
+    Download the original input ZIP file via Supabase signed URL.
+    """
+    try:
+        from db_utils import get_unified_result, get_supabase_signed_url
+        from fastapi.responses import RedirectResponse
+
+        result = get_unified_result(job_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
+
+        input_zip_path = result.get('input_zip_supabase_path')
+        if not input_zip_path:
+            raise HTTPException(status_code=404, detail=f"Input ZIP not stored for job {job_id}")
+
+        signed_url = get_supabase_signed_url(input_zip_path)
+        return RedirectResponse(url=signed_url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download input ZIP for {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download input ZIP: {str(e)}")
 
 
 @app.post("/api/unified-results/cleanup")
