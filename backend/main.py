@@ -10905,14 +10905,18 @@ async def process_unified(
         input_zip_supabase_path = None
         try:
             from db_utils import upload_to_supabase as _upload_zip
-            with open(zip_path, 'rb') as f:
-                zip_bytes = f.read()
-            input_zip_supabase_path = f"{job_id}_input.zip"
-            _upload_zip(input_zip_supabase_path, zip_bytes, 'application/zip')
-            logger.info(f"Uploaded input ZIP to Supabase: {input_zip_supabase_path}")
+            zip_size = os.path.getsize(zip_path)
+            if zip_size > 50 * 1024 * 1024:  # 50MB Supabase free tier limit
+                logger.warning(f"Input ZIP too large for Supabase ({zip_size / 1024 / 1024:.1f}MB > 50MB), skipping upload")
+            else:
+                with open(zip_path, 'rb') as f:
+                    zip_bytes = f.read()
+                input_zip_supabase_path = f"{job_id}_input.zip"
+                _upload_zip(input_zip_supabase_path, zip_bytes, 'application/zip')
+                logger.info(f"Uploaded input ZIP to Supabase: {input_zip_supabase_path} ({zip_size / 1024 / 1024:.1f}MB)")
         except Exception as e:
-            logger.error(f"Failed to upload input ZIP to Supabase: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to store input ZIP: {str(e)}")
+            logger.warning(f"Failed to upload input ZIP to Supabase (continuing without): {e}")
+            input_zip_supabase_path = None
 
         background_tasks.add_task(
             process_unified_background,
