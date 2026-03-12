@@ -264,7 +264,19 @@ def init_database():
             ALTER TABLE unified_results ADD COLUMN input_zip_supabase_path VARCHAR(500);
         END IF;
     END $$;
-    
+
+    -- Migration: Add worktracker columns if they don't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'worktracker_group'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN worktracker_group VARCHAR(255);
+            ALTER TABLE unified_results ADD COLUMN worktracker_batch VARCHAR(255);
+        END IF;
+    END $$;
+
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_unified_results_expires_at ON unified_results(expires_at);
@@ -1583,6 +1595,8 @@ def save_unified_result(
     extraction_model: Optional[str] = None,
     cpt_vision_model: Optional[str] = None,
     icd_vision_model: Optional[str] = None,
+    worktracker_group: Optional[str] = None,
+    worktracker_batch: Optional[str] = None,
     status: str = "completed"
 ):
     """
@@ -1594,7 +1608,7 @@ def save_unified_result(
     try:
         from datetime import datetime, timedelta
 
-        expires_at = datetime.now() + timedelta(days=3)
+        expires_at = datetime.now() + timedelta(days=7)
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1603,9 +1617,10 @@ def save_unified_result(
                         job_id, filename, supabase_path, input_zip_supabase_path,
                         file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
+                        worktracker_group, worktracker_batch,
                         status, expires_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
@@ -1619,6 +1634,8 @@ def save_unified_result(
                         extraction_model = EXCLUDED.extraction_model,
                         cpt_vision_model = EXCLUDED.cpt_vision_model,
                         icd_vision_model = EXCLUDED.icd_vision_model,
+                        worktracker_group = EXCLUDED.worktracker_group,
+                        worktracker_batch = EXCLUDED.worktracker_batch,
                         status = EXCLUDED.status,
                         expires_at = EXCLUDED.expires_at
                     RETURNING id
@@ -1626,6 +1643,7 @@ def save_unified_result(
                     job_id, filename, supabase_path, input_zip_supabase_path,
                     file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
+                    worktracker_group or None, worktracker_batch or None,
                     status, expires_at
                 ))
                 result = cur.fetchone()
@@ -1635,38 +1653,42 @@ def save_unified_result(
         return None
 
 
-def get_all_unified_results(page: int = 1, page_size: int = 50):
+def get_all_unified_results(page: int = 1, page_size: int = 50, search_group: Optional[str] = None, search_batch: Optional[str] = None):
     """
-    Get all unified processing results with pagination.
-    
-    Args:
-        page: Page number (1-indexed)
-        page_size: Number of results per page
-    
-    Returns:
-        Dictionary with 'results' list and 'total' count
+    Get all unified processing results with pagination and optional search by group/batch.
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Get total count
-                cur.execute("SELECT COUNT(*) as total FROM unified_results")
+                conditions = []
+                params = []
+                if search_group:
+                    conditions.append("worktracker_group ILIKE %s")
+                    params.append(f"%{search_group}%")
+                if search_batch:
+                    conditions.append("worktracker_batch ILIKE %s")
+                    params.append(f"%{search_batch}%")
+
+                where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+                cur.execute(f"SELECT COUNT(*) as total FROM unified_results {where_clause}", params)
                 total = cur.fetchone()['total']
-                
-                # Get paginated results (newest first)
+
                 offset = (page - 1) * page_size
-                cur.execute("""
+                cur.execute(f"""
                     SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
+                           worktracker_group, worktracker_batch,
                            created_at, expires_at, status
                     FROM unified_results
+                    {where_clause}
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
-                """, (page_size, offset))
-                
+                """, params + [page_size, offset])
+
                 results = [dict(row) for row in cur.fetchall()]
-                
+
                 return {
                     'results': results,
                     'total': total,
@@ -1695,6 +1717,7 @@ def get_unified_result(job_id: str):
                     SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
+                           worktracker_group, worktracker_batch,
                            created_at, expires_at, status
                     FROM unified_results
                     WHERE job_id = %s

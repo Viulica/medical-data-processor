@@ -10626,6 +10626,8 @@ def process_unified_background(
                 extraction_model=extraction_model if enable_extraction else None,
                 cpt_vision_model=cpt_vision_model if enable_cpt and cpt_vision_mode else None,
                 icd_vision_model=icd_vision_model if enable_icd else None,
+                worktracker_group=worktracker_group,
+                worktracker_batch=worktracker_batch,
                 status="completed"
             )
             logger.info(f"[Unified {job_id}] Saved result metadata to database")
@@ -11260,14 +11262,14 @@ async def get_refinement_history(job_id: str):
 
 
 @app.get("/api/unified-results")
-async def list_unified_results(page: int = 1, page_size: int = 50):
+async def list_unified_results(page: int = 1, page_size: int = 50, search_group: Optional[str] = None, search_batch: Optional[str] = None):
     """
-    List all unified processing results with pagination.
+    List all unified processing results with pagination and optional search.
     """
     try:
         from db_utils import get_all_unified_results
-        
-        result = get_all_unified_results(page=page, page_size=page_size)
+
+        result = get_all_unified_results(page=page, page_size=page_size, search_group=search_group, search_batch=search_batch)
         
         # Format dates and file sizes
         for res in result['results']:

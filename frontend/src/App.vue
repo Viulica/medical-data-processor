@@ -2255,7 +2255,21 @@
             </div>
 
             <div class="settings-content">
-              <div class="setting-group">
+              <div class="setting-group" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                <input
+                  v-model="resultsSearchGroup"
+                  @input="loadUnifiedResults(1)"
+                  type="text"
+                  placeholder="Search group..."
+                  style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; width: 160px;"
+                />
+                <input
+                  v-model="resultsSearchBatch"
+                  @input="loadUnifiedResults(1)"
+                  type="text"
+                  placeholder="Search batch #..."
+                  style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; width: 160px;"
+                />
                 <button
                   @click="loadUnifiedResults"
                   class="btn btn-primary"
@@ -2263,13 +2277,12 @@
                 >
                   <span v-if="loadingUnifiedResults">⏳</span>
                   <span v-else>🔄</span>
-                  {{ loadingUnifiedResults ? 'Loading...' : 'Refresh Results' }}
+                  {{ loadingUnifiedResults ? 'Loading...' : 'Refresh' }}
                 </button>
                 <button
                   @click="cleanupExpiredResults"
                   class="btn btn-secondary"
                   :disabled="cleaningUpResults"
-                  style="margin-left: 10px;"
                 >
                   <span v-if="cleaningUpResults">⏳</span>
                   <span v-else>🗑️</span>
@@ -2286,7 +2299,8 @@
                   <thead>
                     <tr>
                       <th>Filename</th>
-                      <th>Job ID</th>
+                      <th>Group</th>
+                      <th>Batch #</th>
                       <th>Enabled Steps</th>
                       <th>Models</th>
                       <th>Rows</th>
@@ -2301,6 +2315,8 @@
                       <td>
                         <strong>{{ result.filename || `Result ${result.id}` }}</strong>
                       </td>
+                      <td>{{ result.worktracker_group || '—' }}</td>
+                      <td>{{ result.worktracker_batch || '—' }}</td>
                       <td>
                         <code style="font-size: 0.85em;">{{ result.job_id.substring(0, 8) }}...</code>
                       </td>
@@ -10082,6 +10098,8 @@ export default {
       unifiedResultsTotal: 0,
       loadingUnifiedResults: false,
       cleaningUpResults: false,
+      resultsSearchGroup: "",
+      resultsSearchBatch: "",
       // AI Refinement functionality
       refinementZipFile: null,
       refinementExcelFile: null,
@@ -12184,15 +12202,10 @@ export default {
       this.loadingUnifiedResults = true;
       try {
         const backendUrl = this.getBackendUrl();
-        const response = await axios.get(
-          `${backendUrl}/api/unified-results`,
-          {
-            params: {
-              page: page,
-              page_size: this.unifiedResultsPageSize
-            }
-          }
-        );
+        const params = { page: page, page_size: this.unifiedResultsPageSize };
+        if (this.resultsSearchGroup) params.search_group = this.resultsSearchGroup;
+        if (this.resultsSearchBatch) params.search_batch = this.resultsSearchBatch;
+        const response = await axios.get(`${backendUrl}/api/unified-results`, { params });
 
         this.unifiedResults = response.data.results || [];
         this.unifiedResultsTotal = response.data.total || 0;
