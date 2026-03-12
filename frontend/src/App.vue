@@ -2271,7 +2271,7 @@
                   style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; width: 160px;"
                 />
                 <button
-                  @click="loadUnifiedResults"
+                  @click="loadUnifiedResults(1)"
                   class="btn btn-primary"
                   :disabled="loadingUnifiedResults"
                 >
