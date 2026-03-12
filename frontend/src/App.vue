@@ -2221,6 +2221,14 @@
                   <span class="btn-icon">📊</span>
                   Download XLSX
                 </button>
+                <button
+                  @click="downloadUnifiedRenamedPdfs()"
+                  class="download-btn download-btn-secondary"
+                  title="Download PDFs renamed with patient names (First Name_Last Name_Middle Name)"
+                >
+                  <span class="btn-icon">📁</span>
+                  Download Renamed PDFs
+                </button>
               </div>
             </div>
 

@@ -10532,15 +10532,26 @@ def process_unified_background(
         # Log final columns before saving
         logger.info(f"[Unified {job_id}] Final merged dataframe has {len(base_df)} rows and columns: {list(base_df.columns)}")
 
-        # ==================== STEP 5: Update source_file column with patient name mapping ====================
+        # ==================== STEP 5: Create Renamed PDFs ZIP and Update source_file ====================
+        # Rename PDFs using Patient First Name + Last Name + Middle Name from extraction
+        # Also update source_file column in base_df to match the renamed filenames
+        renamed_zip_path = None
         filename_mapping = {}  # old_filename -> new_filename
 
         if enable_extraction and 'source_file' in base_df.columns:
             try:
+                job.message = "Creating renamed PDFs ZIP..."
+                logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data")
+
                 name_cols = ['Patient First Name', 'Patient Last Name', 'Patient Middle Name']
                 has_name_cols = all(col in base_df.columns for col in name_cols)
 
                 if has_name_cols:
+                    renamed_dir = Path(f"/tmp/results/{job_id}_renamed_pdfs")
+                    renamed_dir.mkdir(parents=True, exist_ok=True)
+
+                    input_dir = temp_dir / "input"
+                    renamed_count = 0
                     used_filenames = set()
 
                     for idx, row in base_df.iterrows():
@@ -10565,7 +10576,7 @@ def process_unified_background(
                             new_name = ''.join(c for c in new_name if c.isalnum() or c in '_ -').strip()
                             new_name = new_name.replace(' ', '_')
                             if not new_name:
-                                new_name = f"patient_{len(filename_mapping) + 1}"
+                                new_name = f"patient_{renamed_count + 1}"
                             new_filename = f"{new_name}.pdf"
                         else:
                             new_filename = source_file
@@ -10579,13 +10590,48 @@ def process_unified_background(
                         used_filenames.add(final_filename)
                         filename_mapping[source_file] = final_filename
 
+                        # Find the source PDF
+                        source_path = None
+                        for pdf_path in input_dir.rglob("*.pdf"):
+                            if pdf_path.name == source_file:
+                                source_path = pdf_path
+                                break
+                        if not source_path:
+                            for pdf_path in input_dir.rglob("*.PDF"):
+                                if pdf_path.name == source_file:
+                                    source_path = pdf_path
+                                    break
+
+                        if source_path and source_path.exists():
+                            dest_path = renamed_dir / final_filename
+                            shutil.copy2(source_path, dest_path)
+                            renamed_count += 1
+
+                    logger.info(f"[Unified {job_id}] Renamed {renamed_count} PDFs")
+
                     if filename_mapping:
                         base_df['source_file'] = base_df['source_file'].apply(
                             lambda x: filename_mapping.get(str(x).strip(), x) if pd.notna(x) else x
                         )
                         logger.info(f"[Unified {job_id}] Updated source_file column with {len(filename_mapping)} renamed filenames")
+
+                    # Create ZIP from renamed PDFs
+                    if renamed_count > 0:
+                        import zipfile
+                        renamed_zip_path = f"/tmp/results/{job_id}_renamed_pdfs.zip"
+                        with zipfile.ZipFile(renamed_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for pdf_file in renamed_dir.glob("*.pdf"):
+                                zipf.write(pdf_file, pdf_file.name)
+
+                        job.renamed_pdfs_zip = renamed_zip_path
+                        logger.info(f"[Unified {job_id}] Created renamed PDFs ZIP: {renamed_zip_path}")
+
+                        # Clean up renamed directory
+                        shutil.rmtree(renamed_dir, ignore_errors=True)
+                else:
+                    logger.warning(f"[Unified {job_id}] Cannot create renamed PDFs: missing required columns")
             except Exception as e:
-                logger.warning(f"[Unified {job_id}] Failed to update source_file column: {e}")
+                logger.warning(f"[Unified {job_id}] Failed to create renamed PDFs ZIP: {e}")
 
         # Save result to filesystem (CSV + XLSX) for immediate download
         result_base = Path(f"/tmp/results/{job_id}_unified_result")
@@ -11366,6 +11412,31 @@ async def download_input_zip(job_id: str):
     except Exception as e:
         logger.error(f"Failed to download input ZIP for {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to download input ZIP: {str(e)}")
+
+
+@app.get("/api/unified-results/{job_id}/download-renamed-pdfs")
+async def download_renamed_pdfs(job_id: str):
+    """
+    Download the renamed PDFs ZIP file for a unified processing result.
+    PDFs are renamed using Patient First Name + Last Name + Middle Name.
+    """
+    if job_id not in job_status:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = job_status[job_id]
+
+    if not hasattr(job, 'renamed_pdfs_zip') or not job.renamed_pdfs_zip:
+        raise HTTPException(status_code=404, detail="Renamed PDFs ZIP not available. Extraction may not have been enabled or patient names were not found.")
+
+    if not os.path.exists(job.renamed_pdfs_zip):
+        raise HTTPException(status_code=404, detail="Renamed PDFs ZIP file no longer exists on server")
+
+    filename = f"renamed_pdfs_{job_id}.zip"
+    return FileResponse(
+        job.renamed_pdfs_zip,
+        media_type="application/zip",
+        filename=filename
+    )
 
 
 @app.post("/api/unified-results/cleanup")
