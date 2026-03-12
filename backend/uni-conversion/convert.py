@@ -1859,7 +1859,14 @@ def convert_data(input_file, output_file=None, client="uni"):
         
         # Create result dataframe
         result_df = pd.DataFrame(result_data)
-        
+
+        # Drop client-specific columns
+        if client == "pac":
+            for col in ["Surgeon", "Notes"]:
+                if col in result_df.columns:
+                    result_df = result_df.drop(columns=[col])
+                    print(f"Dropped '{col}' column for PAC conversion")
+
         # Replace any NaN values with empty strings before converting to string
         result_df = result_df.fillna('')
         # Ensure all data is treated as strings to preserve leading zeros

@@ -10617,7 +10617,6 @@ def process_unified_background(
 
                     # Create ZIP from renamed PDFs
                     if renamed_count > 0:
-                        import zipfile
                         renamed_zip_path = f"/tmp/results/{job_id}_renamed_pdfs.zip"
                         with zipfile.ZipFile(renamed_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                             for pdf_file in renamed_dir.glob("*.pdf"):
@@ -10874,7 +10873,6 @@ async def process_unified(
                 
                 # Create a ZIP file from the split PDFs
                 zip_path = f"/tmp/{job_id}_split.zip"
-                import zipfile
                 with zipfile.ZipFile(zip_path, 'w') as zipf:
                     for pdf_file_path in output_dir.glob("*.pdf"):
                         zipf.write(pdf_file_path, pdf_file_path.name)
