@@ -32,9 +32,12 @@ def upload_to_supabase(path: str, data: bytes, content_type: str) -> str:
     headers = {
         'Authorization': f'Bearer {SUPABASE_KEY}',
         'Content-Type': content_type,
+        'Content-Length': str(len(data)),
         'x-upsert': 'true',
     }
-    r = httpx.put(url, content=data, headers=headers, timeout=60)
+    r = httpx.put(url, content=data, headers=headers, timeout=300)
+    if not r.is_success:
+        logger.error(f"Supabase upload failed {r.status_code}: {r.text}")
     r.raise_for_status()
     return path
 
