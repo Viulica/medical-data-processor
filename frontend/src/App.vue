@@ -2335,27 +2335,12 @@
                       <td>
                         <div class="action-buttons">
                           <button
-                            @click="downloadUnifiedResult(result.job_id, 'csv')"
-                            class="btn-icon-small"
-                            title="Download CSV"
-                          >
-                            📄
-                          </button>
-                          <button
-                            v-if="result.file_path_xlsx"
-                            @click="downloadUnifiedResult(result.job_id, 'xlsx')"
+                            v-if="result.supabase_path"
+                            @click="downloadUnifiedResult(result.job_id)"
                             class="btn-icon-small"
                             title="Download XLSX"
                           >
                             📊
-                          </button>
-                          <button
-                            v-if="result.file_path_renamed_zip"
-                            @click="downloadUnifiedResultRenamedPdfs(result.job_id)"
-                            class="btn-icon-small"
-                            title="Download Renamed PDFs (First Name_Last Name_Middle Name)"
-                          >
-                            📁
                           </button>
                         </div>
                       </td>
@@ -12213,95 +12198,14 @@ export default {
       }
     },
 
-    async downloadUnifiedResult(jobId, format = "csv") {
+    async downloadUnifiedResult(jobId) {
       try {
         const backendUrl = this.getBackendUrl();
-        const response = await axios.get(
-          `${backendUrl}/api/unified-results/${jobId}/download`,
-          {
-            params: { format: format },
-            responseType: "blob"
-          }
-        );
-
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement("a");
-        link.href = url;
-        
-        // Get filename from Content-Disposition header or use default
-        let filename = `unified_result_${jobId}.${format}`;
-        try {
-          const contentDisposition = response.headers?.["content-disposition"] || 
-                                     response.headers?.get?.("content-disposition") ||
-                                     (response.headers && typeof response.headers === 'object' && response.headers["content-disposition"]);
-          if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-            if (filenameMatch) {
-              filename = filenameMatch[1];
-            }
-          }
-        } catch (e) {
-          // If header parsing fails, use default filename
-          console.log("Could not parse filename from headers, using default");
-        }
-        
-        link.setAttribute("download", filename);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-
-        this.toast.success(`${format.toUpperCase()} download started!`);
+        window.location.href = `${backendUrl}/api/unified-results/${jobId}/download`;
+        this.toast.success("XLSX download started!");
       } catch (error) {
         console.error("Download error:", error);
         this.toast.error("Failed to download result");
-      }
-    },
-
-    async downloadUnifiedResultRenamedPdfs(jobId) {
-      try {
-        const backendUrl = this.getBackendUrl();
-        const response = await axios.get(
-          `${backendUrl}/api/unified-results/${jobId}/download-renamed-pdfs`,
-          {
-            responseType: "blob"
-          }
-        );
-
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement("a");
-        link.href = url;
-
-        // Get filename from Content-Disposition header or use default
-        let filename = `unified_result_${jobId}_renamed_pdfs.zip`;
-        try {
-          const contentDisposition = response.headers?.["content-disposition"] ||
-                                     response.headers?.get?.("content-disposition") ||
-                                     (response.headers && typeof response.headers === 'object' && response.headers["content-disposition"]);
-          if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-            if (filenameMatch) {
-              filename = filenameMatch[1];
-            }
-          }
-        } catch (e) {
-          console.log("Could not parse filename from headers, using default");
-        }
-
-        link.setAttribute("download", filename);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-
-        this.toast.success("Renamed PDFs download started!");
-      } catch (error) {
-        console.error("Download error:", error);
-        if (error.response?.status === 404) {
-          this.toast.error("Renamed PDFs not available. Extraction may not have been enabled or patient name fields were not found.");
-        } else {
-          this.toast.error("Failed to download renamed PDFs");
-        }
       }
     },
 

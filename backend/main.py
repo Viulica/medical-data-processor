@@ -3,6 +3,7 @@ import sys
 import logging
 import gc
 import signal
+import io
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -10530,29 +10531,16 @@ def process_unified_background(
         # Log final columns before saving
         logger.info(f"[Unified {job_id}] Final merged dataframe has {len(base_df)} rows and columns: {list(base_df.columns)}")
 
-        # ==================== STEP 5: Create Renamed PDFs ZIP and Update source_file ====================
-        # Rename PDFs using Patient First Name + Last Name + Middle Name from extraction
-        # Also update source_file column in base_df to match the renamed filenames
-        renamed_zip_path = None
+        # ==================== STEP 5: Update source_file column with patient name mapping ====================
         filename_mapping = {}  # old_filename -> new_filename
 
         if enable_extraction and 'source_file' in base_df.columns:
             try:
-                job.message = "Creating renamed PDFs ZIP..."
-                logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data")
-
-                # Check if we have the required columns
                 name_cols = ['Patient First Name', 'Patient Last Name', 'Patient Middle Name']
                 has_name_cols = all(col in base_df.columns for col in name_cols)
 
                 if has_name_cols:
-                    # Create output directory for renamed PDFs
-                    renamed_dir = Path(f"/tmp/results/{job_id}_renamed_pdfs")
-                    renamed_dir.mkdir(parents=True, exist_ok=True)
-
-                    input_dir = temp_dir / "input"
-                    renamed_count = 0
-                    used_filenames = set()  # Track used filenames to handle duplicates
+                    used_filenames = set()
 
                     for idx, row in base_df.iterrows():
                         source_file = str(row.get('source_file', '')).strip()
@@ -10560,12 +10548,9 @@ def process_unified_background(
                         last_name = str(row.get('Patient Last Name', '')).strip()
                         middle_name = str(row.get('Patient Middle Name', '')).strip()
 
-                        # Skip if source file is empty or NaN
                         if not source_file or source_file.lower() == 'nan':
                             continue
 
-                        # Build new filename: FirstName_LastName_MiddleName.pdf
-                        # Handle empty/nan values gracefully
                         name_parts = []
                         if first_name and first_name.lower() != 'nan':
                             name_parts.append(first_name)
@@ -10575,18 +10560,15 @@ def process_unified_background(
                             name_parts.append(middle_name)
 
                         if name_parts:
-                            # Sanitize filename (remove invalid characters)
                             new_name = '_'.join(name_parts)
                             new_name = ''.join(c for c in new_name if c.isalnum() or c in '_ -').strip()
                             new_name = new_name.replace(' ', '_')
                             if not new_name:
-                                new_name = f"patient_{renamed_count + 1}"
+                                new_name = f"patient_{len(filename_mapping) + 1}"
                             new_filename = f"{new_name}.pdf"
                         else:
-                            # Fallback to original filename
                             new_filename = source_file
 
-                        # Handle duplicate filenames by appending a number
                         final_filename = new_filename
                         counter = 1
                         while final_filename in used_filenames:
@@ -10594,101 +10576,47 @@ def process_unified_background(
                             final_filename = f"{name_base}_{counter}.pdf"
                             counter += 1
                         used_filenames.add(final_filename)
-
-                        # Store the mapping for updating source_file column
                         filename_mapping[source_file] = final_filename
 
-                        # Find the source PDF (might be in subdirectory)
-                        source_path = None
-                        for pdf_path in input_dir.rglob("*.pdf"):
-                            if pdf_path.name == source_file:
-                                source_path = pdf_path
-                                break
-                        if not source_path:
-                            for pdf_path in input_dir.rglob("*.PDF"):
-                                if pdf_path.name == source_file:
-                                    source_path = pdf_path
-                                    break
-
-                        if source_path and source_path.exists():
-                            dest_path = renamed_dir / final_filename
-                            shutil.copy2(source_path, dest_path)
-                            renamed_count += 1
-
-                    logger.info(f"[Unified {job_id}] Renamed {renamed_count} PDFs")
-
-                    # Update source_file column in base_df with new filenames
                     if filename_mapping:
                         base_df['source_file'] = base_df['source_file'].apply(
                             lambda x: filename_mapping.get(str(x).strip(), x) if pd.notna(x) else x
                         )
                         logger.info(f"[Unified {job_id}] Updated source_file column with {len(filename_mapping)} renamed filenames")
-
-                    # Create ZIP from renamed PDFs
-                    if renamed_count > 0:
-                        renamed_zip_path = f"/tmp/results/{job_id}_renamed_pdfs.zip"
-                        with zipfile.ZipFile(renamed_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                            for pdf_file in renamed_dir.glob("*.pdf"):
-                                zipf.write(pdf_file, pdf_file.name)
-
-                        job.renamed_pdfs_zip = renamed_zip_path
-                        logger.info(f"[Unified {job_id}] Created renamed PDFs ZIP: {renamed_zip_path}")
-
-                        # Clean up renamed directory
-                        shutil.rmtree(renamed_dir, ignore_errors=True)
-                else:
-                    logger.warning(f"[Unified {job_id}] Cannot create renamed PDFs: missing required columns. Has name cols: {has_name_cols}")
             except Exception as e:
-                logger.warning(f"[Unified {job_id}] Failed to create renamed PDFs ZIP: {e}")
+                logger.warning(f"[Unified {job_id}] Failed to update source_file column: {e}")
 
-        # Save final result
-        result_base = Path(f"/tmp/results/{job_id}_unified_result")
-        result_base.parent.mkdir(exist_ok=True)
+        # Generate XLSX in memory and upload to Supabase Storage
+        id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
+        for col in id_columns:
+            if col in base_df.columns:
+                base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
 
-        # Save as both CSV and XLSX
-        result_csv = f"{result_base}.csv"
-        result_xlsx = f"{result_base}.xlsx"
+        xlsx_buffer = io.BytesIO()
+        base_df.to_excel(xlsx_buffer, index=False, engine='openpyxl')
+        xlsx_bytes = xlsx_buffer.getvalue()
 
-        base_df.to_csv(result_csv, index=False)
-
-        # Convert to XLSX with ID column protection
-        try:
-            # Explicitly set ID columns as text to prevent scientific notation in Excel
-            id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
-            for col in id_columns:
-                if col in base_df.columns:
-                    # Only convert non-empty values to string to avoid 'nan' text
-                    base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
-
-            base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
-        except Exception as e:
-            logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")
-            result_xlsx = None
-
-        job.result_file = result_csv
-        job.result_file_xlsx = result_xlsx
+        from db_utils import upload_to_supabase, save_unified_result
+        supabase_path = f"{job_id}_unified_result.xlsx"
+        upload_to_supabase(
+            supabase_path,
+            xlsx_bytes,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        logger.info(f"[Unified {job_id}] Uploaded XLSX to Supabase: {supabase_path}")
 
         job.status = "completed"
         job.message = "Unified processing completed successfully"
         job.progress = 100
 
-        logger.info(f"[Unified {job_id}] Processing completed: {result_csv}")
-
         # Save result metadata to database
         try:
-            from db_utils import save_unified_result
-            import os
-
-            file_size = os.path.getsize(result_csv) if os.path.exists(result_csv) else None
             filename = output_filename if output_filename else f"unified_result_{job_id}"
-
             save_unified_result(
                 job_id=job_id,
                 filename=filename,
-                file_path_csv=result_csv,
-                file_path_xlsx=result_xlsx,
-                file_path_renamed_zip=renamed_zip_path,
-                file_size_bytes=file_size,
+                supabase_path=supabase_path,
+                file_size_bytes=len(xlsx_bytes),
                 row_count=len(base_df),
                 enabled_extraction=enable_extraction,
                 enabled_cpt=enable_cpt,
@@ -11341,94 +11269,29 @@ async def list_unified_results(page: int = 1, page_size: int = 50):
 
 
 @app.get("/api/unified-results/{job_id}/download")
-async def download_unified_result(job_id: str, format: str = "csv"):
+async def download_unified_result(job_id: str):
     """
-    Download a unified processing result file.
-    
-    Args:
-        job_id: Job identifier
-        format: File format - "csv" or "xlsx" (default: "csv")
+    Download a unified processing result XLSX file via Supabase signed URL.
     """
     try:
-        from db_utils import get_unified_result
-        
+        from db_utils import get_unified_result, get_supabase_signed_url
+        from fastapi.responses import RedirectResponse
+
         result = get_unified_result(job_id)
         if not result:
             raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
-        
-        # Determine file path based on format
-        if format.lower() == "xlsx" and result.get('file_path_xlsx'):
-            file_path = result['file_path_xlsx']
-        elif format.lower() == "csv" and result.get('file_path_csv'):
-            file_path = result['file_path_csv']
-        else:
-            # Fallback to CSV if XLSX not available
-            if format.lower() == "xlsx":
-                logger.warning(f"XLSX not available for {job_id}, falling back to CSV")
-            file_path = result['file_path_csv']
-        
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-        
-        # Determine filename
-        filename = result.get('filename', f"unified_result_{job_id}")
-        if not filename.endswith(f'.{format.lower()}'):
-            filename = f"{filename}.{format.lower()}"
-        
-        # Return file
-        return FileResponse(
-            file_path,
-            media_type="application/octet-stream",
-            filename=filename
-        )
+
+        supabase_path = result.get('supabase_path')
+        if not supabase_path:
+            raise HTTPException(status_code=404, detail=f"No file stored for job {job_id}")
+
+        signed_url = get_supabase_signed_url(supabase_path)
+        return RedirectResponse(url=signed_url)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to download unified result {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to download result: {str(e)}")
-
-
-@app.get("/api/unified-results/{job_id}/download-renamed-pdfs")
-async def download_renamed_pdfs(job_id: str):
-    """
-    Download the renamed PDFs ZIP file for a unified processing result.
-
-    The PDFs are renamed using Patient First Name + Last Name + Middle Name from extraction.
-
-    Args:
-        job_id: Job identifier
-    """
-    try:
-        from db_utils import get_unified_result
-
-        result = get_unified_result(job_id)
-        if not result:
-            raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
-
-        file_path = result.get('file_path_renamed_zip')
-        if not file_path:
-            raise HTTPException(status_code=404, detail=f"Renamed PDFs ZIP not available for job {job_id}. This may be because extraction was not enabled or patient name fields were not found.")
-
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"Renamed PDFs ZIP file not found: {file_path}")
-
-        # Determine filename
-        filename = result.get('filename', f"unified_result_{job_id}")
-        if filename.endswith('.csv') or filename.endswith('.xlsx'):
-            filename = filename.rsplit('.', 1)[0]
-        filename = f"{filename}_renamed_pdfs.zip"
-
-        # Return file
-        return FileResponse(
-            file_path,
-            media_type="application/zip",
-            filename=filename
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to download renamed PDFs for {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download renamed PDFs: {str(e)}")
 
 
 @app.post("/api/unified-results/cleanup")

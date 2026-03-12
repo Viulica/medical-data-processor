@@ -19,6 +19,73 @@ DATABASE_URL = os.environ.get(
     'postgresql://postgres:YISwNRCXxndHsFmucFxwFhEXJrHxQaEC@centerbeam.proxy.rlwy.net:33249/railway'
 )
 
+# Supabase Storage configuration
+SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://tfndwkxikqttrchxqakl.supabase.co')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRmbmR3a3hpa3F0dHJjaHhxYWtsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzMzNDY3NiwiZXhwIjoyMDg4OTEwNjc2fQ.bhGr3rFy9sLXVqNkpfNeut1d8LGLph4u01QtrDWy_iw')
+SUPABASE_BUCKET = 'results'
+
+
+def upload_to_supabase(path: str, data: bytes, content_type: str) -> str:
+    """Upload bytes to Supabase Storage. Returns the storage path."""
+    import httpx
+    url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
+    headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': content_type,
+        'x-upsert': 'true',
+    }
+    r = httpx.put(url, content=data, headers=headers, timeout=60)
+    r.raise_for_status()
+    return path
+
+
+def get_supabase_signed_url(path: str, expires_in: int = 3600) -> str:
+    """Get a signed download URL for a Supabase Storage object."""
+    import httpx
+    url = f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/{path}"
+    headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+    }
+    r = httpx.post(url, json={'expiresIn': expires_in}, headers=headers, timeout=10)
+    r.raise_for_status()
+    signed_path = r.json()['signedURL']
+    return f"{SUPABASE_URL}{signed_path}"
+
+
+def delete_from_supabase(paths: list) -> None:
+    """Delete objects from Supabase Storage."""
+    import httpx
+    url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}"
+    headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+    }
+    r = httpx.delete(url, json={'prefixes': paths}, headers=headers, timeout=10)
+    r.raise_for_status()
+
+
+def ensure_supabase_bucket() -> None:
+    """Create the Supabase Storage bucket if it doesn't exist."""
+    import httpx
+    url = f"{SUPABASE_URL}/storage/v1/bucket"
+    headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+    }
+    try:
+        r = httpx.post(
+            url,
+            json={'id': SUPABASE_BUCKET, 'name': SUPABASE_BUCKET, 'public': False},
+            headers=headers,
+            timeout=10
+        )
+        if r.status_code not in (200, 201, 409):  # 409 = already exists
+            r.raise_for_status()
+        logger.info(f"✅ Supabase bucket '{SUPABASE_BUCKET}' ready")
+    except Exception as e:
+        logger.warning(f"Failed to ensure Supabase bucket: {e}")
+
 
 @contextmanager
 def get_db_connection():
@@ -167,6 +234,25 @@ def init_database():
             ALTER TABLE unified_results ADD COLUMN file_path_renamed_zip VARCHAR(500);
         END IF;
     END $$;
+
+    -- Migration: Add supabase_path column if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'supabase_path'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN supabase_path VARCHAR(500);
+        END IF;
+    END $$;
+
+    -- Migration: Make file_path_csv nullable
+    DO $$
+    BEGIN
+        ALTER TABLE unified_results ALTER COLUMN file_path_csv DROP NOT NULL;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END $$;
     
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
@@ -229,6 +315,9 @@ def init_database():
         # Run migrations
         migrate_provider_mapping_columns()
         migrate_insurance_mappings_client_column()
+
+        # Ensure Supabase bucket exists
+        ensure_supabase_bucket()
 
         return True
     except Exception as e:
@@ -1473,9 +1562,7 @@ if __name__ == "__main__":
 def save_unified_result(
     job_id: str,
     filename: str,
-    file_path_csv: str,
-    file_path_xlsx: Optional[str] = None,
-    file_path_renamed_zip: Optional[str] = None,
+    supabase_path: str,
     file_size_bytes: Optional[int] = None,
     row_count: Optional[int] = None,
     enabled_extraction: bool = False,
@@ -1489,47 +1576,28 @@ def save_unified_result(
     """
     Save unified processing result metadata to database.
 
-    Args:
-        job_id: Unique job identifier
-        filename: Display filename
-        file_path_csv: Path to CSV result file
-        file_path_xlsx: Optional path to XLSX result file
-        file_path_renamed_zip: Optional path to renamed PDFs ZIP file
-        file_size_bytes: File size in bytes
-        row_count: Number of rows in result
-        enabled_extraction: Whether extraction was enabled
-        enabled_cpt: Whether CPT was enabled
-        enabled_icd: Whether ICD was enabled
-        extraction_model: Model used for extraction
-        cpt_vision_model: Model used for CPT
-        icd_vision_model: Model used for ICD
-        status: Job status
-
     Returns:
         Result ID on success, None on failure
     """
     try:
         from datetime import datetime, timedelta
 
-        # Calculate expiration date (3 days from now)
         expires_at = datetime.now() + timedelta(days=3)
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     INSERT INTO unified_results (
-                        job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                        job_id, filename, supabase_path,
                         file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
                         status, expires_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
-                        file_path_csv = EXCLUDED.file_path_csv,
-                        file_path_xlsx = EXCLUDED.file_path_xlsx,
-                        file_path_renamed_zip = EXCLUDED.file_path_renamed_zip,
+                        supabase_path = EXCLUDED.supabase_path,
                         file_size_bytes = EXCLUDED.file_size_bytes,
                         row_count = EXCLUDED.row_count,
                         enabled_extraction = EXCLUDED.enabled_extraction,
@@ -1542,7 +1610,7 @@ def save_unified_result(
                         expires_at = EXCLUDED.expires_at
                     RETURNING id
                 """, (
-                    job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                    job_id, filename, supabase_path,
                     file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
                     status, expires_at
@@ -1575,7 +1643,7 @@ def get_all_unified_results(page: int = 1, page_size: int = 50):
                 # Get paginated results (newest first)
                 offset = (page - 1) * page_size
                 cur.execute("""
-                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                    SELECT id, job_id, filename, supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status
@@ -1611,7 +1679,7 @@ def get_unified_result(job_id: str):
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, job_id, filename, file_path_csv, file_path_xlsx, file_path_renamed_zip,
+                    SELECT id, job_id, filename, supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            created_at, expires_at, status
@@ -1628,42 +1696,36 @@ def get_unified_result(job_id: str):
 def delete_expired_unified_results():
     """
     Delete unified results that have expired (older than 3 days).
-    Also deletes the associated files.
-    
+    Also deletes the associated files from Supabase Storage.
+
     Returns:
         Number of deleted results
     """
     try:
-        import os
-        from datetime import datetime
-        
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Get expired results
                 cur.execute("""
-                    SELECT id, job_id, file_path_csv, file_path_xlsx
+                    SELECT id, job_id, supabase_path
                     FROM unified_results
                     WHERE expires_at < CURRENT_TIMESTAMP
                 """)
-                
+
                 expired_results = cur.fetchall()
                 deleted_count = 0
-                
+
                 for result in expired_results:
-                    # Delete files
-                    for file_path in [result['file_path_csv'], result['file_path_xlsx']]:
-                        if file_path and os.path.exists(file_path):
-                            try:
-                                os.unlink(file_path)
-                                logger.info(f"Deleted expired file: {file_path}")
-                            except Exception as e:
-                                logger.warning(f"Failed to delete file {file_path}: {e}")
-                    
-                    # Delete database record
+                    # Delete from Supabase Storage
+                    if result.get('supabase_path'):
+                        try:
+                            delete_from_supabase([result['supabase_path']])
+                            logger.info(f"Deleted Supabase file: {result['supabase_path']}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete Supabase file {result['supabase_path']}: {e}")
+
                     cur.execute("DELETE FROM unified_results WHERE id = %s", (result['id'],))
                     deleted_count += 1
                     logger.info(f"Deleted expired unified result: {result['job_id']}")
-                
+
                 return deleted_count
     except Exception as e:
         logger.error(f"Failed to delete expired unified results: {e}")
