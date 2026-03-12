@@ -2208,19 +2208,18 @@
             >
               <div class="download-format-group">
                 <button
-                  @click="downloadUnifiedResult(unifiedJobId)"
+                  @click="downloadUnifiedResults('csv')"
+                  class="download-btn"
+                >
+                  <span class="btn-icon">📥</span>
+                  Download CSV
+                </button>
+                <button
+                  @click="downloadUnifiedResults('xlsx')"
                   class="download-btn download-btn-alt"
                 >
                   <span class="btn-icon">📊</span>
                   Download XLSX
-                </button>
-                <button
-                  @click="downloadInputZip(unifiedJobId)"
-                  class="download-btn download-btn-secondary"
-                  title="Download the original input ZIP file"
-                >
-                  <span class="btn-icon">🗜️</span>
-                  Download Input ZIP
                 </button>
               </div>
             </div>

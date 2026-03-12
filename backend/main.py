@@ -10587,38 +10587,64 @@ def process_unified_background(
             except Exception as e:
                 logger.warning(f"[Unified {job_id}] Failed to update source_file column: {e}")
 
-        # Generate XLSX in memory and upload to Supabase Storage
+        # Save result to filesystem (CSV + XLSX) for immediate download
+        result_base = Path(f"/tmp/results/{job_id}_unified_result")
+        result_base.parent.mkdir(parents=True, exist_ok=True)
+
+        result_csv = f"{result_base}.csv"
+        result_xlsx = f"{result_base}.xlsx"
+
+        base_df.to_csv(result_csv, index=False)
+
         id_columns = ['Primary Subsc ID', 'Secondary Subsc ID', 'MRN', 'CSN']
         for col in id_columns:
             if col in base_df.columns:
                 base_df[col] = base_df[col].apply(lambda x: str(x) if x != '' and pd.notna(x) else '')
 
-        xlsx_buffer = io.BytesIO()
-        base_df.to_excel(xlsx_buffer, index=False, engine='openpyxl')
-        xlsx_bytes = xlsx_buffer.getvalue()
+        try:
+            base_df.to_excel(result_xlsx, index=False, engine='openpyxl')
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to create XLSX: {e}")
+            result_xlsx = None
 
-        from db_utils import upload_to_supabase, save_unified_result
-        supabase_path = f"{job_id}_unified_result.xlsx"
-        upload_to_supabase(
-            supabase_path,
-            xlsx_bytes,
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        logger.info(f"[Unified {job_id}] Uploaded XLSX to Supabase: {supabase_path}")
+        job.result_file = result_csv
+        job.result_file_xlsx = result_xlsx
+
+        # Also upload XLSX to Supabase Storage for persistent access via Results tab
+        supabase_path = None
+        try:
+            xlsx_buffer = io.BytesIO()
+            base_df.to_excel(xlsx_buffer, index=False, engine='openpyxl')
+            xlsx_bytes = xlsx_buffer.getvalue()
+
+            from db_utils import upload_to_supabase
+            supabase_path = f"{job_id}_unified_result.xlsx"
+            upload_to_supabase(
+                supabase_path,
+                xlsx_bytes,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            logger.info(f"[Unified {job_id}] Uploaded XLSX to Supabase: {supabase_path}")
+        except Exception as e:
+            logger.warning(f"[Unified {job_id}] Failed to upload to Supabase (filesystem copy still available): {e}")
 
         job.status = "completed"
         job.message = "Unified processing completed successfully"
         job.progress = 100
 
+        logger.info(f"[Unified {job_id}] Processing completed: {result_csv}")
+
         # Save result metadata to database
         try:
+            from db_utils import save_unified_result
             filename = output_filename if output_filename else f"unified_result_{job_id}"
+            file_size = os.path.getsize(result_xlsx) if result_xlsx and os.path.exists(result_xlsx) else os.path.getsize(result_csv)
             save_unified_result(
                 job_id=job_id,
                 filename=filename,
                 supabase_path=supabase_path,
                 input_zip_supabase_path=input_zip_supabase_path,
-                file_size_bytes=len(xlsx_bytes),
+                file_size_bytes=file_size,
                 row_count=len(base_df),
                 enabled_extraction=enable_extraction,
                 enabled_cpt=enable_cpt,
