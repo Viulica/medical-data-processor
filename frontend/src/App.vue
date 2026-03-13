@@ -7018,7 +7018,7 @@
                     class="toggle-description"
                     style="margin-top: 0.5rem; font-style: italic; color: #666"
                   >
-                    Note: Turn this on for TQA-ARSC and maybe others, leave off
+                    Note: Turn this on for TQA-ARSC and GII-ASC, leave off
                     for UNI
                   </p>
                 </div>
