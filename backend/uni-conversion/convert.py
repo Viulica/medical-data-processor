@@ -1860,8 +1860,15 @@ def convert_data(input_file, output_file=None, client="uni"):
         # Create result dataframe
         result_df = pd.DataFrame(result_data)
 
-        # Drop client-specific columns
+        # PAC-specific column transformations
         if client == "pac":
+            # Copy Responsible Provider -> MD (inserted right after it)
+            if "Responsible Provider" in result_df.columns:
+                rp_idx = result_df.columns.get_loc("Responsible Provider")
+                result_df.insert(rp_idx + 1, "MD", result_df["Responsible Provider"])
+                print("Added 'MD' column (copy of 'Responsible Provider') for PAC conversion")
+
+            # Drop Surgeon and Notes columns
             for col in ["Surgeon", "Notes"]:
                 if col in result_df.columns:
                     result_df = result_df.drop(columns=[col])
