@@ -53,6 +53,9 @@ def get_supabase_signed_url(path: str, expires_in: int = 3600) -> str:
     r = httpx.post(url, json={'expiresIn': expires_in}, headers=headers, timeout=10)
     r.raise_for_status()
     signed_path = r.json()['signedURL']
+    # Supabase returns path like /object/sign/... but needs /storage/v1 prefix
+    if signed_path.startswith('/object/'):
+        signed_path = f"/storage/v1{signed_path}"
     return f"{SUPABASE_URL}{signed_path}"
 
 

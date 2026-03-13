@@ -879,7 +879,7 @@ Your task is to analyze the provided medical document page(s) and identify ICD d
 IMPORTANT INSTRUCTIONS:
 1. Analyze the entire PDF document carefully to understand the procedure and patient condition
 2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
-3. CRITICAL: If there is both pre-operative and post-operative diagnosis listed, always put in ICD1 the code for the post-operative diagnosis!
+3. CRITICAL: Never code both the pre operative and post operative diagnoses, instead code only post operative diagnosis + supportive diagnoses (often there are supportive diagnoses of patient listed later in the pdf, these are diagnoses that support the necessity for the procedure). There might be many additional diagnoses listed, but choose the ones that are most supportive of necessity for the procedure. Think like an anesthesia medical coder and follow the rules an anesthesia medical coder would.
 4. CRITICAL COLONOSCOPY CODING RULES:
    - General screening colonoscopy: Code Z12.11 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
    - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
@@ -1110,7 +1110,7 @@ Your task is to analyze the provided medical document page(s) and identify ICD d
 IMPORTANT INSTRUCTIONS:
 1. Analyze the entire PDF document carefully to understand the procedure and patient condition
 2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
-3. CRITICAL: If there is both pre-operative and post-operative diagnosis listed, always put in ICD1 the code for the post-operative diagnosis!
+3. CRITICAL: Never code both the pre operative and post operative diagnoses, instead code only post operative diagnosis + supportive diagnoses (often there are supportive diagnoses of patient listed later in the pdf, these are diagnoses that support the necessity for the procedure). There might be many additional diagnoses listed, but choose the ones that are most supportive of necessity for the procedure. Think like an anesthesia medical coder and follow the rules an anesthesia medical coder would.
 4. CRITICAL COLONOSCOPY CODING RULES:
    - General screening colonoscopy: Code Z12.11 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
    - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
