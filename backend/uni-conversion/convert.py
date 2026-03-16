@@ -1871,11 +1871,15 @@ def convert_data(input_file, output_file=None, client="uni"):
                     result_df.insert(rp_idx + 1, "MD", result_df["Responsible Provider"])
                 print("Added 'MD' column (copy of 'Responsible Provider') for PAC conversion")
 
-            # Drop Surgeon and Notes columns
-            for col in ["Surgeon", "Notes"]:
-                if col in result_df.columns:
-                    result_df = result_df.drop(columns=[col])
-                    print(f"Dropped '{col}' column for PAC conversion")
+            # Drop Notes column only
+            if "Notes" in result_df.columns:
+                result_df = result_df.drop(columns=["Notes"])
+                print("Dropped 'Notes' column for PAC conversion")
+
+            # Copy PatientClass -> Place Of Service
+            if "PatientClass" in result_df.columns:
+                result_df["Place Of Service"] = result_df["PatientClass"]
+                print("Copied 'PatientClass' to 'Place Of Service' for PAC conversion")
 
         # Replace any NaN values with empty strings before converting to string
         result_df = result_df.fillna('')
