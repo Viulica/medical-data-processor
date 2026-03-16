@@ -1862,10 +1862,13 @@ def convert_data(input_file, output_file=None, client="uni"):
 
         # PAC-specific column transformations
         if client == "pac":
-            # Copy Responsible Provider -> MD (inserted right after it)
+            # Copy Responsible Provider -> MD (inserted right after it, overwrite if exists)
             if "Responsible Provider" in result_df.columns:
-                rp_idx = result_df.columns.get_loc("Responsible Provider")
-                result_df.insert(rp_idx + 1, "MD", result_df["Responsible Provider"])
+                if "MD" in result_df.columns:
+                    result_df["MD"] = result_df["Responsible Provider"]
+                else:
+                    rp_idx = result_df.columns.get_loc("Responsible Provider")
+                    result_df.insert(rp_idx + 1, "MD", result_df["Responsible Provider"])
                 print("Added 'MD' column (copy of 'Responsible Provider') for PAC conversion")
 
             # Drop Surgeon and Notes columns
