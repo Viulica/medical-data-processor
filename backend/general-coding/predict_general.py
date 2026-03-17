@@ -885,15 +885,17 @@ IMPORTANT INSTRUCTIONS:
    - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
 5. CRITICAL VAGINAL DELIVERY CODING RULE:
    - If the procedure is a planned vaginal delivery labor (CPT code 01967): Use O80 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
-6. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
-7. Only include ICD codes that are directly relevant to the procedure or patient condition
-8. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
-9. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
-10. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
-11. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
-12. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
-13. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
-14. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
+6. CRITICAL CATARACT EXTRACTION CODING RULE:
+   - If the procedure is cataract extraction surgery: Use 00142 in ICD1
+7. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+8. Only include ICD codes that are directly relevant to the procedure or patient condition
+9. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
+10. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+11. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+12. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
+13. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
+14. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
+15. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
@@ -1116,15 +1118,17 @@ IMPORTANT INSTRUCTIONS:
    - Screening colonoscopy with polypectomy/polyp removal: Code Z12.11 in ICD1 and K63.5 in ICD2, leave ICD3 and ICD4 empty
 5. CRITICAL VAGINAL DELIVERY CODING RULE:
    - If the procedure is a planned vaginal delivery labor (CPT code 01967): Use O80 ONLY in ICD1 and leave ICD2, ICD3, ICD4 empty (nothing else)
-6. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
-7. Only include ICD codes that are directly relevant to the procedure or patient condition
-8. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
-9. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
-10. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
-11. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
-12. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
-13. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
-14. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
+6. CRITICAL CATARACT EXTRACTION CODING RULE:
+   - If the procedure is cataract extraction surgery: Use 00142 in ICD1
+7. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+8. Only include ICD codes that are directly relevant to the procedure or patient condition
+9. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
+10. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+11. CRITICAL: Use web search to verify that all ICD codes you provide are valid and current as of November 2025. Only use the most recent ICD codes that are valid in November 2025. Do not use outdated or invalid codes.
+12. CRITICAL: If there is outdated ICD codes listed on record try to find on google valid icd codes updated as of december 2025, so basically take the diagnosis code and update it accordingly with google
+13. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
+14. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
+15. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
@@ -2056,7 +2060,8 @@ CRITICAL ICD CODING RULES:
    - General screening colonoscopy: Z12.11 ONLY in ICD1, leave ICD2-4 empty
    - Screening colonoscopy with polyp removal: Z12.11 in ICD1, K63.5 in ICD2, ICD3-4 empty
 4. VAGINAL DELIVERY: CPT 01967 -> O80 ONLY in ICD1, leave ICD2-4 empty
-5. Include up to 3 secondary diagnoses (ICD2, ICD3, ICD4) sorted by relevance
+5. CATARACT EXTRACTION: If the procedure is cataract extraction surgery -> use 00142 in ICD1
+6. Include up to 3 secondary diagnoses (ICD2, ICD3, ICD4) sorted by relevance
 6. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
 7. Check for Excludes1 conflicts before finalizing codes
 8. Use web search to verify all ICD codes are current as of 2025
@@ -2208,9 +2213,10 @@ CRITICAL ICD CODING RULES:
 1. ICD1 = primary diagnosis (use post-operative if both pre/post listed)
 2. Screening colonoscopy: Z12.11 in ICD1 only. With polypectomy: Z12.11 + K63.5.
 3. Vaginal delivery (01967): O80 in ICD1 only.
-4. Up to 3 secondary diagnoses (ICD2-4), sorted by relevance
-5. Standard ICD-10 format. Check Excludes1 conflicts.
-6. Look for secondary conditions in text (obesity, diabetes, hypertension, etc.)
+4. Cataract extraction surgery: use 00142 in ICD1.
+5. Up to 3 secondary diagnoses (ICD2-4), sorted by relevance
+6. Standard ICD-10 format. Check Excludes1 conflicts.
+7. Look for secondary conditions in text (obesity, diabetes, hypertension, etc.)
 
 === OUTPUT FORMAT ===
 Respond with ONLY a JSON object:
