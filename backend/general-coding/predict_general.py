@@ -110,6 +110,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
 
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -152,6 +155,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
 
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
@@ -344,6 +350,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
 
 IMPORTANT: The Procedure field is REQUIRED. Pre-operative and Post-operative diagnoses are SUPPLEMENTARY only.
 If only the procedure is present and any other information is not available, do your best to determine the correct anesthesia CPT code based on the procedure text alone.
@@ -538,6 +547,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
 
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
+
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
 - Pre-operative diagnosis
@@ -580,6 +592,9 @@ CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
+
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
 
 IMPORTANT: Look at the document images carefully to identify:
 - Procedure description
@@ -2050,6 +2065,9 @@ CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
    - If the main procedure was TEE -> use 01922
 
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
+   - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
+
 === PART 2: ICD DIAGNOSIS CODES ===
 
 CRITICAL ICD CODING RULES:
@@ -2207,6 +2225,7 @@ CRITICAL CPT CODING RULES:
 1. COLONOSCOPY: Use 00812 for screening (any of: document says "screening", Z12.11, Z80.0, Z86.010x). Use 00811 only for diagnostic with specific symptoms.
 2. MRI/CT SCAN: use 01922
 3. TEE: use 01922
+4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION (Medial Branch Block, Facet Injection): use 01938
 
 === PART 2: ICD DIAGNOSIS CODES ===
 CRITICAL ICD CODING RULES:
