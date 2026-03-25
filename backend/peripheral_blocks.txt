@@ -80,15 +80,36 @@ Central venal catheter (CVP): -> use 36556 (No modifiers).
 
 IF Pulmonary vein/artery (Swan-Ganz) catheterized: -> use 93503 (No modifiers).
 
+and 36556 and 93503 are bundled and cannot be together if both Central venal catheter CVP (36556) and Pulmonary vein/artery (Swan-Ganz) catheterized (93503) are documented -> use 93503
+
+TRANSESOPHAGEAL ECHOCARDIOGRAPHY (TEE)
+
+CRITICAL: TEE is commonly performed during cardiac surgery (CPT 00537, 00567) and MUST be billed when documented. Look carefully for ALL of these indicators in the PDF:
+- "Comprehensive TEE" with a timestamp in the Actions/Reportable Actions section
+- "TEE Probe Placement" listed under Anesthesia Procedures
+- "Indication For TEE:" section with reasons like "Requested By Surgeon" or "Assessment Of Intracardiac/Valvular Pathology"
+- CPT codes 93312, 93315, 93320, 93325 listed in the TEE section
+- "Comprehensive TEE Post-CPB" (post-cardiopulmonary bypass TEE)
+- Action Comments mentioning "Comprehensive TEE @ [time]"
+
+IF TEE was performed (any of the above indicators found), add THREE lines:
+1. 93312 — TEE probe/image report (Modifier: 26 in M1, 59 in M2)
+2. 93320 — Doppler echo exam (Modifier: 26 in M1, 59 in M2)
+3. 93325 — Color flow velocity map (Modifier: 26 in M1, 59 in M2)
+
+All three (93312 + 93320 + 93325) are billed together whenever TEE is performed. Use the SAME provider for all three lines.
+
+TEE lines are billed IN ADDITION TO vascular lines (36620, 93503, 76937), not instead of them. A cardiac case can have 36620 + 76937 + 93503 + 93312 + 93320 + 93325 all billed together.
+
 SPECIAL RULE: ULTRASOUND GUIDANCE
 
-IF Arterial line or CVP was ULTRASOUND guided: -> add another line with code 76937.
+IF Arterial line or CVP was ULTRASOUND guided: -> add ONE line with code 76937 (Modifier: 26 in M1).
 
-IF first line with US: No modifiers.
+IMPORTANT: 76937 ALWAYS requires modifier 26 in M1. Never bill 76937 without modifier 26.
 
-IF second or third line with US: Put 59 in M1.
+IMPORTANT: 76937 can only be billed ONCE per encounter, even if multiple lines (A-line + CVP + Swan-Ganz) were all ultrasound guided. Do NOT add multiple 76937 lines.
 
-(The 76937 line goes right after the A-line or CVP line it is indicated for).
+(The 76937 line goes right after the first vascular line it is indicated for).
 
 FINAL FORMATTING RULES:
 
