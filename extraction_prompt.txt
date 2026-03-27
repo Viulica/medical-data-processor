@@ -1,0 +1,1542 @@
+You are an expert in extracting structured data from medical documents. For each patient record provided in the following text, extract the information specified below.
+If a field is not present or cannot be determined from the provided text, output null for that field.
+
+BE VERY CAREFUL to not confuse zero and the letter O. If the sign is completely round then it is an O (letter O), if it is a little bit oval then it is an O.
+Extraction Instructions per Patient Record:
+
+=== Account Number ===
+Description: Extract the large red/bold number displayed prominently near the top center of the first page. This is the account number and is typically 8-10 digits starting with 24, 25, or 26 (e.g., 2602090029). Do NOT confuse with the Acct # field on the billing form (which is a shorter number like 996) or the MRN/CSN numbers.
+Where to find: Top center of the first page, printed in large red or bold font
+Output format: e.g., 2602090029
+Extract: Account Number
+
+
+=== Charge Date ===
+Description: Date of Service:
+Where to find: under Procedure Summary ( Date)
+Output format: MM/DD/YYYY
+Extract: Charge Date
+
+
+=== Patient Last Name ===
+Description: Patient Last Name
+Where to find: Billing and Compliance Report
+Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Oney
+Extract: Patient Last Name
+
+
+=== Patient First Name ===
+Description: Patient First Name
+Where to find: Billing and Compliance Report
+Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Kim
+Extract: Patient First Name
+
+
+=== Patient Middle Name ===
+Description: Patient Middle Name
+Where to find: Billing and Compliance Report
+Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Y and middle name should be in single digit.Capture only the first letter of the middle name
+Extract: Patient Middle Name
+
+
+=== Patient DOB ===
+Description: DOB:
+Where to find: under Patient
+Output format: MM/DD/YYYY
+Extract: Patient DOB
+
+
+=== Patient Marital Status ===
+Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if THESE not listed on the pdf then put the unknown option obviously
+Output format: If the marital status or relationship indicates ‘married,’ classify as Married.
+Extract: Patient Marital Status
+
+
+=== Patient Sex ===
+Where to find: under Patient
+Output format: either M/F . MUST be one letter just one letter
+Extract: Patient Sex
+
+
+=== Patient EmploymentStatus ===
+Description: Output enum is these values: Employed, Full-time student, Part-time student, None - THESE ARE THE ONLY ALLOWED OPTIONS
+Output format: if there is none, empty, blank, Unknown don’t extract these data
+Extract: Patient EmploymentStatus
+
+
+=== Patient Street Address ===
+Output format: Transform the street address into ALL CAPS and remove all special characters, including hashtags (#), periods (.), and hyphens (-). Output only the cleaned, fully capitalized street address
+Extract: Patient Street Address
+
+
+=== Patient City ===
+Output format: all caps just city
+Extract: Patient City
+
+
+=== Patient State ===
+Description: the us state of the patient, two letters code
+Output format: all caps
+Extract: Patient State
+
+
+=== Patient ZIP Code ===
+Description: patient zip code
+Output format: CAPTURE ONLY THE FIRST 5  NUMBERS FOR EXAMPLE IF ZIP CODE IS 4759632 CAPTURE ONLY 47596
+Extract: Patient ZIP Code
+
+
+=== Patient HomePhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Where to find: If there is no Patient Phone number Extract Guarantor Home Phone number
+Extract: Patient HomePhone
+
+
+=== Patient WorkPhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Where to find: If there is no Patient Phone number Extract Guarantor Work Phone number
+Output format: “Extract the work  phone number only if it is unique. Do not capture the work phone number if it is the same as the home phone number or the cell phone number. If the work phone number matches either the home or cell phone, leave the work phone field blank.”
+Extract: Patient WorkPhone
+
+
+=== Patient CellPhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Where to find: If there is no Patient Phone number Extract Guarantor Cell Phone number. Additionally don’t capture the same phone number if
+Output format: “Extract the cell phone number only if it is unique. Do not capture the cell phone number if it is the same as the home phone number or the work phone number. If the cell phone number matches either the home or work phone, leave the cell phone field blank.”
+Extract: Patient CellPhone
+
+
+=== Patient E-mail Address ===
+Description: email address of the patient, just find it on the page and extract it ignore the N/A, Nill, Unknown, if it is in Record
+Extract: Patient E-mail Address
+
+
+=== Patient Employer ===
+Description: name of who the patient works for
+Output format: all caps
+Extract: Patient Employer
+
+
+=== Patient MRN ===
+Description: this is the medical record number (MRN)
+Output format: “Extract the MRN by removing the leading alphabetic character(s). Capture only the numeric digits that follow the first letter. Do not include any letters, symbols, or spaces. Return only the extracted numeric value.”
+Extract: Patient MRN
+
+
+=== Case # ===
+Description: this is the case number of the patient
+Where to find: Capture the alphanumeric value associated with the label “Acct #”.
+Output format: Extract only the digits, or letters written after “Acct #”.  Do not capture the text “Acct”, the # symbol, spaces, lines
+Extract: Case #
+
+
+=== Patient Race ===
+Description: this is the RACE
+Output format: capture only the colour not the number (eg. White)
+Extract: Patient Race
+
+
+=== Patient SSN ===
+Description: this is the SSN
+Output format: always leave empty string!
+Extract: Patient SSN
+
+
+=== Guarantor Relation ===
+Description: what relationship does the guarantor have to the patient
+Output format: "If the patient and the guarantor are the same person, select 'self.' If the guarantor is different and the patient's age is below 18, select 'child.'"
+Extract: Guarantor Relation
+
+
+=== Guarantor First Name ===
+Description: guarantor first name
+Extract: Guarantor First Name
+
+
+=== Guarantor Last Name ===
+Description: guarantor last name (surname)
+Extract: Guarantor Last Name
+
+
+=== Guarantor Middle Name ===
+Description: guarantor middle name (just one capital letter like A)
+Extract: Guarantor Middle Name
+
+
+=== Guarantor DOB ===
+Description: guarantor date of birth in MM/DD/YYYY format
+Where to find: There is no Guarantor DOB in the record (if Guarantor is self and name match with Patient then extract the Patient DOB)
+Extract: Guarantor DOB
+
+
+=== Guarantor Marital Status ===
+Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if THESE not listed on the pdf then put the unknown option obviously
+Output format: If the marital status or relationship indicates ‘married,’ classify as Married.
+Extract: Guarantor Marital Status
+
+
+=== Guarantor Sex ===
+Description: gender of the primary insurance subscriber (M/F)
+Output format: find the Primary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
+Extract: Guarantor Sex
+
+
+=== Guarantor Address ===
+Description: street address of the guarantor
+Where to find: There is no Guarantor Address in the record (if Guarantor is self and name match with Patient then extract the Patient Address)
+Output format: all caps steet address
+Extract: Guarantor Address
+
+
+=== Guarantor City ===
+Description: city of guarantor
+Where to find: There is no Guarantor City in the record (if Guarantor is self and name match with Patient then extract the Patient City)
+Output format: all caps city
+Extract: Guarantor City
+
+
+=== Guarantor State ===
+Description: State of the guarantor, full name all caps
+Where to find: There is no Guarantor State in the record (if Guarantor is self and name match with Patient then extract the Patient State)
+Extract: Guarantor State
+
+
+=== Guarantor ZIP ===
+Description: zip of the guarantor
+Where to find: There is no Guarantor zip in the record (if Guarantor is self and name match with Patient then extract the Patient zip)
+Output format: CAPTURE ONLY THE FIRST 5  NUMBERS FOR EXAMPLE IF ZIP CODE IS 4759632 CAPTURE ONLY 47596
+Extract: Guarantor ZIP
+
+
+=== Guarantor HomePhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Output format: Main Phone:
+Extract: Guarantor HomePhone
+
+
+=== Guarantor WorkPhone ===
+Description: • If the numbers are different, return the Work Phone.
+Where to find: • If the numbers are the same, return blank/empty.
+Output format: “Extract the work  phone number only if it is unique. Do not capture the work phone number if it is the same as the home phone number or the cell phone number. If the work phone number matches either the home or cell phone, leave the work phone field blank.”
+Extract: Guarantor WorkPhone
+
+
+=== Guarantor CellPhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Output format: “Extract the cell  phone number only if it is unique. Do not capture the cell phone number if it is the same as the home phone number or the work phone number. If the cell phone number matches either the home or work phone, leave the cell phone field blank.”
+Extract: Guarantor CellPhone
+
+
+=== Procedure Description ===
+Description: extract the procedure
+Where to find: Procedure
+Output format: always leave empty string!
+Extract: Procedure Description
+
+
+=== Locum ===
+Description: always leave empty string!
+Output format: always leave empty string!
+Extract: Locum
+
+
+=== Concurrent Providers ===
+Description: always leave empty string!
+Output format: always leave empty string!
+Extract: Concurrent Providers
+
+
+=== Place Of Service ===
+Description: use always( Class ) in the record
+Where to find: In the record, if a full description is found, then identify selective keywords such as INPATIENT, OUTPATIENT, or OBSERVATION, EMERGENCY and extract them.
+Output format: always leave empty string!
+Extract: Place Of Service
+
+
+=== Type Of Service ===
+Description: always leave empty string!
+Output format: always leave empty string!
+Extract: Type Of Service
+
+
+=== ICD1 ===
+Description: EXTRACT IF ICD code in the record under Diagnosis (Only Codes )
+Where to find: if its multiple codes in this colum just extract 1st one here code will be like this H25.812
+Output format: always leave empty string!
+Extract: ICD1
+
+
+=== ICD2 ===
+Description: EXTRACT IF ICD code in the record under Diagnosis (Only Codes )
+Where to find: if its multiple codes in this colum just extract 2nd one here code will be like this H25.812
+Output format: always leave empty string!
+Extract: ICD2
+
+
+=== ICD3 ===
+Description: EXTRACT IF ICD code in the record under Diagnosis (Only Codes )
+Where to find: if its multiple codes in this colum just extract 3rd one here code will be like this H25.812
+Output format: always leave empty string!
+Extract: ICD3
+
+
+=== ICD4 ===
+Description: EXTRACT IF ICD code in the record under Diagnosis (Only Codes )
+Where to find: if its multiple codes in this colum just extract 4th one here code will be like this H25.812
+Output format: always leave empty string!
+Extract: ICD4
+
+
+=== POST-OP DIAGNOSIS ===
+Description: Pre-Op Diagnosis:
+Output format: always leave empty string!
+Extract: POST-OP DIAGNOSIS
+
+
+=== An Start ===
+Description: Find the Anesthesia start time
+Where to find: will be in the Anesthesia Times:
+Output format: always leave empty string!
+Extract: An Start
+
+
+=== An Stop ===
+Description: Find the Anesthesia stop time
+Where to find: will be in the Anesthesia Times:
+Output format: always leave empty string!
+Extract: An Stop
+
+
+=== M1 ===
+Output format: always leave empty string!
+Extract: M1
+
+
+=== M2 ===
+Output format: always leave empty string!
+Extract: M2
+
+
+=== M3 ===
+Output format: always leave empty string!
+Extract: M3
+
+
+=== M4 ===
+Output format: always leave empty string!
+Extract: M4
+
+
+=== Physical Status ===
+Output format: always leave empty string!
+Extract: Physical Status
+
+
+=== Admit Date ===
+Output format: always leave empty string!
+Extract: Admit Date
+
+
+=== Discharge Date ===
+Output format: always leave empty string!
+Extract: Discharge Date
+
+
+=== Primary Cvg Mem Rel to Sub ===
+Description: relation of the primary insurance holder to the patient (Self, Child, Spouse or Other) -those are the only 4 options
+Output format: If the primary insurance holder and the patient are the same person, select "self."
+Extract: Primary Cvg Mem Rel to Sub
+
+
+=== Primary Mednet Code ===
+Extract: Primary Mednet Code
+
+
+=== Primary Company Name ===
+Description: Name of primary insurance
+Where to find: IF THERE IS NO COVERAGE LEAVE AS BLANK
+Output format: all caps
+Extract: Primary Company Name
+
+
+=== Primary Company Address 1 ===
+Description: address of the primary insurance
+Output format: rewrite and extract everything that stands under that field
+Extract: Primary Company Address 1
+
+
+=== Primary Company City ===
+Description: city of the primary insurance
+Extract: Primary Company City
+
+
+=== Primary Company State ===
+Description: state of the primary insurance
+Extract: Primary Company State
+
+
+=== Primary Company ZIP ===
+Description: zip code of the primary insurance
+Extract: Primary Company ZIP
+
+
+=== Primary Sub ID ===
+Description: this is the policy number of the primary insurance
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
+
+and all are should be in capital
+Extract: Primary Sub ID
+
+
+=== Primary Sub Name ===
+Description: Capture the name of the person who holds the policy in the format: Last Name, First Name.
+Output format: all caps
+Extract: Primary Sub Name
+
+
+=== Primary Sub DOB ===
+Description: date of birth of the primary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
+Output format: find the Primary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
+Extract: Primary Sub DOB
+
+
+=== Primary Sub Gender ===
+Description: gender of the primary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
+Output format: find the Primary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
+Extract: Primary Sub Gender
+
+
+=== Primary Sub Group Num ===
+Description: group number of primary insurance
+Output format: Extract data from the PDF into a CSV and preserve all large numbers exactly. Do not use scientific notation. If a value appears like 1.01379E+11, convert it to the full integer (101379000000) or store it as a plain quoted string. All large numbers must remain fully expanded and never in exponential form. Also When extracting data, capture the group number only if the primary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no numbers (e.g., “OHMCRWPO”).
+Extract: Primary Sub Group Num
+
+
+=== Primary Sub Auth Num ===
+Where to find: Precert #
+Extract: Primary Sub Auth Num
+
+
+=== Secondary Cvg Mem Rel to Sub ===
+Output format: If the secondary insurance holder and the patient are the same person, select "self."
+Extract: Secondary Cvg Mem Rel to Sub
+
+
+=== Secondary Mednet Code ===
+Output format: always leave empty string!
+Extract: Secondary Mednet Code
+
+
+=== Secondary Company Name ===
+Description: Name of secondary insurance
+Extract: Secondary Company Name
+
+
+=== Secondary Company Address 1 ===
+Description: address of the secondary insurance
+Extract: Secondary Company Address 1
+
+
+=== Secondary Company City ===
+Description: city of the secondary insurance
+Extract: Secondary Company City
+
+
+=== Secondary Company State ===
+Description: state of the secondary insurance
+Extract: Secondary Company State
+
+
+=== Secondary Company ZIP ===
+Description: zip code of the secondary insurance
+Extract: Secondary Company ZIP
+
+
+=== Secondary Sub ID ===
+Description: this is the policy number of the secondary insurance
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
+
+and all are should be in capital
+Extract: Secondary Sub ID
+
+
+=== Secondary Sub Name ===
+Description: Capture the name of the person who holds the policy in the format: Last Name, First Name.
+Extract: Secondary Sub Name
+
+
+=== Secondary Sub DOB ===
+Description: date of birth of the secondary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
+Output format: find the Secondary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
+Extract: Secondary Sub DOB
+
+
+=== Secondary Sub Gender ===
+Description: gender of the secondary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
+Output format: find the Secondary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
+Extract: Secondary Sub Gender
+
+
+=== Secondary Sub Group Num ===
+Description: group number of secondary insurance
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.Also When extracting data, capture the group number only if the Secondary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no digits (e.g., “OHMCRWPO”).
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
+
+and all are should be in capital
+Extract: Secondary Sub Group Num
+
+
+=== Secondary Auth Num ===
+Description: Precert #
+Extract: Secondary Auth Num
+
+
+=== Tertiary Cvg Mem Rel to Sub ===
+Output format: If the tertiary insurance holder and the patient are the same person, select "self."
+Extract: Tertiary Cvg Mem Rel to Sub
+
+
+=== Tertiary Mednet Code ===
+Output format: always leave empty string!
+Extract: Tertiary Mednet Code
+
+
+=== Tertiary Company Name ===
+Description: Name of tertiary insurance
+Extract: Tertiary Company Name
+
+
+=== Tertiary Company Address 1 ===
+Description: address of the tertiary insurance
+Extract: Tertiary Company Address 1
+
+
+=== Tertiary Company City ===
+Description: city of the tertiary insurance
+Extract: Tertiary Company City
+
+
+=== Tertiary Company State ===
+Description: state of the tertiary insurance
+Extract: Tertiary Company State
+
+
+=== Tertiary Company ZIP ===
+Description: zip code of the tertiary insurance
+Extract: Tertiary Company ZIP
+
+
+=== Tertiary Sub ID ===
+Description: this is the policy number of the tertiary insurance
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
+
+and all are should be in capital
+Extract: Tertiary Sub ID
+
+
+=== Tertiary Sub Name ===
+Description: Capture the name of the person who holds the policy in the format: Last Name, First Name.
+Extract: Tertiary Sub Name
+
+
+=== Tertiary Sub DOB ===
+Description: date of birth of the tertiary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
+Output format: find the Tertiary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
+Extract: Tertiary Sub DOB
+
+
+=== Tertiary Sub Gender ===
+Description: gender of the tertiary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
+Output format: find the Tertiary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
+Extract: Tertiary Sub Gender
+
+
+=== Tertiary Sub Group ===
+Description: group number of tertiary insurance
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation. Also When extracting data, capture the group number only if the Tertiary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no digits (e.g., “OHMCRWPO”).
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
+
+and all are should be in capital
+Extract: Tertiary Sub Group
+
+
+=== Tertiary Sub Auth Num ===
+Description: Precert #
+Extract: Tertiary Sub Auth Num
+
+
+=== EhrPath ===
+Extract: EhrPath
+
+
+=== Location ===
+Description: In this field always output value "RIV-LOCATION", exactly that never anything else
+Where to find: N/A - Fixed value
+Output format: String
+Extract: Location
+
+
+=== PatientClass ===
+Description: PatientClass Extraction Rule
+
+determine if the patient is an inpatient or an outpatient (likely listed somewhere in the record)
+
+Only these two values are allowed: INPATIENT or OUTPATIENT
+
+Do not output any other value!
+Where to find: Patient record - patient class field
+Output format: INPATIENT or OUTPATIENT
+Extract: PatientClass
+
+
+=== Surgeon ===
+Description: AI INSTRUCTION — SURGEON (MD) PROVIDER EXTRACTION RULE
+
+SECTION TO READ
+
+ANESTHESIA RECORD → SURGEON
+
+The AI must extract only ONE surgeon (MD) using the rules below.
+
+1️⃣ PRIMARY RULE — Identify and Extract the Surgeon
+
+If a surgeon is listed anywhere in the record, the AI must:
+
+✔ Identify the Surgeon / MD
+✔ Extract the name
+✔ Standardize it using the reference list
+
+If only one surgeon MD is listed → Extract that surgeon MD.
+
+2️⃣ MULTIPLE SURGEONS (MD) LISTED
+
+If more than one MD appears:
+
+✔ Extract ONLY ONE
+✔ Select the surgeon whose name appears as the primary surgeon, "Attending Surgeon," or the first listed surgeon.
+
+3️⃣ NAME STANDARDIZATION REQUIREMENTS
+
+The raw MD name in the record may contain:
+
+Spelling errors
+Missing middle initial
+Extra or missing spaces
+Abbreviations
+Only ID format (ex: GOSSAGE-13379)
+Incorrect punctuation
+Missing credential
+
+👉 The AI MUST replace the raw name with the EXACT standardized name from the MD reference list.
+
+4️⃣ OUTPUT FORMAT (MANDATORY)
+
+The extracted MD must ALWAYS follow this structure:
+
+{LAST NAME}, {FIRST NAME} {MIDDLE INITIAL}, MD
+
+5️⃣ CREDENTIAL RULE
+
+All extracted surgeon providers must be labeled as:
+
+MD
+
+Do NOT change the credential to DO, MBBS, etc., even if raw text contains these.
+Only use MD, as per the standardized provider list.
+
+6️⃣ REFERENCE LIST (STANDARDIZED PROVIDER NAMES)
+
+The AI must match the extracted surgeon to the following approved list:
+
+MD Providers (Standardized)
+Billable MD providers:
+ABID-HOFFMAN, FARWA, MD
+ABU-SALIH, MAJDI M, MD
+ADLAM, JAMES PATRICK, MD
+ADLAM, KATHERINE M, MD
+AGOSTINO, MICHAEL, MD
+AKER, JOHN S, MD
+AKMAL, ALI M, MD
+ALDERMAN, ROBERT P, MD
+ALENTADO, VINCENT, MD
+ALVA VALDES, FELIX, MD
+ANDERSON, ROBERT W, MD
+AREGBE, ABDULATEEF O, MD
+ARNETT, SHALIN, MD
+ARORA, GAURAV, MD
+ASCIOTI, ANTHONY J, MD
+BADELL, BETHANY JOELLE, MD
+BAKER, BRANDON A, MD
+BAKER, ELIZABETH A, MD
+BALLINGER, SUSAN R, MD
+BALTERA, ROBERT M, MD
+BANTER, AMY E, MD
+BEACH, JEFFREY CORBETT, MD
+BEAM, TERESA D, MD
+BEAN, WILLIAM, MD
+BEARD, VALERIE A, MD
+BEAVER, WALTER, MD
+BELL, STACY L, MD
+BELLFLOWER, JOSEPH F, MD
+BENNETT III, RICHARD M, MD
+BERRIOS, CARLOS R, MD
+BHARGAVA, REETA, MD
+BHINDER, CHRISTINE D, MD
+BICHEY, BRADFORD G, MD
+BIGGERSTAFF, RICHARD J, MD
+BIRHIRAY, RUEMU E, MD
+BLACKLIDGE, DOUGLAS, MD
+BLEDSOE, LISA A, MD
+BOAKE, GREGORY W, MD
+BOGENSCHUTZ, ZARA F, MD
+BOHM, MATTHEW E, MD
+BOLIN, DAVID L, MD
+BONGIOVANNI, JOSEPHINE A, MD
+BOONE, JEFFERY E, MD
+BOSCHEE, SCOTT A, MD
+BOWLING, MONET W, MD
+BRAZUS, STEPHANIE, MD
+BRENGLE, MARGARET A, MD
+BROWN, DAVID N, MD
+BROWN, EARL D, MD
+BRUGGERS, SETH DAVID, MD
+BRUNS, MATTHEW, MD
+BURTON, ELIZABETH A, MD
+BUSCH, JOCELYN L, MD
+BUTLER, EMMARY SAMUEL, MD
+CAHN, SETH D, MD
+CARTER, NILES E, MD
+CAVINS-STEWART, SUSAN, MD
+CHAN, ELIZABETH, MD
+CHENG, SHAN L, MD
+CHIKAMBA, MADELINE, MD
+CITTADINE, THOMAS J, MD
+CLARKE, BRIAN, MD
+COHER, HEIDI J, MD
+COLE, JAMES K, MD
+COMPTON, ANDREA, MD
+COPELAND, ANNETTE K, MD
+COPELAND, BENJAMIN J, MD
+CORRIGAN, AMY L, MD
+COSSELL, ANTHONY J, MD
+CRICHLOW, RENN J, MD
+CRITTENDON, MATTHEW, MD
+CROWE, JAMES A, MD
+D'AMBROSIO, LEO T, MD
+DASH, HOWARD, MD
+DAVENPORT, RACHEL, MD
+DAY WALZ, LARISSA C, MD
+DEAFENBAUGH, MARTIN K, MD
+DECKER, CHELSEY, MD
+DEDINSKY, GREGORY K, MD
+DELEE, STEVEN J, MD
+DELUMPA, VINCENT B, MD
+DEPOWELL, JOHN, MD
+DIETZ, JOHN W, MD
+DIKOS, GREGORY D, MD
+DILLEY, RUSSELL S, MD
+DOWELL, JOSHUA, MD
+DOWNING, BRANDON D, MD
+DRAKE, LUCAS M, MD
+DUGAN, CHARLOTTE, MD
+DUGAN, THOMAS C, MD
+DWYER, DAVID A, MD
+ELSAHY, DEENA, MD
+ENUH, HILL A, MD
+ERB, JILLIAN K, MD
+ERB, KENT W, MD
+ERDEL, WILLIAM C, MD
+FECHT, WILLIAM, MD
+FERGUSON, JEFFREY H, MD
+FILSON, SARAH KERLIN, MD
+FINLEY, JON P, MD
+FISK, JEREMY G, MD
+FLACK, CHANDRA K, MD
+FLANDERS, VINCENT J, MD
+FLAUMENHAFT, GAD, MD
+FOULK, DAVID M, MD
+FREDERICK, PAUL, MD
+FREEMAN, KATHRYN, MD
+FULKERT, KARL A, MD
+FUNK, ROBERT D, MD
+GALLANOSA, ARMAND V, MD
+GALSTIAN, ARTHUR A, MD
+GATHERS, VALERIE K, MD
+GENTILE, JONATHAN P, MD
+GEYER, JOSEPH E, MD
+GINTHER, JEFFREY R, MD
+GLASS, TIMOTHY A, MD
+GOLDENBERG, JOHN D, MD
+GOLIAN, SHIVA, MD
+GRAVES, NATHAN, MD
+GREENE, RYAN B, MD
+GREENFIELD, STEPHEN T, MD
+GRIFFIN FAGG, MARLEY A, MD
+GUTTIKONDA, DEEPAK, MD
+GUZMAN, MARLA H, MD
+HABIB, MUHAMMAD, MD
+HAHN, TAYLOR, MD
+HALL, KAITLYN, MD
+HALLER, KENNETH H, MD
+HALLETT, RICHARD, MD
+HALPERN, KRISTIN ANN, MD
+HANSEN, CHRISTOPHER J, MD
+HARDACKER, JAMES W, MD
+HARMON, SAMUEL R, MD
+HARPER, STANLEY J, MD
+HARPER JR, RONALD R, MD
+HARRIS, CHARLES M, MD
+HAUGHN, JAMES E, MD
+HAYES, RICHARD E, MD
+HEISER, SAMUEL, MD
+HENRY, DANIEL W, MD
+HERRMAN, CRAIG E, MD
+HIBBS, HAROLD, MD
+HILLHOUSE, KRISTIN E, MD
+HO, MINDY M, MD
+HOFFMAN, SCOTT M, MD
+HORTON, SAMUEL, MD
+HOWARD, JOHN, MD
+HUI, HOU-EN J, MD
+HURRY, BRIDGET, MD
+IHNAT, TERRENCE J, MD
+IMLER, TIMOTHY DAVID, MD
+JACHIMOWICZ, STANLEY C, MD
+JACOB, DENNIS M, MD
+JACOBSEN, STEPHEN, MD
+JANICKI, MARK J, MD
+JO, ALEXANDRIA, MD
+JONES, ESTHER M, MD
+JONES-SINGER, MICHELLE L, MD
+JOSHI, SANDEEP, MD
+KAEHR, DAVID M, MD
+KAIN, JOY J, MD
+KAVENEY, MICHAEL F, MD
+KAWAK, SAMER, MD
+KELLAMS, CHRISTY F, MD
+KERPSACK, JAMES M, MD
+KHAIRI, SAAD, MD
+KILBERG, SCOTT R, MD
+KINGMA, PHILLIP R, MD
+KIRCHNER, KYLE, MD
+KIRSCH, WILLIAM A, MD
+KLEIN, NICOLE R, MD
+KLIM, JOHN P, MD
+KLITZMAN, ROBERT GERALD, MD
+KNAPP, PETER M, MD
+KOBZA, KATHERINE T, MD
+KOMPIER, LAUREN, MD
+KOON, ANDREW J, MD
+KRAEMER, PAUL E, MD
+KRISHNAN, NAVEEN, MD
+KUBAL, CHANDRASHEKHAR A, MD
+KUKREJA, SANDEEP, MD
+KUMAR, HARI, MD
+KUONEN, ELIZABETH A, MD
+LAND, TARA K, MD
+LANDWERLEN, MEGAN R, MD
+LARGE, MICHAEL C, MD
+LATHER, NAVNEET, MD
+LEAGRE, CHRISTOPHER ALAN, MD
+LEER, GLEN E, MD
+LEGRAND, AARON J, MD
+LEVINE, MICHAEL H, MD
+LINING, MATTHEW RYAN, MD
+LLOYD, LAWRENCE E, MD
+LOWERY, CHRIS A, MD
+LOWREY, CHRISTOPHER H, MD
+MAATMAN, KRISTEN, MD
+MACADAEG, KEVIN E, MD
+MACKAY, DEVIN D, MD
+MAGEE, CHRIS A, MD
+MAGNUSSEN, MARCUS J, MD
+MALIK, KHAWAR, MD
+MALIN, ANDREW S, MD
+MANDERY, ANDREW J, MD
+MANSOUR, ALAA G, MD
+MARCOTTE, ERIC A, MD
+MARLEY MAATMAN, KRISTEN, MD
+MARTIN, BENJAMIN G, MD
+MARTIN, JOHN RHODES, MD
+MARTIN, JOSEPH P, MD
+MATHAVAN, VINEY, MD
+MCDONALD, CLEMENT E, MD
+MCEWEN, KEITH E, MD
+MCGUIRE, LISA M, MD
+MCSOLEY, THOMAS E, MD
+MEHTA, VRAJESH, MD
+MESHULAM, ERIC H, MD
+MEYER, JULIANA, MD
+MILLER, JUSTIN W, MD
+MILLER, KATHLEEN A, MD
+MILLER, RONALD S, MD
+MILLER, THOMAS P, MD
+MILTON, DANIEL T, MD
+MINDREBO, NORMAN, MD
+MINER, JAMES D, MD
+MOHAN, KUIMIL K, MD
+MOON, AMY L, MD
+MOORE, ANDREW E, MD
+MOREIRA, KATHERYN, MD
+MULRY, CHARLES C, MD
+MUTONE, MARTINA, MD
+MYERS, MICHAEL W, MD
+NARAYANAN, SHEKAR, MD
+NEGRETE, GEORGE A, MD
+NELLIGAN, LUKE G, MD
+NELSON, AARON D, MD
+NEMUNAITIS, JENNIFER, MD
+NOBLE, CHARLES, MD
+NUKES, THEODORE A, MD
+OFSTEIN, RICHARD H, MD
+ORINION, ERNEST J, MD
+OSMAN, UMAR, MD
+PAPPAS, JAMES C, MD
+PAQUETTE, BRIAN T, MD
+PARK, PATRICK Y, MD
+PATEL, PARIN, MD
+PATTISON, ERIK A, MD
+PATTISON, SHELLEY, MD
+PAYNER, TROY, MD
+PENCE, STEPHEN R, MD
+PERLER, ADAM D, MD
+PERNI, PRAVEEN, MD
+PIPPENGER, DENNIS L, MD
+PITTMAN, JOHN S, MD
+POTEE, CHRISTOPHER W, MD
+POULTER, GREGORY T, MD
+POUND, DAVID C, MD
+POWELL II, JERRY R, MD
+PYLES, JOSEPH MARIO, MD
+QUIST, KOFI K, MD
+RAMIREZ, GLENDA L, MD
+RAO, SWATHI, MD
+RASBACH, ADRIENNE, MD
+RATZMAN, DAVID, MD
+RAVICHANDRAN, SONAL SHAH, MD
+REA, JAMES B, MD
+REIGER, MARK, MD
+REILLY, THOMAS M, MD
+RENSCHLER, JASON P, MD
+RETHERFORD, KRISHA ANN, MD
+REX, DOUGLAS A, MD
+RIDEL, KEITH R, MD
+ROBERTS, JASON R, MD
+RODELA, RYAN J, MD
+ROGERS, KRISTOPHER DAVID, MD
+ROGERS JR, TYRONE, MD
+ROOT, TIMOTHY, MD
+ROSANWO, GABRIEL BOLADELE, MD
+ROTHBAUM, MICHAEL A, MD
+ROUCH, DORINDA H, MD
+RUDEN, EMILY ANNE, MD
+SABERMAN, JESSICA L, MD
+SAGI, SASHIDHAR VARMA, MD
+SALTAGI, AHMAD, MD
+SARTORIUS, CARL J, MD
+SCHEIDLER, DAVID M, MD
+SCHILT, BRUCE F, MD
+SCHILT, PETER N, MD
+SCHMALE, TRENTON, MD
+SCHRADER, AGNES J, MD
+SCHULMAN, SCOTT, MD
+SCHWARTZ, DAVID G, MD
+SCOTT, ASHLEY, MD
+SCOZZARO, MATTHEW J, MD
+SEGAL, STEVEN A, MD
+SEIDNER, ASHLEY, MD
+SERMERSHEIM, MICHAEL A, MD
+SETHI, PAWAN S, MD
+SEXSON, STEPHEN B, MD
+SHAH, ATEET H, MD
+SHAH, PARESH, MD
+SHARBA, ABDULKARIM M, MD
+SHARP, ADAM, MD
+SHARPE, BRYAN M, MD
+SHAWA, IMAD, MD
+SHEELY, JESSICA A, MD
+SHIN, THOMAS WOO, MD
+SMITH, JACLYN M, MD
+SMITH, ODELL G, MD
+SMITH, ROBERT W, MD
+SMITH, SCOTT A, MD
+SNOOK, RILEY J, MD
+SNYDER, MICHAEL J, MD
+SOYFER, ALLA Y, MD
+SPANGLER, GREGORY, MD
+SPRUNGER, JASON K, MD
+SREDZINSKI, LEE M, MD
+STANDISH, SARAH, MD
+STEIMAN, DAVID L, MD
+STEPHENSON, KYLE, MD
+STORM, HOLLY, MD
+STUHLDREHER, DAVID B, MD
+STUMPF, KENNETH P, MD
+SULLIVAN, DAVID R, MD
+SWIATEK, PETER R, MD
+SWIFT, MATTHEW A, MD
+SWINDLER, SHAUN F, MD
+TANKO, QUENTIN K, MD
+TANNER, BENJAMIN D, MD
+TANNER, LINDSAY G, MD
+TATEM, ALEXANDER J, MD
+TELLMAN, MATTHEW W, MD
+THEKKEURUMBIL, SANJAY V, MD
+THOMA-PERRY, CARLY JEAN, MD
+TIBESAR, ERIC E, MD
+TIEMAN, JOSHUA, MD
+TILLMAN, JULIE A, MD
+TRAINOR, MARY P, MD
+TROIANO, FRANK P, MD
+TURKLE, JANET K, MD
+TY, TECHSIN T, MD
+UNDERHILL, MARC P, MD
+VERHAGEN, CHRISTIAN O, MD
+VINCENT, ROBERT K, MD
+VISELLI, SARAH, MD
+VOGEL, CARYN M, MD
+VOSS, KATHERINE E, MD
+VREEDE, PIETER J, MD
+VUJOVICH, AMANDA, MD
+WALLS, JENNA E, MD
+WARD, JOHN B, MD
+WASEEM, SHAMAILA, MD
+WEINBERGER, JEFFREY, MD
+WELSCH, MATTHEW, MD
+WHITTEN, THOMAS M, MD
+WIELAND, REX A, MD
+WILD, MICHAEL R, MD
+WILK, STEVEN M, MD
+WILLIAMS, HEATHER C, MD
+WILLIAMS, TIMOTHY J, MD
+WINSTON, EMELIA, MD
+WINTER, DEANNA L, MD
+WOOD, MEGAN W, MD
+WORKMAN, MICHAEL, MD
+WRIGHT, CAMEUAL N, MD
+WUNDER, WILLIAM E, MD
+YAKHMI, ANIL, MD
+ZEH, WILLIAM G, MD
+ZILE, BETSY A, MD
+ZLOWODZKI, MICHAL P, MD
+ZUBEREK, MARCIN, MD
+ZYROMSKI, JENNIFER A, MD
+
+7️⃣ IF THE MD NAME IS NOT FOUND IN THE STANDARDIZED LIST
+
+If the extracted surgeon does not match any name in the reference list:
+
+👉 Leave the cell BLANK.
+
+✔ FINAL OUTPUT RULE
+
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, MD
+Where to find: Anesthesia record - surgeon field
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, MD
+Extract: Surgeon
+
+
+=== Referring ===
+Description: COPY VALUE FROM surgeon field and put here also, exactly same output value (needed for our integration system to work)
+Where to find: Copy from Surgeon field
+Output format: Same as Surgeon field
+Extract: Referring
+
+
+=== Responsible Provider ===
+Description: ✅ AI INSTRUCTION — PROVIDER (MD or CRNA) EXTRACTION RULE
+
+SECTION TO READ
+
+1️⃣ ANESTHESIA RECORD MULTIPLE CRNAs or multiple MD LISTED — SELECT THE CRNA or MD WITH LONGEST DURATION
+
+MD takes priority for being in Responsible Provider field over CRNA though, but ONLY if he was actually properly on the case participating, if the MD only SIGNED the record and nothing else but the CRNA did the work, then CRNA is responsible provider
+
+When the anesthesia record contains more than one CRNA or MD, the AI must:
+Step A — Identify each CRNA or MD by ID
+
+Step B — Calculate total anesthesia time
+
+Duration = End Time – Start Time
+
+Step C — Select the CRNA or MD with longest time
+
+This CRNA or MD becomes the performing provider.
+
+2️⃣ANESTHESIA RECORD → CRNA Entries
+
+if there is no multiple CRNA Then the AI must extract only ONE CRNA provider using the rules below.
+PRIMARY RULE — Extract the CRNA Listed in the Anesthesia Record
+
+The AI must always map ID or raw text to the standardized provider list (reference list given below).
+
+3️⃣ NAME STANDARDIZATION — MUST MATCH REFERENCE LIST EXACTLY
+
+The raw provider name in the record may have:
+
+Spelling errors
+Abbreviations
+Extra text
+Missing credentials
+Only an ID
+Partial names
+
+👉 The AI must always replace the raw name with the exact standardized version from the reference list.
+
+4️⃣ OUTPUT FORMAT (MANDATORY)
+
+The provider must ALWAYS be output in this format:
+
+{LAST NAME}, {FIRST NAME} {MIDDLE INITIAL}, CRNA
+or
+{LAST NAME}, {FIRST NAME} {MIDDLE INITIAL}, MD
+
+if there is an MD or CRNA that is NOT on our reference list of our providers it CANNOT go in this or any other field, because they are not providers that we can bill for
+
+REFERENCE LIST (STANDARDIZED PROVIDER NAMES):
+ADAMS, ANDREW, MD (MedNet Code: 1)
+ANAGNOSTOU, JONATHAN, MD (MedNet Code: I21)
+BATES, MARY LOUISE, MD (MedNet Code: I22)
+BUHR, RYAN, MD (MedNet Code: I24)
+BURNETTE, JOEL, MD (MedNet Code: 18)
+COMPTON-CRAIG, PETER, MD (MedNet Code: 2)
+FALIN, JOSEPH, MD (MedNet Code: 4)
+GOTANCO, RONALD, MD (MedNet Code: 5)
+HIGHLEY, GRANT, MD (MedNet Code: 6)
+KEYS, BRIAN, MD (MedNet Code: 7)
+MYERS, C, MD (MedNet Code: I19)
+PEERS, MARY, MD (MedNet Code: I17)
+PROVIDER, PULL, MD (MedNet Code: PUL)
+PROVIDER, UNKNOWN, MD (MedNet Code: 99)
+RADEL, ERIKA, MD (MedNet Code: 9)
+RECORD, OVERPAYMENT, MD (MedNet Code: OVP)
+SAMPSON, JOEL, MD (MedNet Code: 17)
+SHELLAH, MICHELLE, MD (MedNet Code: 16)
+SHELLEY, BEN, MD (MedNet Code: 12)
+STENNIS, MICHAEL, MD (MedNet Code: I20)
+SWIFT, MATTHEW, MD (MedNet Code: 13)
+VREEDE, PIETER, MD (MedNet Code: I18)
+WARD, JOHN, MD (MedNet Code: 15)
+Where to find: Anesthesia record - provider with longest duration
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, CRNA or MD
+Extract: Responsible Provider
+
+
+=== MD ===
+Description: if there is an MD from our standardized list of providers on the case, then put it in this field, if there are multiple pick the one with highest time on case, the list of billable providers is:
+
+ADAMS, ANDREW, MD (MedNet Code: 1)
+ANAGNOSTOU, JONATHAN, MD (MedNet Code: I21)
+BATES, MARY LOUISE, MD (MedNet Code: I22)
+BUHR, RYAN, MD (MedNet Code: I24)
+BURNETTE, JOEL, MD (MedNet Code: 18)
+COMPTON-CRAIG, PETER, MD (MedNet Code: 2)
+FALIN, JOSEPH, MD (MedNet Code: 4)
+GOTANCO, RONALD, MD (MedNet Code: 5)
+HIGHLEY, GRANT, MD (MedNet Code: 6)
+KEYS, BRIAN, MD (MedNet Code: 7)
+MYERS, C, MD (MedNet Code: I19)
+PEERS, MARY, MD (MedNet Code: I17)
+PROVIDER, PULL, MD (MedNet Code: PUL)
+PROVIDER, UNKNOWN, MD (MedNet Code: 99)
+RADEL, ERIKA, MD (MedNet Code: 9)
+RECORD, OVERPAYMENT, MD (MedNet Code: OVP)
+SAMPSON, JOEL, MD (MedNet Code: 17)
+SHELLAH, MICHELLE, MD (MedNet Code: 16)
+SHELLEY, BEN, MD (MedNet Code: 12)
+STENNIS, MICHAEL, MD (MedNet Code: I20)
+SWIFT, MATTHEW, MD (MedNet Code: 13)
+VREEDE, PIETER, MD (MedNet Code: I18)
+WARD, JOHN, MD (MedNet Code: 15)
+Where to find: Anesthesia record - MD provider
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, MD
+Extract: MD
+
+
+=== CRNA ===
+Description: if there is a CRNA from our standardized list of providers on the case, then put it in this field, if there are multiple pick the one with highest time on case, the list of billable providers is:
+
+No CRNA providers
+Where to find: Anesthesia record - CRNA provider
+Output format: LAST NAME, FIRST NAME MIDDLE INITIAL, CRNA
+Extract: CRNA
+
+
+=== SRNA ===
+Description: if there is a SRNA present on the case output in this field just text 'SRNA'
+Where to find: Anesthesia record - SRNA field
+Output format: SRNA or empty
+Extract: SRNA
+
+
+=== Resident ===
+Description: if there is a RESIDENT present on the case output in this field just text 'RES'
+Where to find: Anesthesia record - Resident field
+Output format: RES or empty
+Extract: Resident
+
+
+=== Revenue ===
+Description: if the case is a labor case then put OB otherwise always OR
+Where to find: Determine from case type
+Output format: OR or OB
+Extract: Revenue
+
+
+=== PlaceOfService ===
+Description: always leave empty string
+Output format: Empty string
+Extract: PlaceOfService
+
+
+=== TypeOfService ===
+Description: always leave empty string
+Output format: Empty string
+Extract: TypeOfService
+
+
+=== AnStart ===
+Description: AI Instruction: Extract Anesthesia Start Time (With DOS + Required Format)
+
+1️⃣ Primary Capture Rule — Extract Anesthesia Start Time
+Look for fields labeled exactly or similarly as:
+Anes Start or an start or anything indicating the start of anesthesia
+
+If found Anes Start, extract this value EXACTLY as recorded.
+
+2️⃣ Secondary Capture Rule — Use Anesthesia Ready Time ONLY if Start Time is Missing
+If Anesthesia Start Time is completely missing, then search for:
+Anes Ready
+Extract Ready Time ONLY when Start Time is not available.
+
+3️⃣ Required Output Format (MANDATORY)
+The output must ALWAYS include:
+
+Date of Service (DOS)
+Time
+Corrected, unified datetime format
+
+Format to output:
+Example:
+9/30/2025  9:53:00 AM
+
+4️⃣ Automatically Correct Inconsistent or Incomplete Formats
+
+The AI must auto-correct formatting issues such as:
+
+Missing seconds → add :00
+Missing AM/PM → infer using recorded format (if ambiguous, use document standard)
+Wrong separator (e.g., "." or "-") → convert to /
+24-hour time → convert to AM/PM format
+Missing leading zeros → correct to proper format
+
+Example Corrections
+Raw Value Found	Correct Output
+09:22	9/30/2025 9:22:00 AM
+14:05	9/30/2025 2:05:00 PM
+9.22 AM	9/30/2025 9:22:00 AM
+
+5️⃣ Final Output Rule
+
+Always output:
+
+<DOS + Time>
+
+Example (Start Time Found)
+9/30/2025  9:53:00 AM
+
+Example (Start Time Missing → Ready Time Used)
+9/30/2025  9:53:00 AM (Ready Time Used)
+Where to find: Anesthesia record - Anes Start or Anes Ready
+Output format: MM/DD/YYYY HH:MM:SS AM/PM
+Extract: AnStart
+
+
+=== AnStop ===
+Description: AI Instruction: Extract Anesthesia End Time (With DOS + Required Format)
+
+1️⃣ Primary Capture Rule — Extract Anesthesia End Time
+
+Look for fields labeled exactly or similarly as:
+Anes End, anesthesia end, anything indicating when the anesthesia stopped
+👉 If found, extract the time as recorded.
+
+3️⃣ Required Output Format (MANDATORY)
+
+The output must always include:
+
+Date of Service (DOS)
+Time in correct unified format
+
+Final required format:
+MM/DD/YYYY HH:MM:SS AM/PM
+
+Example:
+9/30/2025 9:22:00 AM
+
+4️⃣ Automatically Correct Time Formats
+
+The AI must auto-correct inconsistencies such as:
+
+Missing seconds → add :00
+Missing AM/PM → infer from 24-hour or document standard
+24-hour format → convert to AM/PM
+Missing leading zeros → correct (9:2 → 9:02)
+Wrong separators → convert to / or : appropriately
+If only time is present, append the DOS
+
+Examples of Corrections
+Raw Value Found	Output
+15:10	9/30/2025 3:10:00 PM
+3.10 PM	9/30/2025 3:10:00 PM
+03:10	9/30/2025 3:10:00 AM (based on context)
+3:10	9/30/2025 3:10:00 AM
+
+5️⃣ Final Output Rule
+
+Always output:
+
+<DOS + Time>
+
+Example (End Time Found)
+9/30/2025  9:53:00 AM
+Where to find: Anesthesia record - Anes End
+Output format: MM/DD/YYYY HH:MM:SS AM/PM
+Extract: AnStop
+
+
+=== Anesthesia Type ===
+Description: output values can be GENERAL, MAC, REGIONAL, TIVA nothing else dont output any other value ever, whatever is listed in the record you should think like a medical coder, think like what a medical coder would put of one of these 4 standardized values in order to get the case PAID
+
+IMPORTANT: On the billing form, look for "Circle the method of anesthesia and case type" section. The CIRCLED value is the authoritative anesthesia type. If "Regional" is circled on the form, report REGIONAL even if the case also involved general anesthesia components (intubation, mechanical ventilation). When both regional and general are used together (e.g., nerve blocks + general for a joint replacement), use whichever is CIRCLED on the billing form. If no billing form is present, use the anesthesia record's stated type.
+Where to find: Anesthesia record - anesthesia type
+Output format: GENERAL, MAC, REGIONAL, or TIVA
+Extract: Anesthesia Type
+
+
+=== PhysicalStatus ===
+Description: allowed output values are : 1, 2, 3, 4, 5, 6 , find the physical status, p status of the patient (medical billing term) and extract it as a number EXACTLY one of these numbers NO other value
+Where to find: Anesthesia record - physical status
+Output format: 1, 2, 3, 4, 5, or 6
+Extract: PhysicalStatus
+
+
+=== peripheral_blocks ===
+Description: In this field i need you to list out all blocks used here like this: |cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier|cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier|cpt_code;MD;Resident;CRNA;M1 modifier; M2 modifier you can list as many blocks as are used in the patient records, in order to place a block in your json output be very sure that the block was actually used on the patient (each block placed will have its own entire section with time of placement, people that took part in it and what laterality it was and what the type of the block was) there might be MULTIPLE though in one pdf obviously)
+
+RULES FOR PICKING the cpt code and modifiers (LT = left, RT = right, 50 = bilateral)
+
+SCIATIC PERIPHERAL BLOCK
+
+IF single injection: -> use 64445
+
+IF continuous infusion catheter: -> use 64446
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+INTERSCALENE PERIPHERAL BLOCK
+
+IF single injection: -> use 64415
+
+IF continuous infusion catheter: -> use 64416
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+AXILLARY PERIPHERAL BLOCK
+
+IF single injection: -> use 64417
+
+IF continuous infusion catheter: -> use 64418
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+FEMORAL PERIPHERAL NERVE BLOCK
+
+IF single injection: -> use 64447
+
+IF continuous infusion catheter: -> use 64448
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+ERECTOR SPINAE PLANE (ESP) BLOCK
+
+IF single injection (Unilateral): -> use 64466
+
+IF continuous infusion catheter (Unilateral): -> use 64467
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left.
+
+IF single injection (Bilateral): -> use 64468 (Modifier: 59 in M1).
+
+IF continuous infusion catheter (Bilateral): -> use 64469 (Modifier: 59 in M1).
+
+TRANSVERSUS ABDOMINIS PLANE (TAP) BLOCK
+
+IF Bilateral single shots: -> use 64488 (Modifier: 59 in M1).
+
+IF Unilateral single shot: -> use 64486 (Modifiers: 59 in M1 + LT/RT in M2).
+
+LATERAL FEMORAL CUTANEOUS NERVE (LFCN) BLOCK
+
+IF single injection: -> use 64450
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+iPACK OR PENG BLOCK
+
+Use code: 64473
+
+Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
+
+NEURAXIAL (SPINAL/EPIDURAL) FOR POST-OP PAIN
+
+Lumbar (L1-L5) Single Shot (Landmark): 62322 (Modifier: 59 in M1).
+
+Lumbar (L1-L5) Single Shot (WITH Ultrasound): 62323 (Modifier: 59 in M1).
+
+Cervical or Thoracic Single Shot: 62320 (Modifier: 59 in M1).
+
+VASCULAR LINES
+
+Arterial line (A-line): -> use 36620 (No modifiers).
+
+Central venal catheter (CVP): -> use 36556 (No modifiers).
+
+IF Pulmonary vein/artery (Swan-Ganz) catheterized: -> use 93503 (No modifiers).
+
+and 36556 and 93503 are bundled and cannot be together if both Central venal catheter CVP (36556) and Pulmonary vein/artery (Swan-Ganz) catheterized (93503) are documented -> use 93503
+
+TRANSESOPHAGEAL ECHOCARDIOGRAPHY (TEE)
+
+CRITICAL: TEE is commonly performed during cardiac surgery (CPT 00537, 00567) and MUST be billed when documented. Look carefully for ALL of these indicators in the PDF:
+- "Comprehensive TEE" with a timestamp in the Actions/Reportable Actions section
+- "TEE Probe Placement" listed under Anesthesia Procedures
+- "Indication For TEE:" section with reasons like "Requested By Surgeon" or "Assessment Of Intracardiac/Valvular Pathology"
+- CPT codes 93312, 93315, 93320, 93325 listed in the TEE section
+- "Comprehensive TEE Post-CPB" (post-cardiopulmonary bypass TEE)
+- Action Comments mentioning "Comprehensive TEE @ [time]"
+
+IF TEE was performed (any of the above indicators found), add THREE lines:
+1. 93312 — TEE probe/image report (Modifier: 26 in M1, 59 in M2)
+2. 93320 — Doppler echo exam (Modifier: 26 in M1, 59 in M2)
+3. 93325 — Color flow velocity map (Modifier: 26 in M1, 59 in M2)
+
+All three (93312 + 93320 + 93325) are billed together whenever TEE is performed. Use the SAME provider for all three lines.
+
+TEE lines are billed IN ADDITION TO vascular lines (36620, 93503, 76937), not instead of them. A cardiac case can have 36620 + 76937 + 93503 + 93312 + 93320 + 93325 all billed together.
+
+SPECIAL RULE: ULTRASOUND GUIDANCE
+
+IF Arterial line or CVP was ULTRASOUND guided: -> add ONE line with code 76937 (Modifier: 26 in M1).
+
+IMPORTANT: 76937 ALWAYS requires modifier 26 in M1. Never bill 76937 without modifier 26.
+
+IMPORTANT: 76937 can only be billed ONCE per encounter, even if multiple lines (A-line + CVP + Swan-Ganz) were all ultrasound guided. Do NOT add multiple 76937 lines.
+
+(The 76937 line goes right after the first vascular line it is indicated for).
+
+
+
+BILATERAL BLOCK RULE: When the same block type is performed on BOTH sides (right AND left), output it as ONE single entry with modifier 50 (bilateral) in M2. Do NOT create two separate entries with RT and LT. Example: if femoral nerve block done on both knees, output |64447;MD;;;59;50| not two entries with RT and LT.
+
+FINAL FORMATTING RULES:
+
+If anything is empty, put two semicolons ;; to indicate the section is empty.
+
+NEVER put something in M2 but nothing in M1. It is sequential. 59 is always in M1.
+
+Use same provider mapping strings as given; do not deviate.
+
+If no blocks or lines were done, say: NONE DONE.
+
+Example output format: |36620;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|36556;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;|64447;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;RT|
+Where to find: N/A - See description
+Output format: See description
+Extract: peripheral_blocks
+
+
+=== is_colonoscopy ===
+Description: in this field please indicate if the procedure was a colonoscopy (TRUE) or anything else (FALSE)
+Extract: is_colonoscopy
+
+
+=== colonoscopy_is_screening ===
+Description: here indicate if the colonoscopy description includes the word screening, it it was a screening colonoscopy put here TRUE otherwise put FALSE (if it was just standard diagnosit colonoscopy OR it was any other procedure), maybe it doesnt say in the pdf it was screening explicitly but if it says it is the patients first time also then indicate screening with TRUE, SOMETIMES they mention that it was screening in lower pages of the pdf also... check thouroughly
+Extract: colonoscopy_is_screening
+
+
+=== Polyps found ===
+Description: IF the procedure was *colonoscopy* AND somewhere in the pdf they indicated that they FOUND polyps, then put "FOUND" here, otherwise leave this field EMPTY just ""
+Extract: Polyps found
+
+
+
+    ALSO: be very careful to not confuse the number 1 and the letter l , double check you did not confuse them.
+
+    FINAL INSTRUCTION: make sure to fill out all the fields that have data contained in the pdf. double check you did not leave empty something that should be filled out, or vice versa that you hallunicated. something.
+
+    Your entire response must be a single JSON object representing the one patient record found on this page. Do not include any other text or commentary.

@@ -13,6 +13,7 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import time
+from pathlib import Path
 import requests
 
 # Google GenAI SDK imports
@@ -92,17 +93,19 @@ Here is the reference list of valid anesthesia CPT codes:
 CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 1. COLONOSCOPY CODING (Most Common Errors):
-   - Use 00812 (screening colonoscopy) if ANY of these are present:
-     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
-     * Procedure states "screening"
-     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
-     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
-     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 (Encounter for screening colonoscopy) with NO symptom or surveillance indication
      * Pre-op states "Colon cancer screening"
-   - Use 00811 (diagnostic colonoscopy) ONLY if:
-     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
-     * NO screening indicators present
-   - When uncertain: If ANY screening indicator exists, use 00812
+     * Patient has ONLY family history (Z80.0) as indication — no personal history, no symptoms
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE, NOT screening
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss, etc.)
+     * Any GI diagnosis as indication (GERD, diverticulosis, IBD, etc.)
+   - Key distinction: "screening" = routine, no prior findings. "surveillance" = follow-up due to prior polyps/cancer = DIAGNOSTIC = 00811
+   - When uncertain between screening and surveillance: if patient has ANY personal history of polyps or cancer, use 00811
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
@@ -138,17 +141,19 @@ Your task is to predict the most relevant anesthesia CPT code for anesthesia bil
 CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 1. COLONOSCOPY CODING (Most Common Errors):
-   - Use 00812 (screening colonoscopy) if ANY of these are present:
-     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
-     * Procedure states "screening"
-     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
-     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
-     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 (Encounter for screening colonoscopy) with NO symptom or surveillance indication
      * Pre-op states "Colon cancer screening"
-   - Use 00811 (diagnostic colonoscopy) ONLY if:
-     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
-     * NO screening indicators present
-   - When uncertain: If ANY screening indicator exists, use 00812
+     * Patient has ONLY family history (Z80.0) as indication — no personal history, no symptoms
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE, NOT screening
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss, etc.)
+     * Any GI diagnosis as indication (GERD, diverticulosis, IBD, etc.)
+   - Key distinction: "screening" = routine, no prior findings. "surveillance" = follow-up due to prior polyps/cancer = DIAGNOSTIC = 00811
+   - When uncertain between screening and surveillance: if patient has ANY personal history of polyps or cancer, use 00811
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
@@ -529,17 +534,19 @@ Here is the reference list of valid anesthesia CPT codes:
 CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 1. COLONOSCOPY CODING (Most Common Errors):
-   - Use 00812 (screening colonoscopy) if ANY of these are present:
-     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
-     * Procedure states "screening"
-     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
-     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
-     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 (Encounter for screening colonoscopy) with NO symptom or surveillance indication
      * Pre-op states "Colon cancer screening"
-   - Use 00811 (diagnostic colonoscopy) ONLY if:
-     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
-     * NO screening indicators present
-   - When uncertain: If ANY screening indicator exists, use 00812
+     * Patient has ONLY family history (Z80.0) as indication — no personal history, no symptoms
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE, NOT screening
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss, etc.)
+     * Any GI diagnosis as indication (GERD, diverticulosis, IBD, etc.)
+   - Key distinction: "screening" = routine, no prior findings. "surveillance" = follow-up due to prior polyps/cancer = DIAGNOSTIC = 00811
+   - When uncertain between screening and surveillance: if patient has ANY personal history of polyps or cancer, use 00811
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
@@ -575,17 +582,19 @@ Your task is to predict the most relevant anesthesia CPT code for anesthesia bil
 CRITICAL CODING RULES (FOLLOW THESE EXACTLY):
 
 1. COLONOSCOPY CODING (Most Common Errors):
-   - Use 00812 (screening colonoscopy) if ANY of these are present:
-     * If the page/document explicitly states "screening colonoscopy" - USE CODE 00812
-     * Procedure states "screening"
-     * Pre-op diagnosis: [Z12.11] (Encounter for screening colonoscopy)
-     * Pre-op diagnosis: [Z80.0] (Family history of colon cancer)
-     * Pre-op diagnosis: [Z86.010x] (History of colonic polyps) - this is surveillance screening
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 (Encounter for screening colonoscopy) with NO symptom or surveillance indication
      * Pre-op states "Colon cancer screening"
-   - Use 00811 (diagnostic colonoscopy) ONLY if:
-     * Investigating specific symptoms (bleeding, pain, diarrhea, etc.)
-     * NO screening indicators present
-   - When uncertain: If ANY screening indicator exists, use 00812
+     * Patient has ONLY family history (Z80.0) as indication — no personal history, no symptoms
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE, NOT screening
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss, etc.)
+     * Any GI diagnosis as indication (GERD, diverticulosis, IBD, etc.)
+   - Key distinction: "screening" = routine, no prior findings. "surveillance" = follow-up due to prior polyps/cancer = DIAGNOSTIC = 00811
+   - When uncertain between screening and surveillance: if patient has ANY personal history of polyps or cancer, use 00811
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
@@ -2136,6 +2145,20 @@ CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
 4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
    - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
 
+5. SACRAL NEUROMODULATION / INTERSTIM CODING:
+   - InterStim implant/placement (Stage 1 or Stage 2), sacral nerve stimulator, or sacral neuromodulation procedures -> use 00400 (integumentary system), NOT 00860
+   - These are subcutaneous implant procedures, not intraperitoneal
+
+6. TRANSRECTAL / TRANSPERINEAL PROSTATE PROCEDURES:
+   - Transrectal ultrasound (TRUS) biopsy of prostate -> use 00902 (anorectal), NOT 00860
+   - Transperineal prostate procedures (barrigel injection, fiducial marker placement, SpaceOAR, biopsy) -> use 00902 (anorectal/perineal), NOT 00860
+   - Do NOT code prostate biopsies or prostate marker placements as 00860 (intraperitoneal)
+
+7. INTRAMEDULLARY FEMORAL NAILING / GAMMA NAILING:
+   - Intramedullary nailing of the femur (gamma nailing, femoral nailing, IM nail/rod) for hip fractures (intertrochanteric, femoral neck, subtrochanteric) -> use 01230 (upper 2/3 of femur), NOT 01210 (hip joint)
+   - Even though the diagnosis is a "hip fracture," the surgical procedure is on the femur (nail/rod insertion), so use 01230
+   - 01210 is for procedures directly on the hip joint (e.g., hip pinning with screws only, hip hemiarthroplasty without nailing)
+
 === PART 2: ICD DIAGNOSIS CODES ===
 
 CRITICAL ICD CODING RULES:
@@ -2294,6 +2317,9 @@ CRITICAL CPT CODING RULES:
 2. MRI/CT SCAN: use 01922
 3. TEE: use 01922
 4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION (Medial Branch Block, Facet Injection): use 01938
+5. SACRAL NEUROMODULATION / INTERSTIM: InterStim implant (Stage 1/2), sacral nerve stimulator -> use 00400 (integumentary), NOT 00860. These are subcutaneous implants, not intraperitoneal.
+6. TRANSRECTAL / TRANSPERINEAL PROSTATE PROCEDURES: TRUS biopsy, transperineal biopsy, barrigel/fiducial marker placement, SpaceOAR -> use 00902 (anorectal), NOT 00860.
+7. INTRAMEDULLARY FEMORAL NAILING: Gamma nailing, femoral IM nail/rod for hip fractures (intertrochanteric, femoral neck, subtrochanteric) -> use 01230 (upper 2/3 femur), NOT 01210 (hip joint). The procedure is on the femur, not the hip joint.
 
 === PART 2: ICD DIAGNOSIS CODES ===
 CRITICAL ICD CODING RULES:
