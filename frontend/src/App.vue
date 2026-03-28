@@ -1207,7 +1207,7 @@
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                   </select>
                 </div>
-                <div class="setting-group" style="margin-top: 15px">
+                <div class="setting-group" style="display: none">
                   <label for="unified-extraction-workers">Max Workers</label>
                   <div class="input-wrapper">
                     <input
@@ -1330,7 +1330,7 @@
 
                 <!-- Vision Mode Settings -->
                 <div v-if="unifiedCptVisionMode">
-                  <div class="setting-group" style="margin-top: 15px">
+                  <div class="setting-group" style="display: none">
                     <label for="unified-cpt-vision-pages"
                       >Pages to Analyze per PDF</label
                     >
@@ -1348,7 +1348,7 @@
                       (1-50)</small
                     >
                   </div>
-                  <div class="setting-group" style="margin-top: 15px">
+                  <div class="setting-group" style="display: none">
                     <label for="unified-cpt-workers-vision">Max Workers</label>
                     <input
                       id="unified-cpt-workers-vision"
@@ -1545,7 +1545,7 @@
                       <option value="general">GENERAL (OpenAI Model)</option>
                     </select>
                   </div>
-                  <div class="setting-group" style="margin-top: 15px">
+                  <div class="setting-group" style="display: none">
                     <label for="unified-cpt-workers-nonvision"
                       >Max Workers</label
                     >
@@ -1629,7 +1629,7 @@
                 <h3>📋 ICD Prediction Settings</h3>
               </div>
               <div class="settings-content">
-                <div class="setting-group">
+                <div class="setting-group" style="display: none">
                   <label for="unified-icd-pages"
                     >Pages to Analyze per PDF</label
                   >
@@ -1647,7 +1647,7 @@
                     (1-50)</small
                   >
                 </div>
-                <div class="setting-group" style="margin-top: 15px">
+                <div class="setting-group" style="display: none">
                   <label for="unified-icd-workers">Max Workers</label>
                   <input
                     id="unified-icd-workers"
