@@ -23,14 +23,7 @@
           >
             📊 Standard
           </button>
-          <button
-            @click="activeTab = 'process-fast'"
-            :class="{ active: activeTab === 'process-fast' }"
-            class="tab-btn"
-          >
-            ⚡ Fast Process
-          </button>
-          <button
+<button
             @click="activeTab = 'unified'"
             :class="{ active: activeTab === 'unified' }"
             class="tab-btn"
@@ -54,19 +47,7 @@
           >
             📥 Results
           </button>
-          <button
-            @click="activeTab = 'ai-refinement'"
-            :class="{ active: activeTab === 'ai-refinement' }"
-            class="tab-btn"
-            style="
-              background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-              color: white;
-              font-weight: 600;
-            "
-          >
-            🤖 AI Refinement
-          </button>
-          <button
+<button
             @click="activeTab = 'split'"
             :class="{ active: activeTab === 'split' }"
             class="tab-btn"
@@ -85,16 +66,9 @@
             :class="{ active: activeTab === 'cpt' }"
             class="tab-btn"
           >
-            🏥 CPT Codes
+            🏥 UNI CPT Codes
           </button>
-          <button
-            @click="activeTab = 'icd'"
-            :class="{ active: activeTab === 'icd' }"
-            class="tab-btn"
-          >
-            📋 ICD Codes
-          </button>
-          <button
+<button
             @click="activeTab = 'modifiers'"
             :class="{ active: activeTab === 'modifiers' }"
             class="tab-btn"
@@ -198,7 +172,7 @@
                 @click="selectTabAndLoad('templates', 'loadTemplates')"
                 class="dropdown-item"
               >
-                📝 Field Templates
+                📝 Data Extraction Templates
               </button>
               <button
                 @click="selectTabAndLoad('add-charge-fields', 'loadTemplatesForChargeFields')"
@@ -227,7 +201,7 @@
                 "
                 class="dropdown-item"
               >
-                💬 Instruction Templates
+                💬 CPT and ICD Instructions
               </button>
               <button
                 @click="
@@ -8366,7 +8340,7 @@
         <!-- Templates Manager Tab -->
         <div v-if="activeTab === 'templates'" class="upload-section">
           <div class="section-header">
-            <h2>📝 Field Templates Manager</h2>
+            <h2>📝 Data Extraction Templates Manager</h2>
             <p>
               Manage field templates for PDF extraction. Upload Excel
               files as reusable templates or use existing templates for
@@ -9403,7 +9377,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
           class="upload-section"
         >
           <div class="section-header">
-            <h2>💬 Prediction Instruction Templates</h2>
+            <h2>💬 CPT and ICD Instructions</h2>
             <p>
               Manage instruction templates for CPT and ICD code prediction.
               Create reusable instruction sets for consistent predictions.

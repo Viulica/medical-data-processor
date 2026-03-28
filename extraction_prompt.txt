@@ -1264,9 +1264,12 @@ Description: AI Instruction: Extract Anesthesia Start Time (With DOS + Required 
 
 1️⃣ Primary Capture Rule — Extract Anesthesia Start Time
 Look for fields labeled exactly or similarly as:
-Anes Start or an start or anything indicating the start of anesthesia
+Anes Start, Anesthesia Start, or "Anes. Start" in the Case Times box on the anesthesia record.
 
 If found Anes Start, extract this value EXACTLY as recorded.
+
+⚠️ CRITICAL — Do NOT use Personnel/Provider times:
+Many documents have a "Personnel" section at the bottom listing provider Start Time and Stop Time (e.g., "Name: Smith CRNA, Start Time: 07:00, Stop Time: 15:00, Total Time: 480"). These are the provider's SHIFT times, NOT the anesthesia start/stop for this case. ALWAYS ignore the Personnel section times. Use only "Anesthesia Start" / "Anes Start" from the Reportable Actions or the Case Times box (e.g., "Anes. Start 12:42 Stop 13:41").
 
 2️⃣ Secondary Capture Rule — Use Anesthesia Ready Time ONLY if Start Time is Missing
 If Anesthesia Start Time is completely missing, then search for:
@@ -1322,8 +1325,11 @@ Description: AI Instruction: Extract Anesthesia End Time (With DOS + Required Fo
 1️⃣ Primary Capture Rule — Extract Anesthesia End Time
 
 Look for fields labeled exactly or similarly as:
-Anes End, anesthesia end, anything indicating when the anesthesia stopped
+Anes End, Anes Stop, Anesthesia Stop, or "Stop" in the Case Times box on the anesthesia record.
 👉 If found, extract the time as recorded.
+
+⚠️ CRITICAL — Do NOT use Personnel/Provider times:
+Many documents have a "Personnel" section at the bottom listing provider Start Time and Stop Time (e.g., "Name: Smith CRNA, Start Time: 01:38, Stop Time: 10:38, Total Time: 540"). These are the provider's SHIFT times, NOT the anesthesia stop for this case. ALWAYS ignore the Personnel section times. Use only "Anesthesia Stop" / "Anes Stop" / "Anes End" from the Reportable Actions or the Case Times box.
 
 3️⃣ Required Output Format (MANDATORY)
 
