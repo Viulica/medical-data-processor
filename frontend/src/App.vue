@@ -1325,7 +1325,7 @@
                       >Number of concurrent processing threads</small
                     >
                   </div>
-                  <div class="setting-group" style="margin-top: 15px">
+                  <div class="setting-group" style="display: none">
                     <label class="checkbox-label">
                       <input
                         type="checkbox"
@@ -9727,7 +9727,7 @@ export default {
       unifiedUseExtractionTemplate: false,
       unifiedSelectedExtractionTemplateId: null,
       // Unified - CPT settings
-      unifiedCptVisionMode: false,
+      unifiedCptVisionMode: true,
       unifiedCptSelectedClient: "uni", // For non-vision mode
       unifiedCptMaxWorkers: 50,
       unifiedCptCustomInstructions: "",
