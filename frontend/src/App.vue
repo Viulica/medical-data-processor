@@ -95,6 +95,9 @@
                   'provider-mapping',
                   'surgeon-mapping',
                   'sharepoint-links',
+                  'add-charge-fields',
+                  'add-peripheral-blocks-field',
+                  'add-colonoscopy-fields',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -129,6 +132,24 @@
               <button @click="selectTab('sharepoint-links')" class="dropdown-item">
                 🔗 SharePoint Links Mapper
               </button>
+              <button
+                @click="selectTabAndLoad('add-charge-fields', 'loadTemplatesForChargeFields')"
+                class="dropdown-item"
+              >
+                ⚡ Add Charge Fields
+              </button>
+              <button
+                @click="selectTabAndLoad('add-peripheral-blocks-field', 'loadTemplatesForPeripheralBlocks')"
+                class="dropdown-item"
+              >
+                🔌 Add Peripheral Blocks Field
+              </button>
+              <button
+                @click="selectTabAndLoad('add-colonoscopy-fields', 'loadTemplatesForColonoscopyFields')"
+                class="dropdown-item"
+              >
+                🔍 Add Colonoscopy Fields
+              </button>
             </div>
           </div>
           <div class="dropdown-container">
@@ -139,9 +160,6 @@
                   'config',
                   'insurance-config',
                   'templates',
-                  'add-charge-fields',
-                  'add-peripheral-blocks-field',
-                  'add-colonoscopy-fields',
                   'prediction-instructions',
                   'special-cases-templates',
                 ].includes(activeTab),
@@ -166,31 +184,13 @@
                 "
                 class="dropdown-item"
               >
-                🏥 Insurance Config
+                🏥 UNI and PAC Insurance Mapping Configuration
               </button>
               <button
                 @click="selectTabAndLoad('templates', 'loadTemplates')"
                 class="dropdown-item"
               >
                 📝 Data Extraction Templates
-              </button>
-              <button
-                @click="selectTabAndLoad('add-charge-fields', 'loadTemplatesForChargeFields')"
-                class="dropdown-item"
-              >
-                ⚡ Add Charge Fields
-              </button>
-              <button
-                @click="selectTabAndLoad('add-peripheral-blocks-field', 'loadTemplatesForPeripheralBlocks')"
-                class="dropdown-item"
-              >
-                🔌 Add Peripheral Blocks Field
-              </button>
-              <button
-                @click="selectTabAndLoad('add-colonoscopy-fields', 'loadTemplatesForColonoscopyFields')"
-                class="dropdown-item"
-              >
-                🔍 Add Colonoscopy Fields
               </button>
               <button
                 @click="
