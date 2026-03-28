@@ -1251,46 +1251,8 @@
               </div>
             </div>
 
-            <!-- Combined CPT+ICD toggle (shown when both are enabled) -->
-            <div v-if="unifiedEnableCpt && unifiedEnableIcd" class="upload-card" style="border: 2px solid #7c3aed; background: #faf5ff;">
-              <div class="card-header">
-                <h3 style="color: #7c3aed;">⚡ Combined CPT+ICD Extraction</h3>
-              </div>
-              <div class="settings-content">
-                <div class="form-group">
-                  <label class="checkbox-label">
-                    <input
-                      type="checkbox"
-                      v-model="unifiedCombinedCptIcd"
-                      class="checkbox-input"
-                    />
-                    <span class="checkbox-text">
-                      <strong>Use combined CPT+ICD extraction (single AI call)</strong>
-                    </span>
-                  </label>
-                  <p class="setting-description" style="margin-top: 6px;">
-                    Predict both CPT and ICD codes in one AI call per PDF — faster and uses less tokens than separate calls.
-                  </p>
-                </div>
-
-                <div v-if="unifiedCombinedCptIcd" class="setting-group">
-                  <label class="form-label">Model</label>
-                  <div class="model-options">
-                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-flash-preview' }">
-                      <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-flash-preview" class="radio-input" />
-                      <span>Gemini 3 Flash</span>
-                    </label>
-                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-pro-preview' }">
-                      <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-pro-preview" class="radio-input" />
-                      <span>Gemini 3 Pro</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Step 3 or 4: CPT Settings (if enabled and NOT combined mode) -->
-            <div v-if="unifiedEnableCpt && !unifiedCombinedCptIcd" class="upload-card">
+            <!-- Step 3 or 4: CPT Settings (if enabled) -->
+            <div v-if="unifiedEnableCpt" class="upload-card">
               <div class="card-header">
                 <div class="step-number">{{ unifiedEnableSplit ? 3 : 4 }}</div>
                 <h3>🏥 CPT Prediction Settings</h3>
@@ -1623,7 +1585,7 @@
             </div>
 
             <!-- Step 4 or 5: ICD Settings (if enabled and NOT combined mode) -->
-            <div v-if="unifiedEnableIcd && !unifiedCombinedCptIcd" class="upload-card">
+            <div v-if="unifiedEnableIcd" class="upload-card">
               <div class="card-header">
                 <div class="step-number">{{ unifiedEnableSplit ? 4 : 5 }}</div>
                 <h3>📋 ICD Prediction Settings</h3>
@@ -9559,7 +9521,7 @@ export default {
   },
   data() {
     return {
-      activeTab: "process-fast",
+      activeTab: "unified",
       zipFile: null,
       excelFile: null,
       pageCount: 49,
