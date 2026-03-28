@@ -1276,10 +1276,6 @@
                 <div v-if="unifiedCombinedCptIcd" class="setting-group">
                   <label class="form-label">Model</label>
                   <div class="model-options">
-                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'openai/gpt-5.2:online' }">
-                      <input type="radio" v-model="unifiedCombinedModel" value="openai/gpt-5.2:online" class="radio-input" />
-                      <span>GPT-5.2 (Recommended)</span>
-                    </label>
                     <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-flash-preview' }">
                       <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-flash-preview" class="radio-input" />
                       <span>Gemini 3 Flash</span>
@@ -1287,10 +1283,6 @@
                     <label class="model-option" :class="{ selected: unifiedCombinedModel === 'gemini-3-pro-preview' }">
                       <input type="radio" v-model="unifiedCombinedModel" value="gemini-3-pro-preview" class="radio-input" />
                       <span>Gemini 3 Pro</span>
-                    </label>
-                    <label class="model-option" :class="{ selected: unifiedCombinedModel === 'openai/gpt-5-mini:online' }">
-                      <input type="radio" v-model="unifiedCombinedModel" value="openai/gpt-5-mini:online" class="radio-input" />
-                      <span>GPT-5 Mini</span>
                     </label>
                   </div>
                 </div>
@@ -1406,71 +1398,6 @@
                       Choose the AI vision model to analyze PDF pages.
                     </p>
                     <div class="model-selection-grid">
-                      <!-- GPT-5.2 Option -->
-                      <label
-                        class="model-option-card"
-                        :class="{
-                          selected:
-                            unifiedCptVisionModel === 'openai/gpt-5.2:online',
-                        }"
-                      >
-                        <input
-                          type="radio"
-                          v-model="unifiedCptVisionModel"
-                          value="openai/gpt-5.2:online"
-                          class="model-radio"
-                        />
-                        <div class="model-content">
-                          <div class="model-header">
-                            <div class="model-name">
-                              <span class="model-title">GPT-5.2</span>
-                              <span class="model-badge badge-recommended"
-                                >Recommended</span
-                              >
-                            </div>
-                            <div class="model-provider">OpenAI</div>
-                          </div>
-                          <div class="model-features">
-                            <span class="feature-tag">⭐ Highest Accuracy</span>
-                            <span class="feature-tag"
-                              >📄 Complex Documents</span
-                            >
-                          </div>
-                        </div>
-                      </label>
-
-                      <!-- GPT-5 Nano Option -->
-                      <label
-                        class="model-option-card"
-                        :class="{
-                          selected:
-                            unifiedCptVisionModel ===
-                            'openai/gpt-5-nano:online',
-                        }"
-                      >
-                        <input
-                          type="radio"
-                          v-model="unifiedCptVisionModel"
-                          value="openai/gpt-5-nano:online"
-                          class="model-radio"
-                        />
-                        <div class="model-content">
-                          <div class="model-header">
-                            <div class="model-name">
-                              <span class="model-title">GPT-5 Nano</span>
-                              <span class="model-badge badge-fast">Fast</span>
-                            </div>
-                            <div class="model-provider">OpenAI</div>
-                          </div>
-                          <div class="model-features">
-                            <span class="feature-tag"
-                              >⚡ Faster Processing</span
-                            >
-                            <span class="feature-tag">💰 Cost-Effective</span>
-                          </div>
-                        </div>
-                      </label>
-
                       <!-- Gemini 3 Flash Option -->
                       <label
                         class="model-option-card"
@@ -1531,80 +1458,6 @@
                         </div>
                       </label>
 
-                      <!-- DeepSeek V3.2 Option -->
-                      <label
-                        class="model-option-card"
-                        :class="{
-                          selected:
-                            unifiedCptVisionModel === 'deepseek/deepseek-v3.2',
-                        }"
-                      >
-                        <input
-                          type="radio"
-                          v-model="unifiedCptVisionModel"
-                          value="deepseek/deepseek-v3.2"
-                          class="model-radio"
-                        />
-                        <div class="model-content">
-                          <div class="model-header">
-                            <div class="model-name">
-                              <span class="model-title">DeepSeek V3.2</span>
-                              <span class="model-badge badge-fast">Fast</span>
-                            </div>
-                            <div class="model-provider">DeepSeek</div>
-                          </div>
-                          <div class="model-features">
-                            <span class="feature-tag">⚡ Fast Processing</span>
-                            <span class="feature-tag">🎯 High Quality</span>
-                          </div>
-                        </div>
-                      </label>
-
-                      <!-- Custom OpenRouter Model Option -->
-                      <label
-                        class="model-option-card"
-                        :class="{
-                          selected: unifiedCptVisionModel === 'custom',
-                        }"
-                      >
-                        <input
-                          type="radio"
-                          v-model="unifiedCptVisionModel"
-                          value="custom"
-                          class="model-radio"
-                        />
-                        <div class="model-content">
-                          <div class="model-header">
-                            <div class="model-name">
-                              <span class="model-title">Custom Model</span>
-                              <span class="model-badge badge-fast">OpenRouter</span>
-                            </div>
-                            <div class="model-provider">Custom</div>
-                          </div>
-                          <div class="model-features">
-                            <span class="feature-tag">🔧 Enter Any Model</span>
-                            <span class="feature-tag">🌐 OpenRouter</span>
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                    
-                    <!-- Custom Model Input (shown when custom is selected) -->
-                    <div v-if="unifiedCptVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
-                      <label for="unified-cpt-custom-model" class="form-label">
-                        Custom OpenRouter Model Name:
-                      </label>
-                      <input
-                        id="unified-cpt-custom-model"
-                        v-model="unifiedCptCustomModel"
-                        type="text"
-                        class="form-input"
-                        placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
-                        style="margin-top: 8px"
-                      />
-                      <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
-                        Enter any OpenRouter model name. GPT models are available as hardcoded options above.
-                      </p>
                     </div>
                   </div>
 
@@ -1826,66 +1679,6 @@
                     Choose the AI vision model to analyze PDF pages.
                   </p>
                   <div class="model-selection-grid">
-                    <!-- GPT-5.2 Option -->
-                    <label
-                      class="model-option-card"
-                      :class="{
-                        selected:
-                          unifiedIcdVisionModel === 'openai/gpt-5.2:online',
-                      }"
-                    >
-                      <input
-                        type="radio"
-                        v-model="unifiedIcdVisionModel"
-                        value="openai/gpt-5.2:online"
-                        class="model-radio"
-                      />
-                      <div class="model-content">
-                        <div class="model-header">
-                          <div class="model-name">
-                            <span class="model-title">GPT-5.2</span>
-                            <span class="model-badge badge-recommended"
-                              >Recommended</span
-                            >
-                          </div>
-                          <div class="model-provider">OpenAI</div>
-                        </div>
-                        <div class="model-features">
-                          <span class="feature-tag">⭐ Highest Accuracy</span>
-                          <span class="feature-tag">📄 Complex Documents</span>
-                        </div>
-                      </div>
-                    </label>
-
-                    <!-- GPT-5 Nano Option -->
-                    <label
-                      class="model-option-card"
-                      :class="{
-                        selected:
-                          unifiedIcdVisionModel === 'openai/gpt-5-nano:online',
-                      }"
-                    >
-                      <input
-                        type="radio"
-                        v-model="unifiedIcdVisionModel"
-                        value="openai/gpt-5-nano:online"
-                        class="model-radio"
-                      />
-                      <div class="model-content">
-                        <div class="model-header">
-                          <div class="model-name">
-                            <span class="model-title">GPT-5 Nano</span>
-                            <span class="model-badge badge-fast">Fast</span>
-                          </div>
-                          <div class="model-provider">OpenAI</div>
-                        </div>
-                        <div class="model-features">
-                          <span class="feature-tag">⚡ Faster Processing</span>
-                          <span class="feature-tag">💰 Cost-Effective</span>
-                        </div>
-                      </div>
-                    </label>
-
                     <!-- Gemini 3 Flash Option -->
                     <label
                       class="model-option-card"
@@ -1946,80 +1739,6 @@
                       </div>
                     </label>
 
-                    <!-- DeepSeek V3.2 Option -->
-                    <label
-                      class="model-option-card"
-                      :class="{
-                        selected:
-                          unifiedIcdVisionModel === 'deepseek/deepseek-v3.2',
-                      }"
-                    >
-                      <input
-                        type="radio"
-                        v-model="unifiedIcdVisionModel"
-                        value="deepseek/deepseek-v3.2"
-                        class="model-radio"
-                      />
-                      <div class="model-content">
-                        <div class="model-header">
-                          <div class="model-name">
-                            <span class="model-title">DeepSeek V3.2</span>
-                            <span class="model-badge badge-fast">Fast</span>
-                          </div>
-                          <div class="model-provider">DeepSeek</div>
-                        </div>
-                        <div class="model-features">
-                          <span class="feature-tag">⚡ Fast Processing</span>
-                          <span class="feature-tag">🎯 High Quality</span>
-                        </div>
-                      </div>
-                    </label>
-
-                    <!-- Custom OpenRouter Model Option -->
-                    <label
-                      class="model-option-card"
-                      :class="{
-                        selected: unifiedIcdVisionModel === 'custom',
-                      }"
-                    >
-                      <input
-                        type="radio"
-                        v-model="unifiedIcdVisionModel"
-                        value="custom"
-                        class="model-radio"
-                      />
-                      <div class="model-content">
-                        <div class="model-header">
-                          <div class="model-name">
-                            <span class="model-title">Custom Model</span>
-                            <span class="model-badge badge-fast">OpenRouter</span>
-                          </div>
-                          <div class="model-provider">Custom</div>
-                        </div>
-                        <div class="model-features">
-                          <span class="feature-tag">🔧 Enter Any Model</span>
-                          <span class="feature-tag">🌐 OpenRouter</span>
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                  
-                  <!-- Custom Model Input (shown when custom is selected) -->
-                  <div v-if="unifiedIcdVisionModel === 'custom'" class="form-group" style="margin-top: 15px">
-                    <label for="unified-icd-custom-model" class="form-label">
-                      Custom OpenRouter Model Name:
-                    </label>
-                    <input
-                      id="unified-icd-custom-model"
-                      v-model="unifiedIcdCustomModel"
-                      type="text"
-                      class="form-input"
-                      placeholder="e.g., deepseek/deepseek-chat, anthropic/claude-3.5-sonnet"
-                      style="margin-top: 8px"
-                    />
-                    <p class="form-hint" style="margin-top: 8px; color: #64748b; font-size: 0.875rem">
-                      Enter any OpenRouter model name. GPT models are available as hardcoded options above.
-                    </p>
                   </div>
                 </div>
 
