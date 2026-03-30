@@ -99,6 +99,8 @@ IF TEE was performed (any of the above indicators found), add THREE lines:
 
 All three (93312 + 93320 + 93325) are billed together whenever TEE is performed. Use the SAME provider for all three lines.
 
+⚠️ TEE BILLING RULE: Do NOT bill TEE probe placement only (93318). We only charge when interpretation is also done (93312). Always bill 93312 (interpretation) + 93320 (Doppler) + 93325 (color flow) together when TEE is documented. Never use 93318 alone.
+
 TEE lines are billed IN ADDITION TO vascular lines (36620, 93503, 76937), not instead of them. A cardiac case can have 36620 + 76937 + 93503 + 93312 + 93320 + 93325 all billed together.
 
 SPECIAL RULE: ULTRASOUND GUIDANCE

@@ -162,6 +162,7 @@
                   'templates',
                   'prediction-instructions',
                   'special-cases-templates',
+                  'base-prompts',
                 ].includes(activeTab),
               }"
               class="tab-btn dropdown-btn"
@@ -213,6 +214,12 @@
                 class="dropdown-item"
               >
                 🎯 Special Cases
+              </button>
+              <button
+                @click="selectTabAndLoad('base-prompts', 'loadBasePrompts')"
+                class="dropdown-item"
+              >
+                📄 Base Prompts & CPT Codes
               </button>
             </div>
           </div>
@@ -9052,6 +9059,112 @@ Johnson, Robert, MD (MedNet Code: 1)"
           </div>
         </div>
 
+        <!-- Base Prompts & CPT Codes Tab -->
+        <div v-if="activeTab === 'base-prompts'" class="tab-content">
+          <div class="section">
+            <h2>📄 Base Prompts & CPT Codes</h2>
+            <p style="color: #aaa; margin-bottom: 15px;">
+              Edit the base CPT prediction prompt, base ICD prediction prompt, and the complete CPT codes reference list.
+              These are used by ALL groups as the foundation for predictions.
+            </p>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+              <button @click="loadBasePrompts" class="action-btn" :disabled="basePromptsLoading">
+                {{ basePromptsLoading ? '⏳ Loading...' : '🔄 Refresh' }}
+              </button>
+              <button @click="syncBasePromptsFromFiles" class="action-btn" style="background: #f59e0b;">
+                📥 Sync from Files (first time only)
+              </button>
+              <button @click="showNewBasePromptForm = !showNewBasePromptForm" class="action-btn" style="background: #10b981;">
+                ➕ New Prompt
+              </button>
+            </div>
+
+            <!-- New prompt form -->
+            <div v-if="showNewBasePromptForm" style="background: #1e293b; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin-top: 0;">Create New Base Prompt</h3>
+              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input v-model="newBasePromptName" placeholder="Prompt name (e.g. base_cpt_prompt)"
+                  style="flex: 1; padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;" />
+                <select v-model="newBasePromptType" style="padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;">
+                  <option value="cpt">CPT</option>
+                  <option value="icd">ICD</option>
+                  <option value="reference">Reference</option>
+                </select>
+              </div>
+              <input v-model="newBasePromptDescription" placeholder="Description"
+                style="width: 100%; padding: 8px; margin-bottom: 10px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;" />
+              <textarea v-model="newBasePromptContent" placeholder="Prompt content..." rows="10"
+                style="width: 100%; padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px; font-family: monospace; font-size: 12px;"></textarea>
+              <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button @click="createBasePrompt" class="action-btn" style="background: #10b981;">💾 Save</button>
+                <button @click="showNewBasePromptForm = false" class="action-btn" style="background: #64748b;">Cancel</button>
+              </div>
+            </div>
+
+            <!-- Loading state -->
+            <div v-if="basePromptsLoading" style="text-align: center; padding: 40px; color: #aaa;">
+              ⏳ Loading base prompts...
+            </div>
+
+            <!-- Prompt cards -->
+            <div v-else-if="basePrompts.length > 0">
+              <div v-for="prompt in basePrompts" :key="prompt.name"
+                style="background: #1e293b; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 1px solid #334155;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <div>
+                    <h3 style="margin: 0; color: #60a5fa;">{{ prompt.name }}</h3>
+                    <span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-right: 8px;"
+                      :style="{
+                        background: prompt.prompt_type === 'cpt' ? '#1e40af' : prompt.prompt_type === 'icd' ? '#065f46' : '#78350f',
+                        color: 'white'
+                      }">
+                      {{ prompt.prompt_type.toUpperCase() }}
+                    </span>
+                    <span style="color: #94a3b8; font-size: 12px;">{{ prompt.description }}</span>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button v-if="editingBasePrompt !== prompt.name"
+                      @click="startEditingBasePrompt(prompt)" class="action-btn" style="padding: 4px 12px; font-size: 12px;">
+                      ✏️ Edit
+                    </button>
+                    <button @click="deleteBasePrompt(prompt.name)" class="action-btn"
+                      style="padding: 4px 12px; font-size: 12px; background: #dc2626;">
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+
+                <!-- View mode -->
+                <div v-if="editingBasePrompt !== prompt.name">
+                  <pre style="background: #0f172a; padding: 12px; border-radius: 6px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; color: #cbd5e1; margin: 0;">{{ prompt.content.substring(0, 2000) }}{{ prompt.content.length > 2000 ? '\n\n... (' + prompt.content.length + ' chars total, click Edit to see full)' : '' }}</pre>
+                  <div style="color: #64748b; font-size: 11px; margin-top: 5px;">
+                    {{ prompt.content.length.toLocaleString() }} characters | Updated: {{ prompt.updated_at ? new Date(prompt.updated_at).toLocaleString() : 'N/A' }}
+                  </div>
+                </div>
+
+                <!-- Edit mode -->
+                <div v-else>
+                  <textarea v-model="editingBasePromptContent" rows="25"
+                    style="width: 100%; padding: 10px; background: #0f172a; color: #e2e8f0; border: 2px solid #3b82f6; border-radius: 6px; font-family: monospace; font-size: 12px; line-height: 1.5; resize: vertical;"></textarea>
+                  <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
+                    <button @click="saveBasePrompt(prompt)" class="action-btn" style="background: #10b981;" :disabled="basePromptSaving">
+                      {{ basePromptSaving ? '⏳ Saving...' : '💾 Save Changes' }}
+                    </button>
+                    <button @click="editingBasePrompt = null" class="action-btn" style="background: #64748b;">Cancel</button>
+                    <span style="color: #64748b; font-size: 12px;">{{ editingBasePromptContent.length.toLocaleString() }} characters</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else style="text-align: center; padding: 40px; color: #64748b;">
+              <p>No base prompts found. Click "Sync from Files" to import the current prompts from the codebase.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Prediction Instructions Manager Tab -->
         <div
           v-if="activeTab === 'prediction-instructions'"
@@ -9911,6 +10024,17 @@ export default {
       fullscreenTextareaLabel: "",
       fullscreenTextareaFieldIndex: null,
       fullscreenTextareaFieldName: null,
+      // Base Prompts functionality
+      basePrompts: [],
+      basePromptsLoading: false,
+      editingBasePrompt: null,
+      editingBasePromptContent: "",
+      basePromptSaving: false,
+      newBasePromptName: "",
+      newBasePromptType: "cpt",
+      newBasePromptContent: "",
+      newBasePromptDescription: "",
+      showNewBasePromptForm: false,
       // Prediction Instructions Manager functionality
       predictionInstructions: [],
       predictionInstructionsLoading: false,
@@ -10290,6 +10414,8 @@ export default {
         this.loadPredictionInstructions(true);
       } else if (methodName === "loadSpecialCasesTemplates") {
         this.loadSpecialCasesTemplates(true);
+      } else if (methodName === "loadBasePrompts") {
+        this.loadBasePrompts();
       }
     },
 
@@ -16270,6 +16396,89 @@ export default {
     },
 
     // ========================================================================
+    // Base Prompts Methods
+    // ========================================================================
+
+    async loadBasePrompts() {
+      this.basePromptsLoading = true;
+      try {
+        const response = await axios.get(this.joinUrl("api/base-prompts"));
+        this.basePrompts = response.data;
+      } catch (error) {
+        this.$toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
+      } finally {
+        this.basePromptsLoading = false;
+      }
+    },
+
+    startEditingBasePrompt(prompt) {
+      this.editingBasePrompt = prompt.name;
+      this.editingBasePromptContent = prompt.content;
+    },
+
+    async saveBasePrompt(prompt) {
+      this.basePromptSaving = true;
+      try {
+        const formData = new FormData();
+        formData.append("content", this.editingBasePromptContent);
+        formData.append("prompt_type", prompt.prompt_type);
+        formData.append("description", prompt.description || "");
+        await axios.put(this.joinUrl(`api/base-prompts/${prompt.name}`), formData);
+        this.$toast.success(`Saved "${prompt.name}" successfully`);
+        this.editingBasePrompt = null;
+        await this.loadBasePrompts();
+      } catch (error) {
+        this.$toast.error("Failed to save: " + (error.response?.data?.detail || error.message));
+      } finally {
+        this.basePromptSaving = false;
+      }
+    },
+
+    async createBasePrompt() {
+      if (!this.newBasePromptName || !this.newBasePromptContent) {
+        this.$toast.error("Name and content are required");
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append("content", this.newBasePromptContent);
+        formData.append("prompt_type", this.newBasePromptType);
+        formData.append("description", this.newBasePromptDescription);
+        await axios.put(this.joinUrl(`api/base-prompts/${this.newBasePromptName}`), formData);
+        this.$toast.success(`Created "${this.newBasePromptName}" successfully`);
+        this.showNewBasePromptForm = false;
+        this.newBasePromptName = "";
+        this.newBasePromptContent = "";
+        this.newBasePromptDescription = "";
+        await this.loadBasePrompts();
+      } catch (error) {
+        this.$toast.error("Failed to create: " + (error.response?.data?.detail || error.message));
+      }
+    },
+
+    async deleteBasePrompt(name) {
+      if (!confirm(`Delete prompt "${name}"? This cannot be undone.`)) return;
+      try {
+        await axios.delete(this.joinUrl(`api/base-prompts/${name}`));
+        this.$toast.success(`Deleted "${name}"`);
+        await this.loadBasePrompts();
+      } catch (error) {
+        this.$toast.error("Failed to delete: " + (error.response?.data?.detail || error.message));
+      }
+    },
+
+    async syncBasePromptsFromFiles() {
+      try {
+        const response = await axios.post(this.joinUrl("api/base-prompts/sync-from-files"));
+        const results = response.data.results;
+        const summary = Object.entries(results).map(([k, v]) => `${k}: ${v}`).join(", ");
+        this.$toast.success(`Sync complete: ${summary}`);
+        await this.loadBasePrompts();
+      } catch (error) {
+        this.$toast.error("Failed to sync: " + (error.response?.data?.detail || error.message));
+      }
+    },
+
     // Prediction Instructions Manager Methods
     // ========================================================================
 

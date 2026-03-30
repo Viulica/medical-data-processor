@@ -930,8 +930,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 physical_status = str(row.get('Physical Status', '')).strip()
                 if physical_status and physical_status != '' and physical_status.lower() != 'nan':
                     try:
-                        # Convert to integer to validate it's a number
-                        status_num = int(float(physical_status))
+                        # Strip common prefixes like "ASA: ", "ASA ", "P" etc.
+                        cleaned = physical_status.upper().replace('ASA:', '').replace('ASA', '').replace('P', '').strip()
+                        # Also handle roman numerals
+                        roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
+                        if cleaned in roman_map:
+                            status_num = roman_map[cleaned]
+                        else:
+                            status_num = int(float(cleaned))
                         p_modifier = f'P{status_num}'
                         if primary_mednet_code in ['3136', '003']:
                             print(f"   P modifier: {p_modifier} (Physical Status: {physical_status})")

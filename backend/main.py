@@ -11456,6 +11456,116 @@ async def cleanup_expired_unified_results():
         raise HTTPException(status_code=500, detail=f"Failed to cleanup: {str(e)}")
 
 
+# ========== Base Prompts API ==========
+
+@app.get("/api/base-prompts")
+async def get_base_prompts():
+    """Get all base prompts."""
+    try:
+        from db_utils import get_all_base_prompts
+        prompts = get_all_base_prompts()
+        return prompts
+    except Exception as e:
+        logger.error(f"Failed to get base prompts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/base-prompts/{name}")
+async def get_base_prompt_route(name: str):
+    """Get a specific base prompt by name."""
+    try:
+        from db_utils import get_base_prompt
+        prompt = get_base_prompt(name)
+        if not prompt:
+            raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+        return prompt
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get base prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/base-prompts/{name}")
+async def update_base_prompt_route(name: str, content: str = Form(...), prompt_type: str = Form("cpt"), description: str = Form("")):
+    """Create or update a base prompt."""
+    try:
+        from db_utils import upsert_base_prompt
+        success = upsert_base_prompt(name, prompt_type, content, description)
+        return {"success": success, "name": name}
+    except Exception as e:
+        logger.error(f"Failed to update base prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/base-prompts/{name}")
+async def delete_base_prompt_route(name: str):
+    """Delete a base prompt."""
+    try:
+        from db_utils import delete_base_prompt
+        success = delete_base_prompt(name)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete base prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/base-prompts/sync-from-files")
+async def sync_prompts_from_files():
+    """One-time sync: read current prompts from files and save to database."""
+    try:
+        from db_utils import upsert_base_prompt, get_base_prompt
+
+        results = {}
+
+        # CPT base prompt (Gemini version, lines 85-135 of predict_general.py)
+        cpt_prompt_path = os.path.join(os.path.dirname(__file__), 'general-coding', 'predict_general.py')
+        with open(cpt_prompt_path, 'r') as f:
+            content = f.read()
+
+        # Extract Gemini CPT prompt (first prompt block)
+        import re
+        # Find the prompt between the first f""" and closing """
+        cpt_match = re.search(r'def predict_asa_code_from_images_gemini.*?prompt = f"""(.*?)"""', content, re.DOTALL)
+        if cpt_match:
+            cpt_prompt = cpt_match.group(1).strip()
+            # Only save if not already in DB
+            existing = get_base_prompt('base_cpt_prompt')
+            if not existing:
+                upsert_base_prompt('base_cpt_prompt', 'cpt', cpt_prompt, 'Base CPT prediction prompt (Gemini version)')
+                results['base_cpt_prompt'] = 'synced'
+            else:
+                results['base_cpt_prompt'] = 'already exists'
+
+        # ICD base prompt (line ~899)
+        icd_match = re.search(r'def predict_icd_codes_from_images_gemini.*?prompt = """(.*?)"""', content, re.DOTALL)
+        if icd_match:
+            icd_prompt = icd_match.group(1).strip()
+            existing = get_base_prompt('base_icd_prompt')
+            if not existing:
+                upsert_base_prompt('base_icd_prompt', 'icd', icd_prompt, 'Base ICD prediction prompt')
+                results['base_icd_prompt'] = 'synced'
+            else:
+                results['base_icd_prompt'] = 'already exists'
+
+        # CPT codes list
+        cpt_codes_path = os.path.join(os.path.dirname(__file__), 'general-coding', 'cpt_codes.txt')
+        if os.path.exists(cpt_codes_path):
+            with open(cpt_codes_path, 'r') as f:
+                cpt_codes = f.read()
+            existing = get_base_prompt('cpt_codes_list')
+            if not existing:
+                upsert_base_prompt('cpt_codes_list', 'reference', cpt_codes, 'Complete list of valid anesthesia CPT codes')
+                results['cpt_codes_list'] = 'synced'
+            else:
+                results['cpt_codes_list'] = 'already exists'
+
+        return {"success": True, "results": results}
+    except Exception as e:
+        logger.error(f"Failed to sync prompts from files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json

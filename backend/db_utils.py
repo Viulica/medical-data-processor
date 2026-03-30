@@ -210,6 +210,15 @@ def init_database():
     CREATE INDEX IF NOT EXISTS idx_insurance_output_code ON insurance_mappings(output_code);
     CREATE INDEX IF NOT EXISTS idx_insurance_client ON insurance_mappings(client);
     
+    CREATE TABLE IF NOT EXISTS base_prompts (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        prompt_type VARCHAR(50) NOT NULL,
+        content TEXT NOT NULL,
+        description VARCHAR(500),
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS unified_results (
         id SERIAL PRIMARY KEY,
         job_id VARCHAR(255) NOT NULL UNIQUE,
@@ -1657,6 +1666,47 @@ def save_unified_result(
     except Exception as e:
         logger.error(f"Failed to save unified result for job {job_id}: {e}")
         return None
+
+
+# ========== Base Prompts CRUD ==========
+
+def get_all_base_prompts():
+    """Get all base prompts."""
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM base_prompts ORDER BY prompt_type, name")
+            return cur.fetchall()
+
+def get_base_prompt(name: str):
+    """Get a specific base prompt by name."""
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM base_prompts WHERE name = %s", (name,))
+            return cur.fetchone()
+
+def upsert_base_prompt(name: str, prompt_type: str, content: str, description: str = ''):
+    """Create or update a base prompt."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO base_prompts (name, prompt_type, content, description, updated_at)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (name) DO UPDATE SET
+                    content = EXCLUDED.content,
+                    description = EXCLUDED.description,
+                    prompt_type = EXCLUDED.prompt_type,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (name, prompt_type, content, description))
+            conn.commit()
+            return True
+
+def delete_base_prompt(name: str):
+    """Delete a base prompt by name."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM base_prompts WHERE name = %s", (name,))
+            conn.commit()
+            return cur.rowcount > 0
 
 
 def get_all_unified_results(page: int = 1, page_size: int = 50, search_group: Optional[str] = None, search_batch: Optional[str] = None):

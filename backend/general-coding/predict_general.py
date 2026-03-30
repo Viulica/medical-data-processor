@@ -182,13 +182,18 @@ The explanation should briefly describe why this specific CPT code is appropriat
 
 Respond with ONLY the JSON object, nothing else."""
     
+    # Try loading prompt from database (overrides hardcoded if available)
+    db_cpt_prompt = _get_cpt_prompt(cpt_codes_text, include_code_list)
+    if db_cpt_prompt:
+        prompt = db_cpt_prompt
+
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
-    
+
     # Build content with images
     parts = [types.Part.from_text(text=prompt)]
-    
+
     # Add images from base64 strings
     for img_data in image_data_list:
         # Decode base64 to bytes
@@ -622,6 +627,11 @@ You must respond with a JSON object in this exact format:
 The explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).
 
 Respond with ONLY the JSON object, nothing else."""
+
+    # Try loading CPT prompt from database (overrides hardcoded if available)
+    db_cpt_prompt = _get_cpt_prompt(cpt_codes_text, include_code_list)
+    if db_cpt_prompt:
+        prompt = db_cpt_prompt
     
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
@@ -919,7 +929,7 @@ IMPORTANT INSTRUCTIONS:
    - EXCEPTION: If the procedure includes BOTH cataract extraction AND a glaucoma procedure (e.g., iStent, goniotomy, trabectome, MIGS), use the glaucoma diagnosis (H40.x) as ICD1, NOT the cataract code.
 7. CRITICAL COLONOSCOPY/EGD DISTINCTION:
    - Z12.11 (Encounter for screening colonoscopy) must ONLY be used for colonoscopy procedures. NEVER use Z12.11 for EGD/upper endoscopy/esophagogastroduodenoscopy.
-   - For EGD procedures: Use the actual GI finding or indication as ICD1 (e.g., K92.0 for hematemesis, K21.0 for GERD with esophagitis, K25.9 for gastric ulcer, K29.70 for gastritis, K22.2 for esophageal obstruction). Do NOT default to K31.7 (polyp of stomach/duodenum) unless a polyp was actually found in the stomach or duodenum.
+   - ⚠️ EGD (00731/00813) ICD1 RULE: NEVER use K31.7 (polyp of stomach/duodenum) as ICD1 unless the post-op findings explicitly document a stomach or duodenal polyp. K31.7 is wrong in 90%+ of cases. Instead use the actual indication/finding from the post-op diagnosis: K29.70 (gastritis), K44.9 (hiatal hernia), K21.9 (GERD), K22.2 (esophageal obstruction), R13.10 (dysphagia), K92.0 (hematemesis), K25.9 (gastric ulcer), K22.89 (other esophageal disease). For combined EGD + colonoscopy (00813), the upper GI indication goes in ICD1 (not Z12.11 screening and not K63.5 colon polyp — those are colonoscopy codes, not EGD codes).
    - For colonoscopy with polypectomy where a polyp is found: If the post-op diagnosis mentions polyp of colon, use K63.5 (polyp of colon) as ICD1. Do NOT confuse K62.5 (hemorrhage of anus/rectum) with K63.5 (polyp of colon).
    - For EGD supportive codes in ICD2-4: Add K29.70 (gastritis), K44.9 (hiatal hernia), K20.90 (esophagitis), K21.9 (GERD) ONLY if documented. Do NOT add K31.7 as a default.
 8. CRITICAL PROSTATE BIOPSY CODING RULE:
@@ -931,7 +941,7 @@ IMPORTANT INSTRUCTIONS:
    - Carefully read the surgical site (left, right, bilateral) from the operative note and match the ICD code laterality accordingly.
    - When the document does not specify laterality, use the "unspecified" variant of the code (typically ending in 9). Do NOT guess laterality.
    - Always prefer the most specific ICD code supported by the documentation. For example, if the document says "open-angle glaucoma of left eye," use H40.1122 (specific) rather than H40.9 (unspecified).
-   - For post-operative diagnoses, use the post-op diagnosis code, not the pre-op. If the post-op diagnosis is more specific or different from the pre-op, always use the post-op.
+   - ⚠️ POST-OP DIAGNOSIS ALWAYS TAKES PRIORITY: Always read and use the Post-Operative Diagnosis for ICD1, NOT the Pre-Op Diagnosis. The post-op is what actually happened during the procedure and is the definitive diagnosis for coding. If the post-op diagnosis is different from or more specific than the pre-op (e.g., pre-op says "gallstones" K80.00 but post-op says "acute cholecystitis" K81.0, or pre-op says "osteomyelitis" but post-op says "diabetic complication"), use the post-op. Only fall back to pre-op if no post-op diagnosis is documented.
 11. CRITICAL ICD2/ICD3/ICD4 SECONDARY DIAGNOSIS RULES:
    - Only include secondary diagnoses that are directly relevant to the anesthesia encounter. Do NOT fill ICD2-4 slots just because space is available.
    - DO NOT USE these as routine filler codes: E66.9/E66.01 (obesity), Z68.x (BMI codes), R-codes (symptoms like R19.7, R10.13, R14.0, R11.2) — unless they are the primary reason for or directly complicate the procedure. NEVER use Z68.x BMI codes for anesthesia billing.
@@ -939,13 +949,21 @@ IMPORTANT INSTRUCTIONS:
    - When BOTH depression (F32.9) AND anxiety (F41.9) are documented, combine them into F41.8 (mixed anxiety and depressive disorder). Do not use F32.9 and F41.9 separately.
    - For eye/ophthalmic cases: Use I10 (hypertension) as ICD2 if documented, NOT H40.9 (unspecified glaucoma) unless glaucoma is actually relevant to the procedure. Do not add multiple eye-specific codes (H52.x refractive errors, H43.x vitreous disorders, H35.x retinal disorders) as secondary diagnoses unless they are the reason for the procedure.
    - For GI endoscopy cases: Add K57.30 (diverticulosis), K64.0/K64.9 (hemorrhoids), K29.70 (gastritis) as supportive ICD3/4 ONLY if documented in the procedure findings.
-   - PREFERRED comorbidity ordering when multiple are documented: I10 (hypertension) > E11.9 (diabetes) > E78.00/E78.5 (hyperlipidemia) > E03.9 (hypothyroidism).
+   - PREFERRED comorbidity ordering when multiple are documented (ASA 3+ only): I10 (hypertension) > E78.5 (hyperlipidemia) > J44.9 (COPD) > G47.33 (sleep apnea) > E11.9 (diabetes) > E03.9 (hypothyroidism). Do NOT use E66.9/E66.01 (obesity), F41.9 (anxiety), K21.9 (GERD), or F17.210 (nicotine) as filler comorbidities.
    - If the document lists many comorbidities, pick at most 2-3 that are most relevant to anesthesia risk (cardiovascular, metabolic, respiratory). Leave slots empty rather than adding marginally relevant codes.
+   - COLONOSCOPY/EGD ICD ORDERING: For colonoscopy and EGD cases, the primary finding or indication goes in ICD1 (e.g., K63.5 polyp, K44.9 hernia, R10.11 pain, K21.9 GERD). Put Z12.11 (screening) in ICD2, NOT ICD1. The procedure finding/indication always takes priority over the screening code.
 12. CRITICAL POLYP SPECIFICITY RULE:
    - When the endoscopy report specifies the anatomic location of a polyp, use site-specific D12.x benign neoplasm codes instead of generic K63.5:
      D12.0 (cecum), D12.2 (ascending colon), D12.3 (transverse colon), D12.4 (descending colon), D12.5 (sigmoid colon), D12.6 (colon, unspecified), D12.8 (rectum).
    - Use K63.5 (polyp of colon) only when the specific location is not documented or when coding the polyp as a secondary finding.
-13. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+13. LATERALITY AND SPECIFICITY RULE: When the procedure description specifies a side (Right, Left, Bilateral), you MUST use the laterality-specific ICD code, NOT the bilateral or unspecified variant.
+   - "Right Knee Arthroplasty" → M17.11 (right), NOT M17.0 (bilateral)
+   - "Left Knee Arthroplasty" → M17.12 (left), NOT M17.0 (bilateral)
+   - "Right Carpal Tunnel Release" → G56.01 (right), NOT G56.03 (bilateral)
+   - "Left eye" procedure → use the left-eye specific code, not unspecified
+   - For encounter type: Use 7th character "A" (initial encounter) unless the record explicitly says follow-up/subsequent, in which case use "D" (subsequent) or "S" (sequela).
+   - General rule: Always match the ICD laterality to the procedure laterality. If the procedure says one side, never code bilateral. If the procedure says bilateral, use the bilateral code.
+14. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
 14. Only include ICD codes that are directly relevant to the procedure or patient condition
 15. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
 16. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
@@ -954,6 +972,7 @@ IMPORTANT INSTRUCTIONS:
 19. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
 20. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
 21. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
+22. AFIB CODING: If the record mentions "AFIB" or "atrial fibrillation" without specifying the type (paroxysmal, persistent, chronic, permanent), use I48.91 (unspecified atrial fibrillation). Do NOT default to I48.0 (paroxysmal) unless "paroxysmal" is explicitly documented.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
@@ -986,13 +1005,18 @@ IMPORTANT: For each ICD code you provide, you MUST include a brief reasoning exp
 
 Respond with ONLY the JSON object, nothing else."""
     
+    # Try loading ICD prompt from database (overrides hardcoded if available)
+    db_icd_prompt = _get_icd_prompt()
+    if db_icd_prompt:
+        prompt = db_icd_prompt
+
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
-    
+
     # Build content with images
     parts = [types.Part.from_text(text=prompt)]
-    
+
     # Add images from base64 strings
     for img_data in image_data_list:
         # Decode base64 to bytes
@@ -1186,7 +1210,7 @@ IMPORTANT INSTRUCTIONS:
    - EXCEPTION: If the procedure includes BOTH cataract extraction AND a glaucoma procedure (e.g., iStent, goniotomy, trabectome, MIGS), use the glaucoma diagnosis (H40.x) as ICD1, NOT the cataract code.
 7. CRITICAL COLONOSCOPY/EGD DISTINCTION:
    - Z12.11 (Encounter for screening colonoscopy) must ONLY be used for colonoscopy procedures. NEVER use Z12.11 for EGD/upper endoscopy/esophagogastroduodenoscopy.
-   - For EGD procedures: Use the actual GI finding or indication as ICD1 (e.g., K92.0 for hematemesis, K21.0 for GERD with esophagitis, K25.9 for gastric ulcer, K29.70 for gastritis, K22.2 for esophageal obstruction). Do NOT default to K31.7 (polyp of stomach/duodenum) unless a polyp was actually found in the stomach or duodenum.
+   - ⚠️ EGD (00731/00813) ICD1 RULE: NEVER use K31.7 (polyp of stomach/duodenum) as ICD1 unless the post-op findings explicitly document a stomach or duodenal polyp. K31.7 is wrong in 90%+ of cases. Instead use the actual indication/finding from the post-op diagnosis: K29.70 (gastritis), K44.9 (hiatal hernia), K21.9 (GERD), K22.2 (esophageal obstruction), R13.10 (dysphagia), K92.0 (hematemesis), K25.9 (gastric ulcer), K22.89 (other esophageal disease). For combined EGD + colonoscopy (00813), the upper GI indication goes in ICD1 (not Z12.11 screening and not K63.5 colon polyp — those are colonoscopy codes, not EGD codes).
    - For colonoscopy with polypectomy where a polyp is found: If the post-op diagnosis mentions polyp of colon, use K63.5 (polyp of colon) as ICD1. Do NOT confuse K62.5 (hemorrhage of anus/rectum) with K63.5 (polyp of colon).
    - For EGD supportive codes in ICD2-4: Add K29.70 (gastritis), K44.9 (hiatal hernia), K20.90 (esophagitis), K21.9 (GERD) ONLY if documented. Do NOT add K31.7 as a default.
 8. CRITICAL PROSTATE BIOPSY CODING RULE:
@@ -1198,7 +1222,7 @@ IMPORTANT INSTRUCTIONS:
    - Carefully read the surgical site (left, right, bilateral) from the operative note and match the ICD code laterality accordingly.
    - When the document does not specify laterality, use the "unspecified" variant of the code (typically ending in 9). Do NOT guess laterality.
    - Always prefer the most specific ICD code supported by the documentation. For example, if the document says "open-angle glaucoma of left eye," use H40.1122 (specific) rather than H40.9 (unspecified).
-   - For post-operative diagnoses, use the post-op diagnosis code, not the pre-op. If the post-op diagnosis is more specific or different from the pre-op, always use the post-op.
+   - ⚠️ POST-OP DIAGNOSIS ALWAYS TAKES PRIORITY: Always read and use the Post-Operative Diagnosis for ICD1, NOT the Pre-Op Diagnosis. The post-op is what actually happened during the procedure and is the definitive diagnosis for coding. If the post-op diagnosis is different from or more specific than the pre-op (e.g., pre-op says "gallstones" K80.00 but post-op says "acute cholecystitis" K81.0, or pre-op says "osteomyelitis" but post-op says "diabetic complication"), use the post-op. Only fall back to pre-op if no post-op diagnosis is documented.
 11. CRITICAL ICD2/ICD3/ICD4 SECONDARY DIAGNOSIS RULES:
    - Only include secondary diagnoses that are directly relevant to the anesthesia encounter. Do NOT fill ICD2-4 slots just because space is available.
    - DO NOT USE these as routine filler codes: E66.9/E66.01 (obesity), Z68.x (BMI codes), R-codes (symptoms like R19.7, R10.13, R14.0, R11.2) — unless they are the primary reason for or directly complicate the procedure. NEVER use Z68.x BMI codes for anesthesia billing.
@@ -1206,13 +1230,21 @@ IMPORTANT INSTRUCTIONS:
    - When BOTH depression (F32.9) AND anxiety (F41.9) are documented, combine them into F41.8 (mixed anxiety and depressive disorder). Do not use F32.9 and F41.9 separately.
    - For eye/ophthalmic cases: Use I10 (hypertension) as ICD2 if documented, NOT H40.9 (unspecified glaucoma) unless glaucoma is actually relevant to the procedure. Do not add multiple eye-specific codes (H52.x refractive errors, H43.x vitreous disorders, H35.x retinal disorders) as secondary diagnoses unless they are the reason for the procedure.
    - For GI endoscopy cases: Add K57.30 (diverticulosis), K64.0/K64.9 (hemorrhoids), K29.70 (gastritis) as supportive ICD3/4 ONLY if documented in the procedure findings.
-   - PREFERRED comorbidity ordering when multiple are documented: I10 (hypertension) > E11.9 (diabetes) > E78.00/E78.5 (hyperlipidemia) > E03.9 (hypothyroidism).
+   - PREFERRED comorbidity ordering when multiple are documented (ASA 3+ only): I10 (hypertension) > E78.5 (hyperlipidemia) > J44.9 (COPD) > G47.33 (sleep apnea) > E11.9 (diabetes) > E03.9 (hypothyroidism). Do NOT use E66.9/E66.01 (obesity), F41.9 (anxiety), K21.9 (GERD), or F17.210 (nicotine) as filler comorbidities.
    - If the document lists many comorbidities, pick at most 2-3 that are most relevant to anesthesia risk (cardiovascular, metabolic, respiratory). Leave slots empty rather than adding marginally relevant codes.
+   - COLONOSCOPY/EGD ICD ORDERING: For colonoscopy and EGD cases, the primary finding or indication goes in ICD1 (e.g., K63.5 polyp, K44.9 hernia, R10.11 pain, K21.9 GERD). Put Z12.11 (screening) in ICD2, NOT ICD1. The procedure finding/indication always takes priority over the screening code.
 12. CRITICAL POLYP SPECIFICITY RULE:
    - When the endoscopy report specifies the anatomic location of a polyp, use site-specific D12.x benign neoplasm codes instead of generic K63.5:
      D12.0 (cecum), D12.2 (ascending colon), D12.3 (transverse colon), D12.4 (descending colon), D12.5 (sigmoid colon), D12.6 (colon, unspecified), D12.8 (rectum).
    - Use K63.5 (polyp of colon) only when the specific location is not documented or when coding the polyp as a secondary finding.
-13. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
+13. LATERALITY AND SPECIFICITY RULE: When the procedure description specifies a side (Right, Left, Bilateral), you MUST use the laterality-specific ICD code, NOT the bilateral or unspecified variant.
+   - "Right Knee Arthroplasty" → M17.11 (right), NOT M17.0 (bilateral)
+   - "Left Knee Arthroplasty" → M17.12 (left), NOT M17.0 (bilateral)
+   - "Right Carpal Tunnel Release" → G56.01 (right), NOT G56.03 (bilateral)
+   - "Left eye" procedure → use the left-eye specific code, not unspecified
+   - For encounter type: Use 7th character "A" (initial encounter) unless the record explicitly says follow-up/subsequent, in which case use "D" (subsequent) or "S" (sequela).
+   - General rule: Always match the ICD laterality to the procedure laterality. If the procedure says one side, never code bilateral. If the procedure says bilateral, use the bilateral code.
+14. Identify up to 3 additional ICD codes (ICD2, ICD3, ICD4) sorted by relevance to the procedure
 14. Only include ICD codes that are directly relevant to the procedure or patient condition
 15. If fewer than 4 relevant ICD codes exist, leave the remaining fields empty
 16. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
@@ -1221,6 +1253,7 @@ IMPORTANT INSTRUCTIONS:
 19. CRITICAL: Always make sure to not just pick the main diagnosis but to also look at secondary diagnoses further in the record IF available, they will often not be listed clearly as codes but instead as small snippets of text, there might be many of them listed like obesity and diabetes and such... make sure to convert those small texts to diagnosis codes, but also make sure to pick the ones that are MOST related to the main procedure and diagnosis itself, also make sure to use UPDATED december 2025 codes with google search
 20. CRITICAL: Check for Excludes1 Conflicts: Before finalizing the JSON, verify if the selected codes have "Excludes1" notes in the ICD-10 manual that prevent them from being billed together.
 21. Conflict Resolution: If two codes conflict (e.g., J35.1 and J35.01), prioritize the Post-Operative or more specific diagnosis.
+22. AFIB CODING: If the record mentions "AFIB" or "atrial fibrillation" without specifying the type (paroxysmal, persistent, chronic, permanent), use I48.91 (unspecified atrial fibrillation). Do NOT default to I48.0 (paroxysmal) unless "paroxysmal" is explicitly documented.
 
 OUTPUT FORMAT:
 You must respond with ONLY a JSON object in this exact format:
@@ -1253,6 +1286,11 @@ IMPORTANT: For each ICD code you provide, you MUST include a brief reasoning exp
 
 Respond with ONLY the JSON object, nothing else."""
     
+        # Try loading ICD prompt from database (overrides hardcoded if available)
+    db_icd_prompt = _get_icd_prompt()
+    if db_icd_prompt:
+        prompt = db_icd_prompt
+
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
@@ -1495,8 +1533,53 @@ Respond with ONLY the JSON object, nothing else."""
     return None, 0, 0.0, "Max retries reached"
 
 
+def _get_cpt_prompt(cpt_codes_text, include_code_list):
+    """Get the CPT base prompt, trying database first, falling back to hardcoded."""
+    db_prompt = load_base_prompt('base_cpt_prompt')
+    if db_prompt:
+        # DB prompt may contain {cpt_codes_text} placeholder or may be the raw text
+        if include_code_list and cpt_codes_text:
+            code_section = f"\n\nHere is the reference list of valid anesthesia CPT codes:\n\n{cpt_codes_text}\n"
+        else:
+            code_section = ""
+        return f"You are a medical anesthesia CPT coder.\n\nYour task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).\n{code_section}\n{db_prompt}\n\nYou must respond with a JSON object in this exact format:\n{{\n  \"code\": \"00840\",\n  \"explanation\": \"Brief explanation of why this code was chosen (1-2 sentences)\"\n}}\n\nThe explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).\n\nRespond with ONLY the JSON object, nothing else."
+    return None  # Caller uses hardcoded fallback
+
+
+def _get_icd_prompt():
+    """Get the ICD base prompt, trying database first, falling back to hardcoded."""
+    db_prompt = load_base_prompt('base_icd_prompt')
+    if db_prompt:
+        return f"You are a medical coding specialist.\n\nYour task is to analyze the provided medical document page(s) and identify ICD diagnosis codes that are relevant to the procedure being performed.\n\n{db_prompt}\n\nOUTPUT FORMAT:\nYou must respond with ONLY a JSON object in this exact format:\n{{\n  \"ICD1\": \"primary_diagnosis_code\",\n  \"ICD1_Reasoning\": \"brief explanation of why this code was chosen (1-2 sentences)\",\n  \"ICD2\": \"secondary_diagnosis_code_or_empty\",\n  \"ICD2_Reasoning\": \"brief explanation of why this code was chosen or empty string if no code\",\n  \"ICD3\": \"tertiary_diagnosis_code_or_empty\",\n  \"ICD3_Reasoning\": \"brief explanation of why this code was chosen or empty string if no code\",\n  \"ICD4\": \"quaternary_diagnosis_code_or_empty\",\n  \"ICD4_Reasoning\": \"brief explanation of why this code was chosen or empty string if no code\"\n}}\n\nIf a code doesn't exist, use an empty string \"\" for both the code and its reasoning field.\n\nIMPORTANT: For each ICD code you provide, you MUST include a brief reasoning explanation (1-2 sentences) explaining why that specific code was chosen based on the document content.\n\nRespond with ONLY the JSON object, nothing else."
+    return None  # Caller uses hardcoded fallback
+
+
+def load_base_prompt(name):
+    """Load a base prompt from the database. Returns None if not found."""
+    try:
+        import sys
+        backend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        from db_utils import get_base_prompt
+        result = get_base_prompt(name)
+        if result and result.get('content'):
+            logger.info(f"✅ Loaded base prompt '{name}' from database ({len(result['content'])} chars)")
+            return result['content']
+        return None
+    except Exception as e:
+        logger.warning(f"⚠️  Could not load base prompt '{name}' from database: {e}")
+        return None
+
+
 def load_cpt_codes():
-    """Load CPT codes from cpt_codes.txt"""
+    """Load CPT codes from database, falling back to cpt_codes.txt"""
+    # Try database first
+    db_codes = load_base_prompt('cpt_codes_list')
+    if db_codes:
+        return db_codes
+
+    # Fallback to file
     try:
         # Try to load from general-coding directory
         cpt_file = os.path.join(os.path.dirname(__file__), 'cpt_codes.txt')
@@ -2128,19 +2211,26 @@ Your task is to analyze the provided medical document page(s) and return BOTH th
 {cpt_code_section}
 CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
 
-1. COLONOSCOPY CODING:
-   - Use 00812 (screening colonoscopy) if ANY of these are present:
-     * Document explicitly states "screening colonoscopy"
-     * Pre-op diagnosis: Z12.11, Z80.0, or Z86.010x
+1. COLONOSCOPY CODING (Most Common Errors):
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 (Encounter for screening colonoscopy) with NO symptom or surveillance indication
      * Pre-op states "Colon cancer screening"
-   - Use 00811 (diagnostic colonoscopy) ONLY if investigating specific symptoms with NO screening indicators
-   - When uncertain: if ANY screening indicator exists, use 00812
+     * Patient has ONLY family history (Z80.0) as indication — no personal history, no symptoms
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE, NOT screening
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss, etc.)
+     * Any GI diagnosis as indication (GERD, diverticulosis, IBD, etc.)
+   - Key distinction: "screening" = routine, no prior findings. "surveillance" = follow-up due to prior polyps/cancer = DIAGNOSTIC = 00811
+   - When uncertain between screening and surveillance: if patient has ANY personal history of polyps or cancer, use 00811
 
 2. MRI/CT SCAN CODING:
    - If the procedure is an MRI or CT scan -> use 01922
 
 3. TEE (TRANSESOPHAGEAL ECHOCARDIOGRAM) CODING:
-   - If the main procedure was TEE -> use 01922
+   - If the main procedure was TEE administration (TRANSESOPHAGEAL ECHO (TEE)) or similarly worded -> use 01922
 
 4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION CODING:
    - If the procedure is a percutaneous lumbar spinal intervention (such as a Medial Branch Block or Facet Injection) -> use 01938
@@ -2159,23 +2249,45 @@ CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
    - Even though the diagnosis is a "hip fracture," the surgical procedure is on the femur (nail/rod insertion), so use 01230
    - 01210 is for procedures directly on the hip joint (e.g., hip pinning with screws only, hip hemiarthroplasty without nailing)
 
+IMPORTANT: Look at the document images carefully to identify:
+- Procedure description
+- Pre-operative diagnosis
+- Post-operative diagnosis
+- Any relevant medical information that can help determine the correct anesthesia CPT code
+
+Give me the most relevant anesthesia CPT code for anesthesia billing for this certain procedure.
+
 === PART 2: ICD DIAGNOSIS CODES ===
 
 CRITICAL ICD CODING RULES:
 
-1. Identify the PRIMARY diagnosis (ICD1) — main reason for the procedure
-2. If both pre-op and post-op diagnosis are listed, use the POST-OPERATIVE diagnosis for ICD1
-3. COLONOSCOPY RULES:
-   - General screening colonoscopy: Z12.11 ONLY in ICD1, leave ICD2-4 empty
-   - Screening colonoscopy with polyp removal: Z12.11 in ICD1, K63.5 in ICD2, ICD3-4 empty
-4. VAGINAL DELIVERY: CPT 01967 -> O80 ONLY in ICD1, leave ICD2-4 empty
-5. CATARACT EXTRACTION: If the procedure is cataract extraction surgery -> use 00142 in ICD1
-6. Include up to 3 secondary diagnoses (ICD2, ICD3, ICD4) sorted by relevance
-6. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
-7. Check for Excludes1 conflicts before finalizing codes
-8. Use web search to verify all ICD codes are current as of 2025
-9. Also look for secondary diagnoses in text snippets (obesity, diabetes, hypertension, etc.) and convert to codes
-10. Leave unused ICD fields as empty strings
+1. Analyze the entire PDF document carefully to understand the procedure and patient condition
+2. Identify the PRIMARY diagnosis (ICD1) - this should be the main reason for the procedure
+3. CRITICAL: Never code both the pre operative and post operative diagnoses, instead code only post operative diagnosis + supportive diagnoses. There might be many additional diagnoses listed, but choose the ones that are most supportive of necessity for the procedure.
+4. CRITICAL COLONOSCOPY CODING RULES:
+   - General screening colonoscopy with NO findings: Code Z12.11 in ICD1. If patient has family history of GI malignancy, add Z80.0 in ICD2. If patient has personal history of colonic polyps, add Z86.0100 in ICD2 or ICD3. Leave remaining slots empty.
+   - Screening colonoscopy with polypectomy/polyp found: Code Z12.11 in ICD1, K63.5 in ICD2 (or D12.x site-specific benign neoplasm if pathology specifies location). Add K57.30 (diverticulosis) in ICD3 if documented. Add K64.0/K64.9 (hemorrhoids) in ICD4 if documented.
+   - Non-screening colonoscopy (diagnostic, with symptoms/findings): Use the actual finding or indication as ICD1 (e.g., K63.5 for polyp, K21.9 for GERD, K57.30 for diverticulosis, K44.9 for hernia). Put Z12.11 in ICD2 only if screening was also part of the reason.
+   - ORDERING PRIORITY for colonoscopy ICD2-4: History codes (Z80.0, Z86.0100) > additional findings (K57.30, K63.5, K64.0) > comorbidities (I10, E11.9)
+5. CRITICAL VAGINAL DELIVERY / C-SECTION CODING RULES:
+   - If the procedure is a vaginal delivery (CPT 01967) or C-section (CPT 01961) with NO documented complications: Use O80 in ICD1.
+   - EXCEPTION: If the record documents complications such as tobacco/substance use in pregnancy (O99.214, O99.314), preeclampsia (O14.x), fetal distress (O77.x), gestational diabetes (O24.x), or other obstetric complications, use the complication code as ICD1 instead of O80.
+   - For C-sections: Check for prior uterine scar codes (O34.21x). Use O34.219 (unspecified laterality) unless the document explicitly states which side.
+6. CRITICAL CATARACT EXTRACTION CODING RULE:
+   - If the procedure is cataract extraction surgery: Use the appropriate cataract ICD-10 diagnosis code as ICD1 (e.g., H25.811 for right eye, H25.812 for left eye). Do NOT use CPT codes (like 00142) as ICD codes.
+   - EXCEPTION: If the procedure includes BOTH cataract extraction AND a glaucoma procedure (e.g., iStent, goniotomy), use the glaucoma diagnosis (H40.x) as ICD1.
+7. CRITICAL COLONOSCOPY/EGD DISTINCTION:
+   - Z12.11 must ONLY be used for colonoscopy procedures. NEVER use Z12.11 for EGD/upper endoscopy.
+   - ⚠️ EGD (00731/00813) ICD1 RULE: NEVER use K31.7 (polyp of stomach/duodenum) as ICD1 unless the post-op findings explicitly document a stomach or duodenal polyp. K31.7 is wrong in 90%+ of cases. Instead use the actual indication/finding from the post-op diagnosis: K29.70 (gastritis), K44.9 (hiatal hernia), K21.9 (GERD), K22.2 (esophageal obstruction), R13.10 (dysphagia), K92.0 (hematemesis), K25.9 (gastric ulcer), K22.89 (other esophageal disease). For combined EGD + colonoscopy (00813), the upper GI indication goes in ICD1.
+8. ⚠️ POST-OP DIAGNOSIS ALWAYS TAKES PRIORITY: Always read and use the Post-Operative Diagnosis for ICD1, NOT the Pre-Op Diagnosis. The post-op is the definitive diagnosis for coding. Only fall back to pre-op if no post-op diagnosis is documented.
+9. COMORBIDITY RULE BASED ON ASA STATUS: If the patient's ASA status is 1 or 2, do NOT add comorbidities from the medical history — only use ICD codes directly related to the procedure/diagnosis. If ASA is 3 or higher, you MAY add relevant comorbidities (I10, E11.9, G47.33, I25.10, E78.5, J44.9) in ICD2-4. ASA 1-2 = procedure diagnosis only. ASA 3+ = include significant comorbidities.
+10. DO NOT USE these as routine filler codes: E66.9/E66.01 (obesity), Z68.x (BMI codes), F41.9 (anxiety), K21.9 (GERD), F17.210 (nicotine), R-codes (symptoms). NEVER use Z68.x BMI codes for anesthesia billing.
+11. PREFERRED comorbidity ordering (ASA 3+ only): I10 > E78.5 > J44.9 > G47.33 > E11.9 > E03.9.
+12. LATERALITY AND SPECIFICITY RULE: When the procedure specifies a side (Right, Left, Bilateral), use the laterality-specific ICD code, NOT the bilateral or unspecified variant. Match ICD laterality to procedure laterality. Use 7th character "A" (initial encounter) unless explicitly stated otherwise.
+13. Use standard ICD-10 format (e.g., "E11.9", "I10", "Z87.891")
+14. Check for Excludes1 conflicts before finalizing codes
+15. Use web search to verify all ICD codes are current as of 2025
+16. Leave unused ICD fields as empty strings
 
 === OUTPUT FORMAT ===
 
@@ -2312,24 +2424,39 @@ Here is the reference list of valid anesthesia CPT codes:
 Your task is to analyze the provided medical document page(s) and return BOTH the anesthesia CPT code AND the ICD diagnosis codes in a single response.
 
 === PART 1: CPT CODE ==={cpt_code_section}
-CRITICAL CPT CODING RULES:
-1. COLONOSCOPY: Use 00812 for screening (any of: document says "screening", Z12.11, Z80.0, Z86.010x). Use 00811 only for diagnostic with specific symptoms.
+CRITICAL CPT CODING RULES (FOLLOW THESE EXACTLY):
+
+1. COLONOSCOPY CODING (Most Common Errors):
+   - Use 00812 (screening colonoscopy) ONLY if:
+     * The document explicitly states "screening colonoscopy"
+     * Procedure description includes the word "screening"
+     * Pre-op diagnosis is Z12.11 with NO symptom or surveillance indication
+     * Patient has ONLY family history (Z80.0) as indication
+   - Use 00811 (diagnostic colonoscopy) if ANY of these are present:
+     * Indication says "polyp surveillance", "surveillance colonoscopy", or "follow-up"
+     * Patient has personal history of colon polyps (Z86.010x) or colon cancer — this is SURVEILLANCE = DIAGNOSTIC = 00811
+     * Investigating specific symptoms (bleeding, pain, diarrhea, anemia, weight loss)
+   - Key distinction: "screening" = routine. "surveillance" = follow-up = DIAGNOSTIC = 00811
+
 2. MRI/CT SCAN: use 01922
 3. TEE: use 01922
 4. PERCUTANEOUS LUMBAR SPINAL INTERVENTION (Medial Branch Block, Facet Injection): use 01938
-5. SACRAL NEUROMODULATION / INTERSTIM: InterStim implant (Stage 1/2), sacral nerve stimulator -> use 00400 (integumentary), NOT 00860. These are subcutaneous implants, not intraperitoneal.
-6. TRANSRECTAL / TRANSPERINEAL PROSTATE PROCEDURES: TRUS biopsy, transperineal biopsy, barrigel/fiducial marker placement, SpaceOAR -> use 00902 (anorectal), NOT 00860.
-7. INTRAMEDULLARY FEMORAL NAILING: Gamma nailing, femoral IM nail/rod for hip fractures (intertrochanteric, femoral neck, subtrochanteric) -> use 01230 (upper 2/3 femur), NOT 01210 (hip joint). The procedure is on the femur, not the hip joint.
+5. SACRAL NEUROMODULATION / INTERSTIM: use 00400 (integumentary), NOT 00860
+6. TRANSRECTAL / TRANSPERINEAL PROSTATE PROCEDURES: use 00902 (anorectal), NOT 00860
+7. INTRAMEDULLARY FEMORAL NAILING: use 01230 (upper 2/3 femur), NOT 01210 (hip joint)
+
+IMPORTANT: Look at procedure description, pre-op diagnosis, post-op diagnosis to determine the correct CPT code.
 
 === PART 2: ICD DIAGNOSIS CODES ===
 CRITICAL ICD CODING RULES:
-1. ICD1 = primary diagnosis (use post-operative if both pre/post listed)
-2. Screening colonoscopy: Z12.11 in ICD1 only. With polypectomy: Z12.11 + K63.5.
-3. Vaginal delivery (01967): O80 in ICD1 only.
-4. Cataract extraction surgery: use 00142 in ICD1.
-5. Up to 3 secondary diagnoses (ICD2-4), sorted by relevance
-6. Standard ICD-10 format. Check Excludes1 conflicts.
-7. Look for secondary conditions in text (obesity, diabetes, hypertension, etc.)
+1. ICD1 = primary diagnosis. Use POST-OPERATIVE diagnosis over pre-op when available.
+2. COLONOSCOPY: Screening with no findings: Z12.11 in ICD1. With polypectomy: Z12.11 in ICD1, K63.5 in ICD2. Diagnostic: actual finding in ICD1, Z12.11 in ICD2 only if screening was also part of the reason.
+3. EGD (00731/00813): NEVER use K31.7 as ICD1 unless stomach polyp explicitly documented. Use K29.70 (gastritis), K44.9 (hernia), K21.9 (GERD), R13.10 (dysphagia), K92.0 (hematemesis) instead. For combined EGD+colonoscopy, upper GI indication goes in ICD1.
+4. Vaginal delivery (01967) with no complications: O80 in ICD1. With complications: use complication code.
+5. Cataract extraction: Use cataract ICD code (H25.x) as ICD1, NOT CPT code 00142.
+6. COMORBIDITY RULE: ASA 1-2 = procedure diagnosis only, no filler comorbidities. ASA 3+ = may include I10, E78.5, J44.9, G47.33, E11.9. NEVER use E66.9 (obesity), Z68.x (BMI), F41.9 (anxiety), F17.210 (nicotine) as fillers.
+7. LATERALITY: Match ICD laterality to procedure side. Right procedure = right-specific code, not bilateral.
+8. Standard ICD-10 format. Check Excludes1 conflicts. Leave unused fields empty.
 
 === OUTPUT FORMAT ===
 Respond with ONLY a JSON object:
