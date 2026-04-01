@@ -8619,17 +8619,12 @@ Johnson, Robert, MD (MedNet Code: 1)"
                         </div>
 
                         <div class="form-group priority-group">
-                          <label class="checkbox-label">
-                            <input
-                              v-model="field.priority"
-                              type="checkbox"
-                              class="form-checkbox"
-                            />
-                            <span
-                              >Priority Field (separate API call for higher
-                              accuracy)</span
-                            >
-                          </label>
+                          <label>Priority Level</label>
+                          <select v-model="field.priority" class="form-control priority-select">
+                            <option :value="false">None</option>
+                            <option value="high">High (best model)</option>
+                            <option value="low">Low (fast model)</option>
+                          </select>
                         </div>
                       </div>
                     </div>
@@ -8684,7 +8679,8 @@ Johnson, Robert, MD (MedNet Code: 1)"
                     <span class="drag-handle">☰</span>
                     <span class="reorder-index">{{ index + 1 }}</span>
                     <span class="reorder-name">{{ element.name || '(unnamed)' }}</span>
-                    <span v-if="element.priority" class="reorder-priority">★</span>
+                    <span v-if="element.priority === 'high' || element.priority === true" class="reorder-priority" style="color: #f59e0b;">★</span>
+                    <span v-if="element.priority === 'low'" class="reorder-priority" style="color: #94a3b8;">⚡</span>
                   </div>
                 </template>
               </draggable>

@@ -13,7 +13,7 @@ import pandas as pd
 import google.genai as genai
 from google.genai import types
 from PyPDF2 import PdfReader, PdfWriter
-from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_normal_fields, generate_priority_field_prompt
+from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_low_priority_fields, get_normal_fields, generate_priority_field_prompt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import re
@@ -414,7 +414,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
-    client, pdf_file_path, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index, provider_mapping, extract_providers_from_annotations = args
+    client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations = args
     
     pdf_filename = os.path.basename(pdf_file_path)
     
@@ -486,7 +486,44 @@ def process_single_patient_pdf_task(args):
                     print(f"    ❌ Failed to parse priority field '{field_name}' for {pdf_filename}: {str(e)}")
             else:
                 print(f"    ❌ Failed to extract priority field '{field_name}' for {pdf_filename}")
-    
+
+    # Extract each low-priority field separately using cheaper model
+    if low_priority_fields:
+        print(f"    ⚡ Processing {len(low_priority_fields)} low-priority field(s) for {pdf_filename} (fast model)")
+
+        for lp_field in low_priority_fields:
+            field_name = lp_field['name']
+            lp_prompt = generate_priority_field_prompt(lp_field)
+
+            lp_response = extract_info_from_patient_pdf(
+                client, temp_patient_pdf, pdf_filename, lp_prompt, low_priority_model,
+                field_name_for_log=field_name
+            )
+
+            if lp_response:
+                try:
+                    cleaned_lp = lp_response.strip()
+                    if cleaned_lp.startswith('```json'):
+                        cleaned_lp = cleaned_lp[7:]
+                    if cleaned_lp.startswith('```'):
+                        cleaned_lp = cleaned_lp[3:]
+                    if cleaned_lp.endswith('```'):
+                        cleaned_lp = cleaned_lp[:-3]
+                    cleaned_lp = cleaned_lp.strip()
+
+                    lp_data = json.loads(cleaned_lp)
+
+                    if field_name in lp_data:
+                        merged_data[field_name] = lp_data[field_name]
+                        print(f"    ✅ Merged low-priority field '{field_name}' for {pdf_filename}")
+                    else:
+                        print(f"    ⚠️  Low-priority field '{field_name}' not found in response for {pdf_filename}")
+
+                except json.JSONDecodeError as e:
+                    print(f"    ❌ Failed to parse low-priority field '{field_name}' for {pdf_filename}: {str(e)}")
+            else:
+                print(f"    ❌ Failed to extract low-priority field '{field_name}' for {pdf_filename}")
+
     # Extract providers from PDF annotations if enabled
     if extract_providers_from_annotations and provider_mapping:
         try:
@@ -521,13 +558,17 @@ def process_single_patient_pdf_task(args):
         except Exception as e:
             print(f"    ⚠️  Failed to extract providers from annotations for {pdf_filename}: {e}")
     
+    # Copy Surgeon to Referring (they are the same field)
+    if 'Surgeon' in merged_data and merged_data['Surgeon']:
+        merged_data['Referring'] = merged_data['Surgeon']
+
     # Convert merged data back to JSON string for compatibility with existing code
     merged_response = json.dumps(merged_data)
-    
+
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}, extract_providers_from_annotations={extract_providers_from_annotations}")
@@ -543,13 +584,18 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Get priority and normal fields
     priority_fields = get_priority_fields(excel_file_path)
+    low_priority_fields_list = get_low_priority_fields(excel_file_path)
     normal_fields = get_normal_fields(excel_file_path)
-    
+
     if priority_fields:
         priority_field_names = [f['name'] for f in priority_fields]
-        print(f"🎯 Priority fields (separate API calls): {', '.join(priority_field_names)}")
-        print(f"🤖 Using model '{priority_model}' for priority fields (better accuracy)")
-    else:
+        print(f"🎯 High-priority fields (separate API calls): {', '.join(priority_field_names)}")
+        print(f"🤖 Using model '{priority_model}' for high-priority fields (better accuracy)")
+    if low_priority_fields_list:
+        low_priority_field_names = [f['name'] for f in low_priority_fields_list]
+        print(f"⚡ Low-priority fields (separate API calls): {', '.join(low_priority_field_names)}")
+        print(f"⚡ Using model '{low_priority_model}' for low-priority fields (fast model)")
+    if not priority_fields and not low_priority_fields_list:
         print(f"ℹ️  No priority fields defined")
     
     if normal_fields:
@@ -591,8 +637,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Initialize Google AI client (only needed if not using OpenRouter)
     # Check if we're using Gemini models (use Gemini API) or OpenRouter models
-    using_gemini = is_gemini_model(model) or (priority_model and is_gemini_model(priority_model))
-    using_openrouter = (not using_gemini) and (is_openrouter_model(model) or (priority_model and is_openrouter_model(priority_model)))
+    using_gemini = is_gemini_model(model) or (priority_model and is_gemini_model(priority_model)) or (low_priority_model and is_gemini_model(low_priority_model))
+    using_openrouter = (not using_gemini) and (is_openrouter_model(model) or (priority_model and is_openrouter_model(priority_model)) or (low_priority_model and is_openrouter_model(low_priority_model)))
 
     client = None
     if using_gemini:
@@ -603,6 +649,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             model = normalize_gemini_model(model)
             if priority_model:
                 priority_model = normalize_gemini_model(priority_model)
+            if low_priority_model:
+                low_priority_model = normalize_gemini_model(low_priority_model)
             client = genai.Client(api_key=google_api_key)
             print(f"🔑 Using Google GenAI SDK directly for Gemini model '{model}'")
         else:
@@ -616,6 +664,8 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                 model = f"google/{normalize_gemini_model(model)}"
             if priority_model:
                 priority_model = f"google/{normalize_gemini_model(priority_model)}"
+            if low_priority_model:
+                low_priority_model = f"google/{normalize_gemini_model(low_priority_model)}"
             using_gemini = False
             using_openrouter = True
 
@@ -666,7 +716,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, priority_fields, excel_file_path, n_pages, model, priority_model, order_index, provider_mapping, extract_providers_from_annotations))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations))
         
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
         
@@ -894,7 +944,8 @@ if __name__ == "__main__":
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 50  # Default thread pool size
     model = "gemini-3-pro-preview"  # Default model for normal fields
-    priority_model = "gemini-3-flash-preview"  # Default model for priority fields (always use best model)
+    priority_model = "gemini-3-flash-preview"  # Default model for high-priority fields
+    low_priority_model = "google/gemini-3.1-flash-lite-preview"  # Default model for low-priority fields
     worktracker_group = None  # Optional worktracker group
     worktracker_batch = None  # Optional worktracker batch
     extract_csn = False  # Extract CSN from PDF filenames
@@ -937,7 +988,8 @@ if __name__ == "__main__":
     print(f"   Pages per patient: {n_pages}")
     print(f"   Max workers: {max_workers}")
     print(f"   Model (normal fields): {model}")
-    print(f"   Model (priority fields): {priority_model}")
+    print(f"   Model (high-priority fields): {priority_model}")
+    print(f"   Model (low-priority fields): {low_priority_model}")
     if worktracker_group:
         print(f"   Worktracker Group: {worktracker_group}")
     if worktracker_batch:
@@ -952,4 +1004,4 @@ if __name__ == "__main__":
             print(f"   Provider Mapping: Loaded ({len(provider_mapping)} characters)")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations) 

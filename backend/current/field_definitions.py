@@ -47,9 +47,14 @@ def load_field_definitions_from_excel(excel_file_path):
             if pd.isna(field_name) or str(field_name).strip() == '' or str(field_name).startswith('Unnamed'):
                 continue
                 
-            # Check if priority is set to YES (case insensitive)
+            # Check priority level: YES/HIGH -> "high", LOW -> "low", else False
             priority_value = str(priority_row.iloc[i]).strip().upper() if priority_row is not None and not pd.isna(priority_row.iloc[i]) else ''
-            is_priority = priority_value == 'YES'
+            if priority_value in ('YES', 'HIGH'):
+                is_priority = 'high'
+            elif priority_value == 'LOW':
+                is_priority = 'low'
+            else:
+                is_priority = False
                 
             field_def = {
                 'name': str(field_name).strip(),
@@ -83,14 +88,19 @@ def get_fieldnames(excel_file_path):
     return [field['name'] for field in field_definitions]
 
 def get_priority_fields(excel_file_path):
-    """Return list of field definitions that are marked as priority."""
+    """Return list of high-priority field definitions."""
     field_definitions = get_field_definitions(excel_file_path)
-    return [field for field in field_definitions if field.get('priority', False) and field['name'] not in ['source_file', 'page_number']]
+    return [field for field in field_definitions if field.get('priority') in ('high', True) and field['name'] not in ['source_file', 'page_number']]
+
+def get_low_priority_fields(excel_file_path):
+    """Return list of low-priority field definitions (use cheaper model)."""
+    field_definitions = get_field_definitions(excel_file_path)
+    return [field for field in field_definitions if field.get('priority') == 'low' and field['name'] not in ['source_file', 'page_number']]
 
 def get_normal_fields(excel_file_path):
-    """Return list of field definitions that are NOT marked as priority."""
+    """Return list of field definitions that are NOT marked as any priority."""
     field_definitions = get_field_definitions(excel_file_path)
-    return [field for field in field_definitions if not field.get('priority', False) and field['name'] not in ['source_file', 'page_number']]
+    return [field for field in field_definitions if not field.get('priority') and field['name'] not in ['source_file', 'page_number']]
 
 def generate_extraction_prompt(excel_file_path, fields_to_include=None):
     """Generate the extraction prompt from field definitions.

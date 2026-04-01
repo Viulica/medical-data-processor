@@ -1974,7 +1974,7 @@ async def upload_files(
                     field.get('description', ''),
                     field.get('location', ''),
                     field.get('output_format', ''),
-                    'YES' if field.get('priority', False) else 'NO'
+                    'LOW' if field.get('priority') == 'low' else ('YES' if field.get('priority') else 'NO')
                 ]
             
             import pandas as pd
@@ -8513,7 +8513,7 @@ async def export_template_as_excel(template_id: int):
                 field.get('description', ''),
                 field.get('location', ''),
                 field.get('output_format', ''),
-                'YES' if field.get('priority', False) else 'NO'
+                'LOW' if field.get('priority') == 'low' else ('YES' if field.get('priority') else 'NO')
             ]
         
         df = pd.DataFrame(data)
@@ -10938,7 +10938,7 @@ async def process_unified(
                     field.get('description', ''),
                     field.get('location', ''),
                     field.get('output_format', ''),
-                    'YES' if field.get('priority', False) else 'NO'
+                    'LOW' if field.get('priority') == 'low' else ('YES' if field.get('priority') else 'NO')
                 ]
             
             df = pd.DataFrame(data)
@@ -11161,7 +11161,7 @@ async def process_unified_with_refinement(
                     field.get('description', ''),
                     field.get('location', ''),
                     field.get('output_format', ''),
-                    'YES' if field.get('priority', False) else 'NO'
+                    'LOW' if field.get('priority') == 'low' else ('YES' if field.get('priority') else 'NO')
                 ]
             
             df = pd.DataFrame(data)
