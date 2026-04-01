@@ -28,6 +28,20 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ICD code corrections: old deprecated codes → current valid codes
+ICD_CODE_CORRECTIONS = {
+    "Z86.010": "Z86.0100",
+}
+
+def correct_icd_codes(result_dict):
+    """Apply hard corrections to ICD code predictions."""
+    for key in ("ICD1", "ICD2", "ICD3", "ICD4"):
+        val = result_dict.get(key, "")
+        if val in ICD_CODE_CORRECTIONS:
+            result_dict[key] = ICD_CODE_CORRECTIONS[val]
+    return result_dict
+
+
 
 def is_gemini_model(model_name):
     """Check if model name indicates a Gemini model (not OpenRouter format)"""
@@ -1087,7 +1101,8 @@ Respond with ONLY the JSON object, nothing else."""
                 "ICD4": icd_codes_dict.get("ICD4", ""),
                 "ICD4_Reasoning": icd_codes_dict.get("ICD4_Reasoning", "")
             }
-            
+            correct_icd_codes(result)
+
             # Estimate tokens and cost (Gemini pricing estimates)
             prompt_chars = len(prompt)
             image_tokens_estimate = len(image_data_list) * 1000  # Rough estimate per image
@@ -1400,6 +1415,7 @@ Respond with ONLY the JSON object, nothing else."""
                             "ICD4": icd_codes_dict.get("ICD4", ""),
                             "ICD4_Reasoning": icd_codes_dict.get("ICD4_Reasoning", "")
                         }
+                        correct_icd_codes(result)
                     except json.JSONDecodeError:
                         # If JSON parsing fails, try to extract codes manually
                         logger.warning(f"Failed to parse JSON, attempting manual extraction. Response: {content_text[:200]}")
@@ -2069,8 +2085,9 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                         }
                         return idx, filename, error_dict, tokens, cost, "No prediction returned from API", model_source
                 
+                correct_icd_codes(icd_codes_dict)
                 return idx, filename, icd_codes_dict, tokens, cost, error, model_source
-                
+
             except Exception as e:
                 error_msg = f"Unexpected error processing {filename}: {str(e)}"
                 logger.error(error_msg)
@@ -2370,6 +2387,7 @@ Respond with ONLY the JSON object, nothing else."""
                 "ICD4": result_dict.get("ICD4", ""),
                 "ICD4_Reasoning": result_dict.get("ICD4_Reasoning", ""),
             }
+            correct_icd_codes(icd_dict)
 
             logger.info(f"Combined prediction: CPT={cpt_code}, ICD1={icd_dict['ICD1']}")
             return cpt_code, cpt_explanation, icd_dict, 0, 0.0, None
@@ -2537,6 +2555,7 @@ Respond with ONLY a JSON object:
                 "ICD4": result_dict.get("ICD4", ""),
                 "ICD4_Reasoning": result_dict.get("ICD4_Reasoning", ""),
             }
+            correct_icd_codes(icd_dict)
             return cpt_code, cpt_explanation, icd_dict, tokens, cost, None
 
         except json.JSONDecodeError as e:

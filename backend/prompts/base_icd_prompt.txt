@@ -31,7 +31,7 @@ RULE 2: NEVER CODE BOTH SYMPTOM AND CONDITION
 
 RULE 3: ACTIVE CODE VALIDATION - REJECT THESE INACTIVE/RETIRED CODES
 - NEVER use these inactive/retired codes:
-  * Z86.010 (INACTIVE) → Replace with Z87.890 (Personal history of other specified conditions)
+  * Z86.010 (INACTIVE) → Replace with Z86.0100 (Personal history of colonic polyps)
   * Z53.3 (INACTIVE) → Do NOT use, find the actual diagnosis instead
   * M54.5 (INACTIVE/AMBIGUOUS) → Use M54.89 (other specified dorsalgia) if applicable
 - ONLY use codes valid and active as of December 2025
