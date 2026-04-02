@@ -202,7 +202,7 @@
  "
  class="dropdown-item"
  >
- CPT and ICD Instructions
+ Location-specific CPT and ICD Instructions
  </button>
  <button
  @click="
@@ -219,7 +219,7 @@
  @click="selectTabAndLoad('base-prompts', 'loadBasePrompts')"
  class="dropdown-item"
  >
- Base Prompts & CPT Codes
+ Base CPT and ICD Instructions
  </button>
  </div>
  </div>
