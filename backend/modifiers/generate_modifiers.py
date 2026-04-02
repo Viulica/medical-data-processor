@@ -760,14 +760,17 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         
         # Process each row
         result_rows = []
+        dropped_local_rows = []
         successful_matches = 0
         total_rows = len(df)
-        
+
         for idx, row in df.iterrows():
             # Skip LOCAL anesthesia cases — non-billable
             anesthesia_type_check = str(row.get('Anesthesia Type', '')).strip().upper()
             if anesthesia_type_check == 'LOCAL':
-                print(f"⚠️  Row {idx + 1}: SKIPPED — Anesthesia Type is LOCAL (non-billable)")
+                patient = f"{row.get('Patient Last Name', '')} {row.get('Patient First Name', '')}".strip()
+                print(f"⚠️  Row {idx + 1}: SKIPPED — Anesthesia Type is LOCAL (non-billable) — {patient}")
+                dropped_local_rows.append(patient or f"Row {idx + 1}")
                 continue
 
             new_row = row.copy()
@@ -973,29 +976,21 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             is_medicare = True
                 
                 # PT is added when:
-                # 1. Polyps found = "FOUND" AND (colonoscopy_is_screening = "TRUE" OR CPT = 00812)
-                # 2. Medicare Modifiers = YES (from modifiers_dict lookup)
-                # 3. AND either: (a) it's Medicare insurance, OR (b) add_pt_for_non_medicare is True and it's NOT Medicare
-                # Note: CPT 00812 covers surveillance colonoscopies (Hx polyps, Cologuard) which are screening intent
+                # 1. Polyps found = "FOUND"
+                # 2. Colonoscopy is screening/surveillance (colonoscopy_is_screening = TRUE OR CPT = 00812)
+                # PT applies to all payers — procedure converted from screening/surveillance to therapeutic
                 should_add_pt = False
                 screening_or_surveillance = colonoscopy_screening == 'TRUE' or asa_code == '00812' or procedure_code == '00812'
-                if polyps_value == 'FOUND' and screening_or_surveillance and medicare_modifiers:
-                    if is_medicare:
-                        # Add PT for Medicare when conditions are met and Medicare Modifiers = YES
-                        should_add_pt = True
-                    elif add_pt_for_non_medicare:
-                        # Add PT for non-Medicare when option is enabled and Medicare Modifiers = YES
-                        should_add_pt = True
+                if polyps_value == 'FOUND' and screening_or_surveillance:
+                    should_add_pt = True
                 
                 if should_add_pt:
                     pt_modifier = 'PT'
                     if primary_mednet_code in ['3136', '003', '00812']:
                         medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                        print(f"   PT modifier: added (Polyps=FOUND, Screening/Surveillance={screening_or_surveillance}, Medicare Modifiers=YES, {medicare_status})")
-                elif primary_mednet_code in ['3136', '003', '00812'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE' or asa_code == '00812'):
-                    medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                    medicare_modifiers_status = "YES" if medicare_modifiers else "NO"
-                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, CPT={asa_code}, Medicare Modifiers={medicare_modifiers_status}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
+                        print(f"   PT modifier: added (Polyps=FOUND, Screening/Surveillance={screening_or_surveillance})")
+                elif polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE' or asa_code == '00812':
+                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, CPT={asa_code})")
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > PT (goes in LAST position)
             # Place modifiers sequentially without gaps
@@ -1453,15 +1448,17 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print(f"Modifiers generation complete. Output saved to: {output_file}")
         
         print(f"Processed {len(df)} input rows, generated {len(result_df)} output rows.")
+        if dropped_local_rows:
+            print(f"⚠️  Dropped {len(dropped_local_rows)} LOCAL anesthesia case(s): {', '.join(dropped_local_rows)}")
         print(f"Successfully matched {successful_matches} out of {total_rows} MedNet codes ({successful_matches/total_rows*100:.1f}%)")
-        
-        return True
+
+        return True, dropped_local_rows
         
     except Exception as e:
         print(f"Error processing file: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return False, []
 
 
 def main():

@@ -4045,12 +4045,16 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         output_file_csv = result_base.with_suffix('.csv')
         
         # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, BCBS modifiers parameter, peripheral blocks mode, PT for non-Medicare parameter, and change Responsible Provider to MD if P only parameter
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
-        
+        result = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
+        success, dropped_local = result if isinstance(result, tuple) else (result, [])
+
         if not success:
             raise Exception("Modifiers generation failed")
-        
-        job.message = "Modifiers generation complete, preparing results..."
+
+        dropped_msg = ""
+        if dropped_local:
+            dropped_msg = f" | Dropped {len(dropped_local)} LOCAL case(s): {', '.join(dropped_local)}"
+        job.message = f"Modifiers generation complete, preparing results...{dropped_msg}"
         job.progress = 90
         
         # Verify output file exists
@@ -4067,7 +4071,10 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         job.result_file = str(output_file_csv)
         job.status = "completed"
         job.progress = 100
-        job.message = "Modifiers generation completed successfully!"
+        if dropped_local:
+            job.message = f"Modifiers generation completed. Dropped {len(dropped_local)} LOCAL anesthesia case(s): {', '.join(dropped_local)}"
+        else:
+            job.message = "Modifiers generation completed successfully!"
         
         # Clean up input file
         os.unlink(csv_path)
