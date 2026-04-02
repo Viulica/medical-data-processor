@@ -2018,7 +2018,7 @@
  class="btn-icon-small"
  title="Download XLSX"
  >
- 
+ XLSX
  </button>
  <button
  v-if="result.input_zip_supabase_path"
@@ -2026,7 +2026,7 @@
  class="btn-icon-small"
  title="Download Input ZIP"
  >
- 
+ ZIP
  </button>
  </div>
  </td>
@@ -7021,7 +7021,7 @@
  class="refresh-btn"
  title="Refresh templates"
  >
- 
+ Refresh
  </button>
  </div>
 
@@ -9249,7 +9249,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
  class="action-btn view-btn"
  title="View/Edit"
  >
- 
+ Edit
  </button>
  <button
  @click="
