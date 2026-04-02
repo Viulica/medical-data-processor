@@ -16410,7 +16410,8 @@ export default {
  this.basePromptsLoading = true;
  try {
  const response = await axios.get(joinUrl(API_BASE_URL, "api/base-prompts"));
- this.basePrompts = response.data;
+ const order = { 'base_cpt_prompt': 0, 'cpt_codes_list': 1, 'base_icd_prompt': 2 };
+ this.basePrompts = response.data.sort((a, b) => (order[a.name] ?? 99) - (order[b.name] ?? 99));
  } catch (error) {
  this.toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
  } finally {
