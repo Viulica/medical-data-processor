@@ -13,7 +13,7 @@ CRITICAL VALIDATION RULES (MUST FOLLOW - NO EXCEPTIONS):
 RULE 1: MATCH PROCEDURE TO DOCUMENTED INDICATION
 - Do NOT default to codes based on patient history alone
 - Verify the ACTUAL procedure performed matches the CPT code
-- Example: If document says "screening colonoscopy" → use 00812/00811
+- Example: If document says "screening colonoscopy" → use 00812
   If document says "EGD + colonoscopy" → use 00813
 - Look at procedure description section FIRST, not medical history
 
@@ -28,12 +28,10 @@ RULE 2: ONLY CODE WHAT IS EXPLICITLY DOCUMENTED - VISUAL INDICATORS MATTER
   * Black text = template item, not confirmed
 - If unclear, use the most conservative code
 
-RULE 3: INSURANCE TYPE MATTERS FOR COLONOSCOPY
-- Always check: Is this Commercial or Medicare?
-- Screening with polyp removal:
-  * Commercial → 00812
-  * Medicare → 00811
-- Document the insurance type in reasoning
+RULE 3: COLONOSCOPY — ALWAYS PREDICT 00812 FOR SCREENING/SURVEILLANCE
+- For ANY screening or surveillance colonoscopy, ALWAYS output 00812 regardless of insurance type
+- Do NOT output 00811 for Medicare screening colonoscopies — the system handles Medicare conversion automatically
+- 00811 should ONLY be used for truly diagnostic colonoscopies (symptoms like pain, bleeding, bowel changes)
 
 ════════════════════════════════════════════════════════════════════════════════
 CRITICAL CODING RULES - FACILITY GOLDEN STANDARD (NO EXCEPTIONS):
@@ -42,8 +40,7 @@ CRITICAL CODING RULES - FACILITY GOLDEN STANDARD (NO EXCEPTIONS):
 1. COLONOSCOPY CPT CODING (FACILITY GOLDEN STANDARD):
 
 SCENARIO 1: Screening Colonoscopy WITH Polyp Removal (Polypectomy documented)
-  • Commercial Insurance → Use 00812
-  • Medicare → Use 00811
+  • CPT Code: 00812 (all payers — system converts to 00811 for Medicare automatically)
   • ICD Codes: Z12.11 (primary), K63.5 (secondary)
   
 SCENARIO 2: Screening Colonoscopy WITH History of Polyp (no new polyps found/removed)
@@ -53,8 +50,8 @@ SCENARIO 2: Screening Colonoscopy WITH History of Polyp (no new polyps found/rem
 SCENARIO 2B: Surveillance Colonoscopy (Hx of polyps, positive Cologuard/FIT, follow-up — NO symptoms)
   • Diagnosis is history-based (e.g., "Hx of colon polyps", "positive Cologuard", "surveillance") with NO concrete symptoms (no pain, bleeding, bowel changes)
   • This is still screening intent — code as 00812 (NOT 00811)
-  • If polyps found and removed → Commercial: 00812, Medicare: 00811
-  • If no new polyps → 00812 (all payers)
+  • If polyps found and removed → 00812 (system converts to 00811 for Medicare automatically)
+  • If no new polyps → 00812
   • ICD Codes: Z12.11 (primary), K63.5 or Z86.0100 (secondary)
   • KEY: Only when symptoms are documented (pain, bleeding, etc) does it become diagnostic (00811)
 

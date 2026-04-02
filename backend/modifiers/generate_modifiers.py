@@ -986,12 +986,21 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 if should_add_pt:
                     pt_modifier = 'PT'
-                    if primary_mednet_code in ['3136', '003', '00812']:
-                        medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                        print(f"   PT modifier: added (Polyps=FOUND, Screening/Surveillance={screening_or_surveillance})")
+                    print(f"   PT modifier: added (Polyps=FOUND, Screening/Surveillance={screening_or_surveillance})")
+
+                    # Medicare + polyps found + 00812 → convert to 00811
+                    if is_medicare and (asa_code == '00812' or procedure_code == '00812'):
+                        if asa_code == '00812':
+                            new_row['ASA Code'] = '00811'
+                        if procedure_code == '00812':
+                            new_row['Procedure Code'] = '00811'
+                        asa_code = str(new_row.get('ASA Code', '')).strip()
+                        procedure_code = str(new_row.get('Procedure Code', '')).strip()
+                        print(f"   Medicare colonoscopy correction: 00812 → 00811 (Polyps=FOUND, Medicare=True)")
+
                 elif polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE' or asa_code == '00812':
                     print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, CPT={asa_code})")
-            
+
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > PT (goes in LAST position)
             # Place modifiers sequentially without gaps
             # PT modifier always goes in the LAST available position (no gaps allowed)
