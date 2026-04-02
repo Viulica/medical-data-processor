@@ -16427,7 +16427,7 @@ export default {
     async loadBasePrompts() {
       this.basePromptsLoading = true;
       try {
-        const response = await axios.get(this.joinUrl("api/base-prompts"));
+        const response = await axios.get(joinUrl(API_BASE_URL, "api/base-prompts"));
         this.basePrompts = response.data;
       } catch (error) {
         this.toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
@@ -16448,7 +16448,7 @@ export default {
         formData.append("content", this.editingBasePromptContent);
         formData.append("prompt_type", prompt.prompt_type);
         formData.append("description", prompt.description || "");
-        await axios.put(this.joinUrl(`api/base-prompts/${prompt.name}`), formData);
+        await axios.put(joinUrl(API_BASE_URL, `api/base-prompts/${prompt.name}`), formData);
         this.toast.success(`Saved "${prompt.name}" successfully`);
         this.editingBasePrompt = null;
         await this.loadBasePrompts();
@@ -16469,7 +16469,7 @@ export default {
         formData.append("content", this.newBasePromptContent);
         formData.append("prompt_type", this.newBasePromptType);
         formData.append("description", this.newBasePromptDescription);
-        await axios.put(this.joinUrl(`api/base-prompts/${this.newBasePromptName}`), formData);
+        await axios.put(joinUrl(API_BASE_URL, `api/base-prompts/${this.newBasePromptName}`), formData);
         this.toast.success(`Created "${this.newBasePromptName}" successfully`);
         this.showNewBasePromptForm = false;
         this.newBasePromptName = "";
@@ -16484,7 +16484,7 @@ export default {
     async deleteBasePrompt(name) {
       if (!confirm(`Delete prompt "${name}"? This cannot be undone.`)) return;
       try {
-        await axios.delete(this.joinUrl(`api/base-prompts/${name}`));
+        await axios.delete(joinUrl(API_BASE_URL, `api/base-prompts/${name}`));
         this.toast.success(`Deleted "${name}"`);
         await this.loadBasePrompts();
       } catch (error) {
@@ -16494,7 +16494,7 @@ export default {
 
     async syncBasePromptsFromFiles() {
       try {
-        const response = await axios.post(this.joinUrl("api/base-prompts/sync-from-files"));
+        const response = await axios.post(joinUrl(API_BASE_URL, "api/base-prompts/sync-from-files"));
         const results = response.data.results;
         const summary = Object.entries(results).map(([k, v]) => `${k}: ${v}`).join(", ");
         this.toast.success(`Sync complete: ${summary}`);
