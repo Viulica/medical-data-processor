@@ -177,7 +177,7 @@
  @click="selectTabAndLoad('config', 'loadModifiers')"
  class="dropdown-item"
  >
- Modifiers Config
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Modifiers Config
  </button>
  <button
  @click="
@@ -185,13 +185,19 @@
  "
  class="dropdown-item"
  >
- UNI and PAC Insurance Mapping
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> UNI and PAC Insurance Mapping
  </button>
  <button
  @click="selectTabAndLoad('templates', 'loadTemplates')"
  class="dropdown-item"
  >
- Data Extraction Templates
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg> Data Extraction Templates
+ </button>
+ <button
+ @click="selectTabAndLoad('base-prompts', 'loadBasePrompts')"
+ class="dropdown-item"
+ >
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Base CPT and ICD Instructions
  </button>
  <button
  @click="
@@ -202,7 +208,7 @@
  "
  class="dropdown-item"
  >
- Location-specific CPT and ICD Instructions
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Location-specific CPT and ICD Instructions
  </button>
  <button
  @click="
@@ -213,13 +219,7 @@
  "
  class="dropdown-item"
  >
- Special Cases
- </button>
- <button
- @click="selectTabAndLoad('base-prompts', 'loadBasePrompts')"
- class="dropdown-item"
- >
- Base CPT and ICD Instructions
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Special Cases
  </button>
  </div>
  </div>
@@ -9135,7 +9135,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <div v-for="prompt in basePrompts" :key="prompt.name" class="base-prompt-card">
  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
  <div style="display: flex; align-items: center; gap: 10px;">
- <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">{{ prompt.name }}</span>
+ <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">{{ getBasePromptDisplayName(prompt.name) }}</span>
  <span class="base-prompt-badge"
  :class="'base-prompt-badge-' + prompt.prompt_type">
  {{ prompt.prompt_type }}
@@ -9154,7 +9154,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
 
  <!-- View mode -->
  <div v-if="editingBasePrompt !== prompt.name">
- <pre class="base-prompt-pre">{{ prompt.content.substring(0, 2000) }}{{ prompt.content.length > 2000 ? '\n\n... (' + prompt.content.length + ' chars total, click Edit to see full)' : '' }}</pre>
+ <pre class="base-prompt-pre">{{ getVisiblePromptContent(prompt.content) }}</pre>
  <div style="color: #475569; font-size: 11px; margin-top: 6px;">
  {{ prompt.content.length.toLocaleString() }} characters · Updated {{ prompt.updated_at ? new Date(prompt.updated_at).toLocaleDateString() : 'N/A' }}
  </div>
@@ -16431,16 +16431,67 @@ export default {
  }
  },
 
+ getBasePromptDisplayName(name) {
+ const names = {
+ 'base_cpt_prompt': 'Base CPT Instructions',
+ 'base_icd_prompt': 'Base ICD Instructions',
+ 'cpt_codes_list': 'Complete list of CPT codes given to AI',
+ };
+ return names[name] || name;
+ },
+
+ getVisiblePromptContent(content) {
+ if (!content) return '';
+ const markers = [
+ 'You must respond with a JSON',
+ 'You must respond with ONLY',
+ 'Respond with ONLY the JSON',
+ 'Your entire response must be a single JSON',
+ 'Your response must be in the following JSON format',
+ 'OUTPUT FORMAT:',
+ 'Output format:',
+ ];
+ let cutoff = content.length;
+ for (const marker of markers) {
+ const idx = content.indexOf(marker);
+ if (idx !== -1 && idx < cutoff) cutoff = idx;
+ }
+ const visible = content.substring(0, cutoff).trimEnd();
+ return visible.substring(0, 3000) + (visible.length > 3000 ? '\n\n... (click Edit to see full)' : '');
+ },
+
+ splitPromptContent(content) {
+ if (!content) return { visible: '', hidden: '' };
+ const markers = [
+ 'You must respond with a JSON',
+ 'You must respond with ONLY',
+ 'Respond with ONLY the JSON',
+ 'Your entire response must be a single JSON',
+ 'Your response must be in the following JSON format',
+ 'OUTPUT FORMAT:',
+ 'Output format:',
+ ];
+ let cutoff = content.length;
+ for (const marker of markers) {
+ const idx = content.indexOf(marker);
+ if (idx !== -1 && idx < cutoff) cutoff = idx;
+ }
+ return { visible: content.substring(0, cutoff).trimEnd(), hidden: content.substring(cutoff) };
+ },
+
  startEditingBasePrompt(prompt) {
  this.editingBasePrompt = prompt.name;
- this.editingBasePromptContent = prompt.content;
+ const parts = this.splitPromptContent(prompt.content);
+ this.editingBasePromptContent = parts.visible;
+ this._hiddenPromptSuffix = parts.hidden;
  },
 
  async saveBasePrompt(prompt) {
  this.basePromptSaving = true;
  try {
+ const fullContent = this.editingBasePromptContent + (this._hiddenPromptSuffix || '');
  const formData = new FormData();
- formData.append("content", this.editingBasePromptContent);
+ formData.append("content", fullContent);
  formData.append("prompt_type", prompt.prompt_type);
  formData.append("description", prompt.description || "");
  await axios.put(joinUrl(API_BASE_URL, `api/base-prompts/${prompt.name}`), formData);
