@@ -9085,26 +9085,13 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <div v-if="activeTab === 'base-prompts'" class="tab-content">
  <div class="section">
  <div style="margin-bottom: 24px;">
- <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 600; color: #e2e8f0;"> Base Prompts & CPT Codes</h2>
+ <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 600; color: #1e293b;">Base CPT and ICD Instructions</h2>
  <p style="color: #64748b; margin: 0; font-size: 13px;">
  Foundation prompts used by all groups for CPT and ICD predictions.
  </p>
  </div>
 
- <div style="display: flex; gap: 8px; margin-bottom: 20px;">
- <button @click="loadBasePrompts" class="base-prompt-btn" :disabled="basePromptsLoading">
- {{ basePromptsLoading ? 'Loading...' : 'Refresh' }}
- </button>
- <button @click="syncBasePromptsFromFiles" class="base-prompt-btn base-prompt-btn-outline">
- Sync from Files
- </button>
- <button @click="showNewBasePromptForm = !showNewBasePromptForm" class="base-prompt-btn base-prompt-btn-outline">
- + New Prompt
- </button>
- </div>
-
- <!-- New prompt form -->
- <div v-if="showNewBasePromptForm" style="border: 1px solid #2d3748; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #1a1f2e;">
+ <div v-if="false" style="border: 1px solid #2d3748; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #1a1f2e;">
  <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 500; color: #e2e8f0;"> Create New Base Prompt</h3>
  <div style="display: flex; gap: 8px; margin-bottom: 8px;">
  <input v-model="newBasePromptName" placeholder="Prompt name (e.g. base_cpt_prompt)"
@@ -9135,7 +9122,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <div v-for="prompt in basePrompts" :key="prompt.name" class="base-prompt-card">
  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
  <div style="display: flex; align-items: center; gap: 10px;">
- <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">{{ getBasePromptDisplayName(prompt.name) }}</span>
+ <span style="font-size: 14px; font-weight: 500; color: #1e293b;">{{ getBasePromptDisplayName(prompt.name) }}</span>
  <span class="base-prompt-badge"
  :class="'base-prompt-badge-' + prompt.prompt_type">
  {{ prompt.prompt_type }}
@@ -19230,35 +19217,35 @@ input:checked + .slider:hover {
 .base-prompt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .base-prompt-btn-outline {
  background: transparent;
- color: #94a3b8;
- border-color: #334155;
+ color: #64748b;
+ border-color: #e2e8f0;
 }
-.base-prompt-btn-outline:hover { background: #1e293b; color: #e2e8f0; }
+.base-prompt-btn-outline:hover { background: #f1f5f9; color: #1e293b; }
 .base-prompt-btn-ghost {
  background: transparent;
  color: #64748b;
  border: none;
 }
-.base-prompt-btn-ghost:hover { color: #e2e8f0; }
+.base-prompt-btn-ghost:hover { color: #1e293b; }
 .base-prompt-btn-sm {
  padding: 3px 10px;
  font-size: 12px;
 }
 .base-prompt-btn-danger {
  background: transparent;
- color: #64748b;
- border-color: #334155;
+ color: #94a3b8;
+ border-color: #e2e8f0;
 }
 .base-prompt-btn-danger:hover { color: #ef4444; border-color: #ef4444; }
 .base-prompt-card {
- border: 1px solid #2d3748;
+ border: 1px solid #e2e8f0;
  border-radius: 8px;
  padding: 16px;
  margin-bottom: 12px;
- background: #1a1f2e;
+ background: white;
  transition: border-color 0.15s;
 }
-.base-prompt-card:hover { border-color: #3b4a5e; }
+.base-prompt-card:hover { border-color: #cbd5e1; }
 .base-prompt-badge {
  font-size: 10px;
  font-weight: 600;
@@ -19268,29 +19255,29 @@ input:checked + .slider:hover {
  border-radius: 4px;
  border: 1px solid;
 }
-.base-prompt-badge-cpt { color: #60a5fa; border-color: #1e3a5f; background: #0c1929; }
-.base-prompt-badge-icd { color: #34d399; border-color: #064e3b; background: #0c1f1a; }
-.base-prompt-badge-reference { color: #fbbf24; border-color: #78350f; background: #1c1507; }
+.base-prompt-badge-cpt { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+.base-prompt-badge-icd { color: #059669; border-color: #a7f3d0; background: #ecfdf5; }
+.base-prompt-badge-reference { color: #d97706; border-color: #fde68a; background: #fffbeb; }
 .base-prompt-pre {
- background: #0f1219;
+ background: #f8fafc;
  padding: 14px;
  border-radius: 6px;
- border: 1px solid #1e293b;
+ border: 1px solid #e2e8f0;
  max-height: 280px;
  overflow-y: auto;
  white-space: pre-wrap;
  word-wrap: break-word;
  font-size: 12px;
  line-height: 1.6;
- color: #94a3b8;
+ color: #374151;
  margin: 0;
  font-family: 'SF Mono', 'Fira Code', monospace;
 }
 .base-prompt-input {
  padding: 8px 10px;
- background: #0f1219;
- color: #e2e8f0;
- border: 1px solid #2d3748;
+ background: #f8fafc;
+ color: #1e293b;
+ border: 1px solid #e2e8f0;
  border-radius: 6px;
  font-size: 13px;
  outline: none;
