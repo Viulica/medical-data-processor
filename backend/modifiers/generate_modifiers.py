@@ -764,8 +764,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         total_rows = len(df)
         
         for idx, row in df.iterrows():
+            # Skip LOCAL anesthesia cases — non-billable
+            anesthesia_type_check = str(row.get('Anesthesia Type', '')).strip().upper()
+            if anesthesia_type_check == 'LOCAL':
+                print(f"⚠️  Row {idx + 1}: SKIPPED — Anesthesia Type is LOCAL (non-billable)")
+                continue
+
             new_row = row.copy()
-            
+
             # Reset M1, M2, M3, M4 for this row
             new_row['M1'] = ''
             new_row['M2'] = ''
