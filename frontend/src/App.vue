@@ -9084,105 +9084,100 @@ Johnson, Robert, MD (MedNet Code: 1)"
         <!-- Base Prompts & CPT Codes Tab -->
         <div v-if="activeTab === 'base-prompts'" class="tab-content">
           <div class="section">
-            <h2>📄 Base Prompts & CPT Codes</h2>
-            <p style="color: #aaa; margin-bottom: 15px;">
-              Edit the base CPT prediction prompt, base ICD prediction prompt, and the complete CPT codes reference list.
-              These are used by ALL groups as the foundation for predictions.
-            </p>
+            <div style="margin-bottom: 24px;">
+              <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 600; color: #e2e8f0;">Base Prompts & CPT Codes</h2>
+              <p style="color: #64748b; margin: 0; font-size: 13px;">
+                Foundation prompts used by all groups for CPT and ICD predictions.
+              </p>
+            </div>
 
-            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-              <button @click="loadBasePrompts" class="action-btn" :disabled="basePromptsLoading">
-                {{ basePromptsLoading ? '⏳ Loading...' : '🔄 Refresh' }}
+            <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+              <button @click="loadBasePrompts" class="base-prompt-btn" :disabled="basePromptsLoading">
+                {{ basePromptsLoading ? 'Loading...' : 'Refresh' }}
               </button>
-              <button @click="syncBasePromptsFromFiles" class="action-btn" style="background: #f59e0b;">
-                📥 Sync from Files (first time only)
+              <button @click="syncBasePromptsFromFiles" class="base-prompt-btn base-prompt-btn-outline">
+                Sync from Files
               </button>
-              <button @click="showNewBasePromptForm = !showNewBasePromptForm" class="action-btn" style="background: #10b981;">
-                ➕ New Prompt
+              <button @click="showNewBasePromptForm = !showNewBasePromptForm" class="base-prompt-btn base-prompt-btn-outline">
+                + New Prompt
               </button>
             </div>
 
             <!-- New prompt form -->
-            <div v-if="showNewBasePromptForm" style="background: #1e293b; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-              <h3 style="margin-top: 0;">Create New Base Prompt</h3>
-              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <div v-if="showNewBasePromptForm" style="border: 1px solid #2d3748; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #1a1f2e;">
+              <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 500; color: #e2e8f0;">Create New Base Prompt</h3>
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                 <input v-model="newBasePromptName" placeholder="Prompt name (e.g. base_cpt_prompt)"
-                  style="flex: 1; padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;" />
-                <select v-model="newBasePromptType" style="padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;">
+                  class="base-prompt-input" style="flex: 1;" />
+                <select v-model="newBasePromptType" class="base-prompt-input" style="width: 120px;">
                   <option value="cpt">CPT</option>
                   <option value="icd">ICD</option>
                   <option value="reference">Reference</option>
                 </select>
               </div>
-              <input v-model="newBasePromptDescription" placeholder="Description"
-                style="width: 100%; padding: 8px; margin-bottom: 10px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px;" />
+              <input v-model="newBasePromptDescription" placeholder="Description (optional)"
+                class="base-prompt-input" style="width: 100%; margin-bottom: 8px;" />
               <textarea v-model="newBasePromptContent" placeholder="Prompt content..." rows="10"
-                style="width: 100%; padding: 8px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 4px; font-family: monospace; font-size: 12px;"></textarea>
-              <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button @click="createBasePrompt" class="action-btn" style="background: #10b981;">💾 Save</button>
-                <button @click="showNewBasePromptForm = false" class="action-btn" style="background: #64748b;">Cancel</button>
+                class="base-prompt-input base-prompt-textarea"></textarea>
+              <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button @click="createBasePrompt" class="base-prompt-btn">Save</button>
+                <button @click="showNewBasePromptForm = false" class="base-prompt-btn base-prompt-btn-ghost">Cancel</button>
               </div>
             </div>
 
             <!-- Loading state -->
-            <div v-if="basePromptsLoading" style="text-align: center; padding: 40px; color: #aaa;">
-              ⏳ Loading base prompts...
+            <div v-if="basePromptsLoading" style="text-align: center; padding: 48px; color: #64748b; font-size: 13px;">
+              Loading base prompts...
             </div>
 
             <!-- Prompt cards -->
             <div v-else-if="basePrompts.length > 0">
-              <div v-for="prompt in basePrompts" :key="prompt.name"
-                style="background: #1e293b; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 1px solid #334155;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                  <div>
-                    <h3 style="margin: 0; color: #60a5fa;">{{ prompt.name }}</h3>
-                    <span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-right: 8px;"
-                      :style="{
-                        background: prompt.prompt_type === 'cpt' ? '#1e40af' : prompt.prompt_type === 'icd' ? '#065f46' : '#78350f',
-                        color: 'white'
-                      }">
-                      {{ prompt.prompt_type.toUpperCase() }}
+              <div v-for="prompt in basePrompts" :key="prompt.name" class="base-prompt-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 14px; font-weight: 500; color: #e2e8f0;">{{ prompt.name }}</span>
+                    <span class="base-prompt-badge"
+                      :class="'base-prompt-badge-' + prompt.prompt_type">
+                      {{ prompt.prompt_type }}
                     </span>
-                    <span style="color: #94a3b8; font-size: 12px;">{{ prompt.description }}</span>
                   </div>
-                  <div style="display: flex; gap: 8px;">
+                  <div style="display: flex; gap: 6px;">
                     <button v-if="editingBasePrompt !== prompt.name"
-                      @click="startEditingBasePrompt(prompt)" class="action-btn" style="padding: 4px 12px; font-size: 12px;">
-                      ✏️ Edit
+                      @click="startEditingBasePrompt(prompt)" class="base-prompt-btn base-prompt-btn-sm">
+                      Edit
                     </button>
-                    <button @click="deleteBasePrompt(prompt.name)" class="action-btn"
-                      style="padding: 4px 12px; font-size: 12px; background: #dc2626;">
-                      🗑️
+                    <button @click="deleteBasePrompt(prompt.name)" class="base-prompt-btn base-prompt-btn-sm base-prompt-btn-danger">
+                      Delete
                     </button>
                   </div>
                 </div>
 
                 <!-- View mode -->
                 <div v-if="editingBasePrompt !== prompt.name">
-                  <pre style="background: #0f172a; padding: 12px; border-radius: 6px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; color: #cbd5e1; margin: 0;">{{ prompt.content.substring(0, 2000) }}{{ prompt.content.length > 2000 ? '\n\n... (' + prompt.content.length + ' chars total, click Edit to see full)' : '' }}</pre>
-                  <div style="color: #64748b; font-size: 11px; margin-top: 5px;">
-                    {{ prompt.content.length.toLocaleString() }} characters | Updated: {{ prompt.updated_at ? new Date(prompt.updated_at).toLocaleString() : 'N/A' }}
+                  <pre class="base-prompt-pre">{{ prompt.content.substring(0, 2000) }}{{ prompt.content.length > 2000 ? '\n\n... (' + prompt.content.length + ' chars total, click Edit to see full)' : '' }}</pre>
+                  <div style="color: #475569; font-size: 11px; margin-top: 6px;">
+                    {{ prompt.content.length.toLocaleString() }} characters · Updated {{ prompt.updated_at ? new Date(prompt.updated_at).toLocaleDateString() : 'N/A' }}
                   </div>
                 </div>
 
                 <!-- Edit mode -->
                 <div v-else>
                   <textarea v-model="editingBasePromptContent" rows="25"
-                    style="width: 100%; padding: 10px; background: #0f172a; color: #e2e8f0; border: 2px solid #3b82f6; border-radius: 6px; font-family: monospace; font-size: 12px; line-height: 1.5; resize: vertical;"></textarea>
-                  <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
-                    <button @click="saveBasePrompt(prompt)" class="action-btn" style="background: #10b981;" :disabled="basePromptSaving">
-                      {{ basePromptSaving ? '⏳ Saving...' : '💾 Save Changes' }}
+                    class="base-prompt-input base-prompt-textarea" style="border-color: #3b82f6;"></textarea>
+                  <div style="display: flex; gap: 8px; margin-top: 10px; align-items: center;">
+                    <button @click="saveBasePrompt(prompt)" class="base-prompt-btn" :disabled="basePromptSaving">
+                      {{ basePromptSaving ? 'Saving...' : 'Save Changes' }}
                     </button>
-                    <button @click="editingBasePrompt = null" class="action-btn" style="background: #64748b;">Cancel</button>
-                    <span style="color: #64748b; font-size: 12px;">{{ editingBasePromptContent.length.toLocaleString() }} characters</span>
+                    <button @click="editingBasePrompt = null" class="base-prompt-btn base-prompt-btn-ghost">Cancel</button>
+                    <span style="color: #475569; font-size: 12px; margin-left: auto;">{{ editingBasePromptContent.length.toLocaleString() }} chars</span>
                   </div>
                 </div>
               </div>
             </div>
 
             <!-- Empty state -->
-            <div v-else style="text-align: center; padding: 40px; color: #64748b;">
-              <p>No base prompts found. Click "Sync from Files" to import the current prompts from the codebase.</p>
+            <div v-else style="text-align: center; padding: 48px; color: #475569; font-size: 13px;">
+              No base prompts found. Click "Sync from Files" to import from the codebase.
             </div>
           </div>
         </div>
@@ -19167,6 +19162,97 @@ input:checked + .slider:hover {
 .reorder-priority {
   color: #f59e0b;
   font-size: 0.9rem;
+}
+
+/* Base Prompts - clean shadcn-style */
+.base-prompt-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  background: #e2e8f0;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.base-prompt-btn:hover { background: #cbd5e1; }
+.base-prompt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.base-prompt-btn-outline {
+  background: transparent;
+  color: #94a3b8;
+  border-color: #334155;
+}
+.base-prompt-btn-outline:hover { background: #1e293b; color: #e2e8f0; }
+.base-prompt-btn-ghost {
+  background: transparent;
+  color: #64748b;
+  border: none;
+}
+.base-prompt-btn-ghost:hover { color: #e2e8f0; }
+.base-prompt-btn-sm {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.base-prompt-btn-danger {
+  background: transparent;
+  color: #64748b;
+  border-color: #334155;
+}
+.base-prompt-btn-danger:hover { color: #ef4444; border-color: #ef4444; }
+.base-prompt-card {
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #1a1f2e;
+  transition: border-color 0.15s;
+}
+.base-prompt-card:hover { border-color: #3b4a5e; }
+.base-prompt-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.base-prompt-badge-cpt { color: #60a5fa; border-color: #1e3a5f; background: #0c1929; }
+.base-prompt-badge-icd { color: #34d399; border-color: #064e3b; background: #0c1f1a; }
+.base-prompt-badge-reference { color: #fbbf24; border-color: #78350f; background: #1c1507; }
+.base-prompt-pre {
+  background: #0f1219;
+  padding: 14px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #94a3b8;
+  margin: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.base-prompt-input {
+  padding: 8px 10px;
+  background: #0f1219;
+  color: #e2e8f0;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.base-prompt-input:focus { border-color: #3b82f6; }
+.base-prompt-textarea {
+  width: 100%;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
 }
 
 .reorder-ghost {
