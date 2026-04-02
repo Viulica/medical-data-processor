@@ -16430,7 +16430,7 @@ export default {
         const response = await axios.get(this.joinUrl("api/base-prompts"));
         this.basePrompts = response.data;
       } catch (error) {
-        this.$toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
+        this.toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
       } finally {
         this.basePromptsLoading = false;
       }
@@ -16449,11 +16449,11 @@ export default {
         formData.append("prompt_type", prompt.prompt_type);
         formData.append("description", prompt.description || "");
         await axios.put(this.joinUrl(`api/base-prompts/${prompt.name}`), formData);
-        this.$toast.success(`Saved "${prompt.name}" successfully`);
+        this.toast.success(`Saved "${prompt.name}" successfully`);
         this.editingBasePrompt = null;
         await this.loadBasePrompts();
       } catch (error) {
-        this.$toast.error("Failed to save: " + (error.response?.data?.detail || error.message));
+        this.toast.error("Failed to save: " + (error.response?.data?.detail || error.message));
       } finally {
         this.basePromptSaving = false;
       }
@@ -16461,7 +16461,7 @@ export default {
 
     async createBasePrompt() {
       if (!this.newBasePromptName || !this.newBasePromptContent) {
-        this.$toast.error("Name and content are required");
+        this.toast.error("Name and content are required");
         return;
       }
       try {
@@ -16470,14 +16470,14 @@ export default {
         formData.append("prompt_type", this.newBasePromptType);
         formData.append("description", this.newBasePromptDescription);
         await axios.put(this.joinUrl(`api/base-prompts/${this.newBasePromptName}`), formData);
-        this.$toast.success(`Created "${this.newBasePromptName}" successfully`);
+        this.toast.success(`Created "${this.newBasePromptName}" successfully`);
         this.showNewBasePromptForm = false;
         this.newBasePromptName = "";
         this.newBasePromptContent = "";
         this.newBasePromptDescription = "";
         await this.loadBasePrompts();
       } catch (error) {
-        this.$toast.error("Failed to create: " + (error.response?.data?.detail || error.message));
+        this.toast.error("Failed to create: " + (error.response?.data?.detail || error.message));
       }
     },
 
@@ -16485,10 +16485,10 @@ export default {
       if (!confirm(`Delete prompt "${name}"? This cannot be undone.`)) return;
       try {
         await axios.delete(this.joinUrl(`api/base-prompts/${name}`));
-        this.$toast.success(`Deleted "${name}"`);
+        this.toast.success(`Deleted "${name}"`);
         await this.loadBasePrompts();
       } catch (error) {
-        this.$toast.error("Failed to delete: " + (error.response?.data?.detail || error.message));
+        this.toast.error("Failed to delete: " + (error.response?.data?.detail || error.message));
       }
     },
 
@@ -16497,10 +16497,10 @@ export default {
         const response = await axios.post(this.joinUrl("api/base-prompts/sync-from-files"));
         const results = response.data.results;
         const summary = Object.entries(results).map(([k, v]) => `${k}: ${v}`).join(", ");
-        this.$toast.success(`Sync complete: ${summary}`);
+        this.toast.success(`Sync complete: ${summary}`);
         await this.loadBasePrompts();
       } catch (error) {
-        this.$toast.error("Failed to sync: " + (error.response?.data?.detail || error.message));
+        this.toast.error("Failed to sync: " + (error.response?.data?.detail || error.message));
       }
     },
 
