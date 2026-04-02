@@ -49,7 +49,15 @@ SCENARIO 1: Screening Colonoscopy WITH Polyp Removal (Polypectomy documented)
 SCENARIO 2: Screening Colonoscopy WITH History of Polyp (no new polyps found/removed)
   • CPT Code: 00812 (all payers)
   • ICD Codes: Z12.11 (primary), Z86.0100 (secondary)
-  
+
+SCENARIO 2B: Surveillance Colonoscopy (Hx of polyps, positive Cologuard/FIT, follow-up — NO symptoms)
+  • Diagnosis is history-based (e.g., "Hx of colon polyps", "positive Cologuard", "surveillance") with NO concrete symptoms (no pain, bleeding, bowel changes)
+  • This is still screening intent — code as 00812 (NOT 00811)
+  • If polyps found and removed → Commercial: 00812, Medicare: 00811
+  • If no new polyps → 00812 (all payers)
+  • ICD Codes: Z12.11 (primary), K63.5 or Z86.0100 (secondary)
+  • KEY: Only when symptoms are documented (pain, bleeding, etc) does it become diagnostic (00811)
+
 SCENARIO 3: EGD + Screening Colonoscopy WITH Polyp
   • CPT Code: 00813 (all payers)
   • ICD Codes: [EGD diagnosis] (primary), Z12.11, K63.5 (secondary/tertiary)
@@ -59,7 +67,9 @@ SCENARIO 4: EGD + Screening Colonoscopy WITH History of Polyp
   • ICD Codes: [EGD diagnosis] (primary), Z12.11, Z86.0100 (secondary/tertiary)
 
 KEY DISTINCTIONS:
-  • Screening = routine check, no prior personal findings
+  • Screening = routine check, no prior personal findings → 00812
+  • Surveillance = history-based follow-up (Hx polyps, positive Cologuard) with NO symptoms → 00812 (same as screening)
+  • Diagnostic = symptoms documented (pain, bleeding, bowel changes) → 00811
   • History of polyp = prior polyps documented but NONE found/removed in THIS procedure
   • Polypectomy = polyps FOUND and REMOVED during THIS procedure — MUST be documented in post-op findings
   • If polyps found → add K63.5

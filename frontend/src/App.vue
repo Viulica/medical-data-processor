@@ -6712,6 +6712,31 @@
                     (turn on for NTA group)
                   </p>
                 </div>
+
+                <div class="toggle-container">
+                  <div class="toggle-header">
+                    <label class="toggle-label">
+                      Colonoscopy CPT Correction (00812→00811)
+                    </label>
+                    <label class="switch">
+                      <input type="checkbox" v-model="enableColonoscopyCorrection" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                  <p class="toggle-description">
+                    {{
+                      enableColonoscopyCorrection
+                        ? "Colonoscopy CPT correction is ON — 00812 will be changed to 00811 based on screening/Medicare rules."
+                        : "Colonoscopy CPT correction is OFF — AI-predicted CPT code will be used as-is."
+                    }}
+                  </p>
+                  <p
+                    class="toggle-description"
+                    style="margin-top: 0.5rem; font-style: italic; color: #666"
+                  >
+                    (turn on for UNI group only)
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -9794,6 +9819,7 @@ export default {
       peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
       addPtForNonMedicare: false, // Toggle for adding PT modifier to non-Medicare insurances
       changeResponsibleProviderToMdIfPOnly: false, // Toggle for changing Responsible Provider to MD when only P modifier is used
+      enableColonoscopyCorrection: false, // Toggle for colonoscopy CPT correction (00812→00811) — enable for UNI group
       // Insurance sorting functionality
       insuranceDataCsv: null,
       specialCasesCsv: null,
@@ -14382,6 +14408,7 @@ export default {
       formData.append("add_pt_for_non_medicare", this.addPtForNonMedicare);
       // Add change Responsible Provider to MD if P only parameter
       formData.append("change_responsible_provider_to_md_if_p_only", this.changeResponsibleProviderToMdIfPOnly);
+      formData.append("enable_colonoscopy_correction", this.enableColonoscopyCorrection);
 
       const uploadUrl = joinUrl(API_BASE_URL, "generate-modifiers");
       console.log("🔧 Modifiers Upload URL:", uploadUrl);
@@ -14505,6 +14532,7 @@ export default {
       this.peripheralBlocksMode = "other";
       this.addPtForNonMedicare = false;
       this.changeResponsibleProviderToMdIfPOnly = false;
+      this.enableColonoscopyCorrection = false;
     },
 
     getModifiersStatusTitle() {

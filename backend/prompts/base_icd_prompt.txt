@@ -94,18 +94,28 @@ SCENARIO 3: General screening colonoscopy with NO findings
   • ICD3: Leave empty
   • ICD4: Leave empty
 
-SCENARIO 4: Non-screening/Diagnostic Colonoscopy (symptom-based or follow-up)
-  • ICD1: [Actual finding/indication] (e.g., K63.5 polyp, K21.9 GERD, K57.30 diverticulosis)
+SCENARIO 4: Surveillance Colonoscopy (history of polyps, positive Cologuard, or follow-up — NO symptoms)
+  • ICD1: Z12.11 (Encounter for screening for malignant neoplasm of colon)
+  • ICD2: K63.5 if new polyps found/removed, OR Z86.0100 if no new findings
+  • ICD3: Additional history codes or comorbidities if ASA 3+
+  • ICD4: Leave empty unless ASA 3+ with relevant comorbidity
+  • KEY: Surveillance is still screening intent — Z12.11 is PRIMARY. Includes "Hx of polyps", "positive Cologuard/FIT", "surveillance colonoscopy"
+  • KEY: Only when SYMPTOMS are documented (pain, bleeding, etc) does it become diagnostic (Scenario 5)
+
+SCENARIO 5: Diagnostic Colonoscopy (symptom-based — pain, bleeding, bowel changes)
+  • ICD1: [Symptom/finding code] (e.g., K62.5 rectal bleeding, R10.13 abdominal pain, R19.4 bowel changes)
   • ICD2: Z12.11 only if screening was ALSO part of the documented procedure reason
   • ICD3: History codes (Z80.0, Z86.0100) or supportive findings if documented
   • ICD4: Additional comorbidities if ASA 3+ AND documented
+  • KEY: Symptoms MUST be explicitly documented as the reason for the procedure
 
 KEY RULES:
-  • Screening colonoscopy = Z12.11 is PRIMARY (ICD1)
+  • Screening AND surveillance colonoscopy = Z12.11 is PRIMARY (ICD1)
+  • Only symptom-based/diagnostic colonoscopy uses the symptom as ICD1
   • If polyps found and removed = K63.5 goes in ICD2
   • If only history of polyps (no NEW findings) = Z86.0100 goes in ICD2 (NOT Z86.010 which is INACTIVE)
   • NEVER use both K63.5 AND Z86.0100 in same case (one or the other, not both)
-  • NEVER use Z12.11 for diagnostic/symptom-based colonoscopy as ICD1 (only as secondary if screening was also done)
+  • NEVER use Z12.11 for symptom-based colonoscopy as ICD1 (only as secondary if screening was also done)
   • Post-op diagnosis ALWAYS takes priority
   • Do NOT fill remaining ICD slots with filler codes (obesity E66.9, anxiety F41.9, etc) - leave empty if not relevant
 

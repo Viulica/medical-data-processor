@@ -591,11 +591,11 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False, enable_colonoscopy_correction=False):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
-    
+
     Args:
         input_file: Path to input CSV file
         output_file: Path to output CSV file (optional)
@@ -608,6 +608,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
+        enable_colonoscopy_correction: If True, apply colonoscopy CPT correction (00812→00811 based on screening/Medicare rules). OFF by default — enable for UNI group.
     """
     try:
         # Load modifiers definition
@@ -771,18 +772,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             new_row['M3'] = ''
             new_row['M4'] = ''
             
-            # Apply colonoscopy correction if ASA Code or Procedure Code is 00812
+            # Apply colonoscopy correction if enabled and ASA Code or Procedure Code is 00812
             asa_code = str(new_row.get('ASA Code', '')).strip()
             procedure_code = str(new_row.get('Procedure Code', '')).strip()
-            
-            if asa_code == '00812' or procedure_code == '00812':
+
+            if enable_colonoscopy_correction and (asa_code == '00812' or procedure_code == '00812'):
                 # Apply correction to ASA Code
                 if asa_code == '00812':
                     corrected_asa = apply_colonoscopy_correction(row, asa_code, insurances_df)
                     if corrected_asa != asa_code:
                         new_row['ASA Code'] = corrected_asa
                         print(f"Row {idx + 1}: Colonoscopy correction applied - ASA Code changed from {asa_code} to {corrected_asa}")
-                
+
                 # Apply correction to Procedure Code (should match ASA Code)
                 if procedure_code == '00812':
                     corrected_procedure = apply_colonoscopy_correction(row, procedure_code, insurances_df)
@@ -947,12 +948,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             print(f"   P modifier NOT added (Invalid Physical Status: '{physical_status}')")
                         pass
             
-            # Determine PT modifier based on Polyps found AND colonoscopy_is_screening = TRUE
+            # Determine PT modifier based on Polyps found during ANY colonoscopy (screening or surveillance)
+            # PT is added when a screening/surveillance procedure converts to therapeutic (polypectomy)
             # PT modifier requires Medicare Modifiers = YES for the insurance
             # If add_pt_for_non_medicare is True, PT modifier can also be added for non-Medicare insurances (but still requires Medicare Modifiers = YES)
-            if has_polyps_found_column and has_colonoscopy_screening_column:
+            if has_polyps_found_column:
                 polyps_value = str(row.get('Polyps found', '')).strip().upper()
-                colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper()
+                colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() if has_colonoscopy_screening_column else ''
                 
                 # Check if insurance is Medicare (for logging/debugging purposes)
                 is_medicare = False
@@ -965,11 +967,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             is_medicare = True
                 
                 # PT is added when:
-                # 1. Polyps found = "FOUND" AND colonoscopy_is_screening = "TRUE"
+                # 1. Polyps found = "FOUND" AND (colonoscopy_is_screening = "TRUE" OR CPT = 00812)
                 # 2. Medicare Modifiers = YES (from modifiers_dict lookup)
                 # 3. AND either: (a) it's Medicare insurance, OR (b) add_pt_for_non_medicare is True and it's NOT Medicare
+                # Note: CPT 00812 covers surveillance colonoscopies (Hx polyps, Cologuard) which are screening intent
                 should_add_pt = False
-                if polyps_value == 'FOUND' and colonoscopy_screening == 'TRUE' and medicare_modifiers:
+                screening_or_surveillance = colonoscopy_screening == 'TRUE' or asa_code == '00812' or procedure_code == '00812'
+                if polyps_value == 'FOUND' and screening_or_surveillance and medicare_modifiers:
                     if is_medicare:
                         # Add PT for Medicare when conditions are met and Medicare Modifiers = YES
                         should_add_pt = True
@@ -981,11 +985,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     pt_modifier = 'PT'
                     if primary_mednet_code in ['3136', '003', '00812']:
                         medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
-                        print(f"   PT modifier: added (Polyps=FOUND, Screening=TRUE, Medicare Modifiers=YES, {medicare_status})")
-                elif primary_mednet_code in ['3136', '003', '00812'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE'):
+                        print(f"   PT modifier: added (Polyps=FOUND, Screening/Surveillance={screening_or_surveillance}, Medicare Modifiers=YES, {medicare_status})")
+                elif primary_mednet_code in ['3136', '003', '00812'] and (polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE' or asa_code == '00812'):
                     medicare_status = "Medicare=True" if is_medicare else "Non-Medicare=True"
                     medicare_modifiers_status = "YES" if medicare_modifiers else "NO"
-                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, Medicare Modifiers={medicare_modifiers_status}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
+                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, CPT={asa_code}, Medicare Modifiers={medicare_modifiers_status}, {medicare_status}, add_pt_for_non_medicare={add_pt_for_non_medicare})")
             
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > PT (goes in LAST position)
             # Place modifiers sequentially without gaps

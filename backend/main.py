@@ -4004,7 +4004,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False, enable_colonoscopy_correction: bool = False):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -4045,7 +4045,7 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         output_file_csv = result_base.with_suffix('.csv')
         
         # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, BCBS modifiers parameter, peripheral blocks mode, PT for non-Medicare parameter, and change Responsible Provider to MD if P only parameter
-        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only)
+        success = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
         
         if not success:
             raise Exception("Modifiers generation failed")
@@ -7284,10 +7284,11 @@ async def generate_modifiers_route(
     turn_off_bcbs_medicare_modifiers: bool = Form(True),
     peripheral_blocks_mode: str = Form("other"),
     add_pt_for_non_medicare: bool = Form(False),
-    change_responsible_provider_to_md_if_p_only: bool = Form(False)
+    change_responsible_provider_to_md_if_p_only: bool = Form(False),
+    enable_colonoscopy_correction: bool = Form(False)
 ):
     """Upload a CSV or XLSX file to generate medical modifiers
-    
+
     Args:
         csv_file: CSV or XLSX file with billing data
         turn_off_medical_direction: If True, override all medical direction YES to NO
@@ -7297,6 +7298,7 @@ async def generate_modifiers_route(
         peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
+        enable_colonoscopy_correction: If True, apply colonoscopy CPT correction (00812→00811 based on screening/Medicare). Enable for UNI group only.
     """
     
     try:
@@ -7331,7 +7333,7 @@ async def generate_modifiers_route(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
