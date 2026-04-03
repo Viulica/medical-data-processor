@@ -9814,7 +9814,7 @@ export default {
  isPredictingInsurance: false,
  isInsuranceDataDragActive: false,
  isSpecialCasesDragActive: false,
- enableAi: true, // Toggle for AI-powered insurance matching
+ enableAi: false, // Toggle for AI-powered insurance matching
  // Unified Processing functionality (Extract + CPT + ICD)
  unifiedZipFile: null,
  unifiedExcelFile: null,
