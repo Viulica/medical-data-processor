@@ -10754,7 +10754,7 @@ async def process_unified(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-flash-latest"),
+    extraction_model: str = Form(default="gemini-3-flash-preview"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -11052,7 +11052,7 @@ async def process_unified_with_refinement(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-flash-latest"),
+    extraction_model: str = Form(default="gemini-3-flash-preview"),
     extraction_max_workers: int = Form(default=50),
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),

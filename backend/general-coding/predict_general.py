@@ -231,18 +231,27 @@ Respond with ONLY the JSON object, nothing else."""
             types.Tool(googleSearch=types.GoogleSearch()),
         ]
 
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools if tools else None
-    )
-    
+    use_flex = True  # Start with flex tier (50% cheaper)
+    FLEX_TIMEOUT = 600  # 10 minutes
+
     # Retry mechanism with exponential backoff
     max_retries = 5
     for attempt in range(max_retries):
         try:
+            service_tier = "flex" if use_flex else "standard"
+            generate_content_config = types.GenerateContentConfig(
+                response_mime_type="text/plain",
+                thinking_config=thinking_config,
+                tools=tools if tools else None,
+                http_options=types.HttpOptions(
+                    extra_body={"serviceTier": service_tier},
+                    timeout=FLEX_TIMEOUT * 1000 if use_flex else None,
+                ),
+            )
+
             # Call Gemini API
             full_response = ""
+            request_start = time.time()
             for chunk in client.models.generate_content_stream(
                 model=model,
                 contents=contents,
@@ -250,12 +259,14 @@ Respond with ONLY the JSON object, nothing else."""
             ):
                 if chunk.text is not None:
                     full_response += chunk.text
-            
+                if use_flex and (time.time() - request_start) > FLEX_TIMEOUT:
+                    raise TimeoutError("Flex request exceeded 10 minute timeout")
+
             response_text = full_response.strip()
-            
+
             if not response_text:
                 raise ValueError("Empty response from API")
-            
+
             # Clean up response (remove markdown code blocks if present)
             cleaned_response = response_text
             if cleaned_response.startswith('```json'):
@@ -265,36 +276,37 @@ Respond with ONLY the JSON object, nothing else."""
             if cleaned_response.endswith('```'):
                 cleaned_response = cleaned_response[:-3]
             cleaned_response = cleaned_response.strip()
-            
+
             # Parse JSON
             result = json.loads(cleaned_response)
             predicted_code = result.get("code", "").strip()
             explanation = result.get("explanation", "").strip()
-            
+
             if not predicted_code:
                 raise ValueError("No code found in response")
-            
-            # Estimate tokens and cost (Gemini pricing estimates)
-            # Rough estimates: assume ~4 tokens per character for images, ~1 token per character for text
+
             prompt_chars = len(prompt)
-            image_tokens_estimate = len(image_data_list) * 1000  # Rough estimate per image
+            image_tokens_estimate = len(image_data_list) * 1000
             response_chars = len(response_text)
             total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
-            
-            # Cost estimation for Gemini models (rough estimates)
+
             if "gemini-flash-lite" in model:
-                cost = total_tokens_estimate * 0.00005 / 1000  # Rough estimate - cheapest option
+                cost = total_tokens_estimate * 0.00005 / 1000
             elif "gemini-3-flash" in model:
-                cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.000125 / 1000
             elif "gemini-3-pro" in model:
-                cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.00125 / 1000
             elif "gemini-2.5-flash" in model:
-                cost = total_tokens_estimate * 0.000075 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.000075 / 1000
             else:
-                cost = total_tokens_estimate * 0.0005 / 1000  # Default estimate
-            
+                cost = total_tokens_estimate * 0.0005 / 1000
+
+            # Halve the cost if flex was used
+            if use_flex:
+                cost *= 0.5
+
             return predicted_code, explanation, total_tokens_estimate, cost, None
-            
+
         except json.JSONDecodeError as e:
             error_message = f"JSON parsing failed: {str(e)}"
             if attempt < max_retries - 1:
@@ -304,14 +316,19 @@ Respond with ONLY the JSON object, nothing else."""
                 continue
             else:
                 logger.error(f"Max retries reached for JSON parsing: {error_message}")
-                # Try to extract code if JSON parsing fails
                 code_match = re.search(r'\b0\d{4}\b', response_text)
                 if code_match:
                     predicted_code = code_match.group(0)
                     return predicted_code, response_text.replace(predicted_code, "").strip(), 0, 0.0, None
                 return None, "", 0, 0.0, error_message
-                
-        except Exception as e:
+
+        except (TimeoutError, Exception) as e:
+            if use_flex and not isinstance(e, json.JSONDecodeError):
+                reason = "timeout" if isinstance(e, TimeoutError) else str(e)[:80]
+                logger.warning(f"Flex failed ({reason}), switching to standard tier")
+                use_flex = False
+                continue  # Retry immediately with standard
+
             error_message = f"API error: {str(e)}"
             if attempt < max_retries - 1:
                 wait_time = min(2 ** attempt, 4)
@@ -321,7 +338,7 @@ Respond with ONLY the JSON object, nothing else."""
             else:
                 logger.error(f"Max retries reached: {error_message}")
                 return None, "", 0, 0.0, error_message
-    
+
     return None, "", 0, 0.0, "Max retries reached"
 
 
@@ -1052,18 +1069,27 @@ Respond with ONLY the JSON object, nothing else."""
         types.Tool(googleSearch=types.GoogleSearch()),
     ]
     
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools
-    )
-    
+    use_flex = True  # Start with flex tier (50% cheaper)
+    FLEX_TIMEOUT = 600  # 10 minutes
+
     # Retry mechanism with exponential backoff
     max_retries = 5
     for attempt in range(max_retries):
         try:
+            service_tier = "flex" if use_flex else "standard"
+            generate_content_config = types.GenerateContentConfig(
+                response_mime_type="text/plain",
+                thinking_config=thinking_config,
+                tools=tools,
+                http_options=types.HttpOptions(
+                    extra_body={"serviceTier": service_tier},
+                    timeout=FLEX_TIMEOUT * 1000 if use_flex else None,
+                ),
+            )
+
             # Call Gemini API
             full_response = ""
+            request_start = time.time()
             for chunk in client.models.generate_content_stream(
                 model=model,
                 contents=contents,
@@ -1071,13 +1097,14 @@ Respond with ONLY the JSON object, nothing else."""
             ):
                 if chunk.text is not None:
                     full_response += chunk.text
-            
+                if use_flex and (time.time() - request_start) > FLEX_TIMEOUT:
+                    raise TimeoutError("Flex request exceeded 10 minute timeout")
+
             response_text = full_response.strip()
-            
+
             if not response_text:
                 raise ValueError("Empty response from API")
-            
-            # Clean up response (remove markdown code blocks if present)
+
             cleaned_response = response_text
             if cleaned_response.startswith('```json'):
                 cleaned_response = cleaned_response[7:]
@@ -1086,11 +1113,9 @@ Respond with ONLY the JSON object, nothing else."""
             if cleaned_response.endswith('```'):
                 cleaned_response = cleaned_response[:-3]
             cleaned_response = cleaned_response.strip()
-            
-            # Parse JSON
+
             icd_codes_dict = json.loads(cleaned_response)
-            
-            # Ensure all required keys exist
+
             result = {
                 "ICD1": icd_codes_dict.get("ICD1", ""),
                 "ICD1_Reasoning": icd_codes_dict.get("ICD1_Reasoning", ""),
@@ -1103,26 +1128,27 @@ Respond with ONLY the JSON object, nothing else."""
             }
             correct_icd_codes(result)
 
-            # Estimate tokens and cost (Gemini pricing estimates)
             prompt_chars = len(prompt)
-            image_tokens_estimate = len(image_data_list) * 1000  # Rough estimate per image
+            image_tokens_estimate = len(image_data_list) * 1000
             response_chars = len(response_text)
             total_tokens_estimate = prompt_chars + image_tokens_estimate + response_chars
-            
-            # Cost estimation for Gemini models (rough estimates)
+
             if "gemini-flash-lite" in model:
-                cost = total_tokens_estimate * 0.00005 / 1000  # Rough estimate - cheapest option
+                cost = total_tokens_estimate * 0.00005 / 1000
             elif "gemini-3-flash" in model:
-                cost = total_tokens_estimate * 0.000125 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.000125 / 1000
             elif "gemini-3-pro" in model:
-                cost = total_tokens_estimate * 0.00125 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.00125 / 1000
             elif "gemini-2.5-flash" in model:
-                cost = total_tokens_estimate * 0.000075 / 1000  # Rough estimate
+                cost = total_tokens_estimate * 0.000075 / 1000
             else:
-                cost = total_tokens_estimate * 0.0005 / 1000  # Default estimate
-            
+                cost = total_tokens_estimate * 0.0005 / 1000
+
+            if use_flex:
+                cost *= 0.5
+
             return result, total_tokens_estimate, cost, None
-            
+
         except json.JSONDecodeError as e:
             error_message = f"JSON parsing failed: {str(e)}"
             if attempt < max_retries - 1:
@@ -1132,16 +1158,11 @@ Respond with ONLY the JSON object, nothing else."""
                 continue
             else:
                 logger.error(f"Max retries reached for JSON parsing: {error_message}")
-                # Try to extract codes manually if JSON parsing fails
                 result = {
-                    "ICD1": "",
-                    "ICD1_Reasoning": "",
-                    "ICD2": "",
-                    "ICD2_Reasoning": "",
-                    "ICD3": "",
-                    "ICD3_Reasoning": "",
-                    "ICD4": "",
-                    "ICD4_Reasoning": ""
+                    "ICD1": "", "ICD1_Reasoning": "",
+                    "ICD2": "", "ICD2_Reasoning": "",
+                    "ICD3": "", "ICD3_Reasoning": "",
+                    "ICD4": "", "ICD4_Reasoning": ""
                 }
                 icd_pattern = r'[A-Z]\d{2}\.?\d*'
                 found_codes = re.findall(icd_pattern, response_text)
@@ -1149,8 +1170,14 @@ Respond with ONLY the JSON object, nothing else."""
                     result[f"ICD{i+1}"] = code
                     result[f"ICD{i+1}_Reasoning"] = "Code extracted from response (reasoning not available)"
                 return result, 0, 0.0, error_message
-                
-        except Exception as e:
+
+        except (TimeoutError, Exception) as e:
+            if use_flex and not isinstance(e, json.JSONDecodeError):
+                reason = "timeout" if isinstance(e, TimeoutError) else str(e)[:80]
+                logger.warning(f"Flex failed on ICD prediction ({reason}), switching to standard tier")
+                use_flex = False
+                continue
+
             error_message = f"API error: {str(e)}"
             if attempt < max_retries - 1:
                 wait_time = min(2 ** attempt, 4)
@@ -1160,7 +1187,7 @@ Respond with ONLY the JSON object, nothing else."""
             else:
                 logger.error(f"Max retries reached: {error_message}")
                 return None, 0, 0.0, error_message
-    
+
     return None, 0, 0.0, "Max retries reached"
 
 
@@ -2342,16 +2369,25 @@ Respond with ONLY the JSON object, nothing else."""
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
 
     tools = [types.Tool(googleSearch=types.GoogleSearch())]
-    generate_content_config = types.GenerateContentConfig(
-        response_mime_type="text/plain",
-        thinking_config=thinking_config,
-        tools=tools,
-    )
+    use_flex = True
+    FLEX_TIMEOUT = 600
 
     max_retries = 5
     for attempt in range(max_retries):
         try:
+            service_tier = "flex" if use_flex else "standard"
+            generate_content_config = types.GenerateContentConfig(
+                response_mime_type="text/plain",
+                thinking_config=thinking_config,
+                tools=tools,
+                http_options=types.HttpOptions(
+                    extra_body={"serviceTier": service_tier},
+                    timeout=FLEX_TIMEOUT * 1000 if use_flex else None,
+                ),
+            )
+
             full_response = ""
+            request_start = time.time()
             for chunk in client.models.generate_content_stream(
                 model=model,
                 contents=contents,
@@ -2359,6 +2395,8 @@ Respond with ONLY the JSON object, nothing else."""
             ):
                 if chunk.text is not None:
                     full_response += chunk.text
+                if use_flex and (time.time() - request_start) > FLEX_TIMEOUT:
+                    raise TimeoutError("Flex request exceeded 10 minute timeout")
 
             response_text = full_response.strip()
             if not response_text:
@@ -2397,7 +2435,14 @@ Respond with ONLY the JSON object, nothing else."""
             if attempt == max_retries - 1:
                 return None, "", None, 0, 0.0, f"JSON parse error after {max_retries} attempts: {str(e)}"
             time.sleep(2 ** attempt)
-        except Exception as e:
+
+        except (TimeoutError, Exception) as e:
+            if use_flex and not isinstance(e, json.JSONDecodeError):
+                reason = "timeout" if isinstance(e, TimeoutError) else str(e)[:80]
+                logger.warning(f"Flex failed on combined prediction ({reason}), switching to standard tier")
+                use_flex = False
+                continue
+
             logger.warning(f"API error (attempt {attempt+1}): {e}")
             if attempt == max_retries - 1:
                 return None, "", None, 0, 0.0, str(e)

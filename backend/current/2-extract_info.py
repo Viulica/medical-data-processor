@@ -254,19 +254,19 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             json.loads(cleaned_response)  # Validate JSON
             
             print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with OpenRouter on attempt {attempt + 1}")
-            return response_text
-            
+            return response_text, "openrouter"
+
         except json.JSONDecodeError as e:
             print(f"    ⚠️  JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             if attempt == max_retries - 1:
                 print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
-                return None
+                return None, None
         except Exception as e:
             print(f"    ⚠️  OpenRouter API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             if attempt == max_retries - 1:
                 print(f"    ❌ Final OpenRouter API failure for {pdf_filename}{log_suffix}")
-                return None
-        
+                return None, None
+
         # Exponential backoff
         if attempt < max_retries - 1:
             base_delay = 2 ** attempt
@@ -274,8 +274,8 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             delay = base_delay * jitter
             print(f"    ⏳ Retrying {pdf_filename}{log_suffix} in {delay:.1f} seconds...")
             time.sleep(delay)
-    
-    return None
+
+    return None, None
 
 def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extraction_prompt, model="gemini-flash-latest", max_retries=5, field_name_for_log=None):
     """Extract patient information from a multi-page patient PDF file.
@@ -307,11 +307,14 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
+    use_flex = True  # Start with flex tier (50% cheaper)
+    FLEX_TIMEOUT = 600  # 10 minutes
+
     for attempt in range(max_retries):
         try:
             with open(patient_pdf_path, "rb") as pdf_file:
                 pdf_data = pdf_file.read()
-            
+
             contents = [
                 types.Content(
                     role="user",
@@ -323,10 +326,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                         types.Part.from_text(text=extraction_prompt)],
                     )
                 ]
-            
-            # Google Search grounding disabled for extraction (only enabled for CPT/ICD prediction)
-            # tools = []  # No tools needed for extraction
-            
+
             # Use thinking_level="HIGH" for gemini-3-pro-preview, "MEDIUM" for gemini-3-flash-preview, thinking_budget=-1 for others
             if model == "gemini-3-pro-preview":
                 thinking_config = types.ThinkingConfig(
@@ -340,76 +340,95 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 thinking_config = types.ThinkingConfig(
                     thinking_budget=-1,
                 )
+
+            service_tier = "flex" if use_flex else "standard"
             generate_content_config = types.GenerateContentConfig(
                 response_mime_type="text/plain",
                 thinking_config=thinking_config,
-                # tools=tools  # No Google Search for extraction
+                http_options=types.HttpOptions(
+                    extra_body={"serviceTier": service_tier},
+                    timeout=FLEX_TIMEOUT * 1000 if use_flex else None,
+                ),
             )
 
-            # Collect the full response with retry on API failures
-            full_response = ""
+            # Non-streaming call to get response headers (service tier info)
             try:
-                for chunk in client.models.generate_content_stream(
+                response = client.models.generate_content(
                     model=model,
                     contents=contents,
                     config=generate_content_config,
-                ):
-                    if chunk.text is not None:
-                        full_response += chunk.text
-                
-                response_text = full_response.strip()
-                
+                )
+
+                response_text = response.text.strip() if response.text else ""
+
+                # Read actual service tier from response headers
+                actual_tier = "unknown"
+                try:
+                    resp_dict = response.to_json_dict()
+                    actual_tier = resp_dict.get('sdk_http_response', {}).get('headers', {}).get('x-gemini-service-tier', 'standard')
+                except:
+                    actual_tier = "flex" if use_flex else "standard"
+
                 # Validate that we got a meaningful response
                 if not response_text or len(response_text) < 10:
                     raise ValueError(f"Response too short or empty: {response_text}")
-                
+
                 # Try to parse JSON to validate response format
                 cleaned_response = response_text
                 if cleaned_response.startswith('```json'):
-                    cleaned_response = cleaned_response[7:]  # Remove ```json
+                    cleaned_response = cleaned_response[7:]
                 if cleaned_response.startswith('```'):
-                    cleaned_response = cleaned_response[3:]   # Remove ```
+                    cleaned_response = cleaned_response[3:]
                 if cleaned_response.endswith('```'):
-                    cleaned_response = cleaned_response[:-3]  # Remove trailing ```
+                    cleaned_response = cleaned_response[:-3]
                 cleaned_response = cleaned_response.strip()
-                
-                # Parse JSON to validate format (this will raise JSONDecodeError if invalid)
+
                 json.loads(cleaned_response)
-                
-                # If we get here, everything worked
-                print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} on attempt {attempt + 1}")
-                return response_text
-                
+
+                # If we fell back from flex, mark it
+                if not use_flex and actual_tier == "standard":
+                    actual_tier = "standard (fallback)"
+                print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} on attempt {attempt + 1} (tier: {actual_tier})")
+                return response_text, actual_tier
+
             except json.JSONDecodeError as e:
                 print(f"    ⚠️  JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt == max_retries - 1:
                     print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
                     print(f"    Raw response: {response_text[:200]}...")
-                    return None
-                # Continue to retry logic below
-                
-            except Exception as api_error:
+                    return None, None
+
+            except (TimeoutError, Exception) as api_error:
+                is_timeout = isinstance(api_error, TimeoutError)
+                if use_flex:
+                    reason = "timeout" if is_timeout else str(api_error)[:80]
+                    print(f"    ⚠️  Flex failed for {pdf_filename}{log_suffix} ({reason}), switching to standard tier")
+                    use_flex = False
+                    continue
                 print(f"    ⚠️  API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(api_error)}")
                 if attempt == max_retries - 1:
                     print(f"    ❌ Final API failure for {pdf_filename}{log_suffix}")
-                    return None
-                # Continue to retry logic below
-        
+                    return None, None
+
         except Exception as e:
+            if use_flex:
+                print(f"    ⚠️  Flex failed for {pdf_filename}{log_suffix} ({str(e)[:80]}), switching to standard tier")
+                use_flex = False
+                continue
             print(f"    ⚠️  Unexpected error for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             if attempt == max_retries - 1:
                 print(f"    ❌ Final failure for {pdf_filename}{log_suffix}")
-                return None
-        
+                return None, None
+
         # Exponential backoff with jitter for retries
         if attempt < max_retries - 1:
-            base_delay = 2 ** attempt  # 1, 2, 4, 8 seconds
-            jitter = random.uniform(0.5, 1.5)  # Add randomness to prevent thundering herd
+            base_delay = 2 ** attempt
+            jitter = random.uniform(0.5, 1.5)
             delay = base_delay * jitter
             print(f"    ⏳ Retrying {pdf_filename}{log_suffix} in {delay:.1f} seconds...")
             time.sleep(delay)
-    
-    return None
+
+    return None, None
 
 
 def process_single_patient_pdf_task(args):
@@ -425,8 +444,9 @@ def process_single_patient_pdf_task(args):
     
     # Extract normal (non-priority) fields with one API call
     # Pass client (may be None for OpenRouter)
-    normal_response = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
-    
+    normal_result = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
+    normal_response, service_tier = normal_result if isinstance(normal_result, tuple) else (normal_result, None)
+
     if not normal_response:
         return pdf_filename, None, temp_patient_pdf, order_index
     
@@ -456,11 +476,12 @@ def process_single_patient_pdf_task(args):
             
             # Extract this priority field using the better model
             # Pass client (may be None for OpenRouter)
-            priority_response = extract_info_from_patient_pdf(
-                client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model, 
+            priority_result = extract_info_from_patient_pdf(
+                client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model,
                 field_name_for_log=field_name
             )
-            
+            priority_response = priority_result[0] if isinstance(priority_result, tuple) else priority_result
+
             if priority_response:
                 try:
                     # Parse the priority field response
@@ -495,10 +516,11 @@ def process_single_patient_pdf_task(args):
             field_name = lp_field['name']
             lp_prompt = generate_priority_field_prompt(lp_field)
 
-            lp_response = extract_info_from_patient_pdf(
+            lp_result = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, lp_prompt, low_priority_model,
                 field_name_for_log=field_name
             )
+            lp_response = lp_result[0] if isinstance(lp_result, tuple) else lp_result
 
             if lp_response:
                 try:
@@ -561,6 +583,10 @@ def process_single_patient_pdf_task(args):
     # Copy Surgeon to Referring (they are the same field)
     if 'Surgeon' in merged_data and merged_data['Surgeon']:
         merged_data['Referring'] = merged_data['Surgeon']
+
+    # Add service tier info to output
+    if service_tier:
+        merged_data['service_tier'] = service_tier
 
     # Convert merged data back to JSON string for compatibility with existing code
     merged_response = json.dumps(merged_data)
@@ -625,6 +651,10 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     # Add source_file as the last column in the output
     if 'source_file' not in fieldnames:
         fieldnames.append('source_file')
+
+    # Add service tier column
+    if 'service_tier' not in fieldnames:
+        fieldnames.append('service_tier')
     
     # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
     # This ensures they appear in the CSV output even if not in the template
@@ -943,7 +973,7 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 50  # Default thread pool size
-    model = "gemini-3-pro-preview"  # Default model for normal fields
+    model = "gemini-3-flash-preview"  # Default model for normal fields
     priority_model = "gemini-3-flash-preview"  # Default model for high-priority fields
     low_priority_model = "google/gemini-3.1-flash-lite-preview"  # Default model for low-priority fields
     worktracker_group = None  # Optional worktracker group
