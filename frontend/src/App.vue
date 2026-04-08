@@ -9128,36 +9128,16 @@ Johnson, Robert, MD (MedNet Code: 1)"
  {{ prompt.prompt_type }}
  </span>
  </div>
- <div style="display: flex; gap: 6px;">
- <button v-if="editingBasePrompt !== prompt.name"
- @click="startEditingBasePrompt(prompt)" class="base-prompt-btn base-prompt-btn-sm">
- Edit
- </button>
- <button @click="deleteBasePrompt(prompt.name)" class="base-prompt-btn base-prompt-btn-sm base-prompt-btn-danger">
- Delete
- </button>
- </div>
  </div>
 
- <!-- View mode -->
- <div v-if="editingBasePrompt !== prompt.name">
- <pre class="base-prompt-pre">{{ getVisiblePromptContent(prompt.content) }}</pre>
- <div style="color: #475569; font-size: 11px; margin-top: 6px;">
- {{ prompt.content.length.toLocaleString() }} characters · Updated {{ prompt.updated_at ? new Date(prompt.updated_at).toLocaleDateString() : 'N/A' }}
- </div>
- </div>
-
- <!-- Edit mode -->
- <div v-else>
- <textarea v-model="editingBasePromptContent" rows="25"
- class="base-prompt-input base-prompt-textarea" style="border-color: #3b82f6;"></textarea>
+ <textarea v-model="prompt._editableContent" rows="25"
+ class="base-prompt-input base-prompt-textarea"></textarea>
  <div style="display: flex; gap: 8px; margin-top: 10px; align-items: center;">
- <button @click="saveBasePrompt(prompt)" class="base-prompt-btn" :disabled="basePromptSaving">
+ <button @click="saveBasePromptInline(prompt)" class="base-prompt-btn"
+ :disabled="basePromptSaving || prompt._editableContent === prompt._originalContent">
  {{ basePromptSaving ? 'Saving...' : 'Save Changes' }}
  </button>
- <button @click="editingBasePrompt = null" class="base-prompt-btn base-prompt-btn-ghost"> Cancel</button>
- <span style="color: #475569; font-size: 12px; margin-left: auto;">{{ editingBasePromptContent.length.toLocaleString() }} chars</span>
- </div>
+ <span style="color: #475569; font-size: 12px; margin-left: auto;">{{ prompt._editableContent.length.toLocaleString() }} chars</span>
  </div>
  </div>
  </div>
@@ -16412,6 +16392,13 @@ export default {
  const response = await axios.get(joinUrl(API_BASE_URL, "api/base-prompts"));
  const order = { 'base_cpt_prompt': 0, 'cpt_codes_list': 1, 'base_icd_prompt': 2 };
  this.basePrompts = response.data.sort((a, b) => (order[a.name] ?? 99) - (order[b.name] ?? 99));
+ for (const p of this.basePrompts) {
+ const parts = this.splitPromptContent(p.content);
+ p._prefix = parts.prefix;
+ p._suffix = parts.suffix;
+ p._editableContent = parts.visible;
+ p._originalContent = parts.visible;
+ }
  } catch (error) {
  this.toast.error("Failed to load base prompts: " + (error.response?.data?.detail || error.message));
  } finally {
@@ -16486,6 +16473,24 @@ export default {
  this.editingBasePromptContent = parts.visible;
  this._hiddenPromptPrefix = parts.prefix;
  this._hiddenPromptSuffix = parts.suffix;
+ },
+
+ async saveBasePromptInline(prompt) {
+ this.basePromptSaving = true;
+ try {
+ const fullContent = (prompt._prefix || '') + prompt._editableContent + (prompt._suffix || '');
+ const formData = new FormData();
+ formData.append("content", fullContent);
+ formData.append("prompt_type", prompt.prompt_type);
+ formData.append("description", prompt.description || "");
+ await axios.put(joinUrl(API_BASE_URL, `api/base-prompts/${prompt.name}`), formData);
+ this.toast.success(`Saved "${prompt.name}" successfully`);
+ prompt._originalContent = prompt._editableContent;
+ } catch (error) {
+ this.toast.error("Failed to save: " + (error.response?.data?.detail || error.message));
+ } finally {
+ this.basePromptSaving = false;
+ }
  },
 
  async saveBasePrompt(prompt) {
