@@ -16428,8 +16428,22 @@ export default {
  return names[name] || name;
  },
 
- getVisiblePromptContent(content) {
- if (!content) return '';
+ _findPrefixEnd(content) {
+ const prefixEndMarkers = ['{cpt_codes_text}'];
+ for (const marker of prefixEndMarkers) {
+ const idx = content.indexOf(marker);
+ if (idx !== -1) {
+ // Find the end of the line containing the marker
+ let end = content.indexOf('\n', idx + marker.length);
+ if (end === -1) end = content.length;
+ else end += 1; // include the newline
+ return end;
+ }
+ }
+ return 0;
+ },
+
+ _findSuffixStart(content) {
  const markers = [
  'You must respond with a JSON',
  'You must respond with ONLY',
@@ -16444,40 +16458,40 @@ export default {
  const idx = content.indexOf(marker);
  if (idx !== -1 && idx < cutoff) cutoff = idx;
  }
- const visible = content.substring(0, cutoff).trimEnd();
+ return cutoff;
+ },
+
+ getVisiblePromptContent(content) {
+ if (!content) return '';
+ const prefixEnd = this._findPrefixEnd(content);
+ const suffixStart = this._findSuffixStart(content);
+ const visible = content.substring(prefixEnd, suffixStart).trimStart().trimEnd();
  return visible.substring(0, 3000) + (visible.length > 3000 ? '\n\n... (click Edit to see full)' : '');
  },
 
  splitPromptContent(content) {
- if (!content) return { visible: '', hidden: '' };
- const markers = [
- 'You must respond with a JSON',
- 'You must respond with ONLY',
- 'Respond with ONLY the JSON',
- 'Your entire response must be a single JSON',
- 'Your response must be in the following JSON format',
- 'OUTPUT FORMAT:',
- 'Output format:',
- ];
- let cutoff = content.length;
- for (const marker of markers) {
- const idx = content.indexOf(marker);
- if (idx !== -1 && idx < cutoff) cutoff = idx;
- }
- return { visible: content.substring(0, cutoff).trimEnd(), hidden: content.substring(cutoff) };
+ if (!content) return { prefix: '', visible: '', suffix: '' };
+ const prefixEnd = this._findPrefixEnd(content);
+ const suffixStart = this._findSuffixStart(content);
+ return {
+ prefix: content.substring(0, prefixEnd),
+ visible: content.substring(prefixEnd, suffixStart).trimStart().trimEnd(),
+ suffix: content.substring(suffixStart),
+ };
  },
 
  startEditingBasePrompt(prompt) {
  this.editingBasePrompt = prompt.name;
  const parts = this.splitPromptContent(prompt.content);
  this.editingBasePromptContent = parts.visible;
- this._hiddenPromptSuffix = parts.hidden;
+ this._hiddenPromptPrefix = parts.prefix;
+ this._hiddenPromptSuffix = parts.suffix;
  },
 
  async saveBasePrompt(prompt) {
  this.basePromptSaving = true;
  try {
- const fullContent = this.editingBasePromptContent + (this._hiddenPromptSuffix || '');
+ const fullContent = (this._hiddenPromptPrefix || '') + this.editingBasePromptContent + (this._hiddenPromptSuffix || '');
  const formData = new FormData();
  formData.append("content", fullContent);
  formData.append("prompt_type", prompt.prompt_type);
