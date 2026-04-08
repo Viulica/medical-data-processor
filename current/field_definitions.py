@@ -176,6 +176,8 @@ Extraction Instructions per Patient Record:
     (if there is just address then extract the address only)
     FOR POLICY NUMBER FIELDS (primary insurance policy number, secondary insurance policy number): If the policy number is a very big number, excel will convert it to scientific notation, so please add a ? (question mark) at the beginning of the number. You should only do this if the policy number is only numbers and like more than 10 digiits
 
+    FIELD NAME FORMATTING: KEEP the extraction field names EXACTLY as given in the prompt. Use spaces between words, not camelCase or concatenation. For example: "Place Of Service" NOT "PlaceOfService", "An Stop" NOT "AnStop". The JSON keys must match the field names from the instructions exactly.
+
     Your entire response must be a single JSON object representing the one patient record found on this page. Do not include any other text or commentary."""
     
     return prompt_header + '\n'.join(field_instructions) + prompt_footer 
