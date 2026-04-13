@@ -292,6 +292,17 @@ def init_database():
         END IF;
     END $$;
 
+    -- Migration: Add scanned_date column if it doesn't exist
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'scanned_date'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN scanned_date VARCHAR(255);
+        END IF;
+    END $$;
+
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_unified_results_expires_at ON unified_results(expires_at);
@@ -1612,6 +1623,7 @@ def save_unified_result(
     icd_vision_model: Optional[str] = None,
     worktracker_group: Optional[str] = None,
     worktracker_batch: Optional[str] = None,
+    scanned_date: Optional[str] = None,
     status: str = "completed"
 ):
     """
@@ -1632,10 +1644,10 @@ def save_unified_result(
                         job_id, filename, supabase_path, input_zip_supabase_path,
                         file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
-                        worktracker_group, worktracker_batch,
+                        worktracker_group, worktracker_batch, scanned_date,
                         status, expires_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
@@ -1651,6 +1663,7 @@ def save_unified_result(
                         icd_vision_model = EXCLUDED.icd_vision_model,
                         worktracker_group = EXCLUDED.worktracker_group,
                         worktracker_batch = EXCLUDED.worktracker_batch,
+                        scanned_date = EXCLUDED.scanned_date,
                         status = EXCLUDED.status,
                         expires_at = EXCLUDED.expires_at
                     RETURNING id
@@ -1658,7 +1671,7 @@ def save_unified_result(
                     job_id, filename, supabase_path, input_zip_supabase_path,
                     file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
-                    worktracker_group or None, worktracker_batch or None,
+                    worktracker_group or None, worktracker_batch or None, scanned_date or None,
                     status, expires_at
                 ))
                 result = cur.fetchone()
@@ -1735,7 +1748,7 @@ def get_all_unified_results(page: int = 1, page_size: int = 50, search_group: Op
                     SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
-                           worktracker_group, worktracker_batch,
+                           worktracker_group, worktracker_batch, scanned_date,
                            created_at, expires_at, status
                     FROM unified_results
                     {where_clause}
@@ -1773,7 +1786,7 @@ def get_unified_result(job_id: str):
                     SELECT id, job_id, filename, supabase_path, input_zip_supabase_path,
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
-                           worktracker_group, worktracker_batch,
+                           worktracker_group, worktracker_batch, scanned_date,
                            created_at, expires_at, status
                     FROM unified_results
                     WHERE job_id = %s

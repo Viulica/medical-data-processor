@@ -194,7 +194,7 @@ class ProcessingJob:
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-flash-latest", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-flash-latest", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None):
     """Background task to process PDFs"""
     import os
     
@@ -266,7 +266,17 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
             
             # Add empty progress_file (not needed for sequential processing)
             cmd.append("")
-            
+
+            # Add empty provider_mapping and extract_providers_from_annotations
+            cmd.append("")  # provider_mapping
+            cmd.append("")  # extract_providers_from_annotations
+
+            # Add scanned_date if provided
+            if scanned_date:
+                cmd.append(scanned_date)
+            else:
+                cmd.append("")
+
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env, bufsize=1)
 
             # Read stdout line-by-line for real-time progress updates
@@ -1907,7 +1917,8 @@ async def upload_files(
     model: str = Form(default="gemini-2.5-flash"),  # Model parameter with default
     worktracker_group: str = Form(None),  # Optional worktracker group field
     worktracker_batch: str = Form(None),  # Optional worktracker batch field
-    extract_csn: str = Form(None)  # Optional extract CSN flag
+    extract_csn: str = Form(None),  # Optional extract CSN flag
+    scanned_date: str = Form(None)  # Optional scanned date (RIV only)
 ):
     """Upload ZIP file and either Excel instructions file or template ID"""
     
@@ -1998,7 +2009,8 @@ async def upload_files(
             model,
             worktracker_group,
             worktracker_batch,
-            extract_csn_flag
+            extract_csn_flag,
+            scanned_date
         )
         
         logger.info(f"Background task started for job {job_id}")
@@ -9190,6 +9202,7 @@ def process_unified_background(
     extraction_max_workers: int,
     worktracker_group: str,
     worktracker_batch: str,
+    scanned_date: str,
     extract_csn: bool,
     provider_mapping: Optional[str],
     extract_providers_from_annotations: bool,
@@ -9392,7 +9405,13 @@ def process_unified_background(
                         cmd.append("true")
                     else:
                         cmd.append("false")
-                    
+
+                    # Add scanned_date if provided
+                    if scanned_date:
+                        cmd.append(scanned_date)
+                    else:
+                        cmd.append("")
+
                     logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
                     
                     # Estimate total (rough guess based on number of PDFs)
@@ -9712,7 +9731,13 @@ def process_unified_background(
                         cmd.append("true")
                     else:
                         cmd.append("false")
-                    
+
+                    # Add scanned_date if provided
+                    if scanned_date:
+                        cmd.append(scanned_date)
+                    else:
+                        cmd.append("")
+
                     # Estimate total
                     # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
                     import glob as glob_module
@@ -9890,7 +9915,17 @@ def process_unified_background(
                 
                 # Add empty progress_file (not needed for sequential processing)
                 cmd.append("")
-                
+
+                # Add empty provider_mapping and extract_providers_from_annotations
+                cmd.append("")  # provider_mapping
+                cmd.append("")  # extract_providers_from_annotations
+
+                # Add scanned_date if provided
+                if scanned_date:
+                    cmd.append(scanned_date)
+                else:
+                    cmd.append("")
+
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
                 stdout, stderr = process.communicate(timeout=1800)
                 
@@ -10708,6 +10743,7 @@ def process_unified_background(
                 icd_vision_model=icd_vision_model if enable_icd else None,
                 worktracker_group=worktracker_group,
                 worktracker_batch=worktracker_batch,
+                scanned_date=scanned_date,
                 status="completed"
             )
             logger.info(f"[Unified {job_id}] Saved result metadata to database")
@@ -10758,6 +10794,7 @@ async def process_unified(
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
+    scanned_date: str = Form(default=""),
     extract_csn: bool = Form(default=False),
     # CPT parameters
     enable_cpt: bool = Form(default=True),
@@ -11011,6 +11048,7 @@ async def process_unified(
             extraction_max_workers=extraction_max_workers,
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
+            scanned_date=scanned_date,
             extract_csn=extract_csn,
             provider_mapping=provider_mapping,
             extract_providers_from_annotations=extract_providers_from_annotations,
@@ -11056,6 +11094,7 @@ async def process_unified_with_refinement(
     extraction_max_workers: int = Form(default=50),
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
+    scanned_date: str = Form(default=""),
     extract_csn: bool = Form(default=False),
     # CPT parameters
     enable_cpt: bool = Form(default=True),
@@ -11199,6 +11238,7 @@ async def process_unified_with_refinement(
             extraction_max_workers=extraction_max_workers,
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
+            scanned_date=scanned_date,
             extract_csn=extract_csn,
             enable_cpt=enable_cpt,
             cpt_vision_mode=cpt_vision_mode,

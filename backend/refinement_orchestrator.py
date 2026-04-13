@@ -422,6 +422,7 @@ def run_refinement_job(
     extraction_max_workers: int,
     worktracker_group: str,
     worktracker_batch: str,
+    scanned_date: str,
     extract_csn: bool,
     # CPT params
     enable_cpt: bool,
@@ -553,6 +554,7 @@ def run_refinement_job(
                 extraction_max_workers=extraction_max_workers,
                 worktracker_group=worktracker_group,
                 worktracker_batch=worktracker_batch,
+                scanned_date=scanned_date,
                 extract_csn=extract_csn,
                 enable_cpt=False,
                 cpt_vision_mode=False,

@@ -443,6 +443,19 @@
  placeholder="Enter batch number (optional)"
  />
  </div>
+ <div style="margin-top: 15px">
+ <label for="scanned-date"> Scanned Date:</label>
+ <input
+ id="scanned-date"
+ v-model="scannedDate"
+ type="text"
+ class="page-input"
+ placeholder="Enter scanned date (optional)"
+ />
+ <p class="page-hint" style="margin-top: 5px; color: #e67e22;">
+ RIV only — this field is only used for RIV processing
+ </p>
+ </div>
  <p class="page-hint" style="margin-top: 10px">
  These values will be added as columns in the output Excel
  </p>
@@ -754,6 +767,23 @@
  </div>
  <small class="help-text">
  Optional: Will be added as a column in output
+ </small>
+ </div>
+ <div class="setting-group" style="margin-top: 15px">
+ <label for="scanned-date-fast"
+ > Scanned Date</label
+ >
+ <div class="input-wrapper">
+ <input
+ id="scanned-date-fast"
+ v-model="scannedDateFast"
+ type="text"
+ class="page-input"
+ placeholder="Enter scanned date (optional)"
+ />
+ </div>
+ <small class="help-text" style="color: #e67e22;">
+ RIV only — this field is only used for RIV processing
  </small>
  </div>
  </div>
@@ -1254,6 +1284,21 @@
  class="page-input"
  placeholder="Enter batch number"
  />
+ </div>
+ <div class="setting-group" style="margin-top: 15px">
+ <label for="unified-scanned-date"
+ > Scanned Date (Optional)</label
+ >
+ <input
+ id="unified-scanned-date"
+ v-model="unifiedScannedDate"
+ type="text"
+ class="page-input"
+ placeholder="Enter scanned date"
+ />
+ <small class="help-text" style="color: #e67e22;">
+ RIV only — this field is only used for RIV processing
+ </small>
  </div>
  </div>
  </div>
@@ -9624,6 +9669,7 @@ export default {
  pageCount: 49,
  worktrackerGroup: "",
  worktrackerBatch: "",
+ scannedDate: "",
  jobId: null,
  jobStatus: null,
  isProcessing: false,
@@ -9640,6 +9686,7 @@ export default {
  pageCountFast: 49,
  worktrackerGroupFast: "",
  worktrackerBatchFast: "",
+ scannedDateFast: "",
  jobIdFast: null,
  jobStatusFast: null,
  isProcessingFast: false,
@@ -9822,6 +9869,7 @@ export default {
  unifiedExtractionMaxWorkers: 50,
  unifiedWorktrackerGroup: "",
  unifiedWorktrackerBatch: "",
+ unifiedScannedDate: "",
  unifiedUseExtractionTemplate: false,
  unifiedSelectedExtractionTemplateId: null,
  // Unified - CPT settings
@@ -10958,6 +11006,9 @@ export default {
  if (this.worktrackerBatch) {
  formData.append("worktracker_batch", this.worktrackerBatch);
  }
+ if (this.scannedDate) {
+ formData.append("scanned_date", this.scannedDate);
+ }
 
  // Add extract CSN flag if enabled
  if (this.extractCSN) {
@@ -11059,6 +11110,7 @@ export default {
  this.pageCount = 49;
  this.worktrackerGroup = "";
  this.worktrackerBatch = "";
+ this.scannedDate = "";
  this.extractCSN = false;
  this.jobId = null;
  this.jobStatus = null;
@@ -11167,6 +11219,9 @@ export default {
  if (this.worktrackerBatchFast) {
  formData.append("worktracker_batch", this.worktrackerBatchFast);
  }
+ if (this.scannedDateFast) {
+ formData.append("scanned_date", this.scannedDateFast);
+ }
 
  // Debug: Log the URL being used
  const uploadUrl = joinUrl(API_BASE_URL, "upload");
@@ -11263,6 +11318,7 @@ export default {
  this.pageCountFast = 49;
  this.worktrackerGroupFast = "";
  this.worktrackerBatchFast = "";
+ this.scannedDateFast = "";
  this.jobIdFast = null;
  this.jobStatusFast = null;
  this.isProcessingFast = false;
@@ -11404,6 +11460,7 @@ export default {
  );
  formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
  formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
+ formData.append("scanned_date", this.unifiedScannedDate || "");
  formData.append("extract_csn", "false");
 
  // CPT parameters
@@ -11612,6 +11669,7 @@ export default {
  formData.append("extraction_max_workers", 200);
  formData.append("worktracker_group", "");
  formData.append("worktracker_batch", "");
+ formData.append("scanned_date", "");
  formData.append("extract_csn", false);
 
  // CPT parameters (use vision mode since we're working with PDFs)
@@ -11938,6 +11996,7 @@ export default {
  this.unifiedExtractionMaxWorkers = 50;
  this.unifiedWorktrackerGroup = "";
  this.unifiedWorktrackerBatch = "";
+ this.unifiedScannedDate = "";
  this.unifiedUseExtractionTemplate = false;
  this.unifiedSelectedExtractionTemplateId = null;
  // CPT settings

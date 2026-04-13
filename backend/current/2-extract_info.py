@@ -594,7 +594,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False, scanned_date=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}, extract_providers_from_annotations={extract_providers_from_annotations}")
@@ -901,7 +901,13 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                     record['Worktracker Batch #'] = worktracker_batch
                 if 'Worktracker Batch #' not in fieldnames:
                     fieldnames.append('Worktracker Batch #')
-            
+
+            if scanned_date:
+                for record in filtered_data:
+                    record['Scanned Date'] = scanned_date
+                if 'Scanned Date' not in fieldnames:
+                    fieldnames.append('Scanned Date')
+
             # Save to both CSV and Excel formats
             extracted_folder = "extracted"
             os.makedirs(extracted_folder, exist_ok=True)
@@ -981,6 +987,7 @@ if __name__ == "__main__":
     extract_csn = False  # Extract CSN from PDF filenames
     provider_mapping = None  # Optional provider mapping text
     extract_providers_from_annotations = False  # Extract providers from PDF annotations
+    scanned_date = None  # Optional scanned date (RIV only)
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -1011,6 +1018,8 @@ if __name__ == "__main__":
         provider_mapping = sys.argv[10] if sys.argv[10].strip() else None
     if len(sys.argv) > 11:
         extract_providers_from_annotations = sys.argv[11].lower() == "true" if sys.argv[11].strip() else False
+    if len(sys.argv) > 12:
+        scanned_date = sys.argv[12] if sys.argv[12].strip() else None
     
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
@@ -1032,6 +1041,8 @@ if __name__ == "__main__":
         print(f"   Extract Providers from Annotations: Enabled")
         if provider_mapping:
             print(f"   Provider Mapping: Loaded ({len(provider_mapping)} characters)")
+    if scanned_date:
+        print(f"   Scanned Date: {scanned_date}")
     print()
     
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations) 
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations, scanned_date)
