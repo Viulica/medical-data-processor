@@ -307,7 +307,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
-    use_flex = True  # Start with flex tier (50% cheaper)
+    use_flex = False  # Flex disabled for now due to 503 retry storms
     FLEX_TIMEOUT = 600  # 10 minutes
 
     for attempt in range(max_retries):
@@ -347,7 +347,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 thinking_config=thinking_config,
                 http_options=types.HttpOptions(
                     extra_body={"serviceTier": service_tier},
-                    timeout=FLEX_TIMEOUT * 1000 if use_flex else None,
+                    timeout=(FLEX_TIMEOUT if use_flex else 120) * 1000,
                 ),
             )
 

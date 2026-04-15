@@ -56,6 +56,7 @@ coverage/
 *.zip
 *.xlsx
 *.xls
+*.txt
 
 # API guide and batches (contain credentials and internal data)
 API-GUIDE.md

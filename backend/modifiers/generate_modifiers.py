@@ -46,7 +46,7 @@ Peripheral Blocks Row Generation:
   * An Start and An Stop cleared
   * SRNA cleared
   * ICD codes:
-    - ASA Code 01967 or 1967: Clear all, set ICD1 = "080"
+    - ASA Code 01967 or 1967: Clear all, set ICD1 = "O80" (skipped if ICD1 already starts with "O")
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
     - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
@@ -1090,16 +1090,21 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         print(f"Row {idx + 1}: Changed Responsible Provider to MD value '{str(md_value).strip()}' (only P modifier used, both MD and CRNA present)")
             
             # Special case: If ASA Code is 01967 in main charge, clear ICD1-ICD4 and set ICD1 = "O80"
+            # Skip if ICD1 already starts with "O" (already a valid O-code, e.g. O80)
             asa_code = str(new_row.get('ASA Code', '')).strip()
             if asa_code == '01967':
-                # Clear all ICD codes
-                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                    if icd_col in new_row:
-                        new_row[icd_col] = ''
-                # Set ICD1 to "O80"
-                if 'ICD1' in new_row:
-                    new_row['ICD1'] = 'O80'
-                    print(f"Row {idx + 1}: ASA Code 01967 detected - cleared ICD1-ICD4 and set ICD1 = 'O80'")
+                existing_icd1 = str(new_row.get('ICD1', '')).strip()
+                if existing_icd1.upper().startswith('O'):
+                    print(f"Row {idx + 1}: ASA Code 01967 detected - ICD1 already starts with 'O' ({existing_icd1}), leaving ICDs unchanged")
+                else:
+                    # Clear all ICD codes
+                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                        if icd_col in new_row:
+                            new_row[icd_col] = ''
+                    # Set ICD1 to "O80"
+                    if 'ICD1' in new_row:
+                        new_row['ICD1'] = 'O80'
+                        print(f"Row {idx + 1}: ASA Code 01967 detected - cleared ICD1-ICD4 and set ICD1 = 'O80'")
             
             result_rows.append(new_row)
             
@@ -1119,7 +1124,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 # Create a duplicate row
                 qk_duplicate_row = new_row.copy()
-                
+                if 'Points' in qk_duplicate_row:
+                    qk_duplicate_row['Points'] = ''
+
                 # Get the CRNA value
                 crna_value = row.get('CRNA', '') if has_crna_column else ''
                 
@@ -1154,7 +1161,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if tee_diagnosis_codes:
                         # Create a copy of the original input row (not the modified new_row)
                         tee_row = row.copy()
-                        
+                        if 'Points' in tee_row:
+                            tee_row['Points'] = ''
+
                         # Set ASA Code and Procedure Code to 93312
                         tee_row['ASA Code'] = '93312'
                         tee_row['Procedure Code'] = '93312'
@@ -1230,7 +1239,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if not is_medicare_or_medicaid:
                         # Create a copy of the original input row (not the modified new_row)
                         emergent_row = row.copy()
-                    
+                        if 'Points' in emergent_row:
+                            emergent_row['Points'] = ''
+
                         # Set ASA Code and Procedure Code to 99140
                         emergent_row['ASA Code'] = '99140'
                         emergent_row['Procedure Code'] = '99140'
@@ -1327,7 +1338,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             
                             # Create a copy of the original input row (not the modified new_row)
                             block_row = row.copy()
-                            
+                            if 'Points' in block_row:
+                                block_row['Points'] = ''
+
                             # Set ASA Code and Procedure Code to the CPT code from the block
                             block_row['ASA Code'] = block['cpt_code']
                             block_row['Procedure Code'] = block['cpt_code']
@@ -1343,13 +1356,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             # Handle ICD codes based on CPT code
                             
                             # Special case: ASA Code 01967 or 1967
+                            # Skip if ICD1 already starts with "O" (already a valid O-code)
                             asa_code = str(block_row.get('ASA Code', '')).strip()
                             if asa_code in ['01967', '1967']:
-                                # Clear all ICD codes and set ICD1 = "080"
-                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                    if icd_col in block_row:
-                                        block_row[icd_col] = ''
-                                block_row['ICD1'] = '080'
+                                existing_icd1 = str(block_row.get('ICD1', '')).strip()
+                                if not existing_icd1.upper().startswith('O'):
+                                    # Clear all ICD codes and set ICD1 = "O80"
+                                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                        if icd_col in block_row:
+                                            block_row[icd_col] = ''
+                                    block_row['ICD1'] = 'O80'
                             
                             if cpt_code in peripheral_nerve_blocks:
                                 # Peripheral nerve blocks: Clear all ICD codes, set ICD1 = "G89.18"
