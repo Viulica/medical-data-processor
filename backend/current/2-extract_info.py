@@ -546,39 +546,45 @@ def process_single_patient_pdf_task(args):
             else:
                 print(f"    ❌ Failed to extract low-priority field '{field_name}' for {pdf_filename}")
 
-    # Extract providers from PDF annotations if enabled
-    if extract_providers_from_annotations and provider_mapping:
+    # Extract providers and/or insurance from PDF annotations if enabled
+    if extract_providers_from_annotations:
         try:
             # Import the provider annotation utility
             import sys
             parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if parent_dir not in sys.path:
                 sys.path.insert(0, parent_dir)
-            from provider_annotation_utils import extract_and_match_providers
-            
-            # Extract and match providers from the original PDF (not the temp one)
-            responsible, md, crna, has_srna = extract_and_match_providers(pdf_file_path, provider_mapping)
+            from provider_annotation_utils import extract_annotations_data
 
-            # Override provider fields if we found matches
-            if responsible or md or crna or has_srna:
-                if responsible:
-                    merged_data['Responsible Provider'] = responsible
-                    print(f"    ✅ Set Responsible Provider from annotation: {responsible}")
+            ann = extract_annotations_data(pdf_file_path, provider_mapping)
 
-                if md:
-                    merged_data['MD'] = md
-                    print(f"    ✅ Set MD from annotation: {md}")
+            # Providers
+            if ann['responsible']:
+                merged_data['Responsible Provider'] = ann['responsible']
+                print(f"    ✅ Set Responsible Provider from annotation: {ann['responsible']}")
+            if ann['md']:
+                merged_data['MD'] = ann['md']
+                print(f"    ✅ Set MD from annotation: {ann['md']}")
+            if ann['crna']:
+                merged_data['CRNA'] = ann['crna']
+                print(f"    ✅ Set CRNA from annotation: {ann['crna']}")
+            if ann['has_srna']:
+                merged_data['SRNA'] = 'SRNA, SRNA, SRNA'
+                print(f"    ✅ Set SRNA from annotation: SRNA, SRNA, SRNA")
 
-                if crna:
-                    merged_data['CRNA'] = crna
-                    print(f"    ✅ Set CRNA from annotation: {crna}")
+            # Insurance
+            if ann['primary_mednet']:
+                merged_data['Primary Mednet Code'] = ann['primary_mednet']
+                print(f"    ✅ Set Primary Mednet Code from annotation: {ann['primary_mednet']}")
+            if ann['secondary_mednet']:
+                merged_data['Secondary Mednet Code'] = ann['secondary_mednet']
+                print(f"    ✅ Set Secondary Mednet Code from annotation: {ann['secondary_mednet']}")
+            if ann['tertiary_mednet']:
+                merged_data['Tertiary Mednet Code'] = ann['tertiary_mednet']
+                print(f"    ✅ Set Tertiary Mednet Code from annotation: {ann['tertiary_mednet']}")
 
-                if has_srna:
-                    merged_data['SRNA'] = 'SRNA, SRNA, SRNA'
-                    print(f"    ✅ Set SRNA from annotation: SRNA, SRNA, SRNA")
-        
         except Exception as e:
-            print(f"    ⚠️  Failed to extract providers from annotations for {pdf_filename}: {e}")
+            print(f"    ⚠️  Failed to extract annotations for {pdf_filename}: {e}")
     
     # Copy Surgeon to Referring (they are the same field)
     if 'Surgeon' in merged_data and merged_data['Surgeon']:
@@ -659,11 +665,14 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
     # This ensures they appear in the CSV output even if not in the template
     if extract_providers_from_annotations:
-        provider_fields = ['Responsible Provider', 'MD', 'CRNA', 'SRNA']
+        provider_fields = [
+            'Responsible Provider', 'MD', 'CRNA', 'SRNA',
+            'Primary Mednet Code', 'Secondary Mednet Code', 'Tertiary Mednet Code',
+        ]
         for field in provider_fields:
             if field not in fieldnames:
                 fieldnames.append(field)
-        print(f"📋 Provider annotation extraction enabled - added provider fields to output")
+        print(f"📋 Provider annotation extraction enabled - added provider + insurance fields to output")
     
     # Initialize Google AI client (only needed if not using OpenRouter)
     # Check if we're using Gemini models (use Gemini API) or OpenRouter models

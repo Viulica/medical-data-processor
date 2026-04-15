@@ -183,6 +183,11 @@ def match_providers_from_annotations(
     for text in annotation_texts:
         text = text.strip()
 
+        # Insurance annotations contain '-' (e.g. "101-202-303"). Skip them here;
+        # they're handled by parse_insurance_codes.
+        if '-' in text:
+            continue
+
         # Check for SRNA suffix and strip it
         has_srna = False
         if re.search(r'/\s*SRNA\s*$', text, re.IGNORECASE):
@@ -242,6 +247,90 @@ def match_providers_from_annotations(
     # No matches found
     logger.debug(f"No provider matches found in annotations: {annotation_texts}")
     return None, None, None, False
+
+
+def parse_insurance_codes(
+    annotation_texts: List[str]
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Find an insurance annotation (contains '-') and split into up to three codes.
+
+    Formats:
+        "101"           -> not insurance (no '-'); ignored here
+        "101-"          -> primary only
+        "101-202"       -> primary + secondary
+        "101-202-303"   -> primary + secondary + tertiary
+
+    Returns the first matching annotation as (primary, secondary, tertiary).
+    Empty segments become None.
+    """
+    if not annotation_texts:
+        return None, None, None
+
+    for text in annotation_texts:
+        text = text.strip()
+        if '-' not in text:
+            continue
+
+        # Split on '-' and strip each part; only accept alphanumeric codes.
+        parts = [p.strip() for p in text.split('-')]
+
+        # Validate at least one non-empty alphanumeric segment exists
+        if not any(p for p in parts):
+            continue
+        if not all(re.match(r'^[A-Z0-9]*$', p, re.IGNORECASE) for p in parts):
+            continue
+
+        primary = parts[0] if len(parts) >= 1 and parts[0] else None
+        secondary = parts[1] if len(parts) >= 2 and parts[1] else None
+        tertiary = parts[2] if len(parts) >= 3 and parts[2] else None
+
+        logger.info(f"Matched insurance from annotation '{text}': "
+                    f"Primary={primary}, Secondary={secondary}, Tertiary={tertiary}")
+        return primary, secondary, tertiary
+
+    return None, None, None
+
+
+def extract_annotations_data(
+    pdf_path: str,
+    provider_mapping_text: Optional[str]
+) -> Dict:
+    """
+    Single-pass extraction of both provider and insurance info from PDF annotations.
+
+    Returns a dict with keys:
+        responsible, md, crna, has_srna,
+        primary_mednet, secondary_mednet, tertiary_mednet
+    """
+    result = {
+        'responsible': None, 'md': None, 'crna': None, 'has_srna': False,
+        'primary_mednet': None, 'secondary_mednet': None, 'tertiary_mednet': None,
+    }
+
+    annotation_texts = extract_annotations_from_pdf(pdf_path)
+    if not annotation_texts:
+        return result
+
+    # Insurance codes (annotations containing '-')
+    primary, secondary, tertiary = parse_insurance_codes(annotation_texts)
+    result['primary_mednet'] = primary
+    result['secondary_mednet'] = secondary
+    result['tertiary_mednet'] = tertiary
+
+    # Providers (annotations without '-')
+    if provider_mapping_text:
+        provider_mapping = parse_provider_mapping(provider_mapping_text)
+        if provider_mapping:
+            responsible, md, crna, has_srna = match_providers_from_annotations(
+                annotation_texts, provider_mapping
+            )
+            result['responsible'] = responsible
+            result['md'] = md
+            result['crna'] = crna
+            result['has_srna'] = has_srna
+
+    return result
 
 
 def extract_and_match_providers(

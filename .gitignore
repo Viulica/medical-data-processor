@@ -60,4 +60,10 @@ coverage/
 
 # API guide and batches (contain credentials and internal data)
 API-GUIDE.md
-batches/ 
+batches/
+
+# Customer data / ad-hoc work folders
+eap-tin-setup/
+input/
+run_eap_tin.py
+*.csv 
