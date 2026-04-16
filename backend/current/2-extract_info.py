@@ -341,13 +341,15 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                     thinking_budget=-1,
                 )
 
-            service_tier = "flex" if use_flex else "standard"
+            tools = [
+                types.Tool(code_execution=types.ToolCodeExecution),
+            ]
             generate_content_config = types.GenerateContentConfig(
-                response_mime_type="text/plain",
                 thinking_config=thinking_config,
+                media_resolution="MEDIA_RESOLUTION_HIGH",
+                tools=tools,
                 http_options=types.HttpOptions(
-                    extra_body={"serviceTier": service_tier},
-                    timeout=(FLEX_TIMEOUT if use_flex else 120) * 1000,
+                    timeout=120 * 1000,
                 ),
             )
 

@@ -1,1 +1,3 @@
-GAP has no providers setup!!!
+RIV needs to add split time
+
+GLA needs to add split time
