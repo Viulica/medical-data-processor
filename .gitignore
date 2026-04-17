@@ -51,8 +51,9 @@ coverage/
 # Railway
 .railway
 
-# Large files (PDFs, etc.)
+# Large files (PDFs, images, etc.)
 *.pdf
+*.png
 *.zip
 *.xlsx
 *.xls

@@ -23,6 +23,9 @@ module.exports = defineConfig({
       '/merge': { target: 'http://localhost:8080', changeOrigin: true },
       '/check': { target: 'http://localhost:8080', changeOrigin: true },
       '/refine': { target: 'http://localhost:8080', changeOrigin: true },
+      '/provider-mapping': { target: 'http://localhost:8080', changeOrigin: true },
+      '/surgeon-mapping': { target: 'http://localhost:8080', changeOrigin: true },
+      '/sharepoint-links': { target: 'http://localhost:8080', changeOrigin: true },
     }
   }
 })

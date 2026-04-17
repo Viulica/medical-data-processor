@@ -16,7 +16,7 @@ MODEL = "google/gemini-3-flash-preview"
 fields = {
     "template_id": "193",
     "enable_extraction": "true",
-    "extraction_n_pages": "10",
+    "extraction_n_pages": "1",
     "extraction_model": "gemini-3-flash-preview",
     "extraction_max_workers": "50",
     "enable_cpt": "true",
