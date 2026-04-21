@@ -981,7 +981,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # PT applies to all payers — procedure converted from screening/surveillance to therapeutic
                 should_add_pt = False
                 screening_or_surveillance = colonoscopy_screening == 'TRUE' or asa_code == '00812' or procedure_code == '00812'
-                if polyps_value == 'FOUND' and screening_or_surveillance:
+                is_00813 = asa_code == '00813' or procedure_code == '00813'
+                if polyps_value == 'FOUND' and screening_or_surveillance and not is_00813:
                     should_add_pt = True
                 
                 if should_add_pt:
