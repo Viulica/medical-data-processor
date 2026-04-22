@@ -9229,10 +9229,6 @@ def process_unified_background(
     combined_cpt_icd_model: str = "openai/gpt-5.2:online",
     # Serial CPT-then-ICD mode: wait for CPT to finish, then pass predicted CPT into ICD prompt
     icd_use_cpt_guidance: bool = False,
-    # Serial extraction-then-CPT mode: wait for extraction, then pass per-PDF extracted fields
-    # (handwritten_procedure_text, handwritten_diagnosis_text, medical_conditions_list, ...)
-    # into the CPT prompt (and ICD prompt if icd_use_cpt_guidance is also True)
-    cpt_use_extraction_guidance: bool = False,
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
@@ -9536,9 +9532,6 @@ def process_unified_background(
                         update_progress()
                     
                     # Use shared image cache if available (optimization)
-                    # extraction_fields_lookup is populated by the main thread when
-                    # cpt_use_extraction_guidance=True (extraction runs first, its per-PDF
-                    # output feeds into the CPT prompt as authoritative text).
                     result = predict_codes_from_pdfs_api(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path_local,
@@ -9549,8 +9542,7 @@ def process_unified_background(
                         progress_callback=cpt_progress,
                         custom_instructions=cpt_custom_instructions,
                         include_code_list=cpt_include_code_list,
-                        image_cache=pdf_image_cache if pdf_image_cache else None,
-                        extraction_lookup=extraction_fields_lookup[0] if cpt_use_extraction_guidance else None,
+                        image_cache=pdf_image_cache if pdf_image_cache else None
                     )
                     cpt_result[0] = cpt_csv_path_local if result else None
                     if not result:
@@ -9597,7 +9589,6 @@ def process_unified_background(
                         custom_instructions=icd_custom_instructions,
                         image_cache=None,
                         cpt_lookup=icd_cpt_lookup[0] if icd_use_cpt_guidance else None,
-                        extraction_lookup=extraction_fields_lookup[0] if cpt_use_extraction_guidance else None,
                     )
                     icd_result[0] = icd_csv_path_local if result else None
                     if not result:
@@ -9606,88 +9597,17 @@ def process_unified_background(
                     icd_error[0] = str(e)
                     logger.error(f"[Unified {job_id}] ICD error: {e}")
 
-            # Mutable containers for per-PDF lookups populated by the main thread
-            icd_cpt_lookup = [None]                 # {filename -> predicted CPT code}
-            extraction_fields_lookup = [None]       # {filename -> {handwritten_procedure, handwritten_diagnosis, medical_conditions, dx_studies}}
+            # Mutable container for the CPT lookup (populated after CPT thread joins, serial mode only)
+            icd_cpt_lookup = [None]
 
-            # Build threads. Which ones run in parallel vs serially depends on the
-            # guidance flags below.
+            # Start threads. In default (parallel) mode all three run at once.
+            # In serial mode (icd_use_cpt_guidance=True), CPT runs first; ICD only starts
+            # once CPT has completed so its predicted codes can be injected into the ICD prompt.
             extraction_thread = threading.Thread(target=run_extraction)
             cpt_thread = threading.Thread(target=run_cpt)
             icd_thread = threading.Thread(target=run_icd)
 
-            def _build_cpt_lookup_from_csv(csv_path):
-                try:
-                    import pandas as pd
-                    df = pd.read_csv(csv_path)
-                    lookup = {}
-                    for _, row in df.iterrows():
-                        fname = str(row.get('Patient Filename', '')).strip()
-                        cpt_code = str(row.get('Procedure Code', '')).strip()
-                        if fname and cpt_code and cpt_code.lower() != 'nan' and not cpt_code.startswith('ERROR'):
-                            lookup[fname] = cpt_code
-                    return lookup
-                except Exception as e:
-                    logger.warning(f"[Unified {job_id}] Failed to build CPT lookup: {e}")
-                    return None
-
-            def _build_extraction_lookup_from_csv(csv_path):
-                try:
-                    import pandas as pd
-                    df = pd.read_csv(csv_path)
-                    # Extraction output uses 'source_file' as the PDF filename column
-                    wanted = ['handwritten_procedure_text', 'handwritten_diagnosis_text',
-                              'medical_conditions_list', 'dx_studies_text']
-                    lookup = {}
-                    for _, row in df.iterrows():
-                        fname = str(row.get('source_file', '')).strip()
-                        if not fname:
-                            continue
-                        fields = {}
-                        for k in wanted:
-                            if k in df.columns:
-                                v = row.get(k)
-                                if v is not None and str(v).strip() and str(v).lower() != 'nan':
-                                    fields[k] = str(v).strip()
-                        if fields:
-                            lookup[fname] = fields
-                    return lookup
-                except Exception as e:
-                    logger.warning(f"[Unified {job_id}] Failed to build extraction lookup: {e}")
-                    return None
-
-            if cpt_use_extraction_guidance and enable_extraction and enable_cpt:
-                # EXTRACTION-FIRST MODE: extraction runs alone, its output feeds CPT
-                # (and optionally ICD). CPT/ICD may run in parallel or serially depending
-                # on icd_use_cpt_guidance.
-                logger.info(f"[Unified {job_id}] EXTRACTION-FIRST MODE: extraction runs first, then CPT (and ICD)")
-                extraction_thread.start()
-                extraction_thread.join()
-                if extraction_error[0]:
-                    logger.warning(f"[Unified {job_id}] Extraction failed; CPT/ICD will run without extraction guidance")
-                elif extraction_result[0] and os.path.exists(extraction_result[0]):
-                    extraction_fields_lookup[0] = _build_extraction_lookup_from_csv(extraction_result[0])
-                    if extraction_fields_lookup[0]:
-                        logger.info(f"[Unified {job_id}] Built extraction lookup for {len(extraction_fields_lookup[0])} PDFs")
-
-                if icd_use_cpt_guidance and enable_icd:
-                    # Fully serial: extraction → CPT → ICD
-                    cpt_thread.start()
-                    cpt_thread.join()
-                    if not cpt_error[0] and cpt_result[0] and os.path.exists(cpt_result[0]):
-                        icd_cpt_lookup[0] = _build_cpt_lookup_from_csv(cpt_result[0])
-                    icd_thread.start()
-                    icd_thread.join()
-                else:
-                    # Extraction done → CPT + ICD in parallel
-                    cpt_thread.start()
-                    if enable_icd:
-                        icd_thread.start()
-                    cpt_thread.join()
-                    if enable_icd:
-                        icd_thread.join()
-
-            elif icd_use_cpt_guidance and enable_cpt and enable_icd:
+            if icd_use_cpt_guidance and enable_cpt and enable_icd:
                 logger.info(f"[Unified {job_id}] SERIAL MODE: starting extraction + CPT, ICD will wait for CPT")
                 extraction_thread.start()
                 cpt_thread.start()
@@ -9697,9 +9617,20 @@ def process_unified_background(
                     # ICD still runs without guidance so we don't lose the batch entirely
                     logger.warning(f"[Unified {job_id}] CPT failed; ICD will run without CPT guidance")
                 elif cpt_result[0] and os.path.exists(cpt_result[0]):
-                    icd_cpt_lookup[0] = _build_cpt_lookup_from_csv(cpt_result[0])
-                    if icd_cpt_lookup[0]:
-                        logger.info(f"[Unified {job_id}] Built CPT lookup for {len(icd_cpt_lookup[0])} PDFs; starting ICD with guidance")
+                    try:
+                        import pandas as pd
+                        cpt_df = pd.read_csv(cpt_result[0])
+                        # CPT CSV columns: Patient Filename, ASA Code, Procedure Code, ...
+                        lookup = {}
+                        for _, row in cpt_df.iterrows():
+                            fname = str(row.get('Patient Filename', '')).strip()
+                            cpt_code = str(row.get('Procedure Code', '')).strip()
+                            if fname and cpt_code and cpt_code.lower() != 'nan' and not cpt_code.startswith('ERROR'):
+                                lookup[fname] = cpt_code
+                        icd_cpt_lookup[0] = lookup
+                        logger.info(f"[Unified {job_id}] Built CPT lookup for {len(lookup)} PDFs; starting ICD with guidance")
+                    except Exception as e:
+                        logger.warning(f"[Unified {job_id}] Failed to build CPT lookup: {e}; ICD will run without guidance")
                 icd_thread.start()
                 extraction_thread.join()
                 icd_thread.join()
@@ -10920,7 +10851,6 @@ async def process_unified(
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
     icd_use_cpt_guidance: bool = Form(default=False),  # Serialize: CPT first, then ICD with CPT in prompt
-    cpt_use_extraction_guidance: bool = Form(default=False),  # Serialize: extraction first, then CPT/ICD with extracted fields in prompt
     output_filename: Optional[str] = Form(default=None),  # Custom output filename (optional)
     # Combined CPT+ICD params
     enable_combined_cpt_icd: bool = Form(default=False),
@@ -11178,7 +11108,6 @@ async def process_unified(
             enable_combined_cpt_icd=enable_combined_cpt_icd,
             combined_cpt_icd_model=combined_cpt_icd_model,
             icd_use_cpt_guidance=icd_use_cpt_guidance,
-            cpt_use_extraction_guidance=cpt_use_extraction_guidance,
         )
 
         logger.info(f"Background unified processing task started for job {job_id}")
