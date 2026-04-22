@@ -901,16 +901,18 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-preview", api_key=None, custom_instructions=None):
+def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, predicted_cpt=None):
     """
     Predict ICD codes using Google GenAI SDK from PDF page images
-    
+
     Args:
         image_data_list: List of base64 encoded image strings
         model: Gemini model name (e.g., "gemini-3-flash-preview", "gemini-2.5-pro")
         api_key: Google API key
         custom_instructions: Optional custom instructions to append to the prompt
-    
+        predicted_cpt: Optional predicted CPT code for this PDF (from prior CPT step). When provided,
+            is injected into the ICD prompt as guidance so the model can apply CPT-specific ICD rules.
+
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
         icd_codes_dict: Dictionary with keys 'ICD1', 'ICD1_Reasoning', 'ICD2', 'ICD2_Reasoning', 'ICD3', 'ICD3_Reasoning', 'ICD4', 'ICD4_Reasoning' containing ICD codes and reasoning
@@ -1044,6 +1046,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append predicted CPT guidance if provided
+    if predicted_cpt:
+        prompt += _build_cpt_guidance_block(predicted_cpt)
 
     # Build content with images
     parts = [types.Part.from_text(text=prompt)]
@@ -1191,16 +1197,18 @@ Respond with ONLY the JSON object, nothing else."""
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, predicted_cpt=None):
     """
     Predict ICD codes using OpenRouter API or Google GenAI SDK from PDF page images
-    
+
     Args:
         image_data_list: List of base64 encoded image strings
         model: Model to use (default: openai/gpt-5.2:online). For Gemini, use format "gemini-3-flash-preview" or "gemini-2.5-pro"
         api_key: API key (OpenRouter API key for OpenAI models, Google API key for Gemini models)
         custom_instructions: Optional custom instructions to append to the prompt
-    
+        predicted_cpt: Optional predicted CPT code for this PDF (from prior CPT step). When provided,
+            is injected into the ICD prompt as guidance so the model can apply CPT-specific ICD rules.
+
     Returns:
         tuple: (icd_codes_dict, tokens_used, cost_estimate, error_message)
         icd_codes_dict: Dictionary with keys 'ICD1', 'ICD1_Reasoning', 'ICD2', 'ICD2_Reasoning', 'ICD3', 'ICD3_Reasoning', 'ICD4', 'ICD4_Reasoning' containing ICD codes and reasoning
@@ -1211,7 +1219,7 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
         google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
-            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions)
+            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions, predicted_cpt=predicted_cpt)
         else:
             # Fall back to OpenRouter with google/ prefix
             logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
@@ -1336,6 +1344,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append predicted CPT guidance if provided
+    if predicted_cpt:
+        prompt += _build_cpt_guidance_block(predicted_cpt)
 
     # Build content list with text prompt first, then images (OpenRouter format)
     content = [
@@ -1587,6 +1599,32 @@ def _get_cpt_prompt(cpt_codes_text, include_code_list):
             code_section = ""
         return f"You are a medical anesthesia CPT coder.\n\nYour task is to predict the most relevant anesthesia CPT code for anesthesia billing for a certain procedure by analyzing the provided medical document page(s).\n{code_section}\n{db_prompt}\n\nYou must respond with a JSON object in this exact format:\n{{\n  \"code\": \"00840\",\n  \"explanation\": \"Brief explanation of why this code was chosen (1-2 sentences)\"\n}}\n\nThe explanation should briefly describe why this specific CPT code is appropriate for this procedure. Keep it concise (1-2 sentences maximum).\n\nRespond with ONLY the JSON object, nothing else."
     return None  # Caller uses hardcoded fallback
+
+
+def _build_cpt_guidance_block(predicted_cpt):
+    """Build a high-priority CPT-guidance block to append to the ICD prompt.
+
+    Used when the ICD prediction step runs *after* CPT prediction and receives
+    the predicted CPT code as input. Placed at the very end of the prompt so it
+    is the last instruction the model sees before producing output.
+    """
+    code = str(predicted_cpt).strip() if predicted_cpt is not None else ""
+    if not code:
+        return ""
+    return (
+        "\n\n"
+        "================================================================================\n"
+        "PREDICTED CPT CODE FOR THIS CASE (from prior CPT prediction step)\n"
+        "================================================================================\n"
+        f"CPT = {code}\n"
+        "\n"
+        "A separate CPT prediction step has already analyzed this document and predicted\n"
+        "the CPT above. Treat this as strong guidance — the CPT code tightly constrains\n"
+        "which ICD1 is appropriate. Apply any facility-specific CPT->ICD rules in the\n"
+        "prompt above using this CPT. If no facility-specific rule applies for this CPT,\n"
+        "ensure your ICD1 is clinically consistent with the procedure this CPT represents\n"
+        "(e.g., do NOT return a GI ICD when CPT is for an ortho procedure).\n"
+    )
 
 
 def _get_icd_prompt():
@@ -1984,10 +2022,10 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None, cpt_lookup=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
-    
+
     Args:
         pdf_folder: Path to folder containing PDF files
         output_file: Path to output CSV file
@@ -1998,7 +2036,9 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         progress_callback: Optional callback function(completed, total, message)
         custom_instructions: Optional custom instructions to append to the prompt
         image_cache: Optional dict mapping PDF filename to list of base64 images (for speed optimization)
-    
+        cpt_lookup: Optional dict mapping PDF filename -> predicted CPT code. When provided, each
+            per-PDF ICD call receives the CPT as guidance injected into the prompt.
+
     Returns:
         bool: True if successful, False otherwise
     """
@@ -2077,9 +2117,10 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                     }
                     return idx, filename, error_dict, 0, 0.0, error_msg, model_source
                 
-                # Predict ICD codes from images
+                # Predict ICD codes from images (with optional CPT guidance from prior step)
+                per_pdf_cpt = cpt_lookup.get(filename) if cpt_lookup else None
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
-                    image_data_list, model, api_key, custom_instructions
+                    image_data_list, model, api_key, custom_instructions, predicted_cpt=per_pdf_cpt
                 )
                 
                 # Determine model source
