@@ -57,7 +57,7 @@ def normalize_gemini_model(model_name):
     return clean_model
 
 
-def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, include_code_list=True, web_search=True):
+def predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, include_code_list=True, web_search=True, extraction_context=None):
     """
     Predict ASA code using Google GenAI SDK from PDF page images
 
@@ -204,6 +204,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append extraction context if provided
+    if extraction_context:
+        prompt += _build_extraction_guidance_block(extraction_context)
 
     # Build content with images
     parts = [types.Part.from_text(text=prompt)]
@@ -518,7 +522,7 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True, web_search=True):
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True, web_search=True, extraction_context=None):
     """
     Predict ASA code using OpenRouter API or Google GenAI SDK from PDF page images
 
@@ -540,7 +544,7 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
         google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
-            return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
+            return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search, extraction_context=extraction_context)
         else:
             # Fall back to OpenRouter with google/ prefix
             logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
@@ -667,6 +671,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append extraction context if provided
+    if extraction_context:
+        prompt += _build_extraction_guidance_block(extraction_context)
 
     # Build content list with text prompt first, then images (OpenRouter format)
     content = [
@@ -901,7 +909,7 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, predicted_cpt=None):
+def predict_icd_codes_from_images_gemini(image_data_list, model="gemini-3-flash-preview", api_key=None, custom_instructions=None, predicted_cpt=None, extraction_context=None):
     """
     Predict ICD codes using Google GenAI SDK from PDF page images
 
@@ -1046,6 +1054,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append extraction context if provided
+    if extraction_context:
+        prompt += _build_extraction_guidance_block(extraction_context)
 
     # Append predicted CPT guidance if provided
     if predicted_cpt:
@@ -1197,7 +1209,7 @@ Respond with ONLY the JSON object, nothing else."""
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, predicted_cpt=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, predicted_cpt=None, extraction_context=None):
     """
     Predict ICD codes using OpenRouter API or Google GenAI SDK from PDF page images
 
@@ -1219,7 +1231,7 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
         google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
-            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions, predicted_cpt=predicted_cpt)
+            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions, predicted_cpt=predicted_cpt, extraction_context=extraction_context)
         else:
             # Fall back to OpenRouter with google/ prefix
             logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
@@ -1344,6 +1356,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Append custom instructions if provided
     if custom_instructions and custom_instructions.strip():
         prompt += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+
+    # Append extraction context if provided
+    if extraction_context:
+        prompt += _build_extraction_guidance_block(extraction_context)
 
     # Append predicted CPT guidance if provided
     if predicted_cpt:
@@ -1601,6 +1617,46 @@ def _get_cpt_prompt(cpt_codes_text, include_code_list):
     return None  # Caller uses hardcoded fallback
 
 
+def _build_extraction_guidance_block(extraction_context):
+    """Build an EXTRACTION RESULTS block to append to the CPT or ICD prompt.
+
+    Used when extraction runs before CPT/ICD and its per-PDF output is passed
+    as authoritative text context. `extraction_context` is a dict with keys
+    like 'handwritten_procedure_text', 'handwritten_diagnosis_text',
+    'medical_conditions_list', 'dx_studies_text'. Missing/None values are
+    rendered as "(empty)".
+    """
+    if not extraction_context or not isinstance(extraction_context, dict):
+        return ""
+    def fmt(v):
+        if v is None: return "(empty)"
+        s = str(v).strip()
+        return s if s and s.lower() != "nan" else "(empty)"
+    lines = [
+        "",
+        "",
+        "================================================================================",
+        "EXTRACTION RESULTS FOR THIS CASE (from prior extraction step — authoritative)",
+        "================================================================================",
+    ]
+    for key in [
+        "handwritten_procedure_text",
+        "handwritten_diagnosis_text",
+        "medical_conditions_list",
+        "dx_studies_text",
+    ]:
+        if key in extraction_context:
+            lines.append(f"  {key}: {fmt(extraction_context[key])}")
+    lines.append("")
+    lines.append(
+        "Use these extracted strings exactly as provided when applying any rule "
+        "in the prompt above that references them. They are the result of "
+        "dedicated extraction passes that cleanly isolate each PDF section."
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _build_cpt_guidance_block(predicted_cpt):
     """Build a high-priority CPT-guidance block to append to the ICD prompt.
 
@@ -1853,7 +1909,7 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=150):
         return []
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True, extraction_lookup=None):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
 
@@ -1934,9 +1990,11 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
                     return idx, filename, "ERROR", "", 0, 0.0, error_msg, "openrouter_vision"
                 
-                # Predict ASA code from images
+                # Predict ASA code from images (with optional extraction context)
+                per_pdf_extraction = extraction_lookup.get(filename) if extraction_lookup else None
                 predicted_code, explanation, tokens, cost, error = predict_asa_code_from_images(
-                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search
+                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search,
+                    extraction_context=per_pdf_extraction
                 )
                 
                 # Determine model source
@@ -2022,7 +2080,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None, cpt_lookup=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None, cpt_lookup=None, extraction_lookup=None):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
 
@@ -2117,10 +2175,12 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                     }
                     return idx, filename, error_dict, 0, 0.0, error_msg, model_source
                 
-                # Predict ICD codes from images (with optional CPT guidance from prior step)
+                # Predict ICD codes from images (with optional CPT + extraction guidance)
                 per_pdf_cpt = cpt_lookup.get(filename) if cpt_lookup else None
+                per_pdf_extraction = extraction_lookup.get(filename) if extraction_lookup else None
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
-                    image_data_list, model, api_key, custom_instructions, predicted_cpt=per_pdf_cpt
+                    image_data_list, model, api_key, custom_instructions,
+                    predicted_cpt=per_pdf_cpt, extraction_context=per_pdf_extraction
                 )
                 
                 # Determine model source
