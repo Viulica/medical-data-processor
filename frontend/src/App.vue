@@ -1788,6 +1788,30 @@
  all predictions in this batch.
  </p>
  </div>
+
+ <!-- CPT-informed ICD prediction toggle -->
+ <div class="setting-group" style="margin-top: 16px">
+ <label style="display: flex; align-items: center; gap: 8px; cursor: pointer">
+ <input
+ type="checkbox"
+ v-model="unifiedIcdUseCptGuidance"
+ />
+ <span>Use CPT-informed ICD prediction</span>
+ </label>
+ <p
+ class="form-hint"
+ style="margin-top: 6px; margin-left: 24px; color: #6b7280"
+ >
+ When enabled, CPT prediction runs first and each case's predicted
+ CPT code is injected into the ICD prompt as guidance. ICD thread
+ waits for CPT to finish. Slightly slower, but ICD picks better
+ when it knows the procedure type.
+ <br />
+ <strong>Turn on for X...-RSC groups</strong> (XAA-RSC, XHJ-RSC) —
+ the ICD rules for these facilities are CPT-driven, so they need
+ the predicted CPT to apply correctly.
+ </p>
+ </div>
  </div>
  </div>
  </div>
@@ -8634,6 +8658,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <label> Priority Level</label>
  <select v-model="field.priority" class="form-control priority-select">
  <option :value="false"> None</option>
+ <option value="very_high"> Very High (pro model)</option>
  <option value="high"> High (best model)</option>
  <option value="low"> Low (fast model)</option>
  </select>
@@ -9830,6 +9855,7 @@ export default {
  unifiedIcdVisionModel: "gemini-3-flash-preview", // Vision model selection
  unifiedIcdCustomModel: "", // Custom OpenRouter model input
  unifiedIcdCustomInstructions: "",
+ unifiedIcdUseCptGuidance: false, // Serial CPT→ICD mode (turn on for X...-RSC groups)
  unifiedUseIcdTemplate: false,
  unifiedSelectedIcdInstructionId: null,
  unifiedOutputFileName: "", // Custom output filename for downloads
@@ -11452,6 +11478,11 @@ export default {
  this.unifiedSelectedIcdInstructionId
  );
  }
+ // Serial CPT→ICD guidance mode (turn on for X...-RSC groups)
+ formData.append(
+ "icd_use_cpt_guidance",
+ this.unifiedIcdUseCptGuidance
+ );
 
  try {
  const backendUrl = this.getBackendUrl();
