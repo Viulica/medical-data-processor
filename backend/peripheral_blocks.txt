@@ -2,6 +2,66 @@ In this field i need you to list out all blocks used here like this: |cpt_code;M
 
 RULES FOR PICKING the cpt code and modifiers (LT = left, RT = right, 50 = bilateral)
 
+⚠️ GENERAL DISAMBIGUATION RULE — USE THE SURGICAL SITE AND LATERALITY ⚠️
+
+Charts often record blocks vaguely ("brachial plexus block", "TAP block", "spinal", "peripheral nerve block", "regional") without specifying the exact subtype, laterality, or single-shot vs catheter. When the chart is ambiguous, you MUST disambiguate by cross-referencing TWO things:
+
+1. THE SURGICAL SITE / MAIN ANESTHESIA CPT — what part of the body was operated on. The block must anatomically cover that site.
+2. THE LATERALITY OF THE SURGERY — unilateral surgery never gets a bilateral block; bilateral surgery rarely gets a unilateral block.
+
+PROCESS for every block you find:
+- Step A: Identify the block FAMILY (brachial plexus, TAP, paravertebral, neuraxial, vascular line, etc.).
+- Step B: Determine the SURGICAL SITE from the procedure description and the main anesthesia CPT.
+- Step C: Determine LATERALITY (LT / RT / bilateral) from the procedure description, "Site:", "Laterality:", or the diagnosis (e.g. "right inguinal hernia" → RT).
+- Step D: Determine SINGLE-SHOT vs CONTINUOUS CATHETER. If the chart only says "block" with no catheter/infusion mention, default to SINGLE-SHOT.
+- Step E: Pick the most specific CPT that matches site + laterality + technique. NEVER default to the most common CPT in the family if the surgical site/laterality contradicts it.
+
+KEY CROSS-CHECKS (apply these whenever the chart is vague):
+
+A. BRACHIAL PLEXUS FAMILY — the subtype depends on the SURGICAL SITE:
+   - SHOULDER surgery (rotator cuff, shoulder arthroscopy, total shoulder, clavicle) → INTERSCALENE → 64415 (single) / 64416 (catheter)
+   - ELBOW / FOREARM / WRIST / HAND surgery (cubital tunnel, carpal tunnel, distal radius, hand mass, fistula creation) → AXILLARY → 64417 (single) / 64418 (catheter)
+   - SUPRACLAVICULAR is sometimes used for upper-arm/elbow — if the chart explicitly says "supraclavicular" use the same code as interscalene for our purposes (64415).
+   - If the chart only says "brachial plexus block" and the case is anesthesia CPT 01710/01716/01740/01758/01760/01810/01820/01830/01832/01840/01842/01844/01850/01852/01860 (elbow/forearm/wrist/hand) → AXILLARY (64417).
+   - If the chart only says "brachial plexus block" and the case is 01620/01630/01634/01636/01638 (shoulder/upper arm) → INTERSCALENE (64415).
+
+B. TAP / ABDOMINAL WALL BLOCK FAMILY — laterality must match the surgery:
+   - Unilateral abdominal surgery (unilateral inguinal hernia 00830, unilateral nephrectomy, single-side appendectomy, unilateral colectomy at the affected side) → 64486 (unilateral TAP) with LT or RT in M2.
+   - Bilateral abdominal surgery (bilateral hernia, midline laparotomy, hysterectomy, c-section, bowel resection across midline) → 64488 (bilateral TAP).
+   - If chart says "TAP block" with no laterality, INFER from the surgery: unilateral → 64486, midline/bilateral → 64488.
+   - The same logic applies to ESP, paravertebral, rectus sheath: unilateral surgery → unilateral block code; midline/bilateral surgery → bilateral block code.
+
+C. NEURAXIAL FAMILY — site of injection determines the code:
+   - Lumbar single-shot, no ultrasound → 62322
+   - Lumbar single-shot, WITH ultrasound → 62323
+   - Cervical or Thoracic single-shot → 62320
+   - Continuous catheter: 62318 (cervical/thoracic) / 62319 (lumbar)
+
+D. LOWER-EXTREMITY NERVE BLOCK FAMILY — pick by what nerve was actually targeted, not by what's most common:
+   - Femoral surgery (hip, anterior thigh, knee anterior) → 64447 femoral, 64445 sciatic if posterior knee involved.
+   - Adductor canal block for knee surgery is 64447 (same CPT as femoral; described as "adductor canal" or "saphenous").
+   - iPACK for posterior knee is 64473.
+   - Don't add multiple lower-extremity blocks unless each is independently documented in the chart (e.g. separate "Sciatic" + "Adductor" entries).
+
+E. SINGLE-SHOT vs CATHETER:
+   - If the chart says "single shot", "single injection", "one shot" → single-shot CPT.
+   - If the chart says "catheter", "continuous", "infusion", "pump" → continuous catheter CPT.
+   - If silent → default to single-shot.
+
+F. WHEN THE CHART CONTRADICTS YOUR INFERENCE:
+   - Explicit chart wording wins over surgical-site inference. If the chart clearly says "interscalene" for an elbow case, use 64415, but flag mentally — this is unusual.
+   - If the chart wording is unclear or just generic ("regional", "block"), use the surgical-site rule.
+
+G. NEVER ADD A BLOCK THAT ANATOMICALLY CANNOT COVER THE SURGICAL SITE:
+   - No interscalene for hand surgery.
+   - No bilateral TAP for unilateral inguinal hernia.
+   - No femoral block for upper-extremity surgery.
+   - No iPACK for shoulder.
+
+If after all these checks you still cannot determine the correct subtype, pick the most ANATOMICALLY APPROPRIATE option for the surgical site, not the most common one in the family.
+
+---
+
 SCIATIC PERIPHERAL BLOCK
 
 IF single injection: -> use 64445

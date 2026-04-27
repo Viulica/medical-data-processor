@@ -49,7 +49,9 @@ def load_field_definitions_from_excel(excel_file_path):
                 
             # Check priority level: YES/HIGH -> "high", LOW -> "low", else False
             priority_value = str(priority_row.iloc[i]).strip().upper() if priority_row is not None and not pd.isna(priority_row.iloc[i]) else ''
-            if priority_value in ('YES', 'HIGH'):
+            if priority_value in ('VERY_HIGH', 'VERY HIGH'):
+                is_priority = 'very_high'
+            elif priority_value in ('YES', 'HIGH'):
                 is_priority = 'high'
             elif priority_value == 'LOW':
                 is_priority = 'low'
@@ -91,6 +93,11 @@ def get_priority_fields(excel_file_path):
     """Return list of high-priority field definitions."""
     field_definitions = get_field_definitions(excel_file_path)
     return [field for field in field_definitions if field.get('priority') in ('high', True) and field['name'] not in ['source_file', 'page_number']]
+
+def get_very_high_priority_fields(excel_file_path):
+    """Return list of very-high-priority field definitions (use best/most expensive model)."""
+    field_definitions = get_field_definitions(excel_file_path)
+    return [field for field in field_definitions if field.get('priority') == 'very_high' and field['name'] not in ['source_file', 'page_number']]
 
 def get_low_priority_fields(excel_file_path):
     """Return list of low-priority field definitions (use cheaper model)."""
