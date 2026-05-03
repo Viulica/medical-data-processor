@@ -7636,6 +7636,55 @@ async def get_templates(page: int = 1, page_size: int = 50, search: str = None):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve templates: {str(e)}")
 
 
+# ==================== Group Status endpoints ====================
+@app.get("/api/group-status")
+async def list_group_statuses():
+    """Return all (group_name, status_description) rows."""
+    try:
+        from db_utils import get_all_group_statuses
+        rows = get_all_group_statuses()
+        return {"items": rows}
+    except Exception as e:
+        logger.error(f"Failed to list group statuses: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/group-status")
+async def upsert_group_status_endpoint(payload: dict):
+    """Insert or update a group's status description.
+    Body: {"group_name": "PCE-PMC", "status_description": "..."}.
+    """
+    group_name = (payload or {}).get("group_name", "").strip()
+    status_description = (payload or {}).get("status_description", "")
+    if not group_name:
+        raise HTTPException(status_code=400, detail="group_name is required")
+    try:
+        from db_utils import upsert_group_status
+        row = upsert_group_status(group_name, status_description)
+        return {"item": row}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Failed to upsert group status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/group-status/{status_id}")
+async def delete_group_status_endpoint(status_id: int):
+    """Delete a group status row by id."""
+    try:
+        from db_utils import delete_group_status
+        ok = delete_group_status(status_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Not found")
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete group status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/templates/{template_id}")
 async def get_template(template_id: int):
     """Get a specific instruction template by ID"""
@@ -10599,7 +10648,31 @@ def process_unified_background(
         if columns_to_clean:
             logger.info(f"[Unified {job_id}] Cleaning up merge suffix columns: {columns_to_clean}")
             base_df = base_df.drop(columns=columns_to_clean, errors='ignore')
-        
+
+        # ==================== ML CPT Refinement ====================
+        # Enabled per-group via CPT_ML_REFINEMENT_GROUPS env var (comma-separated).
+        # Default: "PCE-PMC,PCE-WWMG". Set to "" to disable everywhere.
+        # Only refines 00811/00812 predictions; other codes (00731, 00813, etc.) pass through.
+        # Reject-option thresholds calibrated for ≥98% precision both classes.
+        cpt_ml_groups_env = os.getenv("CPT_ML_REFINEMENT_GROUPS", "PCE-PMC,PCE-WWMG")
+        cpt_ml_groups = {g.strip() for g in cpt_ml_groups_env.split(",") if g.strip()}
+        print(f"[Unified {job_id}] CPT-ML hook check: enable_cpt={enable_cpt}, group={worktracker_group!r}, allowed={cpt_ml_groups}, has_cpt_col={'Procedure Code' in base_df.columns}", flush=True)
+        if enable_cpt and worktracker_group in cpt_ml_groups and "Procedure Code" in base_df.columns:
+            try:
+                print(f"[Unified {job_id}] Invoking CPT ML refinement for {worktracker_group}...", flush=True)
+                from cpt_ml_refinement import refine_dataframe
+                stats = refine_dataframe(base_df, worktracker_group)
+                msg = (
+                    f"[Unified {job_id}] CPT ML refinement applied: "
+                    f"total={stats['total']}, overridden={stats['refined']}, "
+                    f"needs_review={stats['review']}, passthrough={stats['no_op']}"
+                )
+                print(msg, flush=True); logger.info(msg)
+            except Exception as ml_err:
+                logger.exception(f"[Unified {job_id}] CPT ML refinement failed (non-fatal): {ml_err}")
+        else:
+            print(f"[Unified {job_id}] CPT-ML hook SKIPPED for group={worktracker_group!r} (not in {cpt_ml_groups})", flush=True)
+
         # Reorder columns to put ICD columns at the end (after all other data)
         icd_cols = ['ICD1', 'ICD2', 'ICD3', 'ICD4']
         icd_cols_present = [col for col in icd_cols if col in base_df.columns]
@@ -11054,6 +11127,20 @@ async def process_unified(
                 icd_custom_instructions = template['instructions_text']
                 logger.info(f"Using ICD instruction template '{template['name']}' for unified processing")
         
+        # ==================== ICD CPT-guidance auto-enable ====================
+        # ICD_CPT_GUIDANCE_GROUPS env var (comma-separated) lists worktracker groups for which
+        # we always force serial CPT->ICD mode regardless of the form value. Lets us toggle
+        # the feature per-group without touching the frontend.
+        # Default: "" (no auto-enable). Example: "PCE-PMC,PCE-WWMG,INJE-CSCG"
+        icd_guidance_groups_env = os.getenv("ICD_CPT_GUIDANCE_GROUPS", "")
+        icd_guidance_groups = {g.strip() for g in icd_guidance_groups_env.split(",") if g.strip()}
+        if worktracker_group and worktracker_group in icd_guidance_groups and not icd_use_cpt_guidance:
+            logger.info(
+                f"[Unified {job_id}] Auto-enabling icd_use_cpt_guidance for group {worktracker_group!r} "
+                f"(env ICD_CPT_GUIDANCE_GROUPS={icd_guidance_groups_env})"
+            )
+            icd_use_cpt_guidance = True
+
         # Start background processing
         # Upload input ZIP to Supabase Storage before starting background task
         input_zip_supabase_path = None

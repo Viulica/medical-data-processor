@@ -221,6 +221,96 @@
  >
  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Special Cases
  </button>
+ <button
+ @click="selectTabAndLoad('group-status', 'loadGroupStatuses')"
+ class="dropdown-item"
+ >
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Group Status
+ </button>
+ </div>
+ </div>
+ </div>
+
+ <!-- Group Status Tab -->
+ <div v-if="activeTab === 'group-status'" class="upload-section">
+ <div class="card">
+ <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+ <div>
+ <h2 style="margin:0;">Group Status</h2>
+ <p style="margin:4px 0 0; color:#6b7280; font-size:13px;">Per-worktracker-group note for tracking ML/template state, accuracy, and known issues.</p>
+ </div>
+ <button @click="loadGroupStatuses" class="btn btn-secondary" :disabled="groupStatusLoading">
+ <span v-if="groupStatusLoading">Loading…</span>
+ <span v-else>Refresh</span>
+ </button>
+ </div>
+
+ <div class="card-body">
+ <!-- Add / update form -->
+ <div style="display:grid; grid-template-columns: 220px 1fr auto; gap:8px; margin-bottom:16px; align-items:start;">
+ <input
+ v-model="groupStatusForm.group_name"
+ type="text"
+ placeholder="Group (e.g. PCE-PMC)"
+ class="form-input"
+ :disabled="groupStatusSaving"
+ />
+ <textarea
+ v-model="groupStatusForm.status_description"
+ rows="2"
+ placeholder="Status description"
+ class="form-input"
+ :disabled="groupStatusSaving"
+ ></textarea>
+ <button @click="saveGroupStatus" class="btn btn-primary" :disabled="groupStatusSaving || !groupStatusForm.group_name">
+ <span v-if="groupStatusSaving">Saving…</span>
+ <span v-else>Save</span>
+ </button>
+ </div>
+
+ <!-- Search -->
+ <div style="margin-bottom:8px;">
+ <input
+ v-model="groupStatusSearch"
+ type="text"
+ placeholder="Filter by group name…"
+ class="form-input"
+ style="max-width:320px;"
+ />
+ </div>
+
+ <!-- Table -->
+ <table v-if="filteredGroupStatuses.length > 0" class="data-table" style="width:100%;">
+ <thead>
+ <tr>
+ <th style="width:200px;">Group</th>
+ <th>Status</th>
+ <th style="width:160px;">Updated</th>
+ <th style="width:160px; text-align:right;">Actions</th>
+ </tr>
+ </thead>
+ <tbody>
+ <tr v-for="row in filteredGroupStatuses" :key="row.id">
+ <td><strong>{{ row.group_name }}</strong></td>
+ <td>
+ <textarea
+ v-model="row.status_description"
+ rows="2"
+ class="form-input"
+ style="width:100%; font-size:13px;"
+ ></textarea>
+ </td>
+ <td style="font-size:12px; color:#6b7280;">{{ row.updated_at ? row.updated_at.split('.')[0] : '' }}</td>
+ <td style="text-align:right;">
+ <button @click="updateGroupStatus(row)" class="btn btn-secondary btn-sm" :disabled="groupStatusSaving">Save</button>
+ <button @click="deleteGroupStatus(row)" class="btn btn-danger btn-sm" style="margin-left:6px;" :disabled="groupStatusSaving">Delete</button>
+ </td>
+ </tr>
+ </tbody>
+ </table>
+ <div v-else style="padding:24px; color:#6b7280; text-align:center;">
+ No group statuses yet. Add one above.
+ </div>
  </div>
  </div>
  </div>
@@ -9630,6 +9720,12 @@ export default {
  data() {
  return {
  activeTab: "unified",
+ // Group Status tab state
+ groupStatuses: [],
+ groupStatusLoading: false,
+ groupStatusSaving: false,
+ groupStatusSearch: "",
+ groupStatusForm: { group_name: "", status_description: "" },
  zipFile: null,
  excelFile: null,
  pageCount: 49,
@@ -10066,6 +10162,14 @@ export default {
  };
  },
  computed: {
+ filteredGroupStatuses() {
+ const q = (this.groupStatusSearch || "").trim().toLowerCase();
+ if (!q) return this.groupStatuses;
+ return this.groupStatuses.filter(r =>
+ (r.group_name || "").toLowerCase().includes(q) ||
+ (r.status_description || "").toLowerCase().includes(q)
+ );
+ },
  refinementFixedCount() {
  return this.refinementCaseStatuses.filter(cs => cs.final_status === 'fixed').length;
  },
@@ -10354,6 +10458,70 @@ export default {
  methods: {
  getBackendUrl() {
  return API_BASE_URL;
+ },
+ // ==================== Group Status ====================
+ async loadGroupStatuses() {
+ this.groupStatusLoading = true;
+ try {
+ const resp = await axios.get(joinUrl(API_BASE_URL, "api/group-status"));
+ this.groupStatuses = (resp.data && resp.data.items) || [];
+ } catch (e) {
+ console.error("loadGroupStatuses failed", e);
+ this.toast.error("Failed to load group statuses");
+ } finally {
+ this.groupStatusLoading = false;
+ }
+ },
+ async saveGroupStatus() {
+ const name = (this.groupStatusForm.group_name || "").trim();
+ if (!name) return;
+ this.groupStatusSaving = true;
+ try {
+ await axios.post(joinUrl(API_BASE_URL, "api/group-status"), {
+ group_name: name,
+ status_description: this.groupStatusForm.status_description || "",
+ });
+ this.groupStatusForm = { group_name: "", status_description: "" };
+ await this.loadGroupStatuses();
+ this.toast.success(`Saved status for ${name}`);
+ } catch (e) {
+ console.error("saveGroupStatus failed", e);
+ this.toast.error(e.response?.data?.detail || "Failed to save group status");
+ } finally {
+ this.groupStatusSaving = false;
+ }
+ },
+ async updateGroupStatus(row) {
+ if (!row || !row.group_name) return;
+ this.groupStatusSaving = true;
+ try {
+ await axios.post(joinUrl(API_BASE_URL, "api/group-status"), {
+ group_name: row.group_name,
+ status_description: row.status_description || "",
+ });
+ this.toast.success(`Updated ${row.group_name}`);
+ await this.loadGroupStatuses();
+ } catch (e) {
+ console.error("updateGroupStatus failed", e);
+ this.toast.error(e.response?.data?.detail || "Update failed");
+ } finally {
+ this.groupStatusSaving = false;
+ }
+ },
+ async deleteGroupStatus(row) {
+ if (!row || !row.id) return;
+ if (!confirm(`Delete status entry for "${row.group_name}"?`)) return;
+ this.groupStatusSaving = true;
+ try {
+ await axios.delete(joinUrl(API_BASE_URL, `api/group-status/${row.id}`));
+ await this.loadGroupStatuses();
+ this.toast.success(`Deleted ${row.group_name}`);
+ } catch (e) {
+ console.error("deleteGroupStatus failed", e);
+ this.toast.error(e.response?.data?.detail || "Delete failed");
+ } finally {
+ this.groupStatusSaving = false;
+ }
  },
  isValidCsvOrXlsxFile(filename) {
  if (!filename) return false;

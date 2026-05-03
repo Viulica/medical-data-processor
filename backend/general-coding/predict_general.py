@@ -216,14 +216,12 @@ Respond with ONLY the JSON object, nothing else."""
     
     contents = [types.Content(role="user", parts=parts)]
     
-    # Configure thinking for Gemini 3 models
-    if model == "gemini-3-pro-preview":
-        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-    elif model == "gemini-3-flash-preview":
+    # Configure thinking for Gemini 3 / 3.1 models
+    if model in ("gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"):
         thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
-    
+
     # Conditionally enable web search for Gemini models (CPT prediction)
     tools = None
     if web_search:
@@ -294,7 +292,7 @@ Respond with ONLY the JSON object, nothing else."""
                 cost = total_tokens_estimate * 0.00005 / 1000
             elif "gemini-3-flash" in model:
                 cost = total_tokens_estimate * 0.000125 / 1000
-            elif "gemini-3-pro" in model:
+            elif "gemini-3-pro" in model or "gemini-3.1-pro" in model:
                 cost = total_tokens_estimate * 0.00125 / 1000
             elif "gemini-2.5-flash" in model:
                 cost = total_tokens_estimate * 0.000075 / 1000
@@ -1062,14 +1060,12 @@ Respond with ONLY the JSON object, nothing else."""
     
     contents = [types.Content(role="user", parts=parts)]
     
-    # Configure thinking for Gemini 3 models
-    if model == "gemini-3-pro-preview":
-        thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-    elif model == "gemini-3-flash-preview":
+    # Configure thinking for Gemini 3 / 3.1 models
+    if model in ("gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"):
         thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
-    
+
     # Enable web search for Gemini models (required for ICD code validation per prompt)
     tools = [
         types.Tool(googleSearch=types.GoogleSearch()),
@@ -1143,7 +1139,7 @@ Respond with ONLY the JSON object, nothing else."""
                 cost = total_tokens_estimate * 0.00005 / 1000
             elif "gemini-3-flash" in model:
                 cost = total_tokens_estimate * 0.000125 / 1000
-            elif "gemini-3-pro" in model:
+            elif "gemini-3-pro" in model or "gemini-3.1-pro" in model:
                 cost = total_tokens_estimate * 0.00125 / 1000
             elif "gemini-2.5-flash" in model:
                 cost = total_tokens_estimate * 0.000075 / 1000
@@ -2404,7 +2400,7 @@ Respond with ONLY the JSON object, nothing else."""
 
     contents = [types.Content(role="user", parts=parts)]
 
-    if model in ("gemini-3-pro-preview", "gemini-3-flash-preview"):
+    if model in ("gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"):
         thinking_config = types.ThinkingConfig(thinking_level="HIGH")
     else:
         thinking_config = types.ThinkingConfig(thinking_budget=-1)

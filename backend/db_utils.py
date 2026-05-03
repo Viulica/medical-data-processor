@@ -353,6 +353,15 @@ def init_database():
     
     CREATE INDEX IF NOT EXISTS idx_refinement_jobs_job_id ON refinement_jobs(job_id);
     CREATE INDEX IF NOT EXISTS idx_refinement_jobs_status ON refinement_jobs(status);
+
+    CREATE TABLE IF NOT EXISTS group_status (
+        id SERIAL PRIMARY KEY,
+        group_name VARCHAR(255) NOT NULL UNIQUE,
+        status_description TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_status_group_name ON group_status(group_name);
     """
     
     try:
@@ -1840,3 +1849,57 @@ def delete_expired_unified_results():
         logger.error(f"Failed to delete expired unified results: {e}")
         return 0
 
+
+
+# ==================== Group Status (per-worktracker-group note) ====================
+def get_all_group_statuses():
+    """Return all group_status rows ordered by group_name."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, group_name, status_description, created_at::text, updated_at::text "
+                    "FROM group_status ORDER BY group_name"
+                )
+                return cur.fetchall()
+    except Exception as e:
+        logger.error(f"Failed to fetch group statuses: {e}")
+        return []
+
+
+def upsert_group_status(group_name: str, status_description: str):
+    """Insert or update the status note for a group. Returns the upserted row."""
+    if not group_name or not group_name.strip():
+        raise ValueError("group_name is required")
+    name = group_name.strip()
+    desc = (status_description or "").strip()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO group_status (group_name, status_description, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (group_name) DO UPDATE
+                       SET status_description = EXCLUDED.status_description,
+                           updated_at = CURRENT_TIMESTAMP
+                    RETURNING id, group_name, status_description, created_at::text, updated_at::text
+                    """,
+                    (name, desc),
+                )
+                return cur.fetchone()
+    except Exception as e:
+        logger.error(f"Failed to upsert group status for {group_name!r}: {e}")
+        raise
+
+
+def delete_group_status(group_id: int) -> bool:
+    """Delete a group_status row by ID. Returns True if a row was deleted."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM group_status WHERE id = %s", (group_id,))
+                return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to delete group status id={group_id}: {e}")
+        return False
