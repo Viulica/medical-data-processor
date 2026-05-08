@@ -1247,10 +1247,9 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
 
             # Fallback to production model if custom model failed OR returned 01926
             if not initial_prediction:
+                fallback_prompt = f'For this procedure: "{fallback_procedure_str}" give me the most appropriate anesthesia CPT code'
+                vertex_fallback_error = None
                 try:
-                    # Use extracted description for fallback if available, otherwise use original
-                    fallback_prompt = f'For this procedure: "{fallback_procedure_str}" give me the most appropriate anesthesia CPT code'
-                    
                     # Add web search to fallback model
                     fallback_tools = [
                         types.Tool(googleSearch=types.GoogleSearch()),
@@ -1258,7 +1257,7 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     fallback_config = types.GenerateContentConfig(
                         tools=fallback_tools
                     )
-                    
+
                     response = fallback_client.models.generate_content(
                         model=fallback_model,
                         contents=[types.Content(role="user", parts=[{"text": fallback_prompt + "Only answer with the code, absolutely nothing else, no other text."}])],
@@ -1267,27 +1266,69 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                     fallback_result = response.text
                     if fallback_result:
                         initial_prediction = format_asa_code(fallback_result.strip())
-                        # Track if this was triggered by 01926
                         if base_returned_01926:
                             model_source = "fallback_01926_triggered"
                         else:
                             model_source = "fallback"
                     else:
-                        # If fallback fails and base returned 01926, return 01926
-                        if base_returned_01926:
-                            initial_prediction = "01926"
-                            model_source = "base_model"
-                            failure_reason = f"Base model returned 01926, fallback model returned empty response"
-                        else:
-                            return f"Prediction failed: empty response", "error", f"Fallback model returned empty response. Base model failure: {failure_reason}"
+                        vertex_fallback_error = "Vertex fallback returned empty response"
                 except Exception as e:
-                    # If fallback errors and base returned 01926, return 01926
+                    vertex_fallback_error = f"Vertex fallback error: {str(e)}"
+
+                # Tier 3: OpenRouter fallback for gemini-3-pro if Vertex fallback failed
+                if not initial_prediction:
+                    openrouter_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
+                    if openrouter_key:
+                        try:
+                            import requests as _requests
+                            or_payload = {
+                                "model": "google/gemini-3-flash-preview:online",
+                                "messages": [{
+                                    "role": "user",
+                                    "content": fallback_prompt + " Only answer with the code, absolutely nothing else, no other text."
+                                }],
+                            }
+                            or_headers = {
+                                "Authorization": f"Bearer {openrouter_key}",
+                                "Content-Type": "application/json",
+                                "HTTP-Referer": "https://github.com/medical-data-processor",
+                                "X-Title": "Medical Data Processor",
+                            }
+                            or_resp = _requests.post(
+                                "https://openrouter.ai/api/v1/chat/completions",
+                                headers=or_headers,
+                                json=or_payload,
+                                timeout=120,
+                            )
+                            or_resp.raise_for_status()
+                            or_data = or_resp.json()
+                            or_text = (
+                                or_data.get("choices", [{}])[0]
+                                .get("message", {})
+                                .get("content", "")
+                                or ""
+                            ).strip()
+                            if or_text:
+                                initial_prediction = format_asa_code(or_text)
+                                if base_returned_01926:
+                                    model_source = "openrouter_fallback_01926_triggered"
+                                else:
+                                    model_source = "openrouter_fallback"
+                                logger.info(f"OpenRouter fallback succeeded after Vertex failure ({vertex_fallback_error})")
+                            else:
+                                vertex_fallback_error = f"{vertex_fallback_error}; OpenRouter returned empty"
+                        except Exception as or_e:
+                            vertex_fallback_error = f"{vertex_fallback_error}; OpenRouter error: {str(or_e)}"
+                    else:
+                        vertex_fallback_error = f"{vertex_fallback_error}; OpenRouter key not configured"
+
+                if not initial_prediction:
                     if base_returned_01926:
                         initial_prediction = "01926"
                         model_source = "base_model"
-                        failure_reason = f"Base model returned 01926, fallback model error: {str(e)}"
+                        failure_reason = f"Base model returned 01926, all fallbacks failed: {vertex_fallback_error}"
                     else:
-                        return f"Prediction failed: {str(e)}", "error", f"Fallback model error: {str(e)}. Base model failure: {failure_reason}"
+                        return f"Prediction failed: {vertex_fallback_error}", "error", f"All fallbacks failed: {vertex_fallback_error}. Base model failure: {failure_reason}"
 
             # Stage 2: Review with custom instructions (if available)
             try:
