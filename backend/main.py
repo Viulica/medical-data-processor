@@ -10811,7 +10811,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         if worktracker_group not in VERIFY_ENABLED_GROUPS:
             # Drop any verify columns that may have come from extraction so we don't leak them.
@@ -10869,12 +10869,27 @@ def process_unified_background(
                         if _norm_cell(c) == "00812" and _norm_cell(icd1) != "Z12.11":
                             icd1_tags[i] = "Icd1"
 
-                # CoderVerify: rule-based "CPT" + combo "Icd1" prepended, then extracted appended.
+                # INJE-CLIFW combo rule: 00142 + any ICD1/2/3/4 starting with "H40" → flag "DX"
+                dx_tags = [""] * len(base_df)
+                if worktracker_group == "INJE-CLIFW" and cpt_col:
+                    icd_cols = [c for c in ("ICD1", "ICD2", "ICD3", "ICD4") if c in base_df.columns]
+                    for i, c in enumerate(base_df[cpt_col].tolist()):
+                        if _norm_cell(c) != "00142": continue
+                        for col in icd_cols:
+                            v = _norm_cell(base_df[col].iloc[i])
+                            if v.upper().startswith("H40"):
+                                dx_tags[i] = "DX"
+                                break
+
+                # CoderVerify: rule-based "CPT" + combo "Icd1"/"DX" prepended, then extracted appended.
                 extracted_coder_vals = (
                     existing_coder.tolist() if existing_coder is not None else [""] * len(base_df)
                 )
                 base_df["CoderVerify"] = [
-                    _merge_verify(", ".join(t for t in (rule_tags[i], icd1_tags[i]) if t), extracted_coder_vals[i])
+                    _merge_verify(
+                        ", ".join(t for t in (rule_tags[i], icd1_tags[i], dx_tags[i]) if t),
+                        extracted_coder_vals[i],
+                    )
                     for i in range(len(base_df))
                 ]
 
