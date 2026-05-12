@@ -263,6 +263,13 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 return None, None
         except Exception as e:
             print(f"    ⚠️  OpenRouter API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            # DEBUG: dump response body on 400 so we can see the actual error reason
+            try:
+                if hasattr(e, 'response') and e.response is not None:
+                    body_preview = e.response.text[:2000]
+                    print(f"    🔎 Response body: {body_preview}")
+            except Exception:
+                pass
             if attempt == max_retries - 1:
                 print(f"    ❌ Final OpenRouter API failure for {pdf_filename}{log_suffix}")
                 return None, None
@@ -292,6 +299,11 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     
     # Check if using OpenRouter (explicitly, or Gemini model without GOOGLE_API_KEY)
     if is_openrouter_model(model) and not is_gemini_model(model):
+        return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
+
+    # Explicit OpenRouter routing: if the caller passed a "google/..." prefixed model,
+    # always route through OpenRouter even though it's also a Gemini model.
+    if model.startswith('google/'):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
 
     original_model_for_fallback = model

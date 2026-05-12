@@ -194,7 +194,7 @@ class ProcessingJob:
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "gemini-flash-latest", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None):
     """Background task to process PDFs"""
     import os
     
@@ -2544,7 +2544,7 @@ async def split_pdf_gemini(
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
         # Validate model
-        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest"]
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest", "google/gemini-3-flash-preview", "google/gemini-2.5-flash", "google/gemini-2.5-pro"]
         if model not in valid_models:
             raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
         
@@ -2651,7 +2651,7 @@ async def split_pdf_gemini_prompt(
             raise HTTPException(status_code=400, detail="Batch size must be between 1 and 50")
         
         # Validate model
-        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest"]
+        valid_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-flash-latest", "google/gemini-3-flash-preview", "google/gemini-2.5-flash", "google/gemini-2.5-pro"]
         if model not in valid_models:
             raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {', '.join(valid_models)}")
         
@@ -10792,15 +10792,27 @@ def process_unified_background(
         else:
             print(f"[Unified {job_id}] CPT-ML hook SKIPPED for group={worktracker_group!r} (not in {cpt_ml_groups})", flush=True)
 
-        # ==================== StaffVerify / CoderVerify columns ====================
-        # Currently scoped to KAP-ASC and KAP-CYP only. Other groups do not get
-        # these columns added or modified at all.
-        # Rule-based CoderVerify="CPT" when predicted CPT is not in the group's
-        # high-confidence list (stored in group_hp_cpt_codes).
-        # If the extraction template already populated StaffVerify/CoderVerify,
-        # we preserve those values and prepend the rule-based "CPT" tag in front
-        # (comma-separated, deduped).
-        VERIFY_ENABLED_GROUPS = {"KAP-ASC", "KAP-CYP"}
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║                       AUTO-POSTING LOGIC                          ║
+        # ╠══════════════════════════════════════════════════════════════════╣
+        # ║ Populates StaffVerify and CoderVerify columns to decide which     ║
+        # ║ charges can be auto-posted vs. must be routed to a coder for      ║
+        # ║ review.                                                           ║
+        # ║                                                                   ║
+        # ║ Scoped to AUTO_POSTING_GROUPS only — other groups do not get      ║
+        # ║ these columns added or modified.                                  ║
+        # ║                                                                   ║
+        # ║ Rule: CoderVerify gets "CPT" prepended when the predicted CPT is  ║
+        # ║ NOT in the group's high-confidence list (group_hp_cpt_codes). If  ║
+        # ║ the extraction template already populated StaffVerify/CoderVerify ║
+        # ║ (e.g. a COSMETIC flag), those values are preserved and appended   ║
+        # ║ after the rule tag (comma-separated, deduped).                    ║
+        # ║                                                                   ║
+        # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
+        # ║ Non-empty value    → coder must verify before posting.            ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC"}
+        VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         if worktracker_group not in VERIFY_ENABLED_GROUPS:
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
@@ -11110,7 +11122,7 @@ async def process_unified(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-3-flash-preview"),
+    extraction_model: str = Form(default="google/gemini-3-flash-preview"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -11426,7 +11438,7 @@ async def process_unified_with_refinement(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="gemini-3-flash-preview"),
+    extraction_model: str = Form(default="google/gemini-3-flash-preview"),
     extraction_max_workers: int = Form(default=50),
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -11455,7 +11467,7 @@ async def process_unified_with_refinement(
     refinement_guidance: Optional[str] = Form(default=None),
     refinement_mode: str = Form(default="batch"),  # "batch" or "focused"
     batch_size: int = Form(default=10),  # Number of errors per batch in batch mode
-    refinement_model: str = Form(default="gemini-3-flash-preview")  # Model to use for refinement
+    refinement_model: str = Form(default="google/gemini-3-flash-preview")  # Model to use for refinement
 ):
     """
     Unified processing with AI-powered iterative instruction refinement.
