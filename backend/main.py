@@ -4057,7 +4057,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False, enable_colonoscopy_correction: bool = False):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False, enable_colonoscopy_correction: bool = True):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -7345,7 +7345,7 @@ async def generate_modifiers_route(
     peripheral_blocks_mode: str = Form("other"),
     add_pt_for_non_medicare: bool = Form(False),
     change_responsible_provider_to_md_if_p_only: bool = Form(False),
-    enable_colonoscopy_correction: bool = Form(False)
+    enable_colonoscopy_correction: bool = Form(True)
 ):
     """Upload a CSV or XLSX file to generate medical modifiers
 
@@ -7723,6 +7723,84 @@ async def delete_group_status_endpoint(status_id: int):
         raise
     except Exception as e:
         logger.error(f"Failed to delete group status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Group HP CPT code list (drives CoderVerify column in unified pipeline)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/group-hp-cpt")
+async def list_group_hp_cpt(group: str = None):
+    """List high-confidence CPT codes, optionally filtered by group."""
+    try:
+        from db_utils import get_all_hp_cpt_codes
+        return {"entries": get_all_hp_cpt_codes(group_name=group)}
+    except Exception as e:
+        logger.error(f"Failed to list HP CPT codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/group-hp-cpt")
+async def upsert_group_hp_cpt(payload: dict = Body(...)):
+    """Insert or update one HP CPT entry.
+    Body: {group_name, cpt_code, min_precision?, sample_size?}
+    """
+    try:
+        from db_utils import upsert_hp_cpt_code
+        group_name = (payload.get("group_name") or "").strip()
+        cpt_code = (payload.get("cpt_code") or "").strip()
+        if not group_name or not cpt_code:
+            raise HTTPException(status_code=400, detail="group_name and cpt_code required")
+        row = upsert_hp_cpt_code(
+            group_name=group_name,
+            cpt_code=cpt_code,
+            min_precision=payload.get("min_precision"),
+            sample_size=payload.get("sample_size"),
+        )
+        return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upsert HP CPT: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/group-hp-cpt/bulk")
+async def replace_group_hp_cpt_bulk(payload: dict = Body(...)):
+    """Replace the entire HP CPT list for one group.
+    Body: {group_name, entries: [{cpt_code, min_precision?, sample_size?}, ...]}
+    """
+    try:
+        from db_utils import replace_hp_cpt_codes_for_group
+        group_name = (payload.get("group_name") or "").strip()
+        entries = payload.get("entries") or []
+        if not group_name:
+            raise HTTPException(status_code=400, detail="group_name required")
+        if not isinstance(entries, list):
+            raise HTTPException(status_code=400, detail="entries must be a list")
+        count = replace_hp_cpt_codes_for_group(group_name, entries)
+        return {"group_name": group_name, "written": count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed bulk HP CPT replace: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/group-hp-cpt/{group_name}/{cpt_code}")
+async def delete_group_hp_cpt(group_name: str, cpt_code: str):
+    """Delete one HP CPT entry."""
+    try:
+        from db_utils import delete_hp_cpt_code
+        ok = delete_hp_cpt_code(group_name, cpt_code)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Not found")
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete HP CPT: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -10713,6 +10791,97 @@ def process_unified_background(
                 logger.exception(f"[Unified {job_id}] CPT ML refinement failed (non-fatal): {ml_err}")
         else:
             print(f"[Unified {job_id}] CPT-ML hook SKIPPED for group={worktracker_group!r} (not in {cpt_ml_groups})", flush=True)
+
+        # ==================== StaffVerify / CoderVerify columns ====================
+        # Currently scoped to KAP-ASC and KAP-CYP only. Other groups do not get
+        # these columns added or modified at all.
+        # Rule-based CoderVerify="CPT" when predicted CPT is not in the group's
+        # high-confidence list (stored in group_hp_cpt_codes).
+        # If the extraction template already populated StaffVerify/CoderVerify,
+        # we preserve those values and prepend the rule-based "CPT" tag in front
+        # (comma-separated, deduped).
+        VERIFY_ENABLED_GROUPS = {"KAP-ASC", "KAP-CYP"}
+        if worktracker_group not in VERIFY_ENABLED_GROUPS:
+            # Drop any verify columns that may have come from extraction so we don't leak them.
+            for _c in ("StaffVerify", "CoderVerify"):
+                if _c in base_df.columns:
+                    base_df = base_df.drop(columns=[_c])
+            print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
+        else:
+            try:
+                def _norm_cell(x):
+                    if x is None: return ""
+                    s = str(x).strip()
+                    return "" if s.lower() in ("nan", "none", "null") else s
+
+                def _merge_verify(rule_tag: str, extracted: str) -> str:
+                    """Prepend rule-based tag, then preserve extracted text. Dedupe & strip."""
+                    extracted = _norm_cell(extracted)
+                    parts: list = []
+                    if rule_tag:
+                        parts.append(rule_tag)
+                    if extracted:
+                        for chunk in extracted.split(","):
+                            c = chunk.strip()
+                            if c and c not in parts:
+                                parts.append(c)
+                    return ", ".join(parts)
+
+                # Capture any pre-existing extraction output for these columns,
+                # then build the final values from rule + extraction together.
+                existing_staff = base_df["StaffVerify"].copy() if "StaffVerify" in base_df.columns else None
+                existing_coder = base_df["CoderVerify"].copy() if "CoderVerify" in base_df.columns else None
+
+                rule_tags = [""] * len(base_df)
+                hp_set = set()
+                cpt_col = None
+                from db_utils import get_hp_cpt_codes_for_group
+                hp_set = get_hp_cpt_codes_for_group(worktracker_group)
+                if hp_set:
+                    cpt_col = "Procedure Code" if "Procedure Code" in base_df.columns else (
+                        "ASA Code" if "ASA Code" in base_df.columns else None
+                    )
+                    if cpt_col:
+                        rule_tags = [
+                            "" if _norm_cell(c) in hp_set else "CPT"
+                            for c in base_df[cpt_col].tolist()
+                        ]
+
+                # StaffVerify: keep extracted, no rule-based tag prepended yet.
+                if existing_staff is not None:
+                    base_df["StaffVerify"] = [_norm_cell(v) for v in existing_staff.tolist()]
+                else:
+                    base_df["StaffVerify"] = ""
+
+                # CoderVerify: rule-based "CPT" prepended, then extracted appended.
+                extracted_coder_vals = (
+                    existing_coder.tolist() if existing_coder is not None else [""] * len(base_df)
+                )
+                base_df["CoderVerify"] = [
+                    _merge_verify(rule_tags[i], extracted_coder_vals[i])
+                    for i in range(len(base_df))
+                ]
+
+                flagged_cpt = sum(1 for t in rule_tags if t == "CPT")
+                had_extracted_coder = (
+                    int((existing_coder.map(lambda v: bool(_norm_cell(v)))).sum())
+                    if existing_coder is not None else 0
+                )
+                had_extracted_staff = (
+                    int((existing_staff.map(lambda v: bool(_norm_cell(v)))).sum())
+                    if existing_staff is not None else 0
+                )
+                print(
+                    f"[Unified {job_id}] Verify columns: "
+                    f"group={worktracker_group!r}, hp_list_size={len(hp_set)}, "
+                    f"rule-flagged CPT={flagged_cpt}/{len(base_df)}, "
+                    f"preserved extracted CoderVerify={had_extracted_coder}, StaffVerify={had_extracted_staff}",
+                    flush=True,
+                )
+            except Exception as ve:
+                logger.exception(f"[Unified {job_id}] Verify columns failed (non-fatal): {ve}")
+                if "StaffVerify" not in base_df.columns: base_df["StaffVerify"] = ""
+                if "CoderVerify" not in base_df.columns: base_df["CoderVerify"] = ""
 
         # Reorder columns to put ICD columns at the end (after all other data)
         icd_cols = ['ICD1', 'ICD2', 'ICD3', 'ICD4']

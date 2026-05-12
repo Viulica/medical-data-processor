@@ -294,6 +294,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
     if is_openrouter_model(model) and not is_gemini_model(model):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
 
+    original_model_for_fallback = model
     if is_gemini_model(model):
         # If no GOOGLE_API_KEY and no client, fall back to OpenRouter
         if client is None and not os.environ.get("GOOGLE_API_KEY"):
@@ -304,6 +305,33 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 openrouter_model = f"google/{normalize_gemini_model(model)}"
             return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, openrouter_model, max_retries, field_name_for_log)
         model = normalize_gemini_model(model)
+
+    def _try_openrouter_fallback(reason):
+        """Fall through to OpenRouter when the Google path is unrecoverable."""
+        if not is_gemini_model(original_model_for_fallback):
+            return None, None
+        if not (os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")):
+            print(f"    ⚠️  Cannot fall back to OpenRouter for {pdf_filename}: no OPENROUTER_API_KEY/OPENAI_API_KEY set")
+            return None, None
+        normalized = normalize_gemini_model(original_model_for_fallback)
+        or_model = f"google/{normalized}"
+        print(f"    🔁 Google path exhausted for {pdf_filename} ({reason}); falling back to OpenRouter as {or_model}")
+        result = extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, or_model, max_retries, field_name_for_log)
+        if isinstance(result, tuple):
+            response_text, _ = result
+            if response_text:
+                return response_text, "openrouter (google fallback)"
+            return None, None
+        return result, "openrouter (google fallback)" if result else (None, None)
+
+    def _is_unrecoverable_google_error(exc):
+        """Detect errors where retrying Google won't help (rate limit, payment, auth)."""
+        msg = str(exc).lower()
+        markers = ("429", "too many requests", "rate limit", "quota",
+                   "402", "payment required",
+                   "401", "403", "permission denied", "unauthenticated",
+                   "resource_exhausted")
+        return any(m in msg for m in markers)
     
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
     
@@ -398,7 +426,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 if attempt == max_retries - 1:
                     print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
                     print(f"    Raw response: {response_text[:200]}...")
-                    return None, None
+                    return _try_openrouter_fallback("Google returned unparseable JSON")
 
             except (TimeoutError, Exception) as api_error:
                 is_timeout = isinstance(api_error, TimeoutError)
@@ -408,9 +436,13 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                     use_flex = False
                     continue
                 print(f"    ⚠️  API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(api_error)}")
+                # Skip retries on unrecoverable errors (rate limit, payment required, auth) — fall back immediately
+                if _is_unrecoverable_google_error(api_error):
+                    print(f"    ⛔ Unrecoverable Google error for {pdf_filename}{log_suffix}; skipping further retries")
+                    return _try_openrouter_fallback(f"unrecoverable: {str(api_error)[:120]}")
                 if attempt == max_retries - 1:
                     print(f"    ❌ Final API failure for {pdf_filename}{log_suffix}")
-                    return None, None
+                    return _try_openrouter_fallback(f"Google API failure: {str(api_error)[:120]}")
 
         except Exception as e:
             if use_flex:
@@ -418,9 +450,12 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
                 use_flex = False
                 continue
             print(f"    ⚠️  Unexpected error for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            if _is_unrecoverable_google_error(e):
+                print(f"    ⛔ Unrecoverable Google error for {pdf_filename}{log_suffix}; skipping further retries")
+                return _try_openrouter_fallback(f"unrecoverable: {str(e)[:120]}")
             if attempt == max_retries - 1:
                 print(f"    ❌ Final failure for {pdf_filename}{log_suffix}")
-                return None, None
+                return _try_openrouter_fallback(f"Google unexpected error: {str(e)[:120]}")
 
         # Exponential backoff with jitter for retries
         if attempt < max_retries - 1:
@@ -430,7 +465,7 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
             print(f"    ⏳ Retrying {pdf_filename}{log_suffix} in {delay:.1f} seconds...")
             time.sleep(delay)
 
-    return None, None
+    return _try_openrouter_fallback("Google retries exhausted")
 
 
 def process_single_patient_pdf_task(args):

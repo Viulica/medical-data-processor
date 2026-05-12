@@ -362,6 +362,18 @@ def init_database():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_group_status_group_name ON group_status(group_name);
+
+    CREATE TABLE IF NOT EXISTS group_hp_cpt_codes (
+        id SERIAL PRIMARY KEY,
+        group_name VARCHAR(255) NOT NULL,
+        cpt_code VARCHAR(20) NOT NULL,
+        min_precision NUMERIC(5,2),
+        sample_size INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(group_name, cpt_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_hp_cpt_group ON group_hp_cpt_codes(group_name);
     """
     
     try:
@@ -1902,4 +1914,131 @@ def delete_group_status(group_id: int) -> bool:
                 return cur.rowcount > 0
     except Exception as e:
         logger.error(f"Failed to delete group status id={group_id}: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Group HP CPT codes — used by unified pipeline to flag CoderVerify
+# ---------------------------------------------------------------------------
+
+def get_hp_cpt_codes_for_group(group_name: str) -> set:
+    """Return the set of high-confidence CPT codes for a worktracker group."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT cpt_code FROM group_hp_cpt_codes WHERE group_name = %s",
+                    (group_name,),
+                )
+                return {row[0] for row in cur.fetchall()}
+    except Exception as e:
+        logger.error(f"Failed to load HP CPT codes for {group_name!r}: {e}")
+        return set()
+
+
+def get_all_hp_cpt_codes(group_name: str = None) -> list:
+    """Return all HP CPT rows, optionally filtered by group."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if group_name:
+                    cur.execute(
+                        """SELECT id, group_name, cpt_code, min_precision, sample_size,
+                                  created_at::text, updated_at::text
+                           FROM group_hp_cpt_codes
+                           WHERE group_name = %s
+                           ORDER BY cpt_code""",
+                        (group_name,),
+                    )
+                else:
+                    cur.execute(
+                        """SELECT id, group_name, cpt_code, min_precision, sample_size,
+                                  created_at::text, updated_at::text
+                           FROM group_hp_cpt_codes
+                           ORDER BY group_name, cpt_code"""
+                    )
+                rows = cur.fetchall()
+                # Normalize Decimal to float for JSON-friendliness
+                for r in rows:
+                    if r.get("min_precision") is not None:
+                        r["min_precision"] = float(r["min_precision"])
+                return rows
+    except Exception as e:
+        logger.error(f"Failed to load HP CPT codes: {e}")
+        return []
+
+
+def upsert_hp_cpt_code(group_name: str, cpt_code: str,
+                       min_precision: float = None, sample_size: int = None):
+    """Insert or update an HP CPT code entry."""
+    name = (group_name or "").strip()
+    code = (cpt_code or "").strip()
+    if not name or not code:
+        raise ValueError("group_name and cpt_code are required")
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """INSERT INTO group_hp_cpt_codes
+                         (group_name, cpt_code, min_precision, sample_size, updated_at)
+                       VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                       ON CONFLICT (group_name, cpt_code) DO UPDATE
+                          SET min_precision = EXCLUDED.min_precision,
+                              sample_size   = EXCLUDED.sample_size,
+                              updated_at    = CURRENT_TIMESTAMP
+                       RETURNING id, group_name, cpt_code, min_precision, sample_size,
+                                 created_at::text, updated_at::text""",
+                    (name, code, min_precision, sample_size),
+                )
+                row = cur.fetchone()
+                if row and row.get("min_precision") is not None:
+                    row["min_precision"] = float(row["min_precision"])
+                return row
+    except Exception as e:
+        logger.error(f"Failed to upsert HP CPT {name}/{code}: {e}")
+        raise
+
+
+def replace_hp_cpt_codes_for_group(group_name: str, entries: list) -> int:
+    """Replace the entire HP CPT list for one group atomically.
+    `entries` is a list of dicts with keys cpt_code, min_precision, sample_size.
+    Returns the number of rows written.
+    """
+    name = (group_name or "").strip()
+    if not name:
+        raise ValueError("group_name is required")
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM group_hp_cpt_codes WHERE group_name = %s", (name,))
+                count = 0
+                for e in entries:
+                    code = (e.get("cpt_code") or "").strip()
+                    if not code:
+                        continue
+                    cur.execute(
+                        """INSERT INTO group_hp_cpt_codes
+                             (group_name, cpt_code, min_precision, sample_size)
+                           VALUES (%s, %s, %s, %s)""",
+                        (name, code, e.get("min_precision"), e.get("sample_size")),
+                    )
+                    count += 1
+                return count
+    except Exception as e:
+        logger.error(f"Failed to replace HP CPT list for {name}: {e}")
+        raise
+
+
+def delete_hp_cpt_code(group_name: str, cpt_code: str) -> bool:
+    """Delete one HP CPT entry. Returns True if a row was deleted."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM group_hp_cpt_codes WHERE group_name = %s AND cpt_code = %s",
+                    ((group_name or "").strip(), (cpt_code or "").strip()),
+                )
+                return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to delete HP CPT {group_name}/{cpt_code}: {e}")
         return False

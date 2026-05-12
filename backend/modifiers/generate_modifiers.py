@@ -591,7 +591,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False, enable_colonoscopy_correction=False):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False, enable_colonoscopy_correction=True):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -608,8 +608,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
-        enable_colonoscopy_correction: If True, apply colonoscopy CPT correction (00812→00811 based on screening/Medicare rules). OFF by default — enable for UNI group.
+        enable_colonoscopy_correction: Ignored — colonoscopy CPT correction always fires.
     """
+    # Always apply colonoscopy correction regardless of caller input
+    enable_colonoscopy_correction = True
     try:
         # Load modifiers definition
         modifiers_dict = load_modifiers_definition()
