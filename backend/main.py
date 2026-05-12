@@ -10845,19 +10845,16 @@ def process_unified_background(
                 existing_coder = base_df["CoderVerify"].copy() if "CoderVerify" in base_df.columns else None
 
                 rule_tags = [""] * len(base_df)
-                hp_set = set()
-                cpt_col = None
                 from db_utils import get_hp_cpt_codes_for_group
                 hp_set = get_hp_cpt_codes_for_group(worktracker_group)
-                if hp_set:
-                    cpt_col = "Procedure Code" if "Procedure Code" in base_df.columns else (
-                        "ASA Code" if "ASA Code" in base_df.columns else None
-                    )
-                    if cpt_col:
-                        rule_tags = [
-                            "" if _norm_cell(c) in hp_set else "CPT"
-                            for c in base_df[cpt_col].tolist()
-                        ]
+                cpt_col = "Procedure Code" if "Procedure Code" in base_df.columns else (
+                    "ASA Code" if "ASA Code" in base_df.columns else None
+                )
+                if hp_set and cpt_col:
+                    rule_tags = [
+                        "" if _norm_cell(c) in hp_set else "CPT"
+                        for c in base_df[cpt_col].tolist()
+                    ]
 
                 # StaffVerify: keep extracted, no rule-based tag prepended yet.
                 if existing_staff is not None:
@@ -10865,12 +10862,19 @@ def process_unified_background(
                 else:
                     base_df["StaffVerify"] = ""
 
-                # CoderVerify: rule-based "CPT" prepended, then extracted appended.
+                # Hardcoded combo rule: 00812 + ICD1 != Z12.11 → flag "Icd1"
+                icd1_tags = [""] * len(base_df)
+                if cpt_col and "ICD1" in base_df.columns:
+                    for i, (c, icd1) in enumerate(zip(base_df[cpt_col].tolist(), base_df["ICD1"].tolist())):
+                        if _norm_cell(c) == "00812" and _norm_cell(icd1) != "Z12.11":
+                            icd1_tags[i] = "Icd1"
+
+                # CoderVerify: rule-based "CPT" + combo "Icd1" prepended, then extracted appended.
                 extracted_coder_vals = (
                     existing_coder.tolist() if existing_coder is not None else [""] * len(base_df)
                 )
                 base_df["CoderVerify"] = [
-                    _merge_verify(rule_tags[i], extracted_coder_vals[i])
+                    _merge_verify(", ".join(t for t in (rule_tags[i], icd1_tags[i]) if t), extracted_coder_vals[i])
                     for i in range(len(base_df))
                 ]
 
