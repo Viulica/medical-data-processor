@@ -158,7 +158,7 @@ def pdf_to_images_base64(pdf_path, max_pages=100):
         image_data_list = []
         for page_num in range(min(len(doc), max_pages)):
             page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
+            pix = page.get_pixmap(matrix=fitz.Matrix(500/72, 500/72))  # 500 DPI for handwriting clarity
             img_data = pix.tobytes("png")
             img_base64 = base64.b64encode(img_data).decode('utf-8')
             image_data_list.append(img_base64)

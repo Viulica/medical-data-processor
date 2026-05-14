@@ -68,7 +68,7 @@ def thread_safe_print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def pdf_page_to_image(pdf_path, page_number, dpi=150):
+def pdf_page_to_image(pdf_path, page_number, dpi=500):
     """Convert a PDF page to an image for OCR."""
     try:
         # Open the PDF
