@@ -593,7 +593,7 @@ def split_pdf_background(job_id: str, pdf_paths: List[str], filter_string: str, 
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12):
+def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string: str, batch_size: int = 5, model: str = "gemini-3.1-pro-preview", max_workers: int = 12):
     """Background task to split multiple PDFs using new splitting method"""
     job = job_status[job_id]
     
@@ -726,7 +726,7 @@ def split_pdf_gemini_background(job_id: str, pdf_paths: List[str], filter_string
         # Clean up memory even on failure
         gc.collect()
 
-def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom_prompt: str, batch_size: int = 5, model: str = "gemini-3-flash-preview", max_workers: int = 12, detection_shift: int = 0):
+def split_pdf_gemini_prompt_background(job_id: str, pdf_paths: List[str], custom_prompt: str, batch_size: int = 5, model: str = "gemini-3.1-pro-preview", max_workers: int = 12, detection_shift: int = 0):
     """Background task to split multiple PDFs using Gemini with custom prompt - PARALLEL processing"""
     job = job_status[job_id]
 
@@ -10811,7 +10811,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC", "PCE-WWMG"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         if worktracker_group not in VERIFY_ENABLED_GROUPS:
             # Drop any verify columns that may have come from extraction so we don't leak them.
