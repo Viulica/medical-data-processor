@@ -11104,8 +11104,8 @@ export default {
  formData.append("excel_file", this.excelFile);
  formData.append("n_pages", this.pageCount);
 
- // Use Google GenAI (no longer using OpenRouter for Gemini models)
- const model = "gemini-3-flash-preview";
+ // Standard mode always uses gemini-3.1-pro-preview (Gemini API with OpenRouter fallback)
+ const model = "gemini-3.1-pro-preview";
  formData.append("model", model);
 
  // Add worktracker fields if provided

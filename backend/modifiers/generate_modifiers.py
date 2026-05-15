@@ -783,6 +783,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             new_row['M3'] = ''
             new_row['M4'] = ''
             
+            # Snapshot the AI-predicted CPT before any corrector flips it.
+            # PT modifier decision (below) must consider the original 00812 prediction —
+            # if the colonoscopy corrector flips 00812 → 00811, we still want PT added
+            # for screening/surveillance cases with polyps found.
+            pre_corrector_asa_code = str(new_row.get('ASA Code', '')).strip()
+            pre_corrector_procedure_code = str(new_row.get('Procedure Code', '')).strip()
+
             # Apply colonoscopy correction if enabled and ASA Code or Procedure Code is 00812
             asa_code = str(new_row.get('ASA Code', '')).strip()
             procedure_code = str(new_row.get('Procedure Code', '')).strip()
@@ -979,11 +986,24 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 # PT is added when:
                 # 1. Polyps found = "FOUND"
-                # 2. Colonoscopy is screening/surveillance (colonoscopy_is_screening = TRUE OR CPT = 00812)
-                # PT applies to all payers — procedure converted from screening/surveillance to therapeutic
+                # 2. Colonoscopy is screening/surveillance (colonoscopy_is_screening = TRUE OR original AI CPT = 00812)
+                # PT applies to all payers — procedure converted from screening/surveillance to therapeutic.
+                # We check the PRE-CORRECTOR CPT here: if the AI originally predicted 00812 and the corrector
+                # flipped it to 00811 (Medicare case), the procedure still originated as screening/surveillance
+                # and PT should still be added.
                 should_add_pt = False
-                screening_or_surveillance = colonoscopy_screening == 'TRUE' or asa_code == '00812' or procedure_code == '00812'
-                is_00813 = asa_code == '00813' or procedure_code == '00813'
+                screening_or_surveillance = (
+                    colonoscopy_screening == 'TRUE'
+                    or pre_corrector_asa_code == '00812'
+                    or pre_corrector_procedure_code == '00812'
+                )
+                # 00813 (combined upper + lower scope) is excluded — PT not applicable.
+                is_00813 = (
+                    asa_code == '00813'
+                    or procedure_code == '00813'
+                    or pre_corrector_asa_code == '00813'
+                    or pre_corrector_procedure_code == '00813'
+                )
                 if polyps_value == 'FOUND' and screening_or_surveillance and not is_00813:
                     should_add_pt = True
                 

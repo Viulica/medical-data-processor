@@ -23,7 +23,7 @@ def is_openrouter_model(model_name):
     return '/' in model_name or model_name.startswith('google/')
 
 
-def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-2.5-pro", max_retries=3):
+def ask_gemini_about_pages(client, pdf_path, page_start, page_end, filter_strings, model="gemini-3.1-pro-preview", max_retries=3):
     """
     Ask Gemini which pages in the given range contain the exact filter string.
     
@@ -239,22 +239,29 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
             pass
 
 
-def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-2.5-pro", max_workers=12):
+FORCED_SPLIT_MODEL = "gemini-3.1-pro-preview"
+
+
+def find_matching_pages_with_gemini(pdf_path, filter_strings, batch_size=5, model="gemini-3.1-pro-preview", max_workers=12):
     """
     Find all pages that contain the exact filter string using Gemini with parallel processing.
-    
+
     Args:
         pdf_path: Path to the PDF file
         filter_strings: List containing a single string to match exactly (case-sensitive)
         batch_size: Number of pages to process per API call
-        model: Model name to use
+        model: Model name to use (forced to gemini-3.1-pro-preview)
         max_workers: Number of parallel threads (default: 3)
-    
+
     Returns:
         List of page numbers (0-based) that match, or None if there was an error
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    
+
+    if model != FORCED_SPLIT_MODEL:
+        print(f"⚠️  Overriding requested model '{model}' with forced model '{FORCED_SPLIT_MODEL}'")
+    model = FORCED_SPLIT_MODEL
+
     # Initialize Gemini client
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -386,16 +393,16 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-2.5-pro", max_workers=12):
+def split_pdf_with_gemini(input_pdf_path, output_folder, filter_strings, batch_size=5, model="gemini-3.1-pro-preview", max_workers=12):
     """
     Main function to split a PDF using Gemini with parallel processing.
-    
+
     Args:
         input_pdf_path: Path to the input PDF file
         output_folder: Path to the output folder for split PDFs
         filter_strings: List containing a single string to match exactly (case-sensitive)
         batch_size: Number of pages to process per API call (default: 30)
-        model: Model name to use (default: gemini-2.5-pro)
+        model: Model name to use (forced to gemini-3.1-pro-preview)
         max_workers: Number of parallel threads (default: 3)
     
     Returns:
@@ -449,7 +456,7 @@ def main():
     OUTPUT_FOLDER = "output"
     FILTER_STRINGS = ["Patient Address"]  # Default filter
     BATCH_SIZE = 5  # Process 5 pages per API call
-    MODEL = "gemini-2.5-pro"
+    MODEL = "gemini-3.1-pro-preview"
     MAX_WORKERS = 12  # Process 12 batches in parallel
     
     # Parse command-line arguments

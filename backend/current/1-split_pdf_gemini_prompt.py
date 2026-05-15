@@ -19,7 +19,7 @@ from google.genai import types
 from pathlib import Path
 
 
-def ask_gemini_for_page_indexes(client, pdf_path, page_start, page_end, custom_prompt, model="gemini-3-flash-preview", max_retries=3):
+def ask_gemini_for_page_indexes(client, pdf_path, page_start, page_end, custom_prompt, model="gemini-3.1-pro-preview", max_retries=3):
     """
     Ask Gemini to identify page indexes based on a custom prompt.
     
@@ -244,22 +244,29 @@ def shift_detection_pages(detection_pages, shift_amount, total_pages):
     return shifted_pages
 
 
-def find_matching_pages_with_gemini_prompt(pdf_path, custom_prompt, batch_size=5, model="gemini-3-flash-preview", max_workers=12):
+FORCED_SPLIT_MODEL = "gemini-3.1-pro-preview"
+
+
+def find_matching_pages_with_gemini_prompt(pdf_path, custom_prompt, batch_size=5, model="gemini-3.1-pro-preview", max_workers=12):
     """
     Find all pages that match the custom prompt using Gemini with parallel processing.
-    
+
     Args:
         pdf_path: Path to the PDF file
         custom_prompt: Custom prompt describing what to look for
         batch_size: Number of pages to process per API call
-        model: Model name to use
+        model: Model name to use (forced to gemini-3.1-pro-preview)
         max_workers: Number of parallel threads
-    
+
     Returns:
         List of page numbers (0-based) that match, or None if there was an error
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    
+
+    if model != FORCED_SPLIT_MODEL:
+        print(f"⚠️  Overriding requested model '{model}' with forced model '{FORCED_SPLIT_MODEL}'")
+    model = FORCED_SPLIT_MODEL
+
     # Initialize Gemini client
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -391,7 +398,7 @@ def create_pdf_sections(input_pdf_path, output_folder, detection_pages, total_pa
         return 0
 
 
-def split_pdf_with_gemini_prompt(input_pdf_path, output_folder, custom_prompt, batch_size=5, model="gemini-3-flash-preview", max_workers=12, detection_shift=0):
+def split_pdf_with_gemini_prompt(input_pdf_path, output_folder, custom_prompt, batch_size=5, model="gemini-3.1-pro-preview", max_workers=12, detection_shift=0):
     """
     Main function to split a PDF using Gemini with a custom prompt.
     
@@ -462,7 +469,7 @@ def main():
     OUTPUT_FOLDER = "output"
     CUSTOM_PROMPT = 'your task is to identify starts of a unique patient record in a big pdf file, a patient record start will always have a pasted looking id that starts with "25..." somewhere on the first page of that patient, your output is ONLY the indexes of the patient starting pages'
     BATCH_SIZE = 5
-    MODEL = "gemini-3-flash-preview"
+    MODEL = "gemini-3.1-pro-preview"
     MAX_WORKERS = 12
     DETECTION_SHIFT = 0
     
