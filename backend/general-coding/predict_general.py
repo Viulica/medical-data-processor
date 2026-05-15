@@ -1807,7 +1807,7 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
         return False
 
 
-def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=500):
+def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=200):
     """
     Convert first N pages of a PDF to base64 encoded PNG images
     
