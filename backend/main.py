@@ -1598,7 +1598,6 @@ answer ONLY with the code, nothing else"""
                     body = {
                         "model": "openai/gpt-5.5:online",
                         "messages": [{"role": "user", "content": user_msg}],
-                        "max_tokens": 30,
                         "temperature": 0,
                     }
                     try:
