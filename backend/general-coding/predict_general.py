@@ -725,9 +725,11 @@ Respond with ONLY the JSON object, nothing else."""
         "messages": messages
     }
 
-    # Enable reasoning for Gemini 3 models via OpenRouter
+    # Gemini 3 models via OpenRouter: no reasoning, flex tier for cost savings
     if "gemini-3" in openrouter_model:
-        payload["reasoning"] = {"effort": "high"}
+        payload["provider"] = {"sort": "throughput"}
+        # NOTE: serviceTier=flex is set on Gemini 3 to halve the price
+        payload["service_tier"] = "flex"
 
     # Enable web search if requested (for CPT code validation)
     if web_search:
