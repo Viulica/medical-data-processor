@@ -1043,19 +1043,19 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
 
             genai_client = genai.Client(
                 vertexai=True,
-                project="652841545322",
+                project="893005950801",
                 location="us-central1",
                 credentials=credentials,
             )
         else:
             # Fallback to API key method
             genai_client = genai.Client(vertexai=True, api_key="AQ.Ab8RN6LnO1TE5YbcCw1PLVGe2qxhL7TuOVtVm3GnhXndEM0nsw")
-        
+
         fallback_client = genai_client  # Use same authenticated client for fallback
-        
+
         # Client model mapping
         client_models = {
-            "uni": "projects/468225845715/locations/us-central1/endpoints/2725294050826518528",
+            "uni": "projects/893005950801/locations/us-central1/endpoints/8489505749674754048",
             "sio-stl": "projects/835764687231/locations/us-central1/endpoints/6830407024790994944",
             "gap-fin": "projects/835764687231/locations/us-central1/endpoints/8077904121572622336",
             "apo-utp": "projects/835764687231/locations/us-central1/endpoints/8135325016821596160"
