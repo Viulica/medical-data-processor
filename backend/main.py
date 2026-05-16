@@ -1513,7 +1513,7 @@ answer ONLY with the code, nothing else"""
 
         job.message = "Applying colonoscopy corrections..."
         job.progress = 85
-        
+
         # Apply colonoscopy corrections to predictions (only for uni client)
         corrected_predictions = []
         correction_applied = []
@@ -1527,10 +1527,125 @@ answer ONLY with the code, nothing else"""
             corrected_predictions.append(corrected_code)
             # Track if correction was applied
             correction_applied.append("Yes" if corrected_code != original_prediction else "No")
-        
+
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║  3-STEP AUTO-POSTING GATE (UNI only)                              ║
+        # ║  Step 1: HP list → AUTO-POST                                      ║
+        # ║  Step 2: REVIEW list → CoderVerify="CPT" (hold for coder)         ║
+        # ║  Step 3: Ensemble with GPT-5.5 (text-only via OpenRouter)         ║
+        # ║          agree → AUTO-POST, disagree → CoderVerify="CPT"          ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        UNI_HP_CODES = {
+            '01922','01402','00104','00142','00537','00902','00320','00910',
+            '00520','00952','00402','01214','00813','01926','00210','00918',
+            '00541','00120','00830','00567','01844','00797','01400','00530',
+            '00410','00350','00865','01638','01215',
+        }
+        UNI_REVIEW_CODES = {
+            '00670','00630','00126','00220','00214',
+            '01925','01926','01924','01916','00560','00567',
+            '00790','00840','00400',
+        }
+
+        cpt_disposition = ["" for _ in range(len(df))]
+        gpt55_predictions = ["" for _ in range(len(df))]
+        coder_verify_flag = ["" for _ in range(len(df))]
+
+        if client == "uni":
+            job.message = "Step 2: Routing predictions through HP/REVIEW gate + GPT-5.5 ensemble..."
+            job.progress = 87
+
+            # Identify rows that need GPT-5.5 second opinion (not in HP and not in REVIEW)
+            ensemble_indices = []
+            for idx, pred in enumerate(corrected_predictions):
+                p = str(pred).strip()
+                if not p or p in ('NONE', 'ERROR'):
+                    cpt_disposition[idx] = "NO_PREDICTION"
+                    coder_verify_flag[idx] = "CPT"
+                elif p in UNI_HP_CODES:
+                    cpt_disposition[idx] = "AUTO_POST_HP"
+                elif p in UNI_REVIEW_CODES:
+                    cpt_disposition[idx] = "REVIEW_LIST_HOLD"
+                    coder_verify_flag[idx] = "CPT"
+                else:
+                    cpt_disposition[idx] = "PENDING_ENSEMBLE"
+                    ensemble_indices.append(idx)
+
+            logger.info(f"[3-step gate] HP={sum(1 for d in cpt_disposition if d=='AUTO_POST_HP')}, "
+                        f"REVIEW={sum(1 for d in cpt_disposition if d=='REVIEW_LIST_HOLD')}, "
+                        f"ensemble_needed={len(ensemble_indices)}")
+
+            if ensemble_indices:
+                # Build GPT-5.5 prompt with the UNI RPS&OPH instruction template (id=197)
+                try:
+                    from db_utils import get_prediction_instruction
+                    template = get_prediction_instruction(instruction_id=197)
+                    template_text = template['instructions_text'] if template else ""
+                except Exception as e:
+                    logger.warning(f"Could not load instruction template 197: {e}")
+                    template_text = ""
+
+                import requests as _req
+                openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+
+                def call_gpt55(idx_proc):
+                    idx, procedure_str = idx_proc
+                    user_msg = (
+                        f'{template_text}\n\n'
+                        f'For this procedure: "{procedure_str}" give me the most appropriate anesthesia CPT code. '
+                        f'Reply with only the 5-digit CPT code, nothing else.'
+                    )
+                    body = {
+                        "model": "openai/gpt-5.5:online",
+                        "messages": [{"role": "user", "content": user_msg}],
+                        "max_tokens": 30,
+                        "temperature": 0,
+                    }
+                    try:
+                        r = _req.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {openrouter_key}",
+                                     "Content-Type": "application/json"},
+                            json=body, timeout=60,
+                        )
+                        if r.status_code != 200:
+                            return idx, ""
+                        text = r.json()["choices"][0]["message"]["content"].strip()
+                        # Extract first 5-digit number
+                        import re as _re
+                        m = _re.search(r'\b\d{4,5}\b', text)
+                        if m:
+                            code = m.group(0)
+                            if len(code) == 4: code = '0' + code
+                            return idx, code
+                        return idx, ""
+                    except Exception as e:
+                        logger.debug(f"GPT-5.5 call failed for row {idx}: {e}")
+                        return idx, ""
+
+                # Call GPT-5.5 in parallel for ensemble rows
+                from concurrent.futures import ThreadPoolExecutor as _TPE
+                inputs = [(idx, str(df.iloc[idx].get('Procedure Description', ''))) for idx in ensemble_indices]
+                with _TPE(max_workers=30) as _ex:
+                    for idx, gpt_code in _ex.map(call_gpt55, inputs):
+                        gpt55_predictions[idx] = gpt_code
+                        if not gpt_code:
+                            cpt_disposition[idx] = "DISAGREEMENT_HOLD"
+                            coder_verify_flag[idx] = "CPT"
+                        elif gpt_code == corrected_predictions[idx]:
+                            cpt_disposition[idx] = "AUTO_POST_ENSEMBLE"
+                        else:
+                            cpt_disposition[idx] = "DISAGREEMENT_HOLD"
+                            coder_verify_flag[idx] = "CPT"
+
+            logger.info(f"[3-step gate] Final: HP_auto={sum(1 for d in cpt_disposition if d=='AUTO_POST_HP')}, "
+                        f"ENS_auto={sum(1 for d in cpt_disposition if d=='AUTO_POST_ENSEMBLE')}, "
+                        f"REVIEW={sum(1 for d in cpt_disposition if d=='REVIEW_LIST_HOLD')}, "
+                        f"disagree={sum(1 for d in cpt_disposition if d=='DISAGREEMENT_HOLD')}")
+
         job.message = "Adding predictions to CSV..."
         job.progress = 90
-        
+
         # Insert predictions, model sources, and failure reasons into dataframe
         insert_index = df.columns.get_loc("Procedure Description") + 1
         df.insert(insert_index, "ASA Code", corrected_predictions)
@@ -1538,6 +1653,16 @@ answer ONLY with the code, nothing else"""
         df.insert(insert_index + 2, "Model Source", model_sources)
         df.insert(insert_index + 3, "Colonoscopy Correction Applied", correction_applied)
         df.insert(insert_index + 4, "Base Model Failure Reason", failure_reasons)
+        df.insert(insert_index + 5, "CPT Disposition", cpt_disposition)
+        df.insert(insert_index + 6, "GPT-5.5 Prediction", gpt55_predictions)
+        if "CoderVerify" in df.columns:
+            df["CoderVerify"] = [
+                ", ".join(filter(None, [coder_verify_flag[i], str(df["CoderVerify"].iloc[i] or "").strip()]))
+                if coder_verify_flag[i] else df["CoderVerify"].iloc[i]
+                for i in range(len(df))
+            ]
+        else:
+            df.insert(insert_index + 7, "CoderVerify", coder_verify_flag)
         
         # Save result in both formats
         result_base = Path(f"/tmp/results/{job_id}_with_codes")
