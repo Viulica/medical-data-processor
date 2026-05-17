@@ -10919,35 +10919,44 @@ def process_unified_background(
             print(f"[Unified {job_id}] CPT-ML hook SKIPPED for group={worktracker_group!r} (not in {cpt_ml_groups})", flush=True)
 
         # ╔══════════════════════════════════════════════════════════════════╗
-        # ║                  RIV ENSEMBLE AUTO-POST GATE                      ║
+        # ║               LLM + RF ENSEMBLE AUTO-POST GATE                    ║
         # ╠══════════════════════════════════════════════════════════════════╣
-        # ║ Activates for any worktracker_group containing "RIV".            ║
-        # ║ Combines LLM CPT prediction with a TF-IDF + RandomForest model   ║
-        # ║ trained on procedure_text → coder-corrected CPT. Auto-posts when:║
+        # ║ Activates per worktracker_group via the registry in              ║
+        # ║ backend/ensemble_gate.py (currently: RIV, DUN).                  ║
+        # ║                                                                   ║
+        # ║ Combines the LLM CPT prediction with a TF-IDF + RandomForest     ║
+        # ║ model trained on procedure_text → coder-corrected CPT.           ║
+        # ║ Auto-posts when:                                                  ║
         # ║   - LLM in WHITELIST (00811/00812/00813/00731), OR               ║
         # ║   - LLM == RF AND predicted code in HP list                      ║
-        # ║ Otherwise flags CoderVerify="CPT" for human review.              ║
-        # ║ Adds two columns: 'CPT Disposition' and 'RF Prediction'.         ║
-        # ║ Requires 'procedure_text' field in extraction template (id 241). ║
+        # ║                                                                   ║
+        # ║ Always writes diagnostic columns 'CPT Disposition' and           ║
+        # ║ 'RF Prediction'. CoderVerify/StaffVerify population is gated     ║
+        # ║ by WRITE_VERIFY_COLUMNS in ensemble_gate.py (currently FALSE).   ║
+        # ║                                                                   ║
+        # ║ Requires 'procedure_text' field in the group's extraction        ║
+        # ║ template (RIV-CHARGE id=241, DUN-CHARGE id=184).                 ║
         # ╚══════════════════════════════════════════════════════════════════╝
         try:
-            from riv_ensemble import is_riv_group, apply_riv_gate
-            if enable_cpt and is_riv_group(worktracker_group) and "Procedure Code" in base_df.columns:
-                logger.info(f"[Unified {job_id}] RIV ensemble gate activating for group={worktracker_group!r}")
-                stats = apply_riv_gate(base_df)
-                msg = (
-                    f"[Unified {job_id}] RIV gate applied: total={stats['total']}, "
-                    f"whitelist={stats.get('auto_post_whitelist', 0)}, "
-                    f"agree_hp={stats.get('auto_post_agree_hp', 0)}, "
-                    f"review={stats.get('review', 0)}, "
-                    f"auto_post_pct={stats.get('auto_post_pct', 0)}%"
-                )
-                print(msg, flush=True); logger.info(msg)
-            else:
-                if is_riv_group(worktracker_group):
-                    print(f"[Unified {job_id}] RIV gate SKIPPED (enable_cpt={enable_cpt}, has_cpt_col={'Procedure Code' in base_df.columns})", flush=True)
-        except Exception as riv_err:
-            logger.exception(f"[Unified {job_id}] RIV gate failed (non-fatal): {riv_err}")
+            from ensemble_gate import apply_gate, find_group_config
+            gate_name, _gate_cfg = find_group_config(worktracker_group)
+            if enable_cpt and gate_name and "Procedure Code" in base_df.columns:
+                logger.info(f"[Unified {job_id}] {gate_name} ensemble gate activating for group={worktracker_group!r}")
+                stats = apply_gate(base_df, worktracker_group)
+                if stats:
+                    msg = (
+                        f"[Unified {job_id}] {stats['group']} gate applied: total={stats['total']}, "
+                        f"whitelist={stats.get('auto_post_whitelist', 0)}, "
+                        f"agree_hp={stats.get('auto_post_agree_hp', 0)}, "
+                        f"review={stats.get('review', 0)}, "
+                        f"auto_post_pct={stats.get('auto_post_pct', 0)}%, "
+                        f"verify_written={stats.get('verify_written', False)}"
+                    )
+                    print(msg, flush=True); logger.info(msg)
+            elif gate_name:
+                print(f"[Unified {job_id}] {gate_name} gate SKIPPED (enable_cpt={enable_cpt}, has_cpt_col={'Procedure Code' in base_df.columns})", flush=True)
+        except Exception as gate_err:
+            logger.exception(f"[Unified {job_id}] Ensemble gate failed (non-fatal): {gate_err}")
 
         # ╔══════════════════════════════════════════════════════════════════╗
         # ║                       AUTO-POSTING LOGIC                          ║
@@ -10970,17 +10979,17 @@ def process_unified_background(
         # ╚══════════════════════════════════════════════════════════════════╝
         AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC", "PCE-WWMG", "PCE-CAS"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
-        # RIV groups manage CoderVerify themselves via the RIV ensemble gate above;
-        # don't strip their columns here.
-        from riv_ensemble import is_riv_group as _is_riv
-        if worktracker_group not in VERIFY_ENABLED_GROUPS and not _is_riv(worktracker_group):
+        # Gated groups (RIV, DUN, etc.) manage CoderVerify themselves via the
+        # ensemble gate above; don't strip their columns here.
+        from ensemble_gate import is_gated_group as _is_gated
+        if worktracker_group not in VERIFY_ENABLED_GROUPS and not _is_gated(worktracker_group):
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
                 if _c in base_df.columns:
                     base_df = base_df.drop(columns=[_c])
             print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
-        elif _is_riv(worktracker_group):
-            print(f"[Unified {job_id}] Verify columns PRESERVED for RIV group={worktracker_group!r} (managed by RIV gate)", flush=True)
+        elif _is_gated(worktracker_group):
+            print(f"[Unified {job_id}] Verify columns PRESERVED for gated group={worktracker_group!r} (managed by ensemble gate)", flush=True)
         else:
             try:
                 def _norm_cell(x):
