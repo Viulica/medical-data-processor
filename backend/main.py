@@ -1594,6 +1594,7 @@ answer ONLY with the code, nothing else"""
                     user_msg = (
                         f'{template_text}\n\n'
                         f'For this procedure: "{procedure_str}" give me the most appropriate anesthesia CPT code. '
+                        f'Use web search to verify the correct anesthesia CPT crosswalk if you are unsure. '
                         f'Reply with only the 5-digit CPT code, nothing else.'
                     )
                     body = {
@@ -10916,6 +10917,37 @@ def process_unified_background(
                 logger.exception(f"[Unified {job_id}] CPT ML refinement failed (non-fatal): {ml_err}")
         else:
             print(f"[Unified {job_id}] CPT-ML hook SKIPPED for group={worktracker_group!r} (not in {cpt_ml_groups})", flush=True)
+
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║                  RIV ENSEMBLE AUTO-POST GATE                      ║
+        # ╠══════════════════════════════════════════════════════════════════╣
+        # ║ Activates for any worktracker_group containing "RIV".            ║
+        # ║ Combines LLM CPT prediction with a TF-IDF + RandomForest model   ║
+        # ║ trained on procedure_text → coder-corrected CPT. Auto-posts when:║
+        # ║   - LLM in WHITELIST (00811/00812/00813/00731), OR               ║
+        # ║   - LLM == RF AND predicted code in HP list                      ║
+        # ║ Otherwise flags CoderVerify="CPT" for human review.              ║
+        # ║ Adds two columns: 'CPT Disposition' and 'RF Prediction'.         ║
+        # ║ Requires 'procedure_text' field in extraction template (id 241). ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        try:
+            from riv_ensemble import is_riv_group, apply_riv_gate
+            if enable_cpt and is_riv_group(worktracker_group) and "Procedure Code" in base_df.columns:
+                logger.info(f"[Unified {job_id}] RIV ensemble gate activating for group={worktracker_group!r}")
+                stats = apply_riv_gate(base_df)
+                msg = (
+                    f"[Unified {job_id}] RIV gate applied: total={stats['total']}, "
+                    f"whitelist={stats.get('auto_post_whitelist', 0)}, "
+                    f"agree_hp={stats.get('auto_post_agree_hp', 0)}, "
+                    f"review={stats.get('review', 0)}, "
+                    f"auto_post_pct={stats.get('auto_post_pct', 0)}%"
+                )
+                print(msg, flush=True); logger.info(msg)
+            else:
+                if is_riv_group(worktracker_group):
+                    print(f"[Unified {job_id}] RIV gate SKIPPED (enable_cpt={enable_cpt}, has_cpt_col={'Procedure Code' in base_df.columns})", flush=True)
+        except Exception as riv_err:
+            logger.exception(f"[Unified {job_id}] RIV gate failed (non-fatal): {riv_err}")
 
         # ╔══════════════════════════════════════════════════════════════════╗
         # ║                       AUTO-POSTING LOGIC                          ║
