@@ -538,7 +538,31 @@ def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/
         google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
-            return predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
+            gemini_result = predict_asa_code_from_images_gemini(image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search)
+            # Cross-provider fallback: if the Gemini direct path returned no
+            # prediction (None) AND there's an error message AND OpenRouter is
+            # available, retry the same model via OpenRouter. This protects
+            # against transient Google API outages (5xx, rate limits, timeouts).
+            gemini_pred = gemini_result[0]
+            gemini_err  = gemini_result[-1]
+            if gemini_pred is None and gemini_err:
+                openrouter_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+                if openrouter_key:
+                    logger.warning(
+                        f"Gemini direct path failed for CPT prediction ({gemini_err[:200]}); "
+                        f"falling back to OpenRouter route for the same Gemini model"
+                    )
+                    model = f"google/{normalize_gemini_model(model)}"
+                    api_key = openrouter_key   # use OpenRouter key on the fallback path
+                    # Fall through to OpenRouter path below
+                else:
+                    logger.error(
+                        f"Gemini direct path failed for CPT prediction and no OPENROUTER_API_KEY is set; "
+                        f"cannot fall back. Error: {gemini_err[:200]}"
+                    )
+                    return gemini_result
+            else:
+                return gemini_result
         else:
             # Fall back to OpenRouter with google/ prefix
             logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
@@ -1217,7 +1241,31 @@ def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online"
         google_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             logger.info(f"Using Google GenAI SDK directly for Gemini model '{model}'")
-            return predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions, predicted_cpt=predicted_cpt)
+            gemini_result = predict_icd_codes_from_images_gemini(image_data_list, model, api_key, custom_instructions, predicted_cpt=predicted_cpt)
+            # Cross-provider fallback: if the Gemini direct path returned no
+            # ICDs (None) AND there's an error message AND OpenRouter is
+            # available, retry the same model via OpenRouter. Mirrors the
+            # CPT-side fallback.
+            gemini_pred = gemini_result[0]
+            gemini_err  = gemini_result[-1]
+            if gemini_pred is None and gemini_err:
+                openrouter_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+                if openrouter_key:
+                    logger.warning(
+                        f"Gemini direct path failed for ICD prediction ({gemini_err[:200]}); "
+                        f"falling back to OpenRouter route for the same Gemini model"
+                    )
+                    model = f"google/{normalize_gemini_model(model)}"
+                    api_key = openrouter_key
+                    # Fall through to OpenRouter path below
+                else:
+                    logger.error(
+                        f"Gemini direct path failed for ICD prediction and no OPENROUTER_API_KEY is set; "
+                        f"cannot fall back. Error: {gemini_err[:200]}"
+                    )
+                    return gemini_result
+            else:
+                return gemini_result
         else:
             # Fall back to OpenRouter with google/ prefix
             logger.info(f"No GOOGLE_API_KEY found, routing Gemini model '{model}' through OpenRouter")
