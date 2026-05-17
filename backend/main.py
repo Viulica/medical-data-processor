@@ -10970,12 +10970,17 @@ def process_unified_background(
         # ╚══════════════════════════════════════════════════════════════════╝
         AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC", "PCE-WWMG", "PCE-CAS"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
-        if worktracker_group not in VERIFY_ENABLED_GROUPS:
+        # RIV groups manage CoderVerify themselves via the RIV ensemble gate above;
+        # don't strip their columns here.
+        from riv_ensemble import is_riv_group as _is_riv
+        if worktracker_group not in VERIFY_ENABLED_GROUPS and not _is_riv(worktracker_group):
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
                 if _c in base_df.columns:
                     base_df = base_df.drop(columns=[_c])
             print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
+        elif _is_riv(worktracker_group):
+            print(f"[Unified {job_id}] Verify columns PRESERVED for RIV group={worktracker_group!r} (managed by RIV gate)", flush=True)
         else:
             try:
                 def _norm_cell(x):
