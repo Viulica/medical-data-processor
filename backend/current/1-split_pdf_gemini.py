@@ -119,14 +119,14 @@ If pages 2 and 4 contain the exact text "{filter_display}", return:
             )
         ]
         
-        # Use thinking_level="HIGH" for gemini-3-pro-preview, "MEDIUM" for gemini-3-flash-preview, thinking_budget=-1 for others
+        # Use thinking_budget=-1 for gemini-3-pro-preview, "MEDIUM" for gemini-3-flash-preview, thinking_budget=-1 for others
         if model == "gemini-3-pro-preview":
             thinking_config = types.ThinkingConfig(
-                thinking_level="HIGH",
+                thinking_budget=-1,
             )
         elif model == "gemini-3-flash-preview":
             thinking_config = types.ThinkingConfig(
-                thinking_level="HIGH",
+                thinking_budget=-1,
             )
         else:
             thinking_config = types.ThinkingConfig(

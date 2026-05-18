@@ -1365,14 +1365,11 @@ What is your final code decision?
 
 answer ONLY with the code, nothing else"""
 
-                # Use Gemini Flash for review with thinking enabled
+                # Use Gemini Flash for review (no extra thinking)
                 review_config = types.GenerateContentConfig(
                     temperature=0.3,  # Lower temperature for more consistent reviews
                     top_p=0.9,
                     max_output_tokens=50,
-                    thinking_config=types.ThinkingConfig(
-                        thinking_level="HIGH",
-                    ),
                 )
                 
                 review_response = fallback_client.models.generate_content(

@@ -458,12 +458,7 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model == "gemini-3-pro-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        elif model == "gemini-3-flash-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        else:
-            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
         
         # Enable web search
         tools = [
@@ -812,12 +807,7 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model == "gemini-3-pro-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        elif model == "gemini-3-flash-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        else:
-            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
         
         # Enable web search
         tools = [
@@ -1303,12 +1293,7 @@ Respond with ONLY the JSON object, nothing else."""
         contents = [types.Content(role="user", parts=parts)]
         
         # Configure thinking for Gemini 3 models
-        if model == "gemini-3-pro-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        elif model == "gemini-3-flash-preview":
-            thinking_config = types.ThinkingConfig(thinking_level="HIGH")
-        else:
-            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+        thinking_config = types.ThinkingConfig(thinking_budget=-1)
         
         # Enable web search
         tools = [
