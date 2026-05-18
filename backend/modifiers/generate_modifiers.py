@@ -1339,6 +1339,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             '64415', '64416',  # Interscalene
                             '64417', '64418',  # Axillary (New)
                             '64447', '64448',  # Femoral
+                            '64449', '64450',  # Other peripheral nerve / branch
                             '64466', '64467', '64468', '64469',  # ESP
                             '64473',           # Fascial Plane (iPACK / PENG) (New)
                             '64488',           # TAP
