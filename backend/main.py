@@ -10974,7 +10974,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         # Gated groups (RIV, DUN, etc.) manage CoderVerify themselves via the
         # ensemble gate above; don't strip their columns here.
