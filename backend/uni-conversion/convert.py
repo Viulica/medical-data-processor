@@ -193,16 +193,18 @@ def process_icd_reordering_task(args):
         Tuple of (row_idx, reordered_codes, success_flag, final_prompt, final_response)
     """
     row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
-    
-    # Initialize client for this thread
+
+    # Initialize client for this thread (uses GOOGLE_API_KEY env var)
     try:
-        client = genai.Client(
-            api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-        )
+        api_key_value = os.getenv("GOOGLE_API_KEY")
+        if not api_key_value:
+            print(f"    ⚠️  Row {row_idx}: GOOGLE_API_KEY not set in environment")
+            return (row_idx, icd_codes, False, "", "")
+        client = genai.Client(api_key=api_key_value)
     except Exception as e:
         print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
         return (row_idx, icd_codes, False, "", "")
-    
+
     # Reorder codes
     reordered_codes, success_flag, final_prompt, final_response = reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
     return (row_idx, reordered_codes, success_flag, final_prompt, final_response)
@@ -234,9 +236,11 @@ def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_c
     # Initialize Google AI client if not provided
     if client is None:
         try:
-            client = genai.Client(
-                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-            )
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+            if not api_key_value:
+                print("    ⚠️  GOOGLE_API_KEY not set in environment")
+                return (icd_codes, False, "", "")
+            client = genai.Client(api_key=api_key_value)
         except Exception as e:
             print(f"    ⚠️  Could not initialize AI client: {str(e)}")
             return (icd_codes, False, "", "")  # Return original order if AI fails
@@ -310,7 +314,7 @@ CRITICAL RULES:
 
             # Get AI response
             response = client.models.generate_content(
-                model="gemini-3-pro-preview",
+                model="gemini-3-flash-preview",
                 contents=contents,
                 config=generate_content_config,
             )
@@ -394,9 +398,11 @@ def update_icd_codes_to_latest(icd_codes, procedure, post_op_diagnosis, post_op_
     # Initialize Google AI client if not provided
     if client is None:
         try:
-            client = genai.Client(
-                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-            )
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+            if not api_key_value:
+                print("    ⚠️  GOOGLE_API_KEY not set in environment")
+                return (icd_codes, False, "", "")
+            client = genai.Client(api_key=api_key_value)
         except Exception as e:
             print(f"    ⚠️  Could not initialize AI client: {str(e)}")
             return (icd_codes, False, "", "")
@@ -534,16 +540,18 @@ def process_icd_update_task(args):
         Tuple of (row_idx, updated_codes, success_flag, final_prompt, final_response)
     """
     row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
-    
-    # Initialize client for this thread
+
+    # Initialize client for this thread (uses GOOGLE_API_KEY env var)
     try:
-        client = genai.Client(
-            api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-        )
+        api_key_value = os.getenv("GOOGLE_API_KEY")
+        if not api_key_value:
+            print(f"    ⚠️  Row {row_idx}: GOOGLE_API_KEY not set in environment")
+            return (row_idx, icd_codes, False, "", "")
+        client = genai.Client(api_key=api_key_value)
     except Exception as e:
         print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
         return (row_idx, icd_codes, False, "", "")
-    
+
     # Update codes to latest versions
     updated_codes, success_flag, final_prompt, final_response = update_icd_codes_to_latest(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
     return (row_idx, updated_codes, success_flag, final_prompt, final_response)
@@ -1165,13 +1173,16 @@ def convert_data(input_file, output_file=None, client="uni"):
         # Load mednet mapping for the specified client
         mednet_mapping = load_mednet_mapping(client=client)
         
-        # Initialize AI client for ICD code reordering
+        # Initialize AI client for ICD code reordering (uses GOOGLE_API_KEY env var,
+        # same as the unified processing pipeline).
         ai_client = None
         try:
-            ai_client = genai.Client(
-                api_key="AIzaSyCrskRv2ajNhc-KqDVv0V8KFl5Bdf5rr7w",
-            )
-            print("AI client initialized for ICD code reordering")
+            api_key_value = os.getenv("GOOGLE_API_KEY")
+            if not api_key_value:
+                print("Warning: GOOGLE_API_KEY not set in environment. ICD codes will not be reordered.")
+            else:
+                ai_client = genai.Client(api_key=api_key_value)
+                print("AI client initialized for ICD code reordering (gemini-3-flash-preview)")
         except Exception as e:
             print(f"Warning: Could not initialize AI client: {e}. ICD codes will not be reordered.")
         

@@ -10974,7 +10974,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE"}
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         # Gated groups (RIV, DUN, etc.) manage CoderVerify themselves via the
         # ensemble gate above; don't strip their columns here.
@@ -11024,11 +11024,27 @@ def process_unified_background(
                         for c in base_df[cpt_col].tolist()
                     ]
 
-                # StaffVerify: keep extracted, no rule-based tag prepended yet.
-                if existing_staff is not None:
-                    base_df["StaffVerify"] = [_norm_cell(v) for v in existing_staff.tolist()]
-                else:
-                    base_df["StaffVerify"] = ""
+                # StaffVerify: rule-based tags for missing providers, then extracted appended.
+                # Rule: empty "Responsible Provider" → "PROVIDER"; empty "Surgeon" → "SURGEON".
+                rp_col = "Responsible Provider" if "Responsible Provider" in base_df.columns else None
+                sg_col = "Surgeon" if "Surgeon" in base_df.columns else None
+                staff_rule_tags = [""] * len(base_df)
+                if rp_col or sg_col:
+                    for i in range(len(base_df)):
+                        tags = []
+                        if rp_col and not _norm_cell(base_df[rp_col].iloc[i]):
+                            tags.append("PROVIDER")
+                        if sg_col and not _norm_cell(base_df[sg_col].iloc[i]):
+                            tags.append("SURGEON")
+                        staff_rule_tags[i] = ", ".join(tags)
+
+                extracted_staff_vals = (
+                    existing_staff.tolist() if existing_staff is not None else [""] * len(base_df)
+                )
+                base_df["StaffVerify"] = [
+                    _merge_verify(staff_rule_tags[i], extracted_staff_vals[i])
+                    for i in range(len(base_df))
+                ]
 
                 # Hardcoded combo rule: 00812 + ICD1 != Z12.11 → flag "Icd1"
                 icd1_tags = [""] * len(base_df)
