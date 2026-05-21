@@ -449,74 +449,42 @@ def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=4
 
 def apply_colonoscopy_correction(row, asa_code, insurances_df):
     """
-    Apply colonoscopy-specific correction rules based on procedure type,
-    insurance plan, and polyp findings.
-    
-    This changes 00812 to 00811 when appropriate based on Medicare rules.
-    
+    Flip 00812 -> 00811 only when Medicare AND polyps were found.
+    Every other case keeps the AI-predicted code.
+
     Args:
         row: DataFrame row containing procedure information
         asa_code: The current ASA Code (e.g., "00812")
         insurances_df: DataFrame containing insurance information
-    
+
     Returns:
         Corrected ASA code or original code if no correction applies
     """
     try:
-        # Only process if code is 00812
         if str(asa_code).strip() != '00812':
             return asa_code
-        
-        # Get the required fields from the row
-        is_colonoscopy = str(row.get('is_colonoscopy', '')).strip().upper() == 'TRUE'
-        colonoscopy_is_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() == 'TRUE'
-        is_upper_endonoscopy = str(row.get('is_upper_endonoscopy', '')).strip().upper() == 'TRUE'
+
         polyps_found = str(row.get('Polyps found', '')).strip().upper() == 'FOUND'
-        primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
-        
-        # Priority rule: if both upper endoscopy and colonoscopy, always return 00813
-        if is_upper_endonoscopy and is_colonoscopy:
-            print(f"   Colonoscopy correction: Both upper endoscopy and colonoscopy detected -> 00813")
-            return "00813"
-        
-        # Only proceed if it's a colonoscopy
-        if not is_colonoscopy:
+        if not polyps_found:
             return asa_code
-        
-        # Check if insurance is Medicare
-        is_medicare = False
-        if primary_mednet_code and not insurances_df.empty:
-            # Find the insurance plan by MedNet Code
-            insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
-            if not insurance_match.empty:
-                insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
-                if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
-                    is_medicare = True
-        
-        # Apply correction rules
-        if is_medicare:
-            # MEDICARE rules
-            if colonoscopy_is_screening and not polyps_found:
-                print(f"   Colonoscopy correction: Medicare + screening + no polyps -> 00812 (no change)")
-                return "00812"
-            elif colonoscopy_is_screening and polyps_found:
-                print(f"   Colonoscopy correction: Medicare + screening + polyps found -> 00811 (CHANGED)")
-                return "00811"
-            else:  # not screening (polyps don't matter)
-                print(f"   Colonoscopy correction: Medicare + not screening -> 00811 (CHANGED)")
-                return "00811"
-        else:
-            # NOT MEDICARE rules - 00812 stays 00812 for screening with polyps
-            if colonoscopy_is_screening and not polyps_found:
-                print(f"   Colonoscopy correction: Non-Medicare + screening + no polyps -> 00812 (no change)")
-                return "00812"
-            elif colonoscopy_is_screening and polyps_found:
-                print(f"   Colonoscopy correction: Non-Medicare + screening + polyps found -> 00812 (no change)")
-                return "00812"
-            else:  # not screening (polyps don't matter)
-                print(f"   Colonoscopy correction: Non-Medicare + not screening -> 00811 (CHANGED)")
-                return "00811"
-        
+
+        primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
+        if not primary_mednet_code or insurances_df.empty:
+            return asa_code
+
+        insurance_match = insurances_df[
+            insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code
+        ]
+        if insurance_match.empty:
+            return asa_code
+
+        insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
+        if 'medicare' not in insurance_plan.lower():
+            return asa_code
+
+        print(f"   Colonoscopy correction: Medicare + polyps found -> 00811 (CHANGED)")
+        return "00811"
+
     except Exception as e:
         print(f"   Warning: Colonoscopy correction failed: {str(e)}, keeping original code")
         return asa_code
