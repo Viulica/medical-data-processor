@@ -220,18 +220,36 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         else:
             openrouter_model = "deepseek/deepseek-chat"  # Default to most common model
     
+    flex_disabled = False
+    flex_503_retries = 0
     for attempt in range(max_retries):
         try:
             payload = {
                 "model": openrouter_model,
-                "messages": messages
+                "messages": messages,
+                "usage": {"include": True},
             }
 
-            # Enable reasoning for Gemini 3 models via OpenRouter
+            # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
             if "gemini-3" in openrouter_model:
                 payload["reasoning"] = {"effort": "high"}
+                if not flex_disabled:
+                    payload["service_tier"] = "flex"
+                    payload["provider"] = {"sort": "throughput"}
 
             response = requests.post(url, headers=headers, json=payload, timeout=300)
+            # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
+            if response.status_code == 503 and payload.get("service_tier") == "flex":
+                if flex_503_retries < 2:
+                    flex_503_retries += 1
+                    wait_time = 2 ** flex_503_retries
+                    print(f"    ⚠️  OpenRouter 503 on flex tier for {pdf_filename}{log_suffix}; flex retry {flex_503_retries}/2 in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"    ⚠️  OpenRouter 503 on flex tier for {pdf_filename}{log_suffix} after 2 retries; falling back to standard tier")
+                    flex_disabled = True
+                    continue
             response.raise_for_status()
             
             result = response.json()

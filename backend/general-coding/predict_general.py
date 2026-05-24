@@ -746,7 +746,8 @@ Respond with ONLY the JSON object, nothing else."""
     
     payload = {
         "model": openrouter_model,
-        "messages": messages
+        "messages": messages,
+        "usage": {"include": True},
     }
 
     # Gemini 3 models via OpenRouter: no reasoning, flex tier for cost savings
@@ -765,9 +766,25 @@ Respond with ONLY the JSON object, nothing else."""
 
     # Retry mechanism with exponential backoff
     max_retries = 5
+    flex_503_retries = 0
+    flex_disabled = False
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=payload)
+            # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
+            if response.status_code == 503 and payload.get("service_tier") == "flex":
+                if flex_503_retries < 2:
+                    flex_503_retries += 1
+                    wait_time = 2 ** flex_503_retries
+                    logger.warning(f"OpenRouter 503 on flex tier (CPT); flex retry {flex_503_retries}/2 in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(f"OpenRouter 503 on flex tier (CPT) after 2 retries; falling back to standard tier")
+                    payload.pop("service_tier", None)
+                    payload.pop("provider", None)
+                    flex_disabled = True
+                    continue
             response.raise_for_status()
 
             response_data = response.json()
@@ -813,33 +830,26 @@ Respond with ONLY the JSON object, nothing else."""
             cost = 0.0
             if "usage" in response_data:
                 usage = response_data["usage"]
-                total_tokens = usage.get("total_tokens", 0)
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                tokens = total_tokens
-                
-                # OpenRouter provides cost in response, but we'll estimate if not available
-                # Cost estimation based on model (rough estimates for gpt-5)
-                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model:
-                    # Estimate pricing (adjust based on actual OpenRouter pricing)
-                    input_cost = prompt_tokens * 0.01 / 1000  # Estimate
-                    output_cost = completion_tokens * 0.03 / 1000  # Estimate
-                elif "gpt-4o-mini" in model:
-                    input_cost = prompt_tokens * 0.00015 / 1000
-                    output_cost = completion_tokens * 0.0006 / 1000
-                elif "gpt-4o" in model:
-                    input_cost = prompt_tokens * 0.0025 / 1000
-                    output_cost = completion_tokens * 0.01 / 1000
-                elif "gpt-4-turbo" in model:
-                    input_cost = prompt_tokens * 0.01 / 1000
-                    output_cost = completion_tokens * 0.03 / 1000
+                tokens = usage.get("total_tokens", 0)
+                if "cost" in usage:
+                    cost = usage["cost"]
                 else:
-                    # Default estimate
-                    input_cost = prompt_tokens * 0.01 / 1000
-                    output_cost = completion_tokens * 0.03 / 1000
-                
-                cost = input_cost + output_cost
-            
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model:
+                        input_cost = prompt_tokens * 0.01 / 1000
+                        output_cost = completion_tokens * 0.03 / 1000
+                    elif "gpt-4o-mini" in model:
+                        input_cost = prompt_tokens * 0.00015 / 1000
+                        output_cost = completion_tokens * 0.0006 / 1000
+                    elif "gpt-4o" in model:
+                        input_cost = prompt_tokens * 0.0025 / 1000
+                        output_cost = completion_tokens * 0.01 / 1000
+                    else:
+                        input_cost = prompt_tokens * 0.01 / 1000
+                        output_cost = completion_tokens * 0.03 / 1000
+                    cost = input_cost + output_cost
+
             return predicted_code, explanation, tokens, cost, None
             
         except requests.exceptions.HTTPError as e:
@@ -1451,12 +1461,15 @@ Respond with ONLY the JSON object, nothing else."""
     
     payload = {
         "model": openrouter_model,
-        "messages": messages
+        "messages": messages,
+        "usage": {"include": True},
     }
 
-    # Enable reasoning for Gemini 3 models via OpenRouter
+    # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
     if "gemini-3" in openrouter_model:
         payload["reasoning"] = {"effort": "high"}
+        payload["service_tier"] = "flex"
+        payload["provider"] = {"sort": "throughput"}
 
     # Enable web search for ICD code validation
     payload["plugins"] = [{"id": "web"}]
@@ -1467,9 +1480,25 @@ Respond with ONLY the JSON object, nothing else."""
 
     # Retry mechanism with exponential backoff
     max_retries = 5
+    flex_503_retries = 0
+    flex_disabled = False
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=payload)
+            # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
+            if response.status_code == 503 and payload.get("service_tier") == "flex":
+                if flex_503_retries < 2:
+                    flex_503_retries += 1
+                    wait_time = 2 ** flex_503_retries
+                    logger.warning(f"OpenRouter 503 on flex tier (ICD); flex retry {flex_503_retries}/2 in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(f"OpenRouter 503 on flex tier (ICD) after 2 retries; falling back to standard tier")
+                    payload.pop("service_tier", None)
+                    payload.pop("provider", None)
+                    flex_disabled = True
+                    continue
             response.raise_for_status()
 
             response_data = response.json()
@@ -1531,30 +1560,26 @@ Respond with ONLY the JSON object, nothing else."""
             cost = 0.0
             if "usage" in response_data:
                 usage = response_data["usage"]
-                total_tokens = usage.get("total_tokens", 0)
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                tokens = total_tokens
-                
-                # Cost estimation based on model
-                if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model or "gpt-5.2" in model:
-                    input_cost = prompt_tokens * 0.01 / 1000
-                    output_cost = completion_tokens * 0.03 / 1000
-                elif "gpt-4o-mini" in model:
-                    input_cost = prompt_tokens * 0.00015 / 1000
-                    output_cost = completion_tokens * 0.0006 / 1000
-                elif "gpt-4o" in model:
-                    input_cost = prompt_tokens * 0.0025 / 1000
-                    output_cost = completion_tokens * 0.01 / 1000
-                elif "gpt-4-turbo" in model:
-                    input_cost = prompt_tokens * 0.01 / 1000
-                    output_cost = completion_tokens * 0.03 / 1000
+                tokens = usage.get("total_tokens", 0)
+                if "cost" in usage:
+                    cost = usage["cost"]
                 else:
-                    input_cost = prompt_tokens * 0.01 / 1000
-                    output_cost = completion_tokens * 0.03 / 1000
-                
-                cost = input_cost + output_cost
-            
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    if "openai/gpt-5" in model or "gpt-5" in model or "gpt5:online" in model or "gpt-5.2" in model:
+                        input_cost = prompt_tokens * 0.01 / 1000
+                        output_cost = completion_tokens * 0.03 / 1000
+                    elif "gpt-4o-mini" in model:
+                        input_cost = prompt_tokens * 0.00015 / 1000
+                        output_cost = completion_tokens * 0.0006 / 1000
+                    elif "gpt-4o" in model:
+                        input_cost = prompt_tokens * 0.0025 / 1000
+                        output_cost = completion_tokens * 0.01 / 1000
+                    else:
+                        input_cost = prompt_tokens * 0.01 / 1000
+                        output_cost = completion_tokens * 0.03 / 1000
+                    cost = input_cost + output_cost
+
             return result, tokens, cost, None
             
         except requests.exceptions.HTTPError as e:

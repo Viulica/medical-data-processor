@@ -10974,18 +10974,57 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV"}
+
+        def _is_auto_posting(g):
+            """Membership check that supports the 'RIV' family prefix (RIV-KEYS, RIV-SHELLAH, etc.)."""
+            if not g: return False
+            if g in AUTO_POSTING_GROUPS: return True
+            if g.upper().startswith("RIV-") and "RIV" in AUTO_POSTING_GROUPS: return True
+            return False
+
+        # Groups that use an EXCLUSION list (flag CPT for review if it's in the set
+        # OR starts with "019") instead of the default HP/inclusion list (flag if
+        # NOT in the set). For groups with huge case-mix variety where it's easier
+        # to enumerate known-problematic codes than to enumerate every safe code.
+        EXCLUDE_GROUPS = {
+            "UNI-INTEG": {
+                # Colonoscopy — screening vs surveillance is coder convention-driven
+                "00811", "00812",
+                # Codes that were 100% wrong in our UNI-INTEG #95 test runs
+                "00100", "00120", "00211", "00220", "00404", "00540", "00560",
+                "00770", "00802", "00851", "00862", "00942", "01810",
+            },
+            "RIV": {
+                # Top recurring AI errors across all RIV provider subgroups (May 2026 audit):
+                # 20x 00812 wrong (screening vs therapeutic colonoscopy),
+                # 13x 00840 wrong (lower abdomen confused with 00790/00752/00865),
+                # 4x 01967 wrong (labor analgesia vs direct C-section),
+                # 2x 01810 wrong (hand/wrist code confusion).
+                "00812", "00840", "01967", "01810",
+            },
+        }
+
+        def _get_exclude_set(g):
+            """Return the exclude set for the group; RIV family inherits from 'RIV'."""
+            if not g: return None
+            if g in EXCLUDE_GROUPS: return EXCLUDE_GROUPS[g]
+            if g.upper().startswith("RIV-"): return EXCLUDE_GROUPS.get("RIV")
+            return None
+
         VERIFY_ENABLED_GROUPS = AUTO_POSTING_GROUPS  # legacy alias, do not remove yet
         # Gated groups (RIV, DUN, etc.) manage CoderVerify themselves via the
         # ensemble gate above; don't strip their columns here.
         from ensemble_gate import is_gated_group as _is_gated
-        if worktracker_group not in VERIFY_ENABLED_GROUPS and not _is_gated(worktracker_group):
+        # RIV moves from gated to auto-posting flagging — bypass ensemble gate logic here.
+        _gated = _is_gated(worktracker_group) and not (worktracker_group and worktracker_group.upper().startswith("RIV"))
+        if not _is_auto_posting(worktracker_group) and not _gated:
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
                 if _c in base_df.columns:
                     base_df = base_df.drop(columns=[_c])
             print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
-        elif _is_gated(worktracker_group):
+        elif _gated:
             print(f"[Unified {job_id}] Verify columns PRESERVED for gated group={worktracker_group!r} (managed by ensemble gate)", flush=True)
         else:
             try:
@@ -11014,15 +11053,26 @@ def process_unified_background(
 
                 rule_tags = [""] * len(base_df)
                 from db_utils import get_hp_cpt_codes_for_group
-                hp_set = get_hp_cpt_codes_for_group(worktracker_group)
                 cpt_col = "Procedure Code" if "Procedure Code" in base_df.columns else (
                     "ASA Code" if "ASA Code" in base_df.columns else None
                 )
-                if hp_set and cpt_col:
+
+                exclude_set = _get_exclude_set(worktracker_group)
+                if exclude_set is not None and cpt_col:
+                    # Exclusion mode: flag CPT if it's IN the exclude set, or if it
+                    # starts with "019" (endovascular/IR/OB family — high error rate).
                     rule_tags = [
-                        "" if _norm_cell(c) in hp_set else "CPT"
+                        "CPT" if (_norm_cell(c) in exclude_set or _norm_cell(c).startswith("019")) else ""
                         for c in base_df[cpt_col].tolist()
                     ]
+                else:
+                    # Default inclusion mode: flag CPT unless it's in the group's HP set.
+                    hp_set = get_hp_cpt_codes_for_group(worktracker_group)
+                    if hp_set and cpt_col:
+                        rule_tags = [
+                            "" if _norm_cell(c) in hp_set else "CPT"
+                            for c in base_df[cpt_col].tolist()
+                        ]
 
                 # StaffVerify: rule-based tags for missing providers, then extracted appended.
                 # Rule: empty "Responsible Provider" → "PROVIDER"; empty "Surgeon" → "SURGEON".
