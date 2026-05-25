@@ -1878,29 +1878,7 @@
  </p>
  </div>
 
- <!-- CPT-informed ICD prediction toggle -->
- <div class="setting-group" style="margin-top: 16px">
- <label style="display: flex; align-items: center; gap: 8px; cursor: pointer">
- <input
- type="checkbox"
- v-model="unifiedIcdUseCptGuidance"
- />
- <span>Use CPT-informed ICD prediction</span>
- </label>
- <p
- class="form-hint"
- style="margin-top: 6px; margin-left: 24px; color: #6b7280"
- >
- When enabled, CPT prediction runs first and each case's predicted
- CPT code is injected into the ICD prompt as guidance. ICD thread
- waits for CPT to finish. Slightly slower, but ICD picks better
- when it knows the procedure type.
- <br />
- <strong>Turn on for X...-RSC groups</strong> (XAA-RSC, XHJ-RSC) —
- the ICD rules for these facilities are CPT-driven, so they need
- the predicted CPT to apply correctly.
- </p>
- </div>
+ <!-- CPT-informed ICD prediction is always on (handled by backend default) -->
  </div>
  </div>
  </div>
@@ -9922,7 +9900,7 @@ export default {
  unifiedIcdVisionModel: "gemini-3-flash-preview", // Vision model selection
  unifiedIcdCustomModel: "", // Custom OpenRouter model input
  unifiedIcdCustomInstructions: "",
- unifiedIcdUseCptGuidance: false, // Serial CPT→ICD mode (turn on for X...-RSC groups)
+ unifiedIcdUseCptGuidance: true, // Always on — CPT prediction informs ICD prompt with code + description
  unifiedUseIcdTemplate: false,
  unifiedSelectedIcdInstructionId: null,
  unifiedOutputFileName: "", // Custom output filename for downloads

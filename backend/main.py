@@ -9519,7 +9519,7 @@ def process_unified_background(
     enable_combined_cpt_icd: bool = False,
     combined_cpt_icd_model: str = "openai/gpt-5.2:online",
     # Serial CPT-then-ICD mode: wait for CPT to finish, then pass predicted CPT into ICD prompt
-    icd_use_cpt_guidance: bool = False,
+    icd_use_cpt_guidance: bool = True,
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
@@ -11398,7 +11398,7 @@ async def process_unified(
     icd_max_workers: int = Form(default=50),  # Increased for better parallelism
     icd_custom_instructions: str = Form(default=""),
     icd_instruction_template_id: Optional[int] = Form(default=None),  # For template selection
-    icd_use_cpt_guidance: bool = Form(default=False),  # Serialize: CPT first, then ICD with CPT in prompt
+    icd_use_cpt_guidance: bool = Form(default=True),  # Serialize: CPT first, then ICD with CPT in prompt
     output_filename: Optional[str] = Form(default=None),  # Custom output filename (optional)
     # Combined CPT+ICD params
     enable_combined_cpt_icd: bool = Form(default=False),

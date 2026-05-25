@@ -1672,6 +1672,27 @@ def _get_cpt_prompt(cpt_codes_text, include_code_list):
     return None  # Caller uses hardcoded fallback
 
 
+_CPT_DESC_CACHE = None
+
+def _get_cpt_description(code):
+    """Look up the description for a CPT code from the reference list (cached)."""
+    global _CPT_DESC_CACHE
+    if _CPT_DESC_CACHE is None:
+        _CPT_DESC_CACHE = {}
+        try:
+            text = load_cpt_codes()
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line: continue
+                # Expected format: "00100 ANESTHESIA FOR PROCEDURES ON SALIVARY GLANDS, ..."
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    _CPT_DESC_CACHE[parts[0].strip()] = parts[1].strip()
+        except Exception as e:
+            logger.warning(f"Failed to build CPT description cache: {e}")
+    return _CPT_DESC_CACHE.get(str(code).strip(), "")
+
+
 def _build_cpt_guidance_block(predicted_cpt):
     """Build a high-priority CPT-guidance block to append to the ICD prompt.
 
@@ -1682,12 +1703,14 @@ def _build_cpt_guidance_block(predicted_cpt):
     code = str(predicted_cpt).strip() if predicted_cpt is not None else ""
     if not code:
         return ""
+    description = _get_cpt_description(code)
+    cpt_line = f"CPT = {code}" + (f"  ({description})" if description else "")
     return (
         "\n\n"
         "================================================================================\n"
         "PREDICTED CPT CODE FOR THIS CASE (from prior CPT prediction step)\n"
         "================================================================================\n"
-        f"CPT = {code}\n"
+        f"{cpt_line}\n"
         "\n"
         "A separate CPT prediction step has already analyzed this document and predicted\n"
         "the CPT above. Treat this as strong guidance — the CPT code tightly constrains\n"
