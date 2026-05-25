@@ -228,4 +228,56 @@ Example response format:
 {{"field_name": "extracted_value"}}
 """
     
-    return prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name']) 
+    return prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name'])
+
+
+def generate_priority_fields_group_prompt(field_definitions):
+    """Generate a focused extraction prompt for a group of related priority fields,
+    extracted in a single API call.
+
+    Args:
+        field_definitions: List of field-definition dicts (name, description, location, output_format)
+
+    Returns:
+        String containing the extraction prompt covering all fields in the group.
+    """
+    if len(field_definitions) == 1:
+        return generate_priority_field_prompt(field_definitions[0])
+
+    prompt_header = """You are an expert in extracting structured data from medical documents.
+
+IMPORTANT: Focus ONLY on extracting the following related fields together. They typically appear near each other in the document and should be extracted as a set.
+
+BE VERY CAREFUL to not confuse zero and the letter O. If the sign is completely round then it is an O (letter O), if it is a little bit oval then it is an O.
+
+"""
+
+    field_blocks = []
+    for f in field_definitions:
+        block = f"=== {f['name']} ===\n"
+        if f.get('description'):
+            block += f"Description: {f['description']}\n"
+        if f.get('location'):
+            block += f"Where to find: {f['location']}\n"
+        if f.get('output_format'):
+            block += f"Output format: {f['output_format']}\n"
+        field_blocks.append(block)
+
+    names = [f['name'] for f in field_definitions]
+    keys_json = ", ".join(f'"{n}": "extracted_value"' for n in names)
+
+    prompt_footer = f"""
+
+IMPORTANT RULES:
+1. NEVER DROP leading zeros from any number. Always write all the strings and numbers as they are.
+2. If a field is not present or cannot be determined from the provided text, output null for that field.
+3. Be very careful to not confuse the number 1 and the letter l, double check you did not confuse them.
+4. If you see any random ID looking numbers in a different color and font than the original pdf (they look copy pasted), ignore them.
+
+Your entire response must be a single JSON object containing exactly these keys: {names}. Do not include any other text or commentary.
+
+Example response format:
+{{{keys_json}}}
+"""
+
+    return prompt_header + '\n'.join(field_blocks) + prompt_footer

@@ -7,13 +7,74 @@ import sys
 import time
 import random
 
+print("🚀 [STARTUP] Extraction script started", flush=True)
+
 # Force unbuffered output for real-time progress
 sys.stdout.reconfigure(line_buffering=True)
-import pandas as pd
-import google.genai as genai
-from google.genai import types
-from PyPDF2 import PdfReader, PdfWriter
-from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_very_high_priority_fields, get_low_priority_fields, get_normal_fields, generate_priority_field_prompt
+
+print(f"🚀 [STARTUP] Python version: {sys.version}", flush=True)
+
+# Try importing pandas
+try:
+    print("🚀 [STARTUP] Importing pandas...", flush=True)
+    import pandas as pd
+    print("✅ [STARTUP] pandas imported successfully", flush=True)
+except Exception as e:
+    print(f"❌ [STARTUP] Failed to import pandas: {e}", flush=True)
+    sys.exit(1)
+
+# Try importing google.genai with timeout handling
+try:
+    print("🚀 [STARTUP] Importing google.genai...", flush=True)
+    import google.genai as genai
+    from google.genai import types
+    print("✅ [STARTUP] google.genai imported successfully", flush=True)
+except Exception as e:
+    print(f"❌ [STARTUP] Failed to import google.genai: {e}", flush=True)
+    sys.exit(1)
+
+# Try importing PyPDF2
+try:
+    print("🚀 [STARTUP] Importing PyPDF2...", flush=True)
+    from PyPDF2 import PdfReader, PdfWriter
+    print("✅ [STARTUP] PyPDF2 imported successfully", flush=True)
+except Exception as e:
+    print(f"❌ [STARTUP] Failed to import PyPDF2: {e}", flush=True)
+    sys.exit(1)
+
+# Try importing field_definitions
+try:
+    print("🚀 [STARTUP] Importing field_definitions...", flush=True)
+    from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_very_high_priority_fields, get_low_priority_fields, get_normal_fields, generate_priority_field_prompt, generate_priority_fields_group_prompt
+    print("✅ [STARTUP] field_definitions imported successfully", flush=True)
+except Exception as e:
+    print(f"❌ [STARTUP] Failed to import field_definitions: {e}", flush=True)
+    sys.exit(1)
+
+# Hardcoded priority-field groups: fields listed together in the same tuple
+# are extracted in a single API call when all of them are present as priority fields.
+PRIORITY_FIELD_GROUPS = [
+    ("An Start", "An Stop"),
+    ("AnStart", "AnStop"),
+]
+
+
+def _group_priority_fields(priority_fields):
+    """Cluster priority fields by PRIORITY_FIELD_GROUPS. Returns a list of lists;
+    each inner list is a group to extract in one API call. Fields not part of any
+    group come back as singletons."""
+    by_name = {f['name']: f for f in priority_fields}
+    groups = []
+    consumed = set()
+    for group_names in PRIORITY_FIELD_GROUPS:
+        members = [by_name[n] for n in group_names if n in by_name and n not in consumed]
+        if len(members) >= 2:
+            groups.append(members)
+            consumed.update(f['name'] for f in members)
+    for f in priority_fields:
+        if f['name'] not in consumed:
+            groups.append([f])
+    return groups
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import re
@@ -500,21 +561,44 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
 
 def process_single_patient_pdf_task(args):
     """Task function for processing a single patient PDF in a thread."""
+    import time
+    task_start = time.time()
+
     client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model = args
-    
+
     pdf_filename = os.path.basename(pdf_file_path)
-    
+    is_problem_pdf = pdf_filename in ['Record_04.pdf', 'Record_07.pdf']
+
+    if is_problem_pdf:
+        print(f"  🔴 [DEBUG] STARTING {pdf_filename} (problematic PDF)")
+
     # Extract first n pages as temporary PDF
+    extract_start = time.time()
     temp_patient_pdf = extract_first_n_pages_as_pdf(pdf_file_path, n_pages)
+    extract_time = time.time() - extract_start
+
+    if is_problem_pdf:
+        print(f"  🔴 [DEBUG] Extracted pages for {pdf_filename} in {extract_time:.1f}s")
     if not temp_patient_pdf:
         return pdf_filename, None, temp_patient_pdf, order_index
     
     # Extract normal (non-priority) fields with one API call
     # Pass client (may be None for OpenRouter)
+    if is_problem_pdf:
+        print(f"  🔴 [DEBUG] Calling extract_info_from_patient_pdf for {pdf_filename}...")
+        api_start = time.time()
+
     normal_result = extract_info_from_patient_pdf(client, temp_patient_pdf, pdf_filename, extraction_prompt, model)
+
+    if is_problem_pdf:
+        api_time = time.time() - api_start
+        print(f"  🔴 [DEBUG] API call completed for {pdf_filename} in {api_time:.1f}s")
+
     normal_response, service_tier = normal_result if isinstance(normal_result, tuple) else (normal_result, None)
 
     if not normal_response:
+        if is_problem_pdf:
+            print(f"  🔴 [DEBUG] No response for {pdf_filename}!")
         return pdf_filename, None, temp_patient_pdf, order_index
     
     # Parse the normal response
@@ -533,25 +617,28 @@ def process_single_patient_pdf_task(args):
         print(f"    ❌ Failed to parse normal fields response for {pdf_filename}: {str(e)}")
         return pdf_filename, None, temp_patient_pdf, order_index
     
-    # Extract each priority field separately and merge into the result
+    # Extract priority fields (some grouped into a single call) and merge into the result
     if priority_fields:
-        print(f"    🎯 Processing {len(priority_fields)} priority field(s) for {pdf_filename}")
-        
-        for priority_field in priority_fields:
-            field_name = priority_field['name']
-            priority_prompt = generate_priority_field_prompt(priority_field)
-            
-            # Extract this priority field using the better model
-            # Pass client (may be None for OpenRouter)
+        priority_groups = _group_priority_fields(priority_fields)
+        bundled = [g for g in priority_groups if len(g) > 1]
+        print(f"    🎯 Processing {len(priority_fields)} priority field(s) in {len(priority_groups)} call(s) for {pdf_filename}")
+        if bundled:
+            for g in bundled:
+                print(f"    🔗 Bundling priority group [{' + '.join(f['name'] for f in g)}] into 1 call for {pdf_filename}")
+
+        for group in priority_groups:
+            group_names = [f['name'] for f in group]
+            log_label = " + ".join(group_names)
+            priority_prompt = generate_priority_fields_group_prompt(group)
+
             priority_result = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model,
-                field_name_for_log=field_name
+                field_name_for_log=log_label
             )
             priority_response = priority_result[0] if isinstance(priority_result, tuple) else priority_result
 
             if priority_response:
                 try:
-                    # Parse the priority field response
                     cleaned_priority = priority_response.strip()
                     if cleaned_priority.startswith('```json'):
                         cleaned_priority = cleaned_priority[7:]
@@ -560,20 +647,20 @@ def process_single_patient_pdf_task(args):
                     if cleaned_priority.endswith('```'):
                         cleaned_priority = cleaned_priority[:-3]
                     cleaned_priority = cleaned_priority.strip()
-                    
+
                     priority_data = json.loads(cleaned_priority)
-                    
-                    # Merge this priority field into the main result
-                    if field_name in priority_data:
-                        merged_data[field_name] = priority_data[field_name]
-                        print(f"    ✅ Merged priority field '{field_name}' for {pdf_filename}")
-                    else:
-                        print(f"    ⚠️  Priority field '{field_name}' not found in response for {pdf_filename}")
-                        
+
+                    for field_name in group_names:
+                        if field_name in priority_data:
+                            merged_data[field_name] = priority_data[field_name]
+                            print(f"    ✅ Merged priority field '{field_name}' for {pdf_filename}")
+                        else:
+                            print(f"    ⚠️  Priority field '{field_name}' not found in response for {pdf_filename}")
+
                 except json.JSONDecodeError as e:
-                    print(f"    ❌ Failed to parse priority field '{field_name}' for {pdf_filename}: {str(e)}")
+                    print(f"    ❌ Failed to parse priority group '{log_label}' for {pdf_filename}: {str(e)}")
             else:
-                print(f"    ❌ Failed to extract priority field '{field_name}' for {pdf_filename}")
+                print(f"    ❌ Failed to extract priority group '{log_label}' for {pdf_filename}")
 
     # Extract each low-priority field separately using cheaper model
     if low_priority_fields:
@@ -870,8 +957,11 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
             tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model))
-        
+
+        import time
+        start_time = time.time()
         print(f"\n🚀 Starting concurrent processing of {len(tasks)} patient PDFs...")
+        print(f"  [DEBUG] Start time: {time.strftime('%H:%M:%S', time.localtime(start_time))}")
         
         # Initialize progress tracking
         completed_count = 0
@@ -912,7 +1002,10 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                 pdf_file_path = task[1]  # PDF file path from task
                 order_index = task[8]    # Order index from task (still at index 8)
                 pdf_filename = os.path.basename(pdf_file_path)
-                
+
+                elapsed = time.time() - start_time
+                print(f"  [DEBUG] PDF COMPLETED: {pdf_filename} after {elapsed:.1f}s total")
+
                 try:
                     filename, response, temp_patient_pdf, order_idx = future.result()
                     
