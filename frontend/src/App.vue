@@ -1328,10 +1328,9 @@
  <option value="gemini-3-flash-preview">
  Gemini 3 Flash Preview
  </option>
- <option value="models/gemini-flash-lite-latest">
- Gemini Flash Lite (Fastest & Cheapest)
+ <option value="google/gemini-3.1-pro-preview">
+ Gemini 3.1 Pro Preview
  </option>
- <option value="gemini-2.5-pro"> Gemini 2.5 Pro</option>
  </select>
  </div>
  <div class="setting-group" style="display: none">
@@ -4386,11 +4385,9 @@
  <option value="gemini-3-flash-preview">
  Gemini 3 Flash Preview
  </option>
- <option value="models/gemini-flash-lite-latest">
- Gemini Flash Lite (Fastest & Cheapest)
+ <option value="google/gemini-3.1-pro-preview">
+ Gemini 3.1 Pro Preview
  </option>
- <option value="gemini-2.5-pro"> Gemini 2.5 Pro</option>
- <option value="gemini-3-pro-preview"> Gemini 3 Pro</option>
  </select>
  <small class="help-text">
  Model used for extracting patient information from PDFs
