@@ -109,7 +109,7 @@ def get_normal_fields(excel_file_path):
     field_definitions = get_field_definitions(excel_file_path)
     return [field for field in field_definitions if not field.get('priority') and field['name'] not in ['source_file', 'page_number']]
 
-def generate_extraction_prompt(excel_file_path, fields_to_include=None):
+def generate_extraction_prompt(excel_file_path, fields_to_include=None, provider_mapping=None, provider_mapping_has_mednet=True):
     """Generate the extraction prompt from field definitions.
     
     Args:
@@ -144,7 +144,12 @@ Extraction Instructions per Patient Record:
         
         if field.get('output_format'):
             field_instruction += f"Output format: {field['output_format']}\n"
-        
+
+        # Inject provider-mapping footer into the peripheral_blocks instruction block
+        # when extract_providers_from_annotations is enabled for this template.
+        if provider_mapping and field.get('name') == 'peripheral_blocks':
+            field_instruction += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+
         field_instruction += f"Extract: {field['name']}\n"
         field_instructions.append(field_instruction)
 
@@ -187,7 +192,130 @@ Extraction Instructions per Patient Record:
 
     return prompt_header + '\n'.join(field_instructions) + prompt_footer
 
-def generate_priority_field_prompt(field_definition):
+import re as _re
+
+# Strict provider-line pattern: a line that is ONLY a provider name
+# (LAST, FIRST [MIDDLE], CRED) — nothing else. Used to harvest the canonical
+# provider roster from a 'Responsible Provider' field when no provider_mapping
+# is configured on the template.
+_PROVIDER_LINE = _re.compile(
+    r'^[\s\-•·*●]*'
+    r'[A-Z][A-Za-z\-\' ]+?'                                  # LAST
+    r',\s*[A-Z][A-Za-z\-\' ]+?'                              # FIRST
+    r'(?:\s+[A-Z][\.A-Za-z\-\']*)?'                          # optional MIDDLE
+    r',\s*(?:MD|CRNA|DO|SRNA|NP|PA|RN|MDA|PhD|DNP|AA)'
+    r'\s*$'
+)
+
+
+def extract_provider_list_from_text(text):
+    """Harvest provider names from a free-form text block (typically a template
+    field's description / location / output_format). Returns a deduplicated
+    list of canonical name strings (no MedNet code suffix). Empty list if none.
+
+    The algorithm looks for the longest contiguous run of lines that STRICTLY
+    match a provider-name pattern, allowing small (<=2-line) gaps for section
+    headers like 'MD:' / 'CRNA:' inside the roster.
+    """
+    if not text or not text.strip():
+        return []
+    lines = text.replace('\r', '').split('\n')
+    matches = [(i, ln.strip()) for i, ln in enumerate(lines) if _PROVIDER_LINE.match(ln)]
+    if not matches:
+        return []
+    runs = []
+    cur = [matches[0]]
+    for prev, nxt in zip(matches, matches[1:]):
+        if nxt[0] - prev[0] <= 3:
+            cur.append(nxt)
+        else:
+            runs.append(cur)
+            cur = [nxt]
+    runs.append(cur)
+    best = max(runs, key=len)
+    seen = set()
+    out = []
+    for _, ln in best:
+        name = _re.sub(r'^[\s\-•·*●]+', '', ln).strip()
+        key = name.upper()
+        if key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
+
+
+def derive_provider_mapping_for_template(template_provider_mapping, template_fields):
+    """Return the effective provider-mapping text to inject into peripheral_blocks
+    prompts for a given template, plus a flag indicating whether MedNet codes
+    are present.
+
+    Priority:
+      1. Use template_provider_mapping (from the DB column) if non-empty —
+         these strings typically include "(MedNet Code: NN)".
+      2. Otherwise, harvest names from the Responsible Provider field via
+         extract_provider_list_from_text. The harvested list has NO MedNet
+         codes; the footer text will be auto-softened to drop red-number
+         language.
+
+    Returns: (mapping_text, has_mednet) — (None, False) if nothing usable.
+    """
+    if template_provider_mapping and template_provider_mapping.strip():
+        return template_provider_mapping.strip(), True
+    if template_fields:
+        rp = next((f for f in template_fields if f.get('name') == 'Responsible Provider'), None)
+        if rp:
+            # Prefer the longest of the three text parts to avoid duplicate work.
+            parts = [rp.get('description') or '', rp.get('location') or '', rp.get('output_format') or '']
+            text = max(parts, key=len)
+            names = extract_provider_list_from_text(text)
+            if names:
+                return '\n'.join(names), False
+    return None, False
+
+
+def build_provider_mapping_footer(provider_mapping_text, has_mednet=True):
+    """Build the standardized 'PROVIDER MAPPING FOR THIS GROUP' footer that gets
+    dynamically appended to the peripheral_blocks prompt at extraction time.
+
+    Returns an empty string if provider_mapping_text is empty/None — caller can
+    unconditionally append the result.
+
+    If has_mednet is False, the red-number / MedNet-code language is dropped
+    (because the canonical roster came from a field that doesn't include
+    MedNet codes).
+    """
+    if not provider_mapping_text or not provider_mapping_text.strip():
+        return ''
+    if has_mednet:
+        intro = "The standardized list of providers (with their MedNet codes) is:"
+        match_options = (
+            "On the PDF where the block is listed there will be either:\n"
+            "- a provider for the block clearly written, OR\n"
+            "- a red number pasted on the PDF — this red number is the MedNet code of the provider that did the block, OR\n"
+            "- if there is neither of the two above, the provider for the block is the same as for the main procedure (which itself will be either clearly written or indicated by a red number elsewhere in the PDF where the main procedure is listed).\n\n"
+            "Whichever of these options is true, output the provider EXACTLY as written in the standardized list above — WITHOUT the \"(MedNet Code: NN)\" suffix. The MedNet code is for mapping only and is NEVER part of the output.\n\n"
+            "Example — if the list contains:\n"
+            "    SUM, DAVID, MD (MedNet Code: 71)\n\n"
+            "then output in the block line:\n"
+            "    SUM, DAVID, MD\n"
+        )
+    else:
+        intro = "The standardized list of providers is:"
+        match_options = (
+            "On the PDF where the block is listed there will be either:\n"
+            "- a provider for the block clearly written, OR\n"
+            "- if no provider is written for the block, the provider for the block is the same as for the main procedure.\n\n"
+            "Output the provider name EXACTLY as written in the standardized list above. If the name on the PDF is misspelled, abbreviated, or formatted differently, map it to the closest match from the list. Never output a provider that is not in the list.\n"
+        )
+    return (
+        "\n\n---\n\n## PROVIDER MAPPING FOR THIS GROUP\n\n"
+        f"{intro}\n\n"
+        f"{provider_mapping_text.strip()}\n\n"
+        f"{match_options}"
+    )
+
+
+def generate_priority_field_prompt(field_definition, provider_mapping=None, provider_mapping_has_mednet=True):
     """Generate a focused extraction prompt for a single priority field.
     
     Args:
@@ -228,10 +356,13 @@ Example response format:
 {{"field_name": "extracted_value"}}
 """
     
-    return prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name'])
+    result = prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name'])
+    if provider_mapping and field_definition.get('name') == 'peripheral_blocks':
+        result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+    return result
 
 
-def generate_priority_fields_group_prompt(field_definitions):
+def generate_priority_fields_group_prompt(field_definitions, provider_mapping=None, provider_mapping_has_mednet=True):
     """Generate a focused extraction prompt for a group of related priority fields,
     extracted in a single API call.
 
@@ -242,7 +373,11 @@ def generate_priority_fields_group_prompt(field_definitions):
         String containing the extraction prompt covering all fields in the group.
     """
     if len(field_definitions) == 1:
-        return generate_priority_field_prompt(field_definitions[0])
+        return generate_priority_field_prompt(
+            field_definitions[0],
+            provider_mapping=provider_mapping,
+            provider_mapping_has_mednet=provider_mapping_has_mednet,
+        )
 
     prompt_header = """You are an expert in extracting structured data from medical documents.
 
@@ -280,4 +415,7 @@ Example response format:
 {{{keys_json}}}
 """
 
-    return prompt_header + '\n'.join(field_blocks) + prompt_footer
+    result = prompt_header + '\n'.join(field_blocks) + prompt_footer
+    if provider_mapping and any(f.get('name') == 'peripheral_blocks' for f in field_definitions):
+        result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+    return result

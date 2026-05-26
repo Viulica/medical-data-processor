@@ -564,7 +564,7 @@ def process_single_patient_pdf_task(args):
     import time
     task_start = time.time()
 
-    client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model = args
+    client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, pb_provider_mapping, pb_has_mednet = args
 
     pdf_filename = os.path.basename(pdf_file_path)
     is_problem_pdf = pdf_filename in ['Record_04.pdf', 'Record_07.pdf']
@@ -629,7 +629,11 @@ def process_single_patient_pdf_task(args):
         for group in priority_groups:
             group_names = [f['name'] for f in group]
             log_label = " + ".join(group_names)
-            priority_prompt = generate_priority_fields_group_prompt(group)
+            priority_prompt = generate_priority_fields_group_prompt(
+                group,
+                provider_mapping=pb_provider_mapping,
+                provider_mapping_has_mednet=pb_has_mednet,
+            )
 
             priority_result = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model,
@@ -668,7 +672,11 @@ def process_single_patient_pdf_task(args):
 
         for lp_field in low_priority_fields:
             field_name = lp_field['name']
-            lp_prompt = generate_priority_field_prompt(lp_field)
+            lp_prompt = generate_priority_field_prompt(
+                lp_field,
+                provider_mapping=pb_provider_mapping,
+                provider_mapping_has_mednet=pb_has_mednet,
+            )
 
             lp_result = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, lp_prompt, low_priority_model,
@@ -706,7 +714,11 @@ def process_single_patient_pdf_task(args):
 
         for vhp_field in very_high_priority_fields:
             field_name = vhp_field['name']
-            vhp_prompt = generate_priority_field_prompt(vhp_field)
+            vhp_prompt = generate_priority_field_prompt(
+                vhp_field,
+                provider_mapping=pb_provider_mapping,
+                provider_mapping_has_mednet=pb_has_mednet,
+            )
 
             vhp_result = extract_info_from_patient_pdf(
                 client, temp_patient_pdf, pdf_filename, vhp_prompt, very_high_priority_model,
@@ -830,8 +842,32 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     if normal_fields:
         print(f"📊 Normal fields (single API call): {len(normal_fields)} fields")
     
-    # Generate extraction prompt from Excel file (only for normal fields)
-    extraction_prompt = generate_extraction_prompt(excel_file_path)
+    # Resolve the effective provider-mapping text for this template ONCE.
+    # Independent of extract_providers_from_annotations: we want the canonical
+    # provider list injected into the peripheral_blocks prompt whenever it is
+    # available. The toggle controls a separate code path (red-number annotation
+    # parsing in extract_annotations_data); the prompt-injection is always
+    # useful for letting the AI map raw PDF text → canonical names.
+    #
+    # Priority order: 1) provider_mapping column (typically with MedNet codes
+    # for scanned/handwritten PDFs); 2) Responsible Provider field text (for
+    # electronic EMR PDFs where no MedNet codes exist).
+    from field_definitions import derive_provider_mapping_for_template, get_field_definitions
+    all_template_fields = get_field_definitions(excel_file_path)
+    _pb_provider_mapping, _pb_has_mednet = derive_provider_mapping_for_template(
+        provider_mapping, all_template_fields
+    )
+    if _pb_provider_mapping:
+        src = 'provider_mapping column (with MedNet codes)' if _pb_has_mednet else 'Responsible Provider field (regex, no MedNet codes)'
+        print(f"🧷 peripheral_blocks provider list resolved from: {src} ({len(_pb_provider_mapping)} chars)")
+    else:
+        print(f"ℹ️  No provider list found (no provider_mapping column and no Responsible Provider field text) — peripheral_blocks footer will be skipped")
+
+    extraction_prompt = generate_extraction_prompt(
+        excel_file_path,
+        provider_mapping=_pb_provider_mapping,
+        provider_mapping_has_mednet=_pb_has_mednet,
+    )
     fieldnames = get_fieldnames(excel_file_path)
     
     # Save the prompt to a text file for easy copying
@@ -956,7 +992,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, _pb_provider_mapping, _pb_has_mednet))
 
         import time
         start_time = time.time()
