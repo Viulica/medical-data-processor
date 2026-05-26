@@ -56,6 +56,7 @@ except Exception as e:
 PRIORITY_FIELD_GROUPS = [
     ("An Start", "An Stop"),
     ("AnStart", "AnStop"),
+    ("Responsible Provider", "MD", "CRNA"),
 ]
 
 

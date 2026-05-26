@@ -10974,13 +10974,31 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH"}
+
+        # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
+        # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
+        # This is a "family" rule, mirroring the RIV-* convention but driven by prefix.
+        X_GROUP_HP_CODES = {"00811", "00812", "00813", "00731"}
+
+        def _is_x_group(g):
+            """An 'X-group' is any worktracker_group whose name starts with X
+            (e.g. XSA-RSC, XQA-...) OR with MOLINE (the MOLINE-* groups are
+            X-provider subgroups, e.g. MOLINE-XKI-KUKHAR, MOLINE-XSA-SAHA-NEW).
+            Match is case-insensitive."""
+            if not g: return False
+            u = g.upper()
+            return u.startswith("X") or u.startswith("MOLINE")
 
         def _is_auto_posting(g):
-            """Membership check that supports the 'RIV' family prefix (RIV-KEYS, RIV-SHELLAH, etc.)."""
+            """Membership check that supports family-prefix rules:
+            - 'RIV-*' inherits from RIV
+            - 'X*' (any group starting with X) is an X-group with a fixed HP list
+            """
             if not g: return False
             if g in AUTO_POSTING_GROUPS: return True
             if g.upper().startswith("RIV-") and "RIV" in AUTO_POSTING_GROUPS: return True
+            if _is_x_group(g): return True
             return False
 
         # Groups that use an EXCLUSION list (flag CPT for review if it's in the set
@@ -11067,7 +11085,13 @@ def process_unified_background(
                     ]
                 else:
                     # Default inclusion mode: flag CPT unless it's in the group's HP set.
-                    hp_set = get_hp_cpt_codes_for_group(worktracker_group)
+                    # X-groups use a fixed HP set (GI anesthesia codes) rather than
+                    # the per-group DB lookup, because they share the same scope of
+                    # work and we don't want to maintain per-X-group HP lists.
+                    if _is_x_group(worktracker_group):
+                        hp_set = X_GROUP_HP_CODES
+                    else:
+                        hp_set = get_hp_cpt_codes_for_group(worktracker_group)
                     if hp_set and cpt_col:
                         rule_tags = [
                             "" if _norm_cell(c) in hp_set else "CPT"
@@ -11115,19 +11139,31 @@ def process_unified_background(
                                 dx_tags[i] = "DX"
                                 break
 
-                # CoderVerify: rule-based "CPT" + combo "Icd1"/"DX" prepended, then extracted appended.
+                # peripheral_blocks rule: if the extraction template populated
+                # peripheral_blocks with anything other than empty / 'NONE DONE',
+                # flag "BLOCK" so the coder reviews the block lines before posting.
+                # Applies to all auto-posting groups uniformly.
+                block_tags = [""] * len(base_df)
+                if "peripheral_blocks" in base_df.columns:
+                    for i, v in enumerate(base_df["peripheral_blocks"].tolist()):
+                        nv = _norm_cell(v)
+                        if nv and nv.strip().upper() != "NONE DONE":
+                            block_tags[i] = "BLOCK"
+
+                # CoderVerify: rule-based "CPT" + combo "Icd1"/"DX"/"BLOCK" prepended, then extracted appended.
                 extracted_coder_vals = (
                     existing_coder.tolist() if existing_coder is not None else [""] * len(base_df)
                 )
                 base_df["CoderVerify"] = [
                     _merge_verify(
-                        ", ".join(t for t in (rule_tags[i], icd1_tags[i], dx_tags[i]) if t),
+                        ", ".join(t for t in (rule_tags[i], icd1_tags[i], dx_tags[i], block_tags[i]) if t),
                         extracted_coder_vals[i],
                     )
                     for i in range(len(base_df))
                 ]
 
                 flagged_cpt = sum(1 for t in rule_tags if t == "CPT")
+                flagged_block = sum(1 for t in block_tags if t == "BLOCK")
                 had_extracted_coder = (
                     int((existing_coder.map(lambda v: bool(_norm_cell(v)))).sum())
                     if existing_coder is not None else 0
@@ -11139,7 +11175,7 @@ def process_unified_background(
                 print(
                     f"[Unified {job_id}] Verify columns: "
                     f"group={worktracker_group!r}, hp_list_size={len(hp_set)}, "
-                    f"rule-flagged CPT={flagged_cpt}/{len(base_df)}, "
+                    f"rule-flagged CPT={flagged_cpt}/{len(base_df)}, BLOCK={flagged_block}/{len(base_df)}, "
                     f"preserved extracted CoderVerify={had_extracted_coder}, StaffVerify={had_extracted_staff}",
                     flush=True,
                 )
