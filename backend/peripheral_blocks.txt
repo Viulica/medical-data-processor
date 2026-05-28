@@ -184,3 +184,21 @@ Use same provider mapping strings as given; do not deviate.
 If no blocks or lines were done, say: NONE DONE.
 
 Example output format: |36620;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|36556;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;|64447;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;RT|
+
+⚠️ POST-OP PAIN REQUIREMENT (BLOCKS ONLY — does NOT apply to vascular lines, TEE, or ultrasound guidance):
+
+Peripheral nerve blocks, spinal blocks, and epidural blocks are ONLY billable as second-line charges when they are performed SPECIFICALLY for POST-OPERATIVE PAIN management — separate from the primary anesthetic.
+
+DO NOT bill a block (or include it in this field) if:
+
+1. The block IS the primary anesthetic for the case. For example, if "Spinal" is documented as "Primary anesthetic" / "Indication: Primary anesthetic" / "Requested by surgeon for primary anesthesia", it is the anesthesia for the case itself — NOT a post-op pain block. Do not add it as a peripheral_block line.
+
+2. There is no documentation that the block was for post-operative pain. Look for explicit indicators like: "for post-op pain", "post-operative pain control", "post-op analgesia", "requested by surgeon for post-op pain", or a clearly separate block performed before/after the case for analgesic purposes.
+
+3. The indication is "intraoperative anesthesia" or the block is listed under the primary anesthesia type (e.g., "Anesthesia Type: Spinal" with no separate post-op block documented).
+
+EXAMPLE OF A NON-BILLABLE SPINAL (DO NOT INCLUDE):
+  Spinal performed at 0835 with Indication: "Primary anesthetic" → this is the primary anesthetic for the case, not a post-op pain block. Do NOT add a peripheral_block line for it.
+
+EXAMPLE OF A BILLABLE SPINAL (INCLUDE):
+  Spinal performed at the END of the case with Indication: "Post-operative pain" or "Requested by surgeon for post-op pain control" → this IS a post-op pain block. Add it as a peripheral_block line.

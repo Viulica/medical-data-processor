@@ -32,7 +32,7 @@ Special Cases:
 
 Peripheral Blocks Row Generation:
 - Mode selection via peripheral_blocks_mode parameter:
-  * "UNI": Generate blocks ONLY when "Anesthesia Type" = "General" (case insensitive)
+  * "UNI": Generate blocks ONLY when "Anesthesia Type" = "General" or "Neuraxial Block" (case insensitive)
   * "other": Generate blocks when "Anesthesia Type" is NOT "MAC" (case insensitive)
 - If peripheral_blocks field contains "NONE DONE", NO blocks will be generated (regardless of mode)
 - When conditions are met and "peripheral_blocks" field is non-empty, creates duplicate rows for each block
@@ -572,7 +572,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
         turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation
-            - "UNI": Generate blocks ONLY when Anesthesia Type is "General"
+            - "UNI": Generate blocks ONLY when Anesthesia Type is "General" or "Neuraxial Block"
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
@@ -629,7 +629,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         print("=" * 80)
         if peripheral_blocks_mode == "UNI":
             print("📋 PERIPHERAL BLOCKS MODE: UNI")
-            print("Peripheral blocks will be generated ONLY when Anesthesia Type = 'General'")
+            print("Peripheral blocks will be generated ONLY when Anesthesia Type = 'General' or 'Neuraxial Block'")
         else:
             print("📋 PERIPHERAL BLOCKS MODE: Other Groups")
             print("Peripheral blocks will be generated when Anesthesia Type is NOT 'MAC'")
@@ -722,7 +722,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         elif has_peripheral_blocks:
             if has_anesthesia_type:
                 if peripheral_blocks_mode == "UNI":
-                    print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated ONLY when Anesthesia Type = 'General' (UNI mode)")
+                    print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated ONLY when Anesthesia Type = 'General' or 'Neuraxial Block' (UNI mode)")
                 else:
                     print(f"✅ Found 'peripheral_blocks' column. Peripheral block rows will be generated for all Anesthesia Types EXCEPT 'MAC' (Other Groups mode)")
             else:
@@ -1267,7 +1267,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             
             # Check if we need to create peripheral block rows
             # Conditions depend on peripheral_blocks_mode:
-            # - "UNI": Generate ONLY when Anesthesia Type = "General"
+            # - "UNI": Generate ONLY when Anesthesia Type = "General" or "Neuraxial Block"
             # - "other": Generate when Anesthesia Type is NOT "MAC"
             if has_peripheral_blocks:
                 peripheral_blocks_value = row.get('peripheral_blocks', '')
@@ -1280,8 +1280,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # Determine if blocks should be generated based on mode
                 should_generate_blocks = False
                 if peripheral_blocks_mode == "UNI":
-                    # UNI mode: Generate ONLY when Anesthesia Type is "General"
-                    should_generate_blocks = (anesthesia_type_val == 'GENERAL')
+                    # UNI mode: Generate ONLY when Anesthesia Type is "General" or "Neuraxial Block"
+                    should_generate_blocks = (anesthesia_type_val in ('GENERAL', 'NEURAXIAL BLOCK'))
                 else:
                     # Other mode: Generate when Anesthesia Type is NOT "MAC"
                     should_generate_blocks = (anesthesia_type_val != 'MAC')

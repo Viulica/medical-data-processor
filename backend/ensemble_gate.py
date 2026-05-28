@@ -46,11 +46,6 @@ GROUP_CONFIGS: Dict[str, Dict] = {
         "model_path": "riv_rf_model.pkl",
         "hp_path":    "riv_rf_hp.json",
     },
-    "DUN": {
-        "matcher":    lambda g: "DUN" in g.upper(),
-        "model_path": "dun_rf_model.pkl",
-        "hp_path":    "dun_rf_hp.json",
-    },
 }
 
 # === FEATURE FLAGS =======================================================
@@ -63,7 +58,6 @@ WRITE_VERIFY_COLUMNS: bool = False
 # enable the gate for one group but not yet another.
 PER_GROUP_WRITE_VERIFY: Dict[str, bool] = {
     # "RIV": True,  # uncomment to enable RIV CoderVerify writes
-    # "DUN": True,  # uncomment to enable DUN CoderVerify writes
 }
 
 _cache: Dict[str, Dict] = {}
