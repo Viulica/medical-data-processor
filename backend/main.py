@@ -10974,7 +10974,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP"}
 
         # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
         # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
