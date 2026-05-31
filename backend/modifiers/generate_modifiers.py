@@ -1338,12 +1338,23 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             block_row['Procedure Code'] = block['cpt_code']
                             
                             # Set provider information from the block
+                            # Defaults: if extraction returned blank providers on the block,
+                            # inherit from the primary anesthesia row. Verified invariant
+                            # across May 2026: every multi-line account in billing has
+                            # identical providers on primary and additional lines.
+                            block_md = str(block.get('md') or '').strip()
+                            block_crna = str(block.get('crna') or '').strip()
+                            if not block_md and not block_crna:
+                                # Both empty -> copy MD and CRNA from primary row
+                                block_md = str(row.get('MD', '') or '').strip()
+                                block_crna = str(row.get('CRNA', '') or '').strip()
+
                             if has_md_column:
-                                block_row['MD'] = block['md']
+                                block_row['MD'] = block_md
                             if has_resident_column:
                                 block_row['Resident'] = block['resident']
                             if has_crna_column:
-                                block_row['CRNA'] = block['crna']
+                                block_row['CRNA'] = block_crna
                             
                             # Handle ICD codes based on CPT code
                             
@@ -1422,9 +1433,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             if 'Anesthesia Type' in block_row:
                                 block_row['Anesthesia Type'] = ''
                             
-                            # Set Responsible Provider to MD value from block
+                            # Set Responsible Provider:
+                            #   - MD if present
+                            #   - else CRNA (CRNA-only block placement)
+                            # block_md / block_crna already include the primary-row
+                            # fallback applied above when both were blank.
                             if 'Responsible Provider' in block_row:
-                                block_row['Responsible Provider'] = block['md']
+                                block_row['Responsible Provider'] = block_md or block_crna
                             
                             # Clear all modifier columns and set M1 and M2 from the block
                             block_row['M1'] = block['m1']
