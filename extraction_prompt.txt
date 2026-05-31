@@ -5,43 +5,47 @@ BE VERY CAREFUL to not confuse zero and the letter O. If the sign is completely 
 Extraction Instructions per Patient Record:
 
 === Charge Date ===
-Description: Surgery Date or DOS
+Description: Date of Service:
+Where to find: under Case Summary ( Date)
 Output format: MM/DD/YYYY
 Extract: Charge Date
 
 
 === Patient Last Name ===
 Description: Patient Last Name
+Where to find: Billing and Compliance Report
 Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Oney
 Extract: Patient Last Name
 
 
 === Patient First Name ===
 Description: Patient First Name
+Where to find: Billing and Compliance Report
 Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Kim
 Extract: Patient First Name
 
 
 === Patient Middle Name ===
 Description: Patient Middle Name
+Where to find: Billing and Compliance Report
 Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Y and middle name should be in single digit
 Extract: Patient Middle Name
 
 
 === Patient DOB ===
-Description: Date of Birth:
-Where to find: under Patient Information:
+Description: DOB:
+Where to find: under Patient
 Output format: MM/DD/YYYY
 Extract: Patient DOB
 
 
 === Patient Marital Status ===
-Output format: leave empty string for now!!!
+Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if its not listed on the pdf then put the unknown option obviously but whenever you write something
 Extract: Patient Marital Status
 
 
 === Patient Sex ===
-Where to find: under Patient Information:
+Where to find: under Patient
 Output format: either M/F . MUST be one letter just one letter
 Extract: Patient Sex
 
@@ -53,52 +57,46 @@ Extract: Patient EmploymentStatus
 
 
 === Patient Street Address ===
-Description: Address:
-Where to find: under Patient Information:
 Output format: all caps just street address
 Extract: Patient Street Address
 
 
 === Patient City ===
-Where to find: under Patient Information:
 Output format: all caps just city
 Extract: Patient City
 
 
 === Patient State ===
 Description: the us state of the patient, two letters code
-Where to find: under Patient Information:
 Output format: all caps
 Extract: Patient State
 
 
 === Patient ZIP Code ===
 Description: patient zip code
-Where to find: under Patient Information:
-Output format: all caps
 Extract: Patient ZIP Code
 
 
 === Patient HomePhone ===
 Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
-Where to find: Main Phone:
+Where to find: If there is no Patient Phone number Extract Guarantor Home Phone number if both are not in the record keel this as blank cell
 Extract: Patient HomePhone
 
 
 === Patient WorkPhone ===
-Where to find: Work Phone:
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Where to find: If there is no Patient Phone number Extract Guarantor Work Phone number if both are not in the record keel this as blank cell
 Extract: Patient WorkPhone
 
 
 === Patient CellPhone ===
 Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
-Where to find: Cell Phone:
+Where to find: If there is no Patient Phone number Extract Guarantor Cell Phone number if both are not in the record keel this as blank cell
 Extract: Patient CellPhone
 
 
 === Patient E-mail Address ===
 Description: email address of the patient, just find it on the page and extract it ignore the N/A, Nill, Unknown, if it is in Record
-Where to find: Email
 Extract: Patient E-mail Address
 
 
@@ -109,13 +107,26 @@ Extract: Patient Employer
 
 
 === Patient MRN ===
-Description: this is the medical record number IF it was start with MR00877823 then remove the alphabatic and extract only numeric numbers so the Output should be 00877823
-Output format: When extracting the Medical Record Number (MRN), capture only the numeric value that appears after the leading zero(s). For example if MRD IS M000477542 Capture only 477542.
+Description: this is the medical record number (MRN)
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+
+How this can be applied:
+
+If you want integers:
+AI should parse numbers as int or decimal, avoiding scientific notation.
+Example:
+1.01379E+11 → 101379000000
+
+If you want strings:
+AI should save them exactly as they appear.
+Example:
+1.01379E+11 → "101379000000"
 Extract: Patient MRN
 
 
 === Case # ===
 Description: always leave empty string!
+Output format: always leave empty string!
 Extract: Case #
 
 
@@ -126,7 +137,7 @@ Extract: Patient Race
 
 === Patient SSN ===
 Description: this is the SSN
-Output format: always blank
+Output format: always leave empty string!
 Extract: Patient SSN
 
 
@@ -137,7 +148,7 @@ Extract: Guarantor Relation
 
 
 === Guarantor First Name ===
-Description: Guarantor first name
+Description: guarantor first name
 Extract: Guarantor First Name
 
 
@@ -153,425 +164,308 @@ Extract: Guarantor Middle Name
 
 === Guarantor DOB ===
 Description: guarantor date of birth in MM/DD/YYYY format
-Output format: find the Guarantor DOB if not then Guarantor and Patient are same extract the Patient DOB if not leave it empty
+Where to find: There is no Guarantor DOB in the record (if Guarantor is self and name match with Patient then extract the Patient DOB)
 Extract: Guarantor DOB
 
 
 === Guarantor Address ===
 Description: street address of the guarantor
-Output format: find the Guarantor Address if not then Guarantor and Patient are same extract the Patient Address if not leave it empty
+Where to find: There is no Guarantor Address in the record (if Guarantor is self and name match with Patient then extract the Patient Address)
+Output format: all caps steet address
 Extract: Guarantor Address
 
 
 === Guarantor City ===
 Description: city of guarantor
-Output format: find the Guarantor City if not then Guarantor and Patient are same extract the Patient City if not leave it empty
+Where to find: There is no Guarantor City in the record (if Guarantor is self and name match with Patient then extract the Patient City)
+Output format: all caps city
 Extract: Guarantor City
 
 
 === Guarantor State ===
 Description: State of the guarantor, full name all caps
-Output format: find the Guarantor State if not then Guarantor and Patient are same extract the Patient State if not leave it empty
+Where to find: There is no Guarantor State in the record (if Guarantor is self and name match with Patient then extract the Patient State)
 Extract: Guarantor State
 
 
 === Guarantor ZIP ===
 Description: zip of the guarantor
-Output format: find the Guarantor ZIP if not then Guarantor and Patient are same extract the Patient ZIP if not leave it empty
+Where to find: There is no Guarantor zip in the record (if Guarantor is self and name match with Patient then extract the Patient zip)
 Extract: Guarantor ZIP
 
 
-=== Procedure Description ===
-Description: Procedures
-Extract: Procedure Description
-
-
 === Location ===
-Description: AI Instruction – Location Extraction Rule
-
-Objective:
-Identify the correct Location by scanning the facesheet (first page) and the entire medical record.
-
-Rule Logic:
-
-If the text “Family Birthing Suites” appears anywhere on:
-
-the first page of the facesheet, or
-
-any section of the medical record
-→ Output MORRIS LABOUR HOSPITAL
-
-If “Family Birthing Suites” does not appear anywhere in the facesheet or medical record
-→ Output MORRIS HOSPITAL
-
-Instruction for AI:
-
-Review the first page of the facesheet and scan the full medical record text.
-If the phrase “Family Birthing Suites” is found at least once, classify the location as MORRIS LABOUR HOSPITAL.
-If the phrase is not found anywhere in the record, classify the location as MORRIS HOSPITAL.
-Return only the final location name as the output.
-Output format: AI Instruction – Location Extraction Rule
-
-Objective:
-Identify the correct Location by scanning the facesheet (first page) and the entire medical record.
-
-Rule Logic:
-
-If the text “Family Birthing Suites” appears anywhere on:
-
-the first page of the facesheet, or
-
-any section of the medical record
-→ Output MORRIS LABOUR HOSPITAL
-
-If “Family Birthing Suites” does not appear anywhere in the facesheet or medical record
-→ Output MORRIS HOSPITAL
-
-Instruction for AI:
-
-Review the first page of the facesheet and scan the full medical record text.
-If the phrase “Family Birthing Suites” is found at least once, classify the location as MORRIS LABOUR HOSPITAL.
-If the phrase is not found anywhere in the record, classify the location as MORRIS HOSPITAL.
-Return only the final location name as the output.
+Description: Find the specific word in if “DBF MATERNITY” is found, then consider it as “FINLEY HOSPITAL DBF MATERNITY.” If “SCS MATERNITY” is not found, then it should be “FINLEY HOSPITAL.”
+Output format: Output enum is these values: FINLEY HOSPITAL DBF MATERNITY, FINLEY HOSPITAL
 Extract: Location
 
 
 === PatientClass ===
-Description: AI Instruction – PatientClass Extraction Rule
+Where to find: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
 
-Objective:
-Determine the correct PatientClass by scanning the first page of the facesheet and the entire medical record.
+Task:
+Scan the entire record and look for specific keywords to determine the Class.
 
-Rule Logic:
-If the the Procedure is Labor or C-section then the Output should be INPATIENT HOSPITAL
+Keyword-Based Logic
+If the record contains the keyword “INPATIENT”
 
-If the phrase “Outpatient in a Bed” appears anywhere on:
+➡️ Output: INPATIENT HOSPITAL
 
-the first page of the facesheet, or
+If the record contains the keyword “OUTPATIENT”
 
-any section of the medical record
-→ Output INPATIENT HOSPITAL
+➡️ Output: OUTPATIENT HOSPITAL
 
-If Admit Date ≠ Discharge Date
-→ Inpatient Hospital
+Default Rule (Any Other Keyword)
 
-If Admit Date < DOS (stay continues across days)
-→ Inpatient Hospital
+If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
 
-If the phrase “Outpatient in a Bed” does not appear anywhere in the facesheet or medical record
-→ Output OUTPATIENT HOSPITAL
+➡️ Output: OUTPATIENT HOSPITAL
 
-If Admit Date = Discharge Date
-→ Outpatient Hospital
+Matching Requirements
 
-If Admit Date = DOS
-→ Outpatient Hospital
+The AI must:
 
-If Discharge Date = DOS
-→ Outpatient Hospital
-Output format: AI Instruction – PatientClass Extraction Rule
+Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
 
-Objective:
-Determine the correct PatientClass by scanning the first page of the facesheet and the entire medical record.
+Match in uppercase, lowercase, or mixed.
 
-Rule Logic:
-If the the Procedure is Labor or C-section then the Output should be INPATIENT HOSPITAL
+Look for the keyword anywhere in the record, not only in specific fields.
 
-If the phrase “Outpatient in a Bed” appears anywhere on:
+Summary Rule
+Keyword Found	Output
+INPATIENT	INPATIENT HOSPITAL
+OUTPATIENT	OUTPATIENT HOSPITAL
+Anything else	OUTPATIENT HOSPITAL
+Output format: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
 
-the first page of the facesheet, or
+Task:
+Scan the entire record and look for specific keywords to determine the Class.
 
-any section of the medical record
-→ Output INPATIENT HOSPITAL
+Keyword-Based Logic
+If the record contains the keyword “INPATIENT”
 
-If Admit Date ≠ Discharge Date
-→ Inpatient Hospital
+➡️ Output: INPATIENT HOSPITAL
 
-If Admit Date < DOS (stay continues across days)
-→ Inpatient Hospital
+If the record contains the keyword “OUTPATIENT”
 
-If the phrase “Outpatient in a Bed” does not appear anywhere in the facesheet or medical record
-→ Output OUTPATIENT HOSPITAL
+➡️ Output: OUTPATIENT HOSPITAL
 
-If Admit Date = Discharge Date
-→ Outpatient Hospital
+Default Rule (Any Other Keyword)
 
-If Admit Date = DOS
-→ Outpatient Hospital
+If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
 
-If Discharge Date = DOS
-→ Outpatient Hospital
+➡️ Output: OUTPATIENT HOSPITAL
+
+Matching Requirements
+
+The AI must:
+
+Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
+
+Match in uppercase, lowercase, or mixed.
+
+Look for the keyword anywhere in the record, not only in specific fields.
+
+Summary Rule
+Keyword Found	Output
+INPATIENT	INPATIENT HOSPITAL
+OUTPATIENT	OUTPATIENT HOSPITAL
+Anything else	OUTPATIENT HOSPITAL
 Extract: PatientClass
 
 
 === SRNA ===
+Description: always leave empty string!
 Output format: always leave empty string!
 Extract: SRNA
 
 
 === Locum ===
+Description: always leave empty string!
 Output format: always leave empty string!
 Extract: Locum
 
 
 === Resident ===
+Description: always leave empty string!
 Output format: always leave empty string!
 Extract: Resident
 
 
 === Revenue ===
-Description: AI Instruction – Location Extraction Rule
-
-Objective:
-Identify the correct Location by scanning the facesheet (first page) and the entire medical record.
-
-Rule Logic:
-
-If the text “Family Birthing Suites” appears anywhere on:
-
-the first page of the facesheet, or
-
-any section of the medical record
-→ Output MORRIS LABOUR HOSPITAL
-
-If “Family Birthing Suites” does not appear anywhere in the facesheet or medical record
-→ Output MORRIS HOSPITAL
-
-Instruction for AI:
-
-Review the first page of the facesheet and scan the full medical record text.
-If the phrase “Family Birthing Suites” is found at least once, classify the location as MORRIS LABOUR HOSPITAL.
-If the phrase is not found anywhere in the record, classify the location as MORRIS HOSPITAL.
-Return only the final location name as the output.
-Output format: AI Instruction – Location Extraction Rule
-
-Objective:
-Identify the correct Location by scanning the facesheet (first page) and the entire medical record.
-
-Rule Logic:
-
-If the text “Family Birthing Suites” appears anywhere on:
-
-the first page of the facesheet, or
-
-any section of the medical record
-→ Output MORRIS LABOUR HOSPITAL
-
-If “Family Birthing Suites” does not appear anywhere in the facesheet or medical record
-→ Output MORRIS HOSPITAL
-
-Instruction for AI:
-
-Review the first page of the facesheet and scan the full medical record text.
-If the phrase “Family Birthing Suites” is found at least once, classify the location as MORRIS LABOUR HOSPITAL.
-If the phrase is not found anywhere in the record, classify the location as MORRIS HOSPITAL.
-Return only the final location name as the output.
+Description: If “DBF MATERNITY” is found, then it should be “OB.” If not, it should be “OR.”
 Extract: Revenue
 
 
 === Concurrent Providers ===
+Description: always leave empty string!
 Output format: always leave empty string!
 Extract: Concurrent Providers
 
 
 === Place Of Service ===
-Description: AI Instruction – Place of Service Extraction Rule
+Description: use always( Class ) in the record
+Where to find: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
 
-Objective:
-Determine the correct Place of Service by scanning the first page of the facesheet and the entire medical record.
+Task:
+Scan the entire record and look for specific keywords to determine the Class.
 
-Rule Logic (check in this order — FIRST matching rule wins):
+Keyword-Based Logic
+If the record contains the keyword “INPATIENT”
 
-STEP 1 — Check the facesheet "Type" field (top-right area of page 1):
-- If Type = "IN" → Output INPATIENT HOSPITAL
-- If Type = "SDC" (Same Day Care) → Output OUTPATIENT HOSPITAL
+➡️ Output: INPATIENT HOSPITAL
 
-STEP 2 — Check the facesheet "Status" field:
-- If Status = "ADM" (Admitted) → Output INPATIENT HOSPITAL
-- If Status = "PRE" (Pre-admit) AND Serv/Loc = "Same Day Surgery" → Output OUTPATIENT HOSPITAL
+If the record contains the keyword “OUTPATIENT”
 
-STEP 3 — Check procedure type:
-- If the Procedure is Labor or C-section → Output INPATIENT HOSPITAL
+➡️ Output: OUTPATIENT HOSPITAL
 
-STEP 4 — Check for "Outpatient in a Bed":
-- If the phrase "Outpatient in a Bed" appears anywhere on the facesheet or medical record → Output INPATIENT HOSPITAL
+Default Rule (Any Other Keyword)
 
-STEP 5 — Check Room-Bed assignment:
-- If a Room-Bed number is assigned (e.g., "216-01", "217-02") AND Type = "IN" → Output INPATIENT HOSPITAL
+If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
 
-STEP 6 — Date-based rules (fallback only):
-- If Admit Date is present AND Admit Date < DOS (patient was already admitted before surgery) → INPATIENT HOSPITAL
-- If Admit Date ≠ Discharge Date AND the stay spans multiple days → INPATIENT HOSPITAL
-- Otherwise → OUTPATIENT HOSPITAL
+➡️ Output: OUTPATIENT HOSPITAL
 
-IMPORTANT: Do NOT use "Admit Date = DOS" as evidence of outpatient status. Inpatients can be admitted on the same day as surgery. Always prefer the "Type" field (Step 1) over date-based rules.
-Output format: INPATIENT HOSPITAL or OUTPATIENT HOSPITAL
+Matching Requirements
+
+The AI must:
+
+Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
+
+Match in uppercase, lowercase, or mixed.
+
+Look for the keyword anywhere in the record, not only in specific fields.
+
+Summary Rule
+Keyword Found	Output
+INPATIENT	INPATIENT HOSPITAL
+OUTPATIENT	OUTPATIENT HOSPITAL
+Anything else	OUTPATIENT HOSPITAL
+Output format: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
+
+Task:
+Scan the entire record and look for specific keywords to determine the Class.
+
+Keyword-Based Logic
+If the record contains the keyword “INPATIENT”
+
+➡️ Output: INPATIENT HOSPITAL
+
+If the record contains the keyword “OUTPATIENT”
+
+➡️ Output: OUTPATIENT HOSPITAL
+
+Default Rule (Any Other Keyword)
+
+If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
+
+➡️ Output: OUTPATIENT HOSPITAL
+
+Matching Requirements
+
+The AI must:
+
+Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
+
+Match in uppercase, lowercase, or mixed.
+
+Look for the keyword anywhere in the record, not only in specific fields.
+
+Summary Rule
+Keyword Found	Output
+INPATIENT	INPATIENT HOSPITAL
+OUTPATIENT	OUTPATIENT HOSPITAL
+Anything else	OUTPATIENT HOSPITAL
 Extract: Place Of Service
 
 
 === Type Of Service ===
-Output format: "AI Instruction – Anesthesia Type Extraction (Scanned Anesthesia Record)
-Where to Check
-
-Review the anesthesia record where anesthesia type options are listed.
-
-Available options:
-
-GENERAL
-
-MAC
-
-REGIONAL
-
-TIVA
-
-Each option may be indicated by:
-
-Shading / filled box or circle
-
-Circled text
-
-Tick / check mark (✔)
-
-Any handwritten marking that clearly indicates selection
-
-Extraction Logic
-
-Direct Selection
-
-If GENERAL is shaded, circled, ticked, or clearly marked
-→ Output: GENERAL
-
-If MAC is shaded, circled, ticked, or clearly marked
-→ Output: MAC
-
-If REGIONAL is shaded, circled, ticked, or clearly marked
-→ Output: REGIONAL
-
-If TIVA is shaded, circled, ticked, or clearly marked
-→ Output: TIVA
-
-Multiple or Unclear Markings
-
-If more than one option is marked:
-
-Select the most clearly indicated anesthesia type.
-
-If all marked options appear equally indicated, think like a medical coder:
-
-Review the procedure, diagnosis, and anesthetic context.
-
-Select the most appropriate primary anesthesia type.
-
-No Marking Present
-
-If no anesthesia type is marked:
-
-think like a coder using procedure type, diagnosis, and typical anesthesia usage.
-
-Select the most appropriate anesthesia type.
-
-Output Rules
-
-Output only one value from the list below:
-
-GENERAL
-
-MAC
-
-REGIONAL
-
-TIVA
-
-Output must be in ALL CAPS.
-
-No extra words, symbols, or explanations."
+Description: always leave empty string!
+Output format: always leave empty string!
 Extract: Type Of Service
 
 
 === POST-OP DIAGNOSIS ===
-Where to find: """✅ POST-OP DIAGNOSIS or Diagnosis – EXTRACTION RULE (SCANNED ANESTHESIA RECORD)
-1️⃣ Where to Search
-
-The AI must extract the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY from:
-
-The ANESTHESIA RECORD
-
-Look specifically at the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-2️⃣ What to Extract
-
-Extract exactly the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-
-3️⃣ Identification Rule (How AI Decides the Correct POST-OP DIAGNOSIS or Diagnosis)
-
-The AI must:
-
-Look at the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-✅ AI Summary (Short Version)
-Find the Anesthesia Record → Locate POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-Identify which procedure
-Extract exact procedure → ALL CAPS → No special characters"
-Output format: """✅ POST-OP DIAGNOSIS or Diagnosis – EXTRACTION RULE (SCANNED ANESTHESIA RECORD)
-1️⃣ Where to Search
-
-The AI must extract the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY from:
-
-The ANESTHESIA RECORD
-
-Look specifically at the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-2️⃣ What to Extract
-
-Extract exactly the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-
-3️⃣ Identification Rule (How AI Decides the Correct POST-OP DIAGNOSIS or Diagnosis)
-
-The AI must:
-
-Look at the POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-
-✅ AI Summary (Short Version)
-Find the Anesthesia Record → Locate POST-OP DIAGNOSIS or Pre-OP Diagnosis or Diagnosis ONLY
-Identify which procedure
-Extract exact procedure → ALL CAPS → No special characters"
+Description: Pre-Op Diagnosis:
 Extract: POST-OP DIAGNOSIS
 
 
 === An Start ===
-Description: extract under ANESTH. TIME
+Description: Find the Anesthesia Start time from the Events section. Look for the row labeled "Anesthesia Start" and extract the Time value.
 
-take the start time from there
-Output format: Out put should be date of service and time example : 9/30/2025  0:00:00 AM
+CRITICAL — 24-hour to 12-hour time conversion rules:
+The PDF uses 24-hour military time (e.g., 1255, 1503, 0830). You MUST convert correctly:
+- 0000–0059 = 12:00 AM – 12:59 AM
+- 0100–0159 = 1:00 AM – 1:59 AM
+- 0200–1159 = 2:00 AM – 11:59 AM
+- 1200–1259 = 12:00 PM – 12:59 PM (noon, NOT AM)
+- 1300–2359 = 1:00 PM – 11:59 PM (subtract 12 from hour)
+Examples: 1255 = 12:55 PM, 1503 = 3:03 PM, 0830 = 8:30 AM, 0015 = 12:15 AM.
+NEVER output 1255 as 12:55 AM — that is midnight, which is wrong for a daytime procedure.
+Where to find: Look in the Events section for the row where Event = "Anesthesia Start". Extract the Time value from that row. Do NOT use Anesthesia Start - Professional from Case Tracking Events.
+Output format: Out put should be date of service and time example : 9/30/2025  9:22:00 AM
 Extract: An Start
 
 
 === An Stop ===
-Description: extract under ANESTH. TIME
+Description: Find the Anesthesia Stop time from the Events section. Look for the row labeled "Anesthesia Stop" and extract the Time value.
 
-take the end time from there
-Output format: Out put should be date of service and time example : 9/30/2025  0:00:00 AM
+CRITICAL — 24-hour to 12-hour time conversion rules:
+The PDF uses 24-hour military time (e.g., 1255, 1503, 0830). You MUST convert correctly:
+- 0000–0059 = 12:00 AM – 12:59 AM
+- 0100–0159 = 1:00 AM – 1:59 AM
+- 0200–1159 = 2:00 AM – 11:59 AM
+- 1200–1259 = 12:00 PM – 12:59 PM (noon, NOT AM)
+- 1300–2359 = 1:00 PM – 11:59 PM (subtract 12 from hour)
+Examples: 1255 = 12:55 PM, 1503 = 3:03 PM, 0830 = 8:30 AM, 0015 = 12:15 AM.
+NEVER output 1255 as 12:55 AM — that is midnight, which is wrong for a daytime procedure.
+Where to find: Look in the Events section for the row where Event = "Anesthesia Stop". Extract the Time value from that row. Do NOT use Anesthesia Finish - Professional from Case Tracking Events.
+Output format: Out put should be date of service and time example : 9/30/2025  9:53:00 AM
 Extract: An Stop
 
 
 === Physical Status ===
-Description: Read the PHYSICAL STATUS CODES section on the Integrity Anesthesia charge sheet. There are numbers 1, 2, 3, 4, 5 and "Emergency" printed. ONE number will be CIRCLED by hand. Extract that circled number.
-⚠️ Common misreads: 2 and 5 look similar in handwriting — check carefully. If the circle is around a small round number, it is likely 2. If it has a flat top and curves down, it is 5.
-Most patients are ASA 2 or 3. ASA 5 is extremely rare (moribund patient).
-Output format: Just the number: 1, 2, 3, 4, or 5
+Description: Physical Status – EXTRACTION INSTRUCTION
+Capture Rule
+
+The AI must strictly match the Physical Status from the medical record to the standardized reference list.
+
+If the Physical Status found in the document is:
+
+Misspelled
+
+Abbreviated
+
+Partially written
+
+Contains extra words
+
+Written in mixed case (upper/lower)
+
+→ The AI must auto-correct it to the correct standardized format.
+
+Allowed Reference List (Exact Output Format)
+
+The AI must output ONLY one of the following standardized types:
+
+1
+2
+3
+4
+5
+
+Output Rule
+
+✔ Always output the corrected, standardized name from the reference list.
+✖ Never output anything outside the list.
+✖ If multiple Physical Status → select the primary one mentioned in “Physical Status”.  if present, take the FINAL Physical Status.
 Extract: Physical Status
 
 
 === Admit Date ===
-Output format: always leave empty string!
 Extract: Admit Date
 
 
 === Discharge Date ===
-Output format: always leave empty string!
 Extract: Discharge Date
 
 
@@ -581,11 +475,13 @@ Extract: Primary Cvg Mem Rel to Sub
 
 
 === Primary Mednet Code ===
+Output format: always leave empty string!
 Extract: Primary Mednet Code
 
 
 === Primary Company Name ===
 Description: Name of primary insurance
+Where to find: IF THERE IS NO COVERAGE LEAVE AS BLANK
 Output format: all caps
 Extract: Primary Company Name
 
@@ -639,12 +535,14 @@ Extract: Primary Sub Name
 
 === Primary Sub DOB ===
 Description: date of birth of the primary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
 Output format: find the Primary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
 Extract: Primary Sub DOB
 
 
 === Primary Sub Gender ===
 Description: gender of the primary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
 Output format: find the Primary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
 Extract: Primary Sub Gender
 
@@ -670,15 +568,16 @@ Extract: Primary Sub Group Num
 
 
 === Primary Sub Auth Num ===
+Where to find: Precert #
 Extract: Primary Sub Auth Num
 
 
 === Secondary Cvg Mem Rel to Sub ===
-Description: relation of the secondary insurance holder to the patient (Self, Child, Spouse or Other) -those are the only 4 options
 Extract: Secondary Cvg Mem Rel to Sub
 
 
 === Secondary Mednet Code ===
+Output format: always leave empty string!
 Extract: Secondary Mednet Code
 
 
@@ -735,12 +634,14 @@ Extract: Secondary Sub Name
 
 === Secondary Sub DOB ===
 Description: date of birth of the secondary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
 Output format: find the Secondary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
 Extract: Secondary Sub DOB
 
 
 === Secondary Sub Gender ===
 Description: gender of the secondary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
 Output format: find the Secondary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
 Extract: Secondary Sub Gender
 
@@ -766,15 +667,16 @@ Extract: Secondary Sub Group Num
 
 
 === Secondary Auth Num ===
+Description: Precert #
 Extract: Secondary Auth Num
 
 
 === Tertiary Cvg Mem Rel to Sub ===
-Description: relation of the tertiary insurance holder to the patient (Self, Child, Spouse or Other) -those are the only 4 options
 Extract: Tertiary Cvg Mem Rel to Sub
 
 
 === Tertiary Mednet Code ===
+Output format: always leave empty string!
 Extract: Tertiary Mednet Code
 
 
@@ -831,12 +733,14 @@ Extract: Tertiary Sub Name
 
 === Tertiary Sub DOB ===
 Description: date of birth of the tertiary insurance subscriber in MM/DD/YYYY format
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT DOB )
 Output format: find the Tertiary Sub DOB if not then subscriber and Patient are same extract the Patient DOB if not leave it empty
 Extract: Tertiary Sub DOB
 
 
 === Tertiary Sub Gender ===
 Description: gender of the tertiary insurance subscriber (M/F)
+Where to find: IF THE PATIENT IS SELF ( REVIEW THE PATIENT NAME IF ITS SAME EXTRACT THE PATIENT GENDER )
 Output format: find the Tertiary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
 Extract: Tertiary Sub Gender
 
@@ -862,16 +766,12 @@ Extract: Tertiary Sub Group
 
 
 === Tertiary Sub Auth Num ===
+Description: Precert #
 Extract: Tertiary Sub Auth Num
 
 
 === EhrPath ===
 Extract: EhrPath
-
-
-=== Local ===
-Description: this is the Anesthesia Type:
-Extract: Local
 
 
 === is_colonoscopy ===

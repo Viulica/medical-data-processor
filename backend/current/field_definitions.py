@@ -145,12 +145,9 @@ Extraction Instructions per Patient Record:
         if field.get('output_format'):
             field_instruction += f"Output format: {field['output_format']}\n"
 
-        # TEMPORARILY DISABLED — pending coder review of the dynamic provider-list
-        # injection behavior. Re-enable by uncommenting the block below.
-        # Inject provider-mapping footer into the peripheral_blocks instruction block
-        # when extract_providers_from_annotations is enabled for this template.
-        # if provider_mapping and field.get('name') == 'peripheral_blocks':
-        #     field_instruction += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+        # Dynamic provider-mapping footer for peripheral_blocks.
+        if provider_mapping and field.get('name') == 'peripheral_blocks':
+            field_instruction += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
 
         field_instruction += f"Extract: {field['name']}\n"
         field_instructions.append(field_instruction)
@@ -359,9 +356,8 @@ Example response format:
 """
     
     result = prompt_header + prompt_footer.replace('{field_definition[\'name\']}', field_definition['name'])
-    # TEMPORARILY DISABLED — pending coder review of the dynamic provider-list injection.
-    # if provider_mapping and field_definition.get('name') == 'peripheral_blocks':
-    #     result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+    if provider_mapping and field_definition.get('name') == 'peripheral_blocks':
+        result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
     return result
 
 
@@ -419,7 +415,6 @@ Example response format:
 """
 
     result = prompt_header + '\n'.join(field_blocks) + prompt_footer
-    # TEMPORARILY DISABLED — pending coder review of the dynamic provider-list injection.
-    # if provider_mapping and any(f.get('name') == 'peripheral_blocks' for f in field_definitions):
-    #     result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
+    if provider_mapping and any(f.get('name') == 'peripheral_blocks' for f in field_definitions):
+        result += build_provider_mapping_footer(provider_mapping, has_mednet=provider_mapping_has_mednet)
     return result
