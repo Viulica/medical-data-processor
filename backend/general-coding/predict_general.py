@@ -789,6 +789,36 @@ Respond with ONLY the JSON object, nothing else."""
 
             response_data = response.json()
 
+            # OpenRouter sometimes returns HTTP 200 with {"error": {...}} body when the
+            # upstream provider rate-limits or fails. Route transient codes through the
+            # same flex->standard fallback path used for HTTP 503-on-flex above.
+            err_body = response_data.get("error") if isinstance(response_data, dict) else None
+            if err_body and "choices" not in response_data:
+                err_code = err_body.get("code") if isinstance(err_body, dict) else None
+                msg = (err_body.get("message") if isinstance(err_body, dict) else str(err_body)) or ""
+                transient = err_code in (429, 502, 503, 504) or any(
+                    x in str(msg).lower() for x in ("rate limit", "overloaded", "temporarily", "provider returned error")
+                )
+                if transient:
+                    if payload.get("service_tier") == "flex":
+                        if flex_503_retries < 2:
+                            flex_503_retries += 1
+                            wait_time = 2 ** flex_503_retries
+                            logger.warning(f"OpenRouter 200+error-body on flex tier (CPT, code={err_code}); flex retry {flex_503_retries}/2 in {wait_time}s")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            logger.warning(f"OpenRouter 200+error-body on flex tier (CPT) after 2 retries; falling back to standard tier")
+                            payload.pop("service_tier", None)
+                            payload.pop("provider", None)
+                            flex_disabled = True
+                            continue
+                    if attempt < max_retries - 1:
+                        wait_time = min(2 ** attempt, 8)
+                        logger.warning(f"OpenRouter 200+error-body (CPT, code={err_code}); retry {attempt+1}/{max_retries} in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+
             # Extract the predicted code and explanation from the response
             predicted_code = None
             explanation = ""
@@ -1502,6 +1532,36 @@ Respond with ONLY the JSON object, nothing else."""
             response.raise_for_status()
 
             response_data = response.json()
+
+            # OpenRouter sometimes returns HTTP 200 with {"error": {...}} body when the
+            # upstream provider rate-limits or fails. Route transient codes through the
+            # same flex->standard fallback path used for HTTP 503-on-flex above.
+            err_body = response_data.get("error") if isinstance(response_data, dict) else None
+            if err_body and "choices" not in response_data:
+                err_code = err_body.get("code") if isinstance(err_body, dict) else None
+                msg = (err_body.get("message") if isinstance(err_body, dict) else str(err_body)) or ""
+                transient = err_code in (429, 502, 503, 504) or any(
+                    x in str(msg).lower() for x in ("rate limit", "overloaded", "temporarily", "provider returned error")
+                )
+                if transient:
+                    if payload.get("service_tier") == "flex":
+                        if flex_503_retries < 2:
+                            flex_503_retries += 1
+                            wait_time = 2 ** flex_503_retries
+                            logger.warning(f"OpenRouter 200+error-body on flex tier (ICD, code={err_code}); flex retry {flex_503_retries}/2 in {wait_time}s")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            logger.warning(f"OpenRouter 200+error-body on flex tier (ICD) after 2 retries; falling back to standard tier")
+                            payload.pop("service_tier", None)
+                            payload.pop("provider", None)
+                            flex_disabled = True
+                            continue
+                    if attempt < max_retries - 1:
+                        wait_time = min(2 ** attempt, 8)
+                        logger.warning(f"OpenRouter 200+error-body (ICD, code={err_code}); retry {attempt+1}/{max_retries} in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
 
             # Extract the predicted codes from the response
             if "choices" in response_data and len(response_data["choices"]) > 0:

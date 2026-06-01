@@ -6,7 +6,7 @@ Extraction Instructions per Patient Record:
 
 === Charge Date ===
 Description: Date of Service:
-Where to find: under Case Summary ( Date)
+Where to find: under Procedure Summary ( Date)
 Output format: MM/DD/YYYY
 Extract: Charge Date
 
@@ -79,19 +79,19 @@ Extract: Patient ZIP Code
 
 === Patient HomePhone ===
 Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
-Where to find: If there is no Patient Phone number Extract Guarantor Home Phone number if both are not in the record keel this as blank cell
+Where to find: If there is no Patient Phone number Extract Guarantor Home Phone number
 Extract: Patient HomePhone
 
 
 === Patient WorkPhone ===
 Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
-Where to find: If there is no Patient Phone number Extract Guarantor Work Phone number if both are not in the record keel this as blank cell
+Where to find: If there is no Patient Phone number Extract Guarantor Work Phone number
 Extract: Patient WorkPhone
 
 
 === Patient CellPhone ===
 Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
-Where to find: If there is no Patient Phone number Extract Guarantor Cell Phone number if both are not in the record keel this as blank cell
+Where to find: If there is no Patient Phone number Extract Guarantor Cell Phone number
 Extract: Patient CellPhone
 
 
@@ -195,83 +195,479 @@ Extract: Guarantor ZIP
 
 
 === Location ===
-Description: Find the specific word in if “DBF MATERNITY” is found, then consider it as “FINLEY HOSPITAL DBF MATERNITY.” If “SCS MATERNITY” is not found, then it should be “FINLEY HOSPITAL.”
-Output format: Output enum is these values: FINLEY HOSPITAL DBF MATERNITY, FINLEY HOSPITAL
+Description: Find the specific word if “QCB MOTHER/BABY” is found, then consider it as “UNITY POINT-TERRACE PARK QCB MOTHER/BABY.” 
+If MUSCATINE then consider as UNITY POINT MUSCATINE
+If BETTENDORF then consider as UNITY POINT-TERRACE PARK
+If “QCB MOTHER/BABY” is not found, then it should be “UNITY POINT-TERRACE PARK.”
+Where to find: Don’t keep the cell as blank always
+Output format: Find the specific word if “QCB MOTHER/BABY” is found, then consider it as “UNITY POINT-TERRACE PARK QCB MOTHER/BABY.” 
+If MUSCATINE then consider as UNITY POINT MUSCATINE
+If BETTENDORF then consider as UNITY POINT-TERRACE PARK
+If “QCB MOTHER/BABY” is not found, then it should be “UNITY POINT-TERRACE PARK.”
 Extract: Location
 
 
 === PatientClass ===
-Where to find: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
-
-Task:
-Scan the entire record and look for specific keywords to determine the Class.
-
-Keyword-Based Logic
-If the record contains the keyword “INPATIENT”
-
-➡️ Output: INPATIENT HOSPITAL
-
-If the record contains the keyword “OUTPATIENT”
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Default Rule (Any Other Keyword)
-
-If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Matching Requirements
-
-The AI must:
-
-Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
-
-Match in uppercase, lowercase, or mixed.
-
-Look for the keyword anywhere in the record, not only in specific fields.
-
-Summary Rule
-Keyword Found	Output
-INPATIENT	INPATIENT HOSPITAL
-OUTPATIENT	OUTPATIENT HOSPITAL
-Anything else	OUTPATIENT HOSPITAL
-Output format: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
-
-Task:
-Scan the entire record and look for specific keywords to determine the Class.
-
-Keyword-Based Logic
-If the record contains the keyword “INPATIENT”
-
-➡️ Output: INPATIENT HOSPITAL
-
-If the record contains the keyword “OUTPATIENT”
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Default Rule (Any Other Keyword)
-
-If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Matching Requirements
-
-The AI must:
-
-Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
-
-Match in uppercase, lowercase, or mixed.
-
-Look for the keyword anywhere in the record, not only in specific fields.
-
-Summary Rule
-Keyword Found	Output
-INPATIENT	INPATIENT HOSPITAL
-OUTPATIENT	OUTPATIENT HOSPITAL
-Anything else	OUTPATIENT HOSPITAL
+Description: under (Hospital Account)
+Where to find: In the record, if a full description is found, then identify selective keywords such as INPATIENT HOSPITAL, OUTPATIENT HOSPITAL,  if anyother was listed consider as OUTPATIENT HOSPITAL.
+Output format: always in CAPITAL
 Extract: PatientClass
+
+
+=== Surgeon ===
+Description: Extract the Surgeon name with credintial
+Output format: """Surgeon – EXTRACTION INSTRUCTION
+Capture Rule
+
+The AI must strictly match the Surgeon from the medical record to the standardized reference list.
+
+If the Surgeon found in the document is:
+
+Misspelled
+
+Abbreviated
+
+Partially written
+
+Contains extra words
+
+Written in mixed case (upper/lower)
+
+→ The AI must auto-correct it to the correct standardized format.
+
+Allowed Reference List (Exact Output Format)
+
+The AI must output ONLY one of the following standardized types:
+
+ NUNNEWAR, SACHIN , MD
+ABDULLAH, AFZAL, MD
+ACKLAND, CANDYCE, MD
+ACOSTA, HEBERT, MD
+ADE, DAVID, MD
+ADE, THOMAS, MD
+AGARWAL , VIKRAM  VEDPRAKASH , MD
+AHMED, ASIF, MD
+AL-QULALI, MONA, MD
+ALAPATI, KISHORE, MD
+ALDRIDGE, SPENCER JAY, MD
+ALNAS, MAJD, MD
+ALQULALI, MONA, MD
+ALTERGOTT, RUDOLPH ALAN, MD
+ALWARD, PETER, MD
+ANDERSON, BRIAN, MD
+ANDRESEN, ANDREW, MD
+ANDREWS, KAHLIL J., MD
+ANDREWS, NATHAN, MD
+ANDREWS, SARA  A, MD
+ANKOLKAR, IRFAN, MD
+ANSEEUW, BRIAN, MD
+ARNOLD, DANIEL, MD
+ARUMUGAM, PURANI, MD
+ARUMUGAM, PURANI, MD
+ARUMUGAM, VELUSAMI, MD
+ARVANITIS, STEVE, MD
+ASHRAF, MUDDASIR, MD
+ASOTA, IJEOMA M, MD
+ATWELL, CALVIN, MD
+AURELIO, EDEN, MD
+BABIREDDY, PHANIVARDHAN, MD
+BAKER, JOHN, MD
+BAKER, JOHN, MD
+BANAS, JOHN, MD
+BANER, TERRILL, MD
+BARKLEY, CRAIG STANLEY, MD
+BARR, ANDRIA, MD
+BARRON, PATRICIA, MD
+BAYNE, STEPHEN, MD
+BAYNE, STEPHEN, MD
+BEAR, JULIE, MD
+BEGUM, HOSNE, MD
+BENTLEY, DAVID, MD
+BERGSTROM, JOSEPH E, MD
+BERNAS, ANTONIO, MD
+BERRY, MICHAEL, MD
+BHATTACHARYA, ISHAN, MD
+BLADE, ALLISON, MD
+BLAIR, TINA, MD
+BLAMOUN, JOHN, MD
+BLECHLE, KEVIN, MD
+BOARDMAN, STEVEN, MD
+BOBBA, KUMAR, MD
+BODE, DAWN, MD
+BODE, DAWN, MD
+BOEHM, MICHAEL, MD
+BOHN, GREGORY, MD
+BONILLA, JUAN, MD
+BORISUTH, NAVANEET S, MD
+BOWMAN, GEOFFREY, MD
+BRENOT, KAREN, MD
+BRIES, ANDREW, MD
+BRINGAS, ENRIQUE, MD
+BROOKS, ADAM, MD
+BROOMHEAD, STEVEN E, MD
+BUCKROP, BRIAN, MD
+BURMEISTER, JAY, MD
+BUTVILAS, KEITH, MD
+CABELIN, MARK, MD
+CADY, BRIAN, MD
+CAESAR, RICHARD EVAN, MD
+CAGLE, ROBERT A, MD
+CARAMAN, IURIE, MD
+CARLSON, RUSSEL M, MD
+CASTRO, REYNALDO M, MD
+CATLIN, SHERI, MD
+CERVETTI, RONALD, MD
+CHANDRAHASEGOWDA, SHASHINATH KATHARAGHATTA, MD
+CHAUDHRY, ALYAS, MD
+CHEEMA, AHMAD, MD
+CHESSER, ANTHONY, MD
+CHHABRA, MANPREET S, MD
+CHHABRA, MANPREET, MD
+CHINTALAPANI, SREENIVAS, MD
+CHOTIPRASIDHI, POONPUTT, MD
+CIMPEAN, CLAUDIU, MD
+CLARK, JASON, MD
+COBB, TYSON, MD
+COLLAZO, CHRISTOPHER, MD
+COLLINS, RICHARD, MD
+COMM HLTH CTR , SEIA KEOKUK, MD
+COMMUNITY, HEALTH CARE, MD
+CONGDON, RALPH, MD
+CONNOLLY, EDWARD, MD
+CRAMER, ANNE, MD
+CRAWFORD, JAMILLA M, MD
+CROSMER, MEGAN, MD
+CUTRONE, JOSEPH, MD
+CZIPERLE, DAVID, MD
+D'ANGELO, ANTHONY, MD
+DAHAR, MASHOOQUE, MD
+DARMAFALL, KRISTYN, MD
+DAVIES, JOHN, MD
+DAVIS, MARK, MD
+DAVIS, PAMELA, MD
+DEGRACIA, DIONISIO, MD
+DEUTMEYER, JASON J, MD
+DIAB, MOHAMMED, MD
+DIMARCO, MICHAEL J, MD
+DIPPEL, ERIC J, MD
+DISCHERT, KEVIN, MD
+DODSON, KEVIN, MD
+DOLPHIN, MICHAEL, MD
+DONNELLY , ROBERT  J, MD
+DORNBIER, DENNIS PAUL, MD
+DUNCAN, GREGORY, MD
+DUNLAY, RYAN, MD
+DURCO, MILAN, MD
+DURICK, NATHAN, MD
+DVORAK, DOUGLAS W, MD
+EASTMAN, DAVID M, MD
+ECKHARDT, ARIC, MD
+EDWARDS, ALAN B, MD
+EHLE, JOSEPH, MD
+ELANGOVAN, SIVA, MD
+ELMENDORF, CHARLES, MD
+ENGEBRECHT, BRIAN, MD
+FAIDLEY, CHERYL, MD
+FENZL, CARLTON R, MD
+FIERCE, NATHAN M, MD
+FIERCE, NATHAN M, MD
+FIGGE, PAUL, MD
+FISCELLA, RONALD, MD
+FLOWERS, ROBERT, MD
+FOAD, ABDULLAH, MD
+FOWLER, STEVEN, MD
+FOY, BRYAN, MD
+FRANCALANCIA, NICOLA A, MD
+FREDERICK, JOHN C, MD
+FREED, RHONDA, MD
+FREED, STEVEN, MD
+FULLENKAMP, JEFFREY, MD
+GAJUREL, NITU, MD
+GALBREATH, ERNEST, MD
+GANNON, DAVID, MD
+GANSHIRT, ANDREW M, MD
+GARNEAU, STEWART, MD
+GEICK, LYNN, MD
+GERDES, MICHAEL, MD
+GHAWI, HUSAM SABA ELIAS, MD
+GIAMMETTA, DIANNE, MD
+GIST, MORRIS, MD
+GLICKENBERGER, ROBERT, MD
+GOODING-ROBINSON, ROSEMARY, MD
+GOTTFRIED, IRVING S, MD
+GOVINDAIAH, GORANTLA, MD
+GOVINDAIAH, SUJATHA, MD
+GOWDA, BETTAIA, MD
+GRAMM, JAMES, MD
+GRIECO, JOHN, MD
+HAQUE, SYED M, MD
+HARB, GHASOUB, MD
+HARRISON, STEPHEN, MD
+HARSH , LAURI  A, MD
+HARSON, ROBERT, MD
+HASHMI, ASAD, MD
+HASS, JOEL, MD
+HASS, MELINDA, MD
+HEBERER, MATTHEW, MD
+HEDRICK, DYLAN, MD
+HENSEL, COLLEEN, MD
+HERMANSON, MARK, MD
+HERR, THOMAS, MD
+HINH, CHRISTOPHER, MD
+HINKAMP, THOMAS, MD
+HINTON, ISAAC, MD
+HINZMAN, JUSTIN, MD
+HOANG, VU T, MD
+HODGE, KEVIN, MD
+HOFFMAN, JOHN, MD
+HOFMANN, R JOSEF, MD
+HOLLAND, SHERI CATLIN, MD
+HOM, DAVID , MD
+HORANI, HANI, MD
+HORCHAK, ALEX M, MD
+HOWCROFT, MICHAEL, MD
+HUSSAIN, MOHAMMED, MD
+HUSSAIN, MUNAWAR , MD
+HUSSAIN, SULEMAN, MD
+HUSSAIN, WAQAS, MD
+IREY, WILLIAM, MD
+JABBARI, GHOLAM, MD
+JACOBSEN, ELIZABETH M, MD
+JANOWSKI, WOJCIECH C, MD
+JEROME, WILLIAM, MD
+JOHNSON, DANIEL, MD
+JOHNSON, GORDON, MD
+JOHNSON , JAROD  W, MD
+JOHNSON, STEVEN M, MD
+JOHNSONS, DARRYL, MD
+JONES, BRUCE, MD
+KANATHUR, NAVEEN R, MD
+KANE, FRANCIS, MD
+KARI, MARUTI R, MD
+KATZER, JESSICA, MD
+KELTY, LESTER, MD
+KETTLEKAMP, JAMES, MD
+KHALAFALLAH, AHMED A, MD
+KHAN, MITCHELL A, MD
+KHOURY, DOUGLAS A, MD
+KHRAIWESH , OLA  MAHMOUD , MD
+KIM, JAE H, MD
+KING, JAMES D, MD
+KLOSAK, JOHN, MD
+KOENIG, CHARLOTTE, MD
+KOLUSU, HANUMANTHA, MD
+KOPP, DOUGLAS, MD
+KOVACH, MARK, MD
+KRESOWIK, TIMOTHY P, MD
+KROGMANN, RYAN J, MD
+KRUG, GLEN, MD
+KURANI, ILA, MD
+KWAN, ANTHONY, MD
+LAKSHMINARAYANA, PRADEEP HESARAGHATTA, MD
+LENO, JOHN HENRY, MD
+LICANDRO, JIM, MD
+LIGHTFOOT, ANDREW, MD
+LINDAMAN, MATTHEW, MD
+LIVENGOOD, SOMMER, MD
+LOHMULLER, JOSEPH, MD
+LOPEZ, JOSEPH, MD
+LUBBERS, ROGER, MD
+LUCKETT, MARC, MD
+LUSZCZYK, MYLES, MD
+LUTCHKA, BRADLEY J, MD
+LUTRIN, FRANK, MD
+LYLES, JAMES, MD
+MAGNUS, ROBERT, MD
+MAIORIELLO, ANTHONY, MD
+MALLIK, RAJIV, MD
+MANAZIR, FARAZ, MD
+MANKARIOUS, MICHAEL, MD
+MANN, TOBIAS, MD
+MANZAR, KHALID, MD
+MARLA, RAMMOHAN, MD
+MAROGIL, SAMMY, MD
+MARTIN, JOSEPH, MD
+MAURUS, JEFFREY, MD
+MAYNARD, RICHARD, MD
+MCBRIDE, CONNOR P, MD
+MCCAW, PATRICIA, MD
+MCCOOL, PAMELA JEAN, MD
+MCGOWAN, BRIAN, MD
+MCKAY, THOMAS, MD
+MCKENZIE, MITCHEL M, MD
+MCLOONE, PAUL, MD
+MENDEL, TUVI, MD
+MILAS, ROBERT, MD
+MILLEA, TIMOTHY, MD
+MILLEMAN, MARK, MD
+MODI, SHREY, MD
+MOE, CRAIG EDWARD, MD
+MOEN, MICHAEL, MD
+MOHR, NATHAN, MD
+MORENO, XAVIER , MD
+MOVVA, RAO, MD
+MUKKAMALLA, VIJAYALAKSHMI, MD
+MUNDODI, BALAKRISHNA, MD
+MUNNS, JUSTIN, MD
+NARAYANA, GONCHIGARI, MD
+NEBOR, ANTHONY, MD
+NEZIROSKI, BURIM, MD
+NGUYEN , QUANG  TUNG , MD
+NOUMI, ANDRE, MD
+NUNNEWAR, SACHIN , MD
+ODELL, MARK, MD
+OGUNLEYE, FOLUSO, MD
+OKBA, AHMED, MD
+OLNEY, DANIEL, MD
+OLSON, WILLIAM, MD
+OLUTADE, TOYOSI, MD
+OSARO, ODUAH, MD
+OSBORNE, ZANE, MD
+PAGADALA, PADMAVATHI, MD
+PAGADALA, PADMAVATI, MD
+PALMQUIST, ERIC, MD
+PANIAMOGAN, CALAB, MD
+PANOZZO, KERRY, MD
+PARDUBSKY, PETER, MD
+PAREIGIS, ELIZABETH, MD
+PASHA, AAMIR, MD
+PATEL, AMITKUMAR , MD
+PATLOLLA, HARISH, MD
+PAUL, JAMES, MD
+PENMATCHA, RAZ, MD
+PETERSEN, DAVID, MD
+PETERSON, JOHN, MD
+PHINNEY, RICHARD, MD
+PIMENTEL, ROBERT W, MD
+POKORNEY, RYAN T, MD
+POLASCHEK, KARLA, MD
+POLEY, PREETI, MD
+PORUBCIN, MICHAEL, MD
+POTHULA, ASWARTHA R, MD
+POTTER, JON W, MD
+PURI, SANJEEV, MD
+PURIGHALLA, SRINIVASAN, MD
+PYEVICH, MICHAEL, MD
+PYEVICH, MICHAEL, MD
+PYEVICH, MICHAEL, MD
+RACCONE, NANCY, MD
+RAGHEB, SHERIF, MD
+RAJPUT, MAHEEN, MD
+RAJPUT, MOHAMED I, MD
+RAMSTACK, THOMAS, MD
+RAUEN, MATTHEW, MD
+RECTOR, SUSAN, MD
+REDDY, BOUYELLA, MD
+REID, HELENA, MD
+RICAURTE, EDUARDO, MD
+RICHARDS, BRIAN J, MD
+RINK, PETER C, MD
+RIPPERGER, RICHARD, MD
+RIZZO, THOMAS, MD
+ROBERTS, LEANNE J, MD
+ROHLF, DAVID, MD
+ROSEN, WILLIAM, MD
+ROSKI, RICHARD ARTHUR, MD
+ROSSI, DOUGLAS A, MD
+ROTH, JOHN, MD
+RUDIN, ANDREW S, MD
+SADLER, RICHARD, MD
+SAEED, MOAZZAM, MD
+SANDSTROM, TODD, MD
+SANGUINO, MIGUEL A, MD
+SCHRECK, MICHAEL, MD
+SCHRIER, JAMES E, MD
+SCHROEDER, DAVID W, MD
+SCHROEDER, JULIE, MD
+SCHWALJE, ADAM T, MD
+SEARLES, JOHN, MD
+SEARLES, JOHN, MD
+SHAH, SAYED, MD
+SHAKER, MOHAMMAD R, MD
+SHAY, BEAU, MD
+SHEN, MARK JUNG-CHING, MD
+SHERWANI, UBAID U, MD
+SHIVAKUMAR, BAVIKATTE, MD
+SHNURMAN, BENJAMIN, MD
+SIDDIQUI, WAQAS, MD
+SIEGEL, LEON, MD
+SINGH, PARAM PUNEET, MD
+SISTLA , PHANICHARAN ADITYA, MD
+SMITH, AUDRA MARIE, MD
+SMITH, KEVIN, MD
+SOLHEIM, KARLA NYREEN, MD
+SOLTYS, DOUGLAS, MD
+SORIA, LOREN L, MD
+SPAUDE, RANDALL, MD
+STEELS, BRETT C , MD
+STEIGER, CHARLES, MD
+STEIN, REBECCA S, MD
+STEINBRONN, DAVID, MD
+STEVENSON, ANDREW N, MD
+STEWART, MARK, MD
+SUN, WEI, MD
+SUNDAR, SANJAY, MD
+SYBESMA, WILLIAM G, MD
+TEMPLE, ELIZABETH, MD
+THAKKAR, ISHWAR, MD
+THOMAS , ROBERT  D, MD
+THOMPSON, KIMBERLY, MD
+TING, BRIAN S, MD
+TJARKS, MARY, MD
+TOMEK, MICHAEL, MD
+TOMEK, MICHAEL, MD
+TONG, LINDA, MD
+TROTTER, MINDY JEAN, MD
+TUCHEK, JAMES M, MD
+TURNER, MICHAEL, MD
+TUTTLE, RICHARD, MD
+TYNER, RALPH, MD
+UDEHN, DAVID, MD
+UPADHYA, SHASHI, MD
+VAN STRATEN, JOHN J, MD
+VANKEULEN , KARLA  A, MD
+VANRAALTE, BENJAMIN, MD
+VELUZ, JEFFREY, MD
+VIRDI, PREM, MD
+VIYUOH, NICHOLAS G, MD
+VONGILLERN, THOMAS, MD
+WAGLE, ARCHANA, MD
+WAGLE, NIKHIL, MD
+WALCZYK, JEFFREY, MD
+WALSH , ANDREA, MD
+WANG, PAUL, MD
+WARHANK, ROSE, MD
+WARREN, THOMAS  LARRY, MD
+WATLEY, SHANNON, MD
+WAYNE, EILEEN, MD
+WAYNE, EILEEN, MD
+WELLS, TAMMY, MD
+WENCK, TODD, MD
+WILBER, MATHEW, MD
+WILLIAMS , MARK  W, MD
+WINSTON , JONATHAN  D, MD
+WISEMAN, KIMBERLY, MD
+WYNN, SHAWN, MD
+YASEEN, MOHAMMAD, MD
+YATES, LEROY, MD
+YAZEJI, MAY, MD
+YERKES , NICHOLAS  STEVEN , MD
+YODER, KRISTINA, MD
+ZAYADIN , YACOUB , MD
+
+
+Output Rule
+
+✔ Always output the corrected, standardized name from the reference list.
+✖ Never output anything outside the list.
+✖ If multiple Surgeon appear → select the primary one mentioned in “Surgeon”,"
+Extract: Surgeon
+
+
+=== MD ===
+Description: always leave empty string! If the MD found also leave this cell as empty
+Output format: always leave empty string! If the MD found also leave this cell as empty
+Extract: MD
 
 
 === SRNA ===
@@ -293,7 +689,8 @@ Extract: Resident
 
 
 === Revenue ===
-Description: If “DBF MATERNITY” is found, then it should be “OB.” If not, it should be “OR.”
+Description: If “QCB MOTHER/BABY” is found, then it should be “OB.” If not, it should be “OR.”
+Output format: Output enum is these values: OB, OR
 Extract: Revenue
 
 
@@ -305,76 +702,7 @@ Extract: Concurrent Providers
 
 === Place Of Service ===
 Description: use always( Class ) in the record
-Where to find: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
-
-Task:
-Scan the entire record and look for specific keywords to determine the Class.
-
-Keyword-Based Logic
-If the record contains the keyword “INPATIENT”
-
-➡️ Output: INPATIENT HOSPITAL
-
-If the record contains the keyword “OUTPATIENT”
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Default Rule (Any Other Keyword)
-
-If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Matching Requirements
-
-The AI must:
-
-Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
-
-Match in uppercase, lowercase, or mixed.
-
-Look for the keyword anywhere in the record, not only in specific fields.
-
-Summary Rule
-Keyword Found	Output
-INPATIENT	INPATIENT HOSPITAL
-OUTPATIENT	OUTPATIENT HOSPITAL
-Anything else	OUTPATIENT HOSPITAL
-Output format: Instruction to AI — Extract Class (Inpatient / Outpatient Hospital)
-
-Task:
-Scan the entire record and look for specific keywords to determine the Class.
-
-Keyword-Based Logic
-If the record contains the keyword “INPATIENT”
-
-➡️ Output: INPATIENT HOSPITAL
-
-If the record contains the keyword “OUTPATIENT”
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Default Rule (Any Other Keyword)
-
-If neither “INPATIENT” nor “OUTPATIENT” is found but any other Class-related word appears (e.g., “Surgery,” “Procedure,” “PACU,” “OR,” “Clinic,” etc.):
-
-➡️ Output: OUTPATIENT HOSPITAL
-
-Matching Requirements
-
-The AI must:
-
-Match partial or full words (e.g., “INPATIENT PROCEDURE,” “Hospital Outpatient Surgery”).
-
-Match in uppercase, lowercase, or mixed.
-
-Look for the keyword anywhere in the record, not only in specific fields.
-
-Summary Rule
-Keyword Found	Output
-INPATIENT	INPATIENT HOSPITAL
-OUTPATIENT	OUTPATIENT HOSPITAL
-Anything else	OUTPATIENT HOSPITAL
+Where to find: In the record, if a full description is found, then identify selective keywords such as INPATIENT HOSPITAL, OUTPATIENT HOSPITAL, if anyother was listed consider as OUTPATIENT HOSPITAL
 Extract: Place Of Service
 
 
@@ -390,41 +718,104 @@ Extract: POST-OP DIAGNOSIS
 
 
 === An Start ===
-Description: Find the Anesthesia Start time from the Events section. Look for the row labeled "Anesthesia Start" and extract the Time value.
-
-CRITICAL — 24-hour to 12-hour time conversion rules:
-The PDF uses 24-hour military time (e.g., 1255, 1503, 0830). You MUST convert correctly:
-- 0000–0059 = 12:00 AM – 12:59 AM
-- 0100–0159 = 1:00 AM – 1:59 AM
-- 0200–1159 = 2:00 AM – 11:59 AM
-- 1200–1259 = 12:00 PM – 12:59 PM (noon, NOT AM)
-- 1300–2359 = 1:00 PM – 11:59 PM (subtract 12 from hour)
-Examples: 1255 = 12:55 PM, 1503 = 3:03 PM, 0830 = 8:30 AM, 0015 = 12:15 AM.
-NEVER output 1255 as 12:55 AM — that is midnight, which is wrong for a daytime procedure.
-Where to find: Look in the Events section for the row where Event = "Anesthesia Start". Extract the Time value from that row. Do NOT use Anesthesia Start - Professional from Case Tracking Events.
+Description: Find the Anesthesia start time
+Where to find: will be in the Anesthesia Times:
 Output format: Out put should be date of service and time example : 9/30/2025  9:22:00 AM
 Extract: An Start
 
 
 === An Stop ===
-Description: Find the Anesthesia Stop time from the Events section. Look for the row labeled "Anesthesia Stop" and extract the Time value.
-
-CRITICAL — 24-hour to 12-hour time conversion rules:
-The PDF uses 24-hour military time (e.g., 1255, 1503, 0830). You MUST convert correctly:
-- 0000–0059 = 12:00 AM – 12:59 AM
-- 0100–0159 = 1:00 AM – 1:59 AM
-- 0200–1159 = 2:00 AM – 11:59 AM
-- 1200–1259 = 12:00 PM – 12:59 PM (noon, NOT AM)
-- 1300–2359 = 1:00 PM – 11:59 PM (subtract 12 from hour)
-Examples: 1255 = 12:55 PM, 1503 = 3:03 PM, 0830 = 8:30 AM, 0015 = 12:15 AM.
-NEVER output 1255 as 12:55 AM — that is midnight, which is wrong for a daytime procedure.
-Where to find: Look in the Events section for the row where Event = "Anesthesia Stop". Extract the Time value from that row. Do NOT use Anesthesia Finish - Professional from Case Tracking Events.
+Description: Find the Anesthesia stop time
+Where to find: will be in the Anesthesia Times:
 Output format: Out put should be date of service and time example : 9/30/2025  9:53:00 AM
 Extract: An Stop
 
 
+=== Anesthesia Type ===
+Description: Anesthesia Type
+Output format: ANESTHESIA TYPE – EXTRACTION INSTRUCTION
+Capture Rule
+
+The AI must strictly match the Anesthesia Type from the medical record to the standardized reference list.
+
+If the anesthesia type found in the document is:
+
+Misspelled
+
+Abbreviated
+
+Partially written
+
+Contains extra words
+
+Written in mixed case (upper/lower)
+
+→ The AI must auto-correct it to the correct standardized format.
+
+Allowed Reference List (Exact Output Format)
+
+The AI must output ONLY one of the following standardized types:
+
+NEURAXIAL BLOCK
+
+SPINAL
+
+PERIPHERAL NERVE BLOCK
+
+EPIDURAL
+
+GENERAL
+
+MAC
+
+Output Rule
+
+✔ Always output the corrected, standardized name from the reference list.
+✖ Never output anything outside the list.
+✖ If multiple anesthesia types appear, apply these priority rules:
+  - If GENERAL appears with anything else, output GENERAL
+  - If MAC appears alongside PERIPHERAL NERVE BLOCK, SPINAL, EPIDURAL, or NEURAXIAL BLOCK, output REGIONAL (because MAC + nerve block/spinal = regional anesthesia for billing purposes)
+  - If MAC appears alone (no blocks or spinal mentioned), output MAC
+  - Otherwise select the primary one mentioned in the anesthesia type field
+Extract: Anesthesia Type
+
+
 === Physical Status ===
 Description: Physical Status – EXTRACTION INSTRUCTION
+Capture Rule
+
+The AI must strictly match the Physical Status from the medical record to the standardized reference list.
+
+If the Physical Status found in the document is:
+
+Misspelled
+
+Abbreviated
+
+Partially written
+
+Contains extra words
+
+Written in mixed case (upper/lower)
+
+→ The AI must auto-correct it to the correct standardized format.
+
+Allowed Reference List (Exact Output Format)
+
+The AI must output ONLY one of the following standardized types:
+
+1
+2
+3
+4
+5
+
+Output Rule
+
+✔ Always output the corrected, standardized name from the reference list.
+✖ Never output anything outside the list.
+✖ If multiple Physical Status → select the primary one mentioned in “Physical Status”.  if present, take the FINAL Physical Status.
+Output format: Physical Status – EXTRACTION INSTRUCTION
 Capture Rule
 
 The AI must strictly match the Physical Status from the medical record to the standardized reference list.
@@ -568,7 +959,6 @@ Extract: Primary Sub Group Num
 
 
 === Primary Sub Auth Num ===
-Where to find: Precert #
 Extract: Primary Sub Auth Num
 
 
@@ -667,7 +1057,6 @@ Extract: Secondary Sub Group Num
 
 
 === Secondary Auth Num ===
-Description: Precert #
 Extract: Secondary Auth Num
 
 
@@ -766,12 +1155,28 @@ Extract: Tertiary Sub Group
 
 
 === Tertiary Sub Auth Num ===
-Description: Precert #
 Extract: Tertiary Sub Auth Num
 
 
 === EhrPath ===
 Extract: EhrPath
+
+
+=== Account ===
+Output format: the account number was on the first sheet it will be reflect as in red colour
+Extract: Account
+
+
+=== emergent_case ===
+Description: if anywhere in the record you see: "ASA status: 3 - Emergent" (emergent is the keyword!!)
+
+then indicate in here : "TRUE" otherwise if it is not an emergent case then "FALSE"
+Extract: emergent_case
+
+
+=== Account Id ===
+Description: here extract the RED number on start of first page that starts with "25...", a red number that looks "Pasted" on the pdf and starts with "25..."
+Extract: Account Id
 
 
 === is_colonoscopy ===
