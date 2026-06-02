@@ -12278,15 +12278,78 @@ async def extract_payments_from_pdf(
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     prompt = (
-        "This is a PDF with many remittance advice and patient check pairs.\n"
-        "For each patient check, extract these fields:\n"
-        "- amount (float, the dollar amount of the check)\n"
-        "- check_number (the number that appears TWICE on the check — same number listed in two different places)\n"
-        "- check_date (any date listed directly on the check, output as M/D/YYYY)\n"
-        "- account_number (an ID number that starts with either 25... or 26... and has a three-letter prefix before it, e.g. PAC-2603230014 — output WITH the prefix, dash included if shown)\n"
+        "You are processing a PDF that contains REMITTANCE ADVICE + CHECK pairs. "
+        "One row per check (NOT per remittance). Some checks may be associated with "
+        "multiple accounts/remittances — see the multi-account rule below.\n"
         "\n"
-        "Return ONLY a JSON array of objects, one per patient check. Example:\n"
-        '[{"amount": 164, "check_number": "1075", "check_date": "4/4/2026", "account_number": "PAC-2603230014"}, ...]\n'
+        "For each check, extract these fields:\n"
+        "- amount (float, the dollar amount of the check)\n"
+        "- check_number (see rules below — depends on check_type)\n"
+        "- check_date (the date printed/written on the check, output as M/D/YYYY)\n"
+        "- account_number — the ID number on the remittance. Format is ALWAYS a "
+        "three-letter group prefix + the digits, e.g. PRE-25334578, GAP-55347511, "
+        "PAC-2603230014, EAP25072169. You MUST include the three-letter prefix in "
+        "the output, exactly as shown on the document (preserve the dash if it "
+        "appears). NEVER output just the digits without the prefix. If the document "
+        "doesn't show the prefix next to a digit string, look at the header / cover "
+        "page / 'Account:' label to find which group code it belongs to and "
+        "prepend it as PREFIX-<digits>.\n"
+        "- check_type (one of: \"Personal\", \"Bank Generated\", \"Money Order\")\n"
+        "\n"
+        "================================================================\n"
+        "CHECK TYPE IDENTIFICATION (this drives how to find the check number)\n"
+        "================================================================\n"
+        "\n"
+        "1) PERSONAL CHECK — \"Personal\"\n"
+        "   - Identified by: handwritten payee, handwritten amount, handwritten signature, "
+        "personal/family names printed on the top-left.\n"
+        "   - MICR line at the bottom has THREE groups of digits, separated by special "
+        "MICR symbols. Format is typically:\n"
+        "       |:routing_number:|  bank_account_number  |:check_number\n"
+        "     The check_number is the LAST (third) group. It also appears in the upper "
+        "right corner of the check — and the two should MATCH. Use whichever is clearer.\n"
+        "   - Example MICR: \":271973924:  100025922501531\"  →  check_number = 1531\n"
+        "\n"
+        "2) BANK GENERATED CHECK — \"Bank Generated\"\n"
+        "   - Identified by: EVERYTHING is printed/typed, nothing handwritten. Often "
+        "issued from a \"Bill Payment Processing Center\" or similar. May include phrases "
+        "like \"Signature On File\" or \"This check has been authorized by your depositor\".\n"
+        "   - MICR line has THREE groups of digits. The check_number is the FIRST group "
+        "(NOT the last like personal checks).\n"
+        "   - Example MICR: \"008176   071921891  4635257844\"  →  check_number = 008176 "
+        "(also visible as \"0000008176\" or similar in the upper right).\n"
+        "\n"
+        "3) MONEY ORDER — \"Money Order\"\n"
+        "   - Identified by: text on the document explicitly says \"MONEY ORDER\" "
+        "(e.g. \"POSTAL MONEY ORDER\", \"USPS MONEY ORDER\", \"Western Union Money Order\", etc.).\n"
+        "   - MICR line has TWO groups of digits. The check_number is the SECOND group.\n"
+        "   - Amount and date are PRINTED on a money order; payee/remitter lines are "
+        "handwritten.\n"
+        "   - Example MICR: \":000011931:  5512250920211\"  →  check_number = 5512250920211\n"
+        "\n"
+        "================================================================\n"
+        "MULTI-ACCOUNT RULE — one check covering multiple remittances\n"
+        "================================================================\n"
+        "Sometimes a SINGLE check pays for TWO OR MORE remittances/accounts at once. "
+        "When that happens you must still output ONE row for the check (do not duplicate "
+        "the row). Put ALL the account numbers in the account_number field, separated by "
+        "comma + space. Example: \"PAC-2603230014, PAC-2604060009\".\n"
+        "\n"
+        "If the check is unambiguously tied to a single remittance, output just that one "
+        "account number with NO commas.\n"
+        "\n"
+        "================================================================\n"
+        "OUTPUT FORMAT\n"
+        "================================================================\n"
+        "Return ONLY a JSON array of objects, one per check. Example:\n"
+        '[\n'
+        '  {"amount": 164, "check_number": "1075", "check_date": "4/4/2026", '
+        '"account_number": "PAC-2603230014", "check_type": "Personal"},\n'
+        '  {"amount": 25, "check_number": "008176", "check_date": "5/8/2026", '
+        '"account_number": "EAP25072169", "check_type": "Bank Generated"},\n'
+        '  {"amount": 720, "check_number": "5512250920211", "check_date": "5/1/2026", '
+        '"account_number": "EAP2603120004, EAP2603120005", "check_type": "Money Order"}\n'
+        ']\n'
         "\n"
         "Do NOT include any commentary, markdown, or explanation. Just the JSON array."
     )
@@ -12317,7 +12380,10 @@ async def extract_payments_from_pdf(
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"OpenRouter HTTP {resp.status_code}: {resp.text[:500]}")
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned non-JSON response (HTTP {resp.status_code}): {resp.text[:500]}")
     if "choices" not in data or not data["choices"]:
         err_body = data.get("error") if isinstance(data, dict) else None
         raise HTTPException(status_code=502, detail=f"OpenRouter returned no choices. error={err_body}")
@@ -12342,10 +12408,10 @@ async def extract_payments_from_pdf(
     if not isinstance(rows, list):
         raise HTTPException(status_code=500, detail=f"Model returned non-list JSON: {type(rows).__name__}")
 
-    # Build CSV with the exact column names the user provided
+    # Build CSV: Amount, Check Number, Check Date, Account Number, Check Type
     out_buf = io_mod.StringIO()
     writer = csv_mod.writer(out_buf)
-    writer.writerow(["Amount", "Check Number", "Check Date", "Account Number"])
+    writer.writerow(["Amount", "Check Number", "Check Date", "Account Number", "Check Type"])
     for r in rows:
         if not isinstance(r, dict):
             continue
@@ -12354,6 +12420,7 @@ async def extract_payments_from_pdf(
             r.get("check_number", ""),
             r.get("check_date", ""),
             r.get("account_number", ""),
+            r.get("check_type", ""),
         ])
 
     from fastapi.responses import Response

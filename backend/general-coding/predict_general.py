@@ -516,7 +516,67 @@ Respond with ONLY the JSON object, nothing else."""
     return None, "", 0, 0.0, "Max retries reached"
 
 
-def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True, web_search=True):
+def _is_payload_too_large_error(status_code, error_detail):
+    """Detect 413-class errors from OpenRouter (HTTP 413 or 400 with size-related message)."""
+    if status_code == 413:
+        return True
+    if status_code == 400:
+        msg = str(error_detail).lower()
+        return any(kw in msg for kw in ("too large", "payload", "request entity", "exceeds", "size limit"))
+    return False
+
+
+def _openrouter_pdf_fallback(prompt, pdf_bytes, pdf_filename, model, api_key_value, extra_payload=None, plugins=None):
+    """
+    Send a prompt + raw PDF (via OpenRouter type:"file" block) instead of rasterized images.
+    Used as a fallback when the image-based request hits 413/Payload Too Large.
+    Returns (response_data, error_message). On success, response_data is the parsed JSON; on
+    failure, response_data is None and error_message describes what went wrong.
+    """
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "file", "file": {
+                    "filename": pdf_filename or "input.pdf",
+                    "file_data": f"data:application/pdf;base64,{b64}",
+                }},
+            ],
+        }],
+        "usage": {"include": True},
+    }
+    if extra_payload:
+        payload.update(extra_payload)
+    if plugins:
+        payload["plugins"] = plugins
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key_value}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/medical-data-processor",
+        "X-Title": "Medical Data Processor",
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=300)
+        resp.raise_for_status()
+        return resp.json(), None
+    except requests.exceptions.HTTPError as e:
+        detail = str(e)
+        try:
+            body = e.response.json() if e.response is not None else {}
+            detail = body.get("error", {}).get("message", detail) if isinstance(body, dict) else detail
+        except Exception:
+            pass
+        return None, f"PDF fallback HTTP error: {detail}"
+    except Exception as e:
+        return None, f"PDF fallback error: {type(e).__name__}: {e}"
+
+
+def predict_asa_code_from_images(image_data_list, cpt_codes_text, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, include_code_list=True, web_search=True, pdf_bytes=None, pdf_filename=None):
     """
     Predict ASA code using OpenRouter API or Google GenAI SDK from PDF page images
 
@@ -906,7 +966,46 @@ Respond with ONLY the JSON object, nothing else."""
                     error_message = f"HTTP {status_code}: {error_detail}"
             else:
                 error_message = f"HTTP Error: {error_detail}"
-            
+
+            # Payload-too-large fallback: retry once sending raw PDF via OpenRouter type:"file"
+            if pdf_bytes and _is_payload_too_large_error(status_code, error_detail):
+                logger.warning(f"CPT image payload too large (status={status_code}); falling back to raw PDF transport")
+                extra = {}
+                if "gemini-3" in openrouter_model:
+                    extra["provider"] = {"sort": "throughput"}
+                    extra["service_tier"] = "flex"
+                plugins = [{"id": "web"}] if web_search else None
+                pdf_response, pdf_err = _openrouter_pdf_fallback(
+                    prompt, pdf_bytes, pdf_filename, openrouter_model, api_key_value,
+                    extra_payload=extra, plugins=plugins,
+                )
+                if pdf_response and "choices" in pdf_response and pdf_response["choices"]:
+                    content_text = (pdf_response["choices"][0]["message"].get("content") or "").strip()
+                    predicted_code = None
+                    explanation = ""
+                    try:
+                        if "```json" in content_text:
+                            content_text = content_text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in content_text:
+                            content_text = content_text.split("```")[1].split("```")[0].strip()
+                        result = json.loads(content_text)
+                        predicted_code = (result.get("code") or "").strip()
+                        explanation = (result.get("explanation") or "").strip()
+                    except (json.JSONDecodeError, AttributeError):
+                        code_match = re.search(r'\b0\d{4}\b', content_text)
+                        if code_match:
+                            predicted_code = code_match.group(0)
+                            explanation = content_text.replace(predicted_code, "").strip()
+                        else:
+                            predicted_code = content_text
+                    tokens = pdf_response.get("usage", {}).get("total_tokens", 0)
+                    cost = pdf_response.get("usage", {}).get("cost", 0.0) or 0.0
+                    logger.info(f"CPT PDF fallback succeeded for {pdf_filename}")
+                    return predicted_code, explanation, tokens, cost, None
+                else:
+                    logger.error(f"CPT PDF fallback failed: {pdf_err}")
+                    return None, "", 0, 0.0, f"{error_message} | {pdf_err or 'PDF fallback returned no choices'}"
+
             # Retry on all errors except 404 (model not found)
             if attempt < max_retries - 1:
                 # Don't retry 404 errors - model name is wrong
@@ -1259,7 +1358,7 @@ Respond with ONLY the JSON object, nothing else."""
     return None, 0, 0.0, "Max retries reached"
 
 
-def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, predicted_cpt=None):
+def predict_icd_codes_from_images(image_data_list, model="openai/gpt-5.2:online", api_key=None, custom_instructions=None, predicted_cpt=None, pdf_bytes=None, pdf_filename=None):
     """
     Predict ICD codes using OpenRouter API or Google GenAI SDK from PDF page images
 
@@ -1666,10 +1765,41 @@ Respond with ONLY the JSON object, nothing else."""
                 error_message = f"HTTP {status_code}: {error_detail}"
             else:
                 error_message = f"HTTP Error: {error_detail}"
-            
+
             # Log the model that was used for debugging
             logger.error(f"Failed OpenRouter request - Model: {openrouter_model}, URL: {url}")
-            
+
+            # Payload-too-large fallback: retry once sending raw PDF via OpenRouter type:"file"
+            if pdf_bytes and _is_payload_too_large_error(status_code, error_detail):
+                logger.warning(f"ICD image payload too large (status={status_code}); falling back to raw PDF transport")
+                extra = {}
+                if "gemini-3" in openrouter_model:
+                    extra["reasoning"] = {"effort": "high"}
+                    extra["service_tier"] = "flex"
+                    extra["provider"] = {"sort": "throughput"}
+                pdf_response, pdf_err = _openrouter_pdf_fallback(
+                    prompt, pdf_bytes, pdf_filename, openrouter_model, api_key_value,
+                    extra_payload=extra, plugins=[{"id": "web"}],
+                )
+                if pdf_response and "choices" in pdf_response and pdf_response["choices"]:
+                    content_text = (pdf_response["choices"][0]["message"].get("content") or "").strip()
+                    try:
+                        if "```json" in content_text:
+                            content_text = content_text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in content_text:
+                            content_text = content_text.split("```")[1].split("```")[0].strip()
+                        result = json.loads(content_text)
+                        tokens = pdf_response.get("usage", {}).get("total_tokens", 0)
+                        cost = pdf_response.get("usage", {}).get("cost", 0.0) or 0.0
+                        logger.info(f"ICD PDF fallback succeeded for {pdf_filename}")
+                        return result, tokens, cost, None
+                    except (json.JSONDecodeError, AttributeError) as parse_err:
+                        logger.error(f"ICD PDF fallback returned unparseable JSON: {parse_err}")
+                        return None, 0, 0.0, f"{error_message} | PDF fallback returned unparseable response"
+                else:
+                    logger.error(f"ICD PDF fallback failed: {pdf_err}")
+                    return None, 0, 0.0, f"{error_message} | {pdf_err or 'PDF fallback returned no choices'}"
+
             # Retry on all errors
             if attempt < max_retries - 1:
                 if status_code == 429 or "429" in error_str or "rate_limit" in error_str.lower():
@@ -2095,9 +2225,16 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
                     error_msg = f"Failed to extract PDF pages from {filename}. File may be corrupted or invalid."
                     return idx, filename, "ERROR", "", 0, 0.0, error_msg, "openrouter_vision"
                 
+                # Read raw PDF bytes for 413 fallback
+                try:
+                    pdf_bytes = pdf_path.read_bytes()
+                except Exception:
+                    pdf_bytes = None
+
                 # Predict ASA code from images
                 predicted_code, explanation, tokens, cost, error = predict_asa_code_from_images(
-                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search
+                    image_data_list, cpt_codes_text, model, api_key, custom_instructions, include_code_list, web_search,
+                    pdf_bytes=pdf_bytes, pdf_filename=filename,
                 )
                 
                 # Determine model source
@@ -2280,8 +2417,13 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
                 
                 # Predict ICD codes from images (with optional CPT guidance from prior step)
                 per_pdf_cpt = cpt_lookup.get(filename) if cpt_lookup else None
+                try:
+                    pdf_bytes = pdf_path.read_bytes()
+                except Exception:
+                    pdf_bytes = None
                 icd_codes_dict, tokens, cost, error = predict_icd_codes_from_images(
-                    image_data_list, model, api_key, custom_instructions, predicted_cpt=per_pdf_cpt
+                    image_data_list, model, api_key, custom_instructions, predicted_cpt=per_pdf_cpt,
+                    pdf_bytes=pdf_bytes, pdf_filename=filename,
                 )
                 
                 # Determine model source

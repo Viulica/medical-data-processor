@@ -436,12 +436,21 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 pass
 
             # If image payload was too big, swap to direct-PDF upload and retry.
+            # Catches both HTTP 413 and HTTP 400 variants (OpenRouter sometimes
+            # returns 400 with a size-related message when the upstream provider
+            # rejects an oversized inline image before the gateway 413 fires).
             status_code = getattr(getattr(e, 'response', None), 'status_code', None)
-            is_413 = (status_code == 413) or ("413" in str(e)) or ("payload too large" in body_preview_lc) or ("cannot exceed 30mb" in body_preview_lc)
-            if is_413 and not using_direct_pdf:
+            size_keywords = ("payload too large", "cannot exceed 30mb", "request entity", "too large", "exceeds", "size limit")
+            is_size_error = (
+                status_code == 413
+                or "413" in str(e)
+                or any(kw in body_preview_lc for kw in size_keywords)
+                or (status_code == 400 and any(kw in body_preview_lc for kw in size_keywords))
+            )
+            if is_size_error and not using_direct_pdf:
                 pdf_messages = _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename)
                 if pdf_messages:
-                    print(f"    🔁 Switching {pdf_filename}{log_suffix} to direct-PDF upload (file_data) after 413; retrying.")
+                    print(f"    🔁 Switching {pdf_filename}{log_suffix} to direct-PDF upload (file_data) after {status_code} size error; retrying.")
                     messages = pdf_messages
                     using_direct_pdf = True
                     # Don't burn a retry attempt — proceed to backoff/retry block.
