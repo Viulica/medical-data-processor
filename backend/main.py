@@ -10974,7 +10974,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE"}
 
         # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
         # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
@@ -12250,6 +12250,123 @@ async def sync_prompts_from_files():
     except Exception as e:
         logger.error(f"Failed to sync prompts from files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Payments extraction — single-PDF -> CSV (rows per patient check)
+# Uses Gemini 3 Pro via OpenRouter to read a remittance/check PDF and emit a
+# CSV with columns: Amount, Check Number, Check Date, Account Number.
+# =============================================================================
+@app.post("/api/extract-payments-from-pdf")
+async def extract_payments_from_pdf(
+    pdf_file: UploadFile = File(...),
+    model: str = Form("google/gemini-3.1-pro-preview"),
+):
+    import base64, json, re, csv as csv_mod, io as io_mod
+    import requests as req_mod
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not configured on backend")
+
+    pdf_bytes = await pdf_file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty PDF uploaded")
+    if not (pdf_file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    prompt = (
+        "This is a PDF with many remittance advice and patient check pairs.\n"
+        "For each patient check, extract these fields:\n"
+        "- amount (float, the dollar amount of the check)\n"
+        "- check_number (the number that appears TWICE on the check — same number listed in two different places)\n"
+        "- check_date (any date listed directly on the check, output as M/D/YYYY)\n"
+        "- account_number (an ID number that starts with either 25... or 26... and has a three-letter prefix before it, e.g. PAC-2603230014 — output WITH the prefix, dash included if shown)\n"
+        "\n"
+        "Return ONLY a JSON array of objects, one per patient check. Example:\n"
+        '[{"amount": 164, "check_number": "1075", "check_date": "4/4/2026", "account_number": "PAC-2603230014"}, ...]\n'
+        "\n"
+        "Do NOT include any commentary, markdown, or explanation. Just the JSON array."
+    )
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "file", "file": {
+                    "filename": pdf_file.filename,
+                    "file_data": f"data:application/pdf;base64,{b64}",
+                }},
+            ],
+        }],
+    }
+
+    try:
+        resp = req_mod.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload, timeout=600,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {type(e).__name__}: {e}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"OpenRouter HTTP {resp.status_code}: {resp.text[:500]}")
+
+    data = resp.json()
+    if "choices" not in data or not data["choices"]:
+        err_body = data.get("error") if isinstance(data, dict) else None
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned no choices. error={err_body}")
+
+    content = (data["choices"][0]["message"].get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=502, detail="OpenRouter returned empty content")
+
+    # strip markdown fences if present
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\n?", "", content)
+        content = re.sub(r"\n?```$", "", content).strip()
+
+    # extract the JSON array
+    m = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
+    json_text = m.group(0) if m else content
+    try:
+        rows = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Could not parse model JSON: {e}. Raw: {content[:500]}")
+
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=500, detail=f"Model returned non-list JSON: {type(rows).__name__}")
+
+    # Build CSV with the exact column names the user provided
+    out_buf = io_mod.StringIO()
+    writer = csv_mod.writer(out_buf)
+    writer.writerow(["Amount", "Check Number", "Check Date", "Account Number"])
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        writer.writerow([
+            r.get("amount", ""),
+            r.get("check_number", ""),
+            r.get("check_date", ""),
+            r.get("account_number", ""),
+        ])
+
+    from fastapi.responses import Response
+    csv_data = out_buf.getvalue().encode("utf-8")
+    filename = (pdf_file.filename or "payments").rsplit(".", 1)[0] + "_payments.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Row-Count": str(len(rows)),
+        },
+    )
 
 
 if __name__ == "__main__":

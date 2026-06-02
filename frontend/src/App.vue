@@ -98,6 +98,7 @@
  'add-charge-fields',
  'add-peripheral-blocks-field',
  'add-colonoscopy-fields',
+ 'payments',
  ].includes(activeTab),
  }"
  class="tab-btn dropdown-btn"
@@ -149,6 +150,9 @@
  class="dropdown-item"
  >
  Add Colonoscopy Fields
+ </button>
+ <button @click="selectTab('payments')" class="dropdown-item">
+ Extract Payments from PDF
  </button>
  </div>
  </div>
@@ -9132,6 +9136,92 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
  </div>
 
+ <!-- Extract Payments from PDF Tab -->
+ <div v-if="activeTab === 'payments'" class="upload-section">
+ <div class="section-header">
+ <h2>Extract Payments from PDF</h2>
+ <p>
+ Upload a single PDF containing remittance advice + patient check pairs.
+ The model (Gemini 3.1 Pro) reads each check and returns a CSV with
+ Amount, Check Number, Check Date, and Account Number columns.
+ </p>
+ </div>
+
+ <div class="upload-grid">
+ <div class="upload-card">
+ <div class="card-header">
+ <div class="step-number">1</div>
+ <h3>Payment PDF</h3>
+ </div>
+ <div
+ class="dropzone"
+ :class="{ active: isPaymentsPdfDragActive, 'has-file': !!paymentsPdfFile }"
+ @drop="onPaymentsPdfDrop"
+ @dragover.prevent="isPaymentsPdfDragActive = true"
+ @dragenter.prevent="isPaymentsPdfDragActive = true"
+ @dragleave.prevent="isPaymentsPdfDragActive = false"
+ @click="triggerPaymentsPdfUpload"
+ >
+ <input
+ ref="paymentsPdfInput"
+ type="file"
+ accept=".pdf,application/pdf"
+ @change="onPaymentsPdfFileSelect"
+ style="display: none"
+ />
+ <div class="upload-content">
+ <div class="upload-icon"></div>
+ <div v-if="paymentsPdfFile" class="file-info">
+ <div class="file-icon"></div>
+ <span class="file-name">{{ paymentsPdfFile.name }}</span>
+ <span class="file-size">{{ formatFileSize(paymentsPdfFile.size) }}</span>
+ <button
+ @click.stop="paymentsPdfFile = null"
+ class="remove-file-btn"
+ title="Remove file"
+ >
+ ×
+ </button>
+ </div>
+ <p v-else class="upload-text">
+ Drag &amp; drop a PDF here<br /> or click to browse<br />
+ <small>(One PDF at a time)</small>
+ </p>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div class="form-actions" style="margin-top: 20px">
+ <button
+ @click="runPaymentsExtraction"
+ class="btn-primary btn-large"
+ :disabled="!paymentsPdfFile || isPaymentsExtracting"
+ >
+ <span v-if="isPaymentsExtracting">Extracting… (Gemini 3.1 Pro typically takes ~1–3 min)</span>
+ <span v-else>Extract Payments &amp; Download CSV</span>
+ </button>
+ </div>
+
+ <div v-if="paymentsError" class="result-section" style="margin-top: 20px">
+ <div class="error-message">
+ <h3>Error</h3>
+ <p>{{ paymentsError }}</p>
+ </div>
+ </div>
+
+ <div v-if="paymentsResult" class="result-section" style="margin-top: 20px">
+ <div class="success-message">
+ <h3>Done</h3>
+ <p>
+ Extracted <strong>{{ paymentsResult.rowCount }}</strong> payment row(s) from
+ <strong>{{ paymentsResult.sourceFile }}</strong>. The CSV has been downloaded
+ to your computer.
+ </p>
+ </div>
+ </div>
+ </div>
+
  <!-- Base Prompts & CPT Codes Tab -->
  <div v-if="activeTab === 'base-prompts'" class="tab-content">
  <div class="section">
@@ -9713,6 +9803,12 @@ export default {
  splitJobStatus: null,
  isSplitting: false,
  isPdfDragActive: false,
+ // Payments extraction tab
+ paymentsPdfFile: null,
+ isPaymentsPdfDragActive: false,
+ isPaymentsExtracting: false,
+ paymentsError: null,
+ paymentsResult: null,
  splitOutputFileName: "", // Custom output filename for downloads
  statusPollingInterval: null,
  splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
@@ -10768,6 +10864,98 @@ export default {
  }
  // Reset the input so the same files can be selected again if needed
  e.target.value = "";
+ },
+
+ // Payments extraction tab
+ triggerPaymentsPdfUpload() {
+ this.$refs.paymentsPdfInput.click();
+ },
+ onPaymentsPdfDrop(e) {
+ e.preventDefault();
+ this.isPaymentsPdfDragActive = false;
+ const files = Array.from(e.dataTransfer.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please drop a valid PDF file");
+ return;
+ }
+ this.paymentsPdfFile = files[0];
+ this.paymentsResult = null;
+ this.paymentsError = null;
+ },
+ onPaymentsPdfFileSelect(e) {
+ const files = Array.from(e.target.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please choose a valid PDF file");
+ e.target.value = "";
+ return;
+ }
+ this.paymentsPdfFile = files[0];
+ this.paymentsResult = null;
+ this.paymentsError = null;
+ e.target.value = "";
+ },
+ async runPaymentsExtraction() {
+ if (!this.paymentsPdfFile) return;
+ this.isPaymentsExtracting = true;
+ this.paymentsError = null;
+ this.paymentsResult = null;
+ try {
+ const fd = new FormData();
+ fd.append("pdf_file", this.paymentsPdfFile);
+ const resp = await axios.post(
+ joinUrl(API_BASE_URL, "api/extract-payments-from-pdf"),
+ fd,
+ {
+ responseType: "blob",
+ timeout: 15 * 60 * 1000, // 15 min
+ headers: { "Content-Type": "multipart/form-data" },
+ }
+ );
+ // Download the CSV
+ const rowCount = resp.headers["x-row-count"] || "?";
+ const baseName = (this.paymentsPdfFile.name || "payments").replace(/\.pdf$/i, "");
+ const filename = `${baseName}_payments.csv`;
+ const blob = new Blob([resp.data], { type: "text/csv" });
+ const url = window.URL.createObjectURL(blob);
+ const link = document.createElement("a");
+ link.href = url;
+ link.download = filename;
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+ window.URL.revokeObjectURL(url);
+ this.paymentsResult = {
+ rowCount,
+ sourceFile: this.paymentsPdfFile.name,
+ };
+ this.toast.success(`Extracted ${rowCount} payment row(s)`);
+ } catch (err) {
+ let detail = err?.message || "Extraction failed";
+ // If backend returned JSON error in a blob, parse it
+ if (err?.response?.data && err.response.data instanceof Blob) {
+ try {
+ const text = await err.response.data.text();
+ try {
+ const parsed = JSON.parse(text);
+ detail = parsed.detail || text;
+ } catch {
+ detail = text;
+ }
+ } catch (_) {
+ // keep the original detail message
+ }
+ } else if (err?.response?.data?.detail) {
+ detail = err.response.data.detail;
+ }
+ this.paymentsError = detail;
+ this.toast.error(`Payments extraction failed: ${detail.substring(0, 200)}`);
+ } finally {
+ this.isPaymentsExtracting = false;
+ }
  },
 
  removePdfFile(index) {

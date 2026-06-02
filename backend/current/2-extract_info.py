@@ -233,33 +233,86 @@ def pdf_to_images_base64(pdf_path, max_pages=100):
         print(f"    ⚠️  Failed to convert PDF to images: {str(e)}")
         return []
 
+def _build_image_messages(extraction_prompt, image_data_list):
+    """Build OpenRouter messages payload with PDF-rendered images."""
+    content = [{"type": "text", "text": extraction_prompt}]
+    for img_data in image_data_list:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img_data}"}
+        })
+    return [{"role": "user", "content": content}]
+
+
+def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
+    """Build OpenRouter messages payload using direct PDF upload (file_data).
+
+    Used as a fallback when image-route fails due to OpenRouter's 30 MB image
+    payload limit. Gemini handles PDFs natively, so this bypasses the cap.
+    """
+    import base64 as _b64
+    try:
+        with open(patient_pdf_path, "rb") as _fp:
+            _pdf_bytes = _fp.read()
+        _pdf_b64 = _b64.b64encode(_pdf_bytes).decode("ascii")
+    except Exception as _e:
+        print(f"    ⚠️  Failed to read PDF bytes for direct-PDF fallback: {_e}")
+        return None
+    return [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": extraction_prompt},
+            {"type": "file", "file": {
+                "filename": pdf_filename or os.path.basename(patient_pdf_path),
+                "file_data": f"data:application/pdf;base64,{_pdf_b64}",
+            }},
+        ],
+    }]
+
+
+# OpenRouter caps the *image* payload at 30 MB. If our base64-encoded images
+# approach this, switch to direct PDF mode preemptively. 25 MB headroom.
+_OPENROUTER_IMAGE_PAYLOAD_BUDGET = 25 * 1024 * 1024  # 25 MB of base64 image data
+
+
 def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries=5, field_name_for_log=None):
-    """Extract patient information using OpenRouter API"""
+    """Extract patient information using OpenRouter API.
+
+    Primary path: render PDF pages to PNG images and send via image_url parts.
+    Fallback path: when total image payload would exceed OpenRouter's 30 MB
+    cap (or a 413 is returned), send the PDF directly via the file_data
+    content type, which Gemini handles natively.
+    """
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
-    
+
     # Get API key
     api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
         print(f"    ❌ OpenRouter API key not found for {pdf_filename}{log_suffix}")
         return None
-    
+
     # Convert PDF to images
     image_data_list = pdf_to_images_base64(patient_pdf_path)
     if not image_data_list:
         print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
         return None
-    
-    # Build content for OpenRouter
-    content = [{"type": "text", "text": extraction_prompt}]
-    for img_data in image_data_list:
-        content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/png;base64,{img_data}"
-            }
-        })
-    
-    messages = [{"role": "user", "content": content}]
+
+    # Decide between image route and direct-PDF route based on total image size.
+    image_payload_size = sum(len(d) for d in image_data_list)
+    using_direct_pdf = False
+    if image_payload_size > _OPENROUTER_IMAGE_PAYLOAD_BUDGET:
+        print(
+            f"    📦 {pdf_filename}{log_suffix}: image payload ~{image_payload_size/1024/1024:.1f} MB "
+            f"exceeds OpenRouter image cap; using direct-PDF upload (file_data)."
+        )
+        messages = _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename)
+        if not messages:
+            # fallback to images even if oversized, let the API reject it
+            messages = _build_image_messages(extraction_prompt, image_data_list)
+        else:
+            using_direct_pdf = True
+    else:
+        messages = _build_image_messages(extraction_prompt, image_data_list)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -373,12 +426,25 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         except Exception as e:
             print(f"    ⚠️  OpenRouter API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             # DEBUG: dump response body on 400 so we can see the actual error reason
+            body_preview_lc = ""
             try:
                 if hasattr(e, 'response') and e.response is not None:
                     body_preview = e.response.text[:2000]
+                    body_preview_lc = body_preview.lower()
                     print(f"    🔎 Response body: {body_preview}")
             except Exception:
                 pass
+
+            # If image payload was too big, swap to direct-PDF upload and retry.
+            status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+            is_413 = (status_code == 413) or ("413" in str(e)) or ("payload too large" in body_preview_lc) or ("cannot exceed 30mb" in body_preview_lc)
+            if is_413 and not using_direct_pdf:
+                pdf_messages = _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename)
+                if pdf_messages:
+                    print(f"    🔁 Switching {pdf_filename}{log_suffix} to direct-PDF upload (file_data) after 413; retrying.")
+                    messages = pdf_messages
+                    using_direct_pdf = True
+                    # Don't burn a retry attempt — proceed to backoff/retry block.
             if attempt == max_retries - 1:
                 print(f"    ❌ Final OpenRouter API failure for {pdf_filename}{log_suffix}")
                 return None, None

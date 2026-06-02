@@ -4,13 +4,6 @@ If a field is not present or cannot be determined from the provided text, output
 BE VERY CAREFUL to not confuse zero and the letter O. If the sign is completely round then it is an O (letter O), if it is a little bit oval then it is an O.
 Extraction Instructions per Patient Record:
 
-=== Charge Date ===
-Description: Date of Service:
-Where to find: under Procedure Summary ( Date)
-Output format: MM/DD/YYYY
-Extract: Charge Date
-
-
 === Patient Last Name ===
 Description: Patient Last Name
 Where to find: Billing and Compliance Report
@@ -28,7 +21,7 @@ Extract: Patient First Name
 === Patient Middle Name ===
 Description: Patient Middle Name
 Where to find: Billing and Compliance Report
-Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Y and middle name should be in single digit
+Output format: all caps Last Name only for example Oney, Kim Y then the Out put should be Y and middle name should be in single digit.Capture only the first letter of the middle name
 Extract: Patient Middle Name
 
 
@@ -40,7 +33,8 @@ Extract: Patient DOB
 
 
 === Patient Marital Status ===
-Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if its not listed on the pdf then put the unknown option obviously but whenever you write something
+Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if THESE not listed on the pdf then put the unknown option obviously
+Output format: If the marital status or relationship indicates ‘married,’ classify as Married.
 Extract: Patient Marital Status
 
 
@@ -57,7 +51,7 @@ Extract: Patient EmploymentStatus
 
 
 === Patient Street Address ===
-Output format: all caps just street address
+Output format: Transform the street address into ALL CAPS and remove all special characters, including hashtags (#), periods (.), and hyphens (-). Output only the cleaned, fully capitalized street address
 Extract: Patient Street Address
 
 
@@ -74,6 +68,7 @@ Extract: Patient State
 
 === Patient ZIP Code ===
 Description: patient zip code
+Output format: CAPTURE ONLY THE FIRST 5  NUMBERS FOR EXAMPLE IF ZIP CODE IS 4759632 CAPTURE ONLY 47596
 Extract: Patient ZIP Code
 
 
@@ -108,19 +103,8 @@ Extract: Patient Employer
 
 === Patient MRN ===
 Description: this is the medical record number (MRN)
-Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
-
-How this can be applied:
-
-If you want integers:
-AI should parse numbers as int or decimal, avoiding scientific notation.
-Example:
-1.01379E+11 → 101379000000
-
-If you want strings:
-AI should save them exactly as they appear.
-Example:
-1.01379E+11 → "101379000000"
+Where to find: don’t capture the number after the - for example (2753-1) capture only 2753
+Output format: When extracting the Medical Record Number (MRN), capture only the numeric value that appears after the leading zero(s). For example if MRN IS MM0000002466 Capture only 2466
 Extract: Patient MRN
 
 
@@ -132,6 +116,7 @@ Extract: Case #
 
 === Patient Race ===
 Description: this is the RACE
+Output format: capture only the colour not the number (eg. White)
 Extract: Patient Race
 
 
@@ -143,7 +128,7 @@ Extract: Patient SSN
 
 === Guarantor Relation ===
 Description: what relationship does the guarantor have to the patient
-Output format: if the guarantor and patient are the same person (roughly, doesnt have to be the exact same string) then the relation is "Self", if it is a parent-child relationship then put "Child" even if the guarantor is listed as parent the relation is also Child, else if it is anything els or like unkown then put "Other"
+Output format: "If the patient and the guarantor are the same person, select 'self.' If the guarantor is different and the patient's age is below 18, select 'child.'"
 Extract: Guarantor Relation
 
 
@@ -166,6 +151,18 @@ Extract: Guarantor Middle Name
 Description: guarantor date of birth in MM/DD/YYYY format
 Where to find: There is no Guarantor DOB in the record (if Guarantor is self and name match with Patient then extract the Patient DOB)
 Extract: Guarantor DOB
+
+
+=== Guarantor Marital Status ===
+Description: Output enum is these values: Married, Widowed, Single, Divorced, Domestic Partner, Other, Legally separated - THESE ARE THE ONLY ALLOWED OPTIONS if THESE not listed on the pdf then put the unknown option obviously
+Output format: If the marital status or relationship indicates ‘married,’ classify as Married.
+Extract: Guarantor Marital Status
+
+
+=== Guarantor Sex ===
+Description: gender of the primary insurance subscriber (M/F)
+Output format: find the Primary Sub Gender if not then subscriber and Patient are same extract the Patient Gender if not leave it empty
+Extract: Guarantor Sex
 
 
 === Guarantor Address ===
@@ -191,483 +188,39 @@ Extract: Guarantor State
 === Guarantor ZIP ===
 Description: zip of the guarantor
 Where to find: There is no Guarantor zip in the record (if Guarantor is self and name match with Patient then extract the Patient zip)
+Output format: CAPTURE ONLY THE FIRST 5  NUMBERS FOR EXAMPLE IF ZIP CODE IS 4759632 CAPTURE ONLY 47596
 Extract: Guarantor ZIP
 
 
+=== Guarantor HomePhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Output format: Main Phone:
+Extract: Guarantor HomePhone
+
+
+=== Guarantor WorkPhone ===
+Description: • If the numbers are different, return the Work Phone.
+Where to find: • If the numbers are the same, return blank/empty.
+Output format: Work Phone:
+Extract: Guarantor WorkPhone
+
+
+=== Guarantor CellPhone ===
+Description: output is JUST numbers, nothing else, strip all parentheses and dashes, example output: 546222435 (just numbers)
+Output format: Cell Phone:
+Extract: Guarantor CellPhone
+
+
 === Location ===
-Description: Find the specific word if “QCB MOTHER/BABY” is found, then consider it as “UNITY POINT-TERRACE PARK QCB MOTHER/BABY.” 
-If MUSCATINE then consider as UNITY POINT MUSCATINE
-If BETTENDORF then consider as UNITY POINT-TERRACE PARK
-If “QCB MOTHER/BABY” is not found, then it should be “UNITY POINT-TERRACE PARK.”
-Where to find: Don’t keep the cell as blank always
-Output format: Find the specific word if “QCB MOTHER/BABY” is found, then consider it as “UNITY POINT-TERRACE PARK QCB MOTHER/BABY.” 
-If MUSCATINE then consider as UNITY POINT MUSCATINE
-If BETTENDORF then consider as UNITY POINT-TERRACE PARK
-If “QCB MOTHER/BABY” is not found, then it should be “UNITY POINT-TERRACE PARK.”
+Description: CENTER FOR MINIMALLY INV SURG
+Where to find: Always be CENTER FOR MINIMALLY INV SURG
 Extract: Location
 
 
 === PatientClass ===
-Description: under (Hospital Account)
-Where to find: In the record, if a full description is found, then identify selective keywords such as INPATIENT HOSPITAL, OUTPATIENT HOSPITAL,  if anyother was listed consider as OUTPATIENT HOSPITAL.
-Output format: always in CAPITAL
+Description: AMBULATORY SURGICAL CENTER
+Where to find: Always AMBULATORY SURGICAL CENTER
 Extract: PatientClass
-
-
-=== Surgeon ===
-Description: Extract the Surgeon name with credintial
-Output format: """Surgeon – EXTRACTION INSTRUCTION
-Capture Rule
-
-The AI must strictly match the Surgeon from the medical record to the standardized reference list.
-
-If the Surgeon found in the document is:
-
-Misspelled
-
-Abbreviated
-
-Partially written
-
-Contains extra words
-
-Written in mixed case (upper/lower)
-
-→ The AI must auto-correct it to the correct standardized format.
-
-Allowed Reference List (Exact Output Format)
-
-The AI must output ONLY one of the following standardized types:
-
- NUNNEWAR, SACHIN , MD
-ABDULLAH, AFZAL, MD
-ACKLAND, CANDYCE, MD
-ACOSTA, HEBERT, MD
-ADE, DAVID, MD
-ADE, THOMAS, MD
-AGARWAL , VIKRAM  VEDPRAKASH , MD
-AHMED, ASIF, MD
-AL-QULALI, MONA, MD
-ALAPATI, KISHORE, MD
-ALDRIDGE, SPENCER JAY, MD
-ALNAS, MAJD, MD
-ALQULALI, MONA, MD
-ALTERGOTT, RUDOLPH ALAN, MD
-ALWARD, PETER, MD
-ANDERSON, BRIAN, MD
-ANDRESEN, ANDREW, MD
-ANDREWS, KAHLIL J., MD
-ANDREWS, NATHAN, MD
-ANDREWS, SARA  A, MD
-ANKOLKAR, IRFAN, MD
-ANSEEUW, BRIAN, MD
-ARNOLD, DANIEL, MD
-ARUMUGAM, PURANI, MD
-ARUMUGAM, PURANI, MD
-ARUMUGAM, VELUSAMI, MD
-ARVANITIS, STEVE, MD
-ASHRAF, MUDDASIR, MD
-ASOTA, IJEOMA M, MD
-ATWELL, CALVIN, MD
-AURELIO, EDEN, MD
-BABIREDDY, PHANIVARDHAN, MD
-BAKER, JOHN, MD
-BAKER, JOHN, MD
-BANAS, JOHN, MD
-BANER, TERRILL, MD
-BARKLEY, CRAIG STANLEY, MD
-BARR, ANDRIA, MD
-BARRON, PATRICIA, MD
-BAYNE, STEPHEN, MD
-BAYNE, STEPHEN, MD
-BEAR, JULIE, MD
-BEGUM, HOSNE, MD
-BENTLEY, DAVID, MD
-BERGSTROM, JOSEPH E, MD
-BERNAS, ANTONIO, MD
-BERRY, MICHAEL, MD
-BHATTACHARYA, ISHAN, MD
-BLADE, ALLISON, MD
-BLAIR, TINA, MD
-BLAMOUN, JOHN, MD
-BLECHLE, KEVIN, MD
-BOARDMAN, STEVEN, MD
-BOBBA, KUMAR, MD
-BODE, DAWN, MD
-BODE, DAWN, MD
-BOEHM, MICHAEL, MD
-BOHN, GREGORY, MD
-BONILLA, JUAN, MD
-BORISUTH, NAVANEET S, MD
-BOWMAN, GEOFFREY, MD
-BRENOT, KAREN, MD
-BRIES, ANDREW, MD
-BRINGAS, ENRIQUE, MD
-BROOKS, ADAM, MD
-BROOMHEAD, STEVEN E, MD
-BUCKROP, BRIAN, MD
-BURMEISTER, JAY, MD
-BUTVILAS, KEITH, MD
-CABELIN, MARK, MD
-CADY, BRIAN, MD
-CAESAR, RICHARD EVAN, MD
-CAGLE, ROBERT A, MD
-CARAMAN, IURIE, MD
-CARLSON, RUSSEL M, MD
-CASTRO, REYNALDO M, MD
-CATLIN, SHERI, MD
-CERVETTI, RONALD, MD
-CHANDRAHASEGOWDA, SHASHINATH KATHARAGHATTA, MD
-CHAUDHRY, ALYAS, MD
-CHEEMA, AHMAD, MD
-CHESSER, ANTHONY, MD
-CHHABRA, MANPREET S, MD
-CHHABRA, MANPREET, MD
-CHINTALAPANI, SREENIVAS, MD
-CHOTIPRASIDHI, POONPUTT, MD
-CIMPEAN, CLAUDIU, MD
-CLARK, JASON, MD
-COBB, TYSON, MD
-COLLAZO, CHRISTOPHER, MD
-COLLINS, RICHARD, MD
-COMM HLTH CTR , SEIA KEOKUK, MD
-COMMUNITY, HEALTH CARE, MD
-CONGDON, RALPH, MD
-CONNOLLY, EDWARD, MD
-CRAMER, ANNE, MD
-CRAWFORD, JAMILLA M, MD
-CROSMER, MEGAN, MD
-CUTRONE, JOSEPH, MD
-CZIPERLE, DAVID, MD
-D'ANGELO, ANTHONY, MD
-DAHAR, MASHOOQUE, MD
-DARMAFALL, KRISTYN, MD
-DAVIES, JOHN, MD
-DAVIS, MARK, MD
-DAVIS, PAMELA, MD
-DEGRACIA, DIONISIO, MD
-DEUTMEYER, JASON J, MD
-DIAB, MOHAMMED, MD
-DIMARCO, MICHAEL J, MD
-DIPPEL, ERIC J, MD
-DISCHERT, KEVIN, MD
-DODSON, KEVIN, MD
-DOLPHIN, MICHAEL, MD
-DONNELLY , ROBERT  J, MD
-DORNBIER, DENNIS PAUL, MD
-DUNCAN, GREGORY, MD
-DUNLAY, RYAN, MD
-DURCO, MILAN, MD
-DURICK, NATHAN, MD
-DVORAK, DOUGLAS W, MD
-EASTMAN, DAVID M, MD
-ECKHARDT, ARIC, MD
-EDWARDS, ALAN B, MD
-EHLE, JOSEPH, MD
-ELANGOVAN, SIVA, MD
-ELMENDORF, CHARLES, MD
-ENGEBRECHT, BRIAN, MD
-FAIDLEY, CHERYL, MD
-FENZL, CARLTON R, MD
-FIERCE, NATHAN M, MD
-FIERCE, NATHAN M, MD
-FIGGE, PAUL, MD
-FISCELLA, RONALD, MD
-FLOWERS, ROBERT, MD
-FOAD, ABDULLAH, MD
-FOWLER, STEVEN, MD
-FOY, BRYAN, MD
-FRANCALANCIA, NICOLA A, MD
-FREDERICK, JOHN C, MD
-FREED, RHONDA, MD
-FREED, STEVEN, MD
-FULLENKAMP, JEFFREY, MD
-GAJUREL, NITU, MD
-GALBREATH, ERNEST, MD
-GANNON, DAVID, MD
-GANSHIRT, ANDREW M, MD
-GARNEAU, STEWART, MD
-GEICK, LYNN, MD
-GERDES, MICHAEL, MD
-GHAWI, HUSAM SABA ELIAS, MD
-GIAMMETTA, DIANNE, MD
-GIST, MORRIS, MD
-GLICKENBERGER, ROBERT, MD
-GOODING-ROBINSON, ROSEMARY, MD
-GOTTFRIED, IRVING S, MD
-GOVINDAIAH, GORANTLA, MD
-GOVINDAIAH, SUJATHA, MD
-GOWDA, BETTAIA, MD
-GRAMM, JAMES, MD
-GRIECO, JOHN, MD
-HAQUE, SYED M, MD
-HARB, GHASOUB, MD
-HARRISON, STEPHEN, MD
-HARSH , LAURI  A, MD
-HARSON, ROBERT, MD
-HASHMI, ASAD, MD
-HASS, JOEL, MD
-HASS, MELINDA, MD
-HEBERER, MATTHEW, MD
-HEDRICK, DYLAN, MD
-HENSEL, COLLEEN, MD
-HERMANSON, MARK, MD
-HERR, THOMAS, MD
-HINH, CHRISTOPHER, MD
-HINKAMP, THOMAS, MD
-HINTON, ISAAC, MD
-HINZMAN, JUSTIN, MD
-HOANG, VU T, MD
-HODGE, KEVIN, MD
-HOFFMAN, JOHN, MD
-HOFMANN, R JOSEF, MD
-HOLLAND, SHERI CATLIN, MD
-HOM, DAVID , MD
-HORANI, HANI, MD
-HORCHAK, ALEX M, MD
-HOWCROFT, MICHAEL, MD
-HUSSAIN, MOHAMMED, MD
-HUSSAIN, MUNAWAR , MD
-HUSSAIN, SULEMAN, MD
-HUSSAIN, WAQAS, MD
-IREY, WILLIAM, MD
-JABBARI, GHOLAM, MD
-JACOBSEN, ELIZABETH M, MD
-JANOWSKI, WOJCIECH C, MD
-JEROME, WILLIAM, MD
-JOHNSON, DANIEL, MD
-JOHNSON, GORDON, MD
-JOHNSON , JAROD  W, MD
-JOHNSON, STEVEN M, MD
-JOHNSONS, DARRYL, MD
-JONES, BRUCE, MD
-KANATHUR, NAVEEN R, MD
-KANE, FRANCIS, MD
-KARI, MARUTI R, MD
-KATZER, JESSICA, MD
-KELTY, LESTER, MD
-KETTLEKAMP, JAMES, MD
-KHALAFALLAH, AHMED A, MD
-KHAN, MITCHELL A, MD
-KHOURY, DOUGLAS A, MD
-KHRAIWESH , OLA  MAHMOUD , MD
-KIM, JAE H, MD
-KING, JAMES D, MD
-KLOSAK, JOHN, MD
-KOENIG, CHARLOTTE, MD
-KOLUSU, HANUMANTHA, MD
-KOPP, DOUGLAS, MD
-KOVACH, MARK, MD
-KRESOWIK, TIMOTHY P, MD
-KROGMANN, RYAN J, MD
-KRUG, GLEN, MD
-KURANI, ILA, MD
-KWAN, ANTHONY, MD
-LAKSHMINARAYANA, PRADEEP HESARAGHATTA, MD
-LENO, JOHN HENRY, MD
-LICANDRO, JIM, MD
-LIGHTFOOT, ANDREW, MD
-LINDAMAN, MATTHEW, MD
-LIVENGOOD, SOMMER, MD
-LOHMULLER, JOSEPH, MD
-LOPEZ, JOSEPH, MD
-LUBBERS, ROGER, MD
-LUCKETT, MARC, MD
-LUSZCZYK, MYLES, MD
-LUTCHKA, BRADLEY J, MD
-LUTRIN, FRANK, MD
-LYLES, JAMES, MD
-MAGNUS, ROBERT, MD
-MAIORIELLO, ANTHONY, MD
-MALLIK, RAJIV, MD
-MANAZIR, FARAZ, MD
-MANKARIOUS, MICHAEL, MD
-MANN, TOBIAS, MD
-MANZAR, KHALID, MD
-MARLA, RAMMOHAN, MD
-MAROGIL, SAMMY, MD
-MARTIN, JOSEPH, MD
-MAURUS, JEFFREY, MD
-MAYNARD, RICHARD, MD
-MCBRIDE, CONNOR P, MD
-MCCAW, PATRICIA, MD
-MCCOOL, PAMELA JEAN, MD
-MCGOWAN, BRIAN, MD
-MCKAY, THOMAS, MD
-MCKENZIE, MITCHEL M, MD
-MCLOONE, PAUL, MD
-MENDEL, TUVI, MD
-MILAS, ROBERT, MD
-MILLEA, TIMOTHY, MD
-MILLEMAN, MARK, MD
-MODI, SHREY, MD
-MOE, CRAIG EDWARD, MD
-MOEN, MICHAEL, MD
-MOHR, NATHAN, MD
-MORENO, XAVIER , MD
-MOVVA, RAO, MD
-MUKKAMALLA, VIJAYALAKSHMI, MD
-MUNDODI, BALAKRISHNA, MD
-MUNNS, JUSTIN, MD
-NARAYANA, GONCHIGARI, MD
-NEBOR, ANTHONY, MD
-NEZIROSKI, BURIM, MD
-NGUYEN , QUANG  TUNG , MD
-NOUMI, ANDRE, MD
-NUNNEWAR, SACHIN , MD
-ODELL, MARK, MD
-OGUNLEYE, FOLUSO, MD
-OKBA, AHMED, MD
-OLNEY, DANIEL, MD
-OLSON, WILLIAM, MD
-OLUTADE, TOYOSI, MD
-OSARO, ODUAH, MD
-OSBORNE, ZANE, MD
-PAGADALA, PADMAVATHI, MD
-PAGADALA, PADMAVATI, MD
-PALMQUIST, ERIC, MD
-PANIAMOGAN, CALAB, MD
-PANOZZO, KERRY, MD
-PARDUBSKY, PETER, MD
-PAREIGIS, ELIZABETH, MD
-PASHA, AAMIR, MD
-PATEL, AMITKUMAR , MD
-PATLOLLA, HARISH, MD
-PAUL, JAMES, MD
-PENMATCHA, RAZ, MD
-PETERSEN, DAVID, MD
-PETERSON, JOHN, MD
-PHINNEY, RICHARD, MD
-PIMENTEL, ROBERT W, MD
-POKORNEY, RYAN T, MD
-POLASCHEK, KARLA, MD
-POLEY, PREETI, MD
-PORUBCIN, MICHAEL, MD
-POTHULA, ASWARTHA R, MD
-POTTER, JON W, MD
-PURI, SANJEEV, MD
-PURIGHALLA, SRINIVASAN, MD
-PYEVICH, MICHAEL, MD
-PYEVICH, MICHAEL, MD
-PYEVICH, MICHAEL, MD
-RACCONE, NANCY, MD
-RAGHEB, SHERIF, MD
-RAJPUT, MAHEEN, MD
-RAJPUT, MOHAMED I, MD
-RAMSTACK, THOMAS, MD
-RAUEN, MATTHEW, MD
-RECTOR, SUSAN, MD
-REDDY, BOUYELLA, MD
-REID, HELENA, MD
-RICAURTE, EDUARDO, MD
-RICHARDS, BRIAN J, MD
-RINK, PETER C, MD
-RIPPERGER, RICHARD, MD
-RIZZO, THOMAS, MD
-ROBERTS, LEANNE J, MD
-ROHLF, DAVID, MD
-ROSEN, WILLIAM, MD
-ROSKI, RICHARD ARTHUR, MD
-ROSSI, DOUGLAS A, MD
-ROTH, JOHN, MD
-RUDIN, ANDREW S, MD
-SADLER, RICHARD, MD
-SAEED, MOAZZAM, MD
-SANDSTROM, TODD, MD
-SANGUINO, MIGUEL A, MD
-SCHRECK, MICHAEL, MD
-SCHRIER, JAMES E, MD
-SCHROEDER, DAVID W, MD
-SCHROEDER, JULIE, MD
-SCHWALJE, ADAM T, MD
-SEARLES, JOHN, MD
-SEARLES, JOHN, MD
-SHAH, SAYED, MD
-SHAKER, MOHAMMAD R, MD
-SHAY, BEAU, MD
-SHEN, MARK JUNG-CHING, MD
-SHERWANI, UBAID U, MD
-SHIVAKUMAR, BAVIKATTE, MD
-SHNURMAN, BENJAMIN, MD
-SIDDIQUI, WAQAS, MD
-SIEGEL, LEON, MD
-SINGH, PARAM PUNEET, MD
-SISTLA , PHANICHARAN ADITYA, MD
-SMITH, AUDRA MARIE, MD
-SMITH, KEVIN, MD
-SOLHEIM, KARLA NYREEN, MD
-SOLTYS, DOUGLAS, MD
-SORIA, LOREN L, MD
-SPAUDE, RANDALL, MD
-STEELS, BRETT C , MD
-STEIGER, CHARLES, MD
-STEIN, REBECCA S, MD
-STEINBRONN, DAVID, MD
-STEVENSON, ANDREW N, MD
-STEWART, MARK, MD
-SUN, WEI, MD
-SUNDAR, SANJAY, MD
-SYBESMA, WILLIAM G, MD
-TEMPLE, ELIZABETH, MD
-THAKKAR, ISHWAR, MD
-THOMAS , ROBERT  D, MD
-THOMPSON, KIMBERLY, MD
-TING, BRIAN S, MD
-TJARKS, MARY, MD
-TOMEK, MICHAEL, MD
-TOMEK, MICHAEL, MD
-TONG, LINDA, MD
-TROTTER, MINDY JEAN, MD
-TUCHEK, JAMES M, MD
-TURNER, MICHAEL, MD
-TUTTLE, RICHARD, MD
-TYNER, RALPH, MD
-UDEHN, DAVID, MD
-UPADHYA, SHASHI, MD
-VAN STRATEN, JOHN J, MD
-VANKEULEN , KARLA  A, MD
-VANRAALTE, BENJAMIN, MD
-VELUZ, JEFFREY, MD
-VIRDI, PREM, MD
-VIYUOH, NICHOLAS G, MD
-VONGILLERN, THOMAS, MD
-WAGLE, ARCHANA, MD
-WAGLE, NIKHIL, MD
-WALCZYK, JEFFREY, MD
-WALSH , ANDREA, MD
-WANG, PAUL, MD
-WARHANK, ROSE, MD
-WARREN, THOMAS  LARRY, MD
-WATLEY, SHANNON, MD
-WAYNE, EILEEN, MD
-WAYNE, EILEEN, MD
-WELLS, TAMMY, MD
-WENCK, TODD, MD
-WILBER, MATHEW, MD
-WILLIAMS , MARK  W, MD
-WINSTON , JONATHAN  D, MD
-WISEMAN, KIMBERLY, MD
-WYNN, SHAWN, MD
-YASEEN, MOHAMMAD, MD
-YATES, LEROY, MD
-YAZEJI, MAY, MD
-YERKES , NICHOLAS  STEVEN , MD
-YODER, KRISTINA, MD
-ZAYADIN , YACOUB , MD
-
-
-Output Rule
-
-✔ Always output the corrected, standardized name from the reference list.
-✖ Never output anything outside the list.
-✖ If multiple Surgeon appear → select the primary one mentioned in “Surgeon”,"
-Extract: Surgeon
-
-
-=== MD ===
-Description: always leave empty string! If the MD found also leave this cell as empty
-Output format: always leave empty string! If the MD found also leave this cell as empty
-Extract: MD
 
 
 === SRNA ===
@@ -689,8 +242,8 @@ Extract: Resident
 
 
 === Revenue ===
-Description: If “QCB MOTHER/BABY” is found, then it should be “OB.” If not, it should be “OR.”
-Output format: Output enum is these values: OB, OR
+Description: CENTER FOR MINIMALLY INV SURG
+Where to find: Always be CENTER FOR MINIMALLY INV SURG
 Extract: Revenue
 
 
@@ -701,8 +254,8 @@ Extract: Concurrent Providers
 
 
 === Place Of Service ===
-Description: use always( Class ) in the record
-Where to find: In the record, if a full description is found, then identify selective keywords such as INPATIENT HOSPITAL, OUTPATIENT HOSPITAL, if anyother was listed consider as OUTPATIENT HOSPITAL
+Description: AMBULATORY SURGICAL CENTER
+Where to find: Always AMBULATORY SURGICAL CENTER
 Extract: Place Of Service
 
 
@@ -717,138 +270,401 @@ Description: Pre-Op Diagnosis:
 Extract: POST-OP DIAGNOSIS
 
 
-=== An Start ===
-Description: Find the Anesthesia start time
-Where to find: will be in the Anesthesia Times:
-Output format: Out put should be date of service and time example : 9/30/2025  9:22:00 AM
-Extract: An Start
-
-
-=== An Stop ===
-Description: Find the Anesthesia stop time
-Where to find: will be in the Anesthesia Times:
-Output format: Out put should be date of service and time example : 9/30/2025  9:53:00 AM
-Extract: An Stop
-
-
-=== Anesthesia Type ===
-Description: Anesthesia Type
-Output format: ANESTHESIA TYPE – EXTRACTION INSTRUCTION
-Capture Rule
-
-The AI must strictly match the Anesthesia Type from the medical record to the standardized reference list.
-
-If the anesthesia type found in the document is:
-
-Misspelled
-
-Abbreviated
-
-Partially written
-
-Contains extra words
-
-Written in mixed case (upper/lower)
-
-→ The AI must auto-correct it to the correct standardized format.
-
-Allowed Reference List (Exact Output Format)
-
-The AI must output ONLY one of the following standardized types:
-
-NEURAXIAL BLOCK
-
-SPINAL
-
-PERIPHERAL NERVE BLOCK
-
-EPIDURAL
-
-GENERAL
-
-MAC
-
-Output Rule
-
-✔ Always output the corrected, standardized name from the reference list.
-✖ Never output anything outside the list.
-✖ If multiple anesthesia types appear, apply these priority rules:
-  - If GENERAL appears with anything else, output GENERAL
-  - If MAC appears alongside PERIPHERAL NERVE BLOCK, SPINAL, EPIDURAL, or NEURAXIAL BLOCK, output REGIONAL (because MAC + nerve block/spinal = regional anesthesia for billing purposes)
-  - If MAC appears alone (no blocks or spinal mentioned), output MAC
-  - Otherwise select the primary one mentioned in the anesthesia type field
-Extract: Anesthesia Type
-
-
 === Physical Status ===
-Description: Physical Status – EXTRACTION INSTRUCTION
-Capture Rule
+Description: Physical Status (ASA) – Extraction & Prediction Instruction
+Step 1: Direct Capture (Highest Priority)
 
-The AI must strictly match the Physical Status from the medical record to the standardized reference list.
+The AI must first check the anesthesia record for explicit ASA or Physical Status documentation.
 
-If the Physical Status found in the document is:
+Possible formats in the record:
 
-Misspelled
+P1, P2, P3, P4, P5, P6
 
-Abbreviated
+ASA I, ASA II, ASA III, ASA IV, ASA V, ASA VI
 
-Partially written
+ASA-1, ASA-2, ASA-3, ASA-4, ASA-5, ASA-6
 
-Contains extra words
+Physical Status: P1–P6
 
-Written in mixed case (upper/lower)
+Output Conversion
 
-→ The AI must auto-correct it to the correct standardized format.
+| Document Value | Output |
+| -------------- | ------ |
+| P1 / ASA I     | 1      |
+| P2 / ASA II    | 2      |
+| P3 / ASA III   | 3      |
+| P4 / ASA IV    | 4      |
+| P5 / ASA V     | 5      |
+| P6 / ASA VI    | 6      |
 
-Allowed Reference List (Exact Output Format)
+If found → Return the numeric value only.
 
-The AI must output ONLY one of the following standardized types:
+Example
+ASA III → Output: 3
 
-1
-2
-3
-4
-5
+Step 2: Prediction (Only if ASA is NOT documented)
+
+If no ASA status is documented in EMR or handwritten record, the AI must predict the most appropriate ASA level based on:
+
+Patient systemic health
+
+Comorbidities
+
+Severity of conditions
+
+Functional limitations
+
+Active medical problems
+
+The AI must analyze the entire record, including:
+
+Pre-anesthesia evaluation
+
+History & Physical
+
+Medical history
+
+Diagnosis list
+
+Medication list
+
+Clinical notes
+
+ASA Prediction Guidelines
+Predict ASA 1
+
+Healthy patient.
+
+Indicators:
+
+No comorbidities
+
+No chronic disease
+
+Normal medical history
+
+Example:
+
+Young healthy patient
+
+No medical conditions documented
+
+Output: 1
+
+Predict ASA 2
+
+Patient with mild systemic disease that is well controlled.
+
+Common conditions:
+
+Controlled hypertension
+
+Mild asthma
+
+Mild obesity
+
+Controlled diabetes without complications
+
+Mild GERD
+
+Smoking history
+
+Output: 2
+
+Predict ASA 3
+
+Patient with severe systemic disease causing functional limitation.
+
+Examples:
+
+Diabetes with complications
+
+COPD
+
+Chronic kidney disease
+
+CHF history
+
+Morbid obesity
+
+Multiple chronic diseases
+
+Output: 3
+
+Predict ASA 4
+
+Patient with severe systemic disease that is a constant threat to life.
+
+Examples:
+
+Recent myocardial infarction
+
+Unstable angina
+
+Severe heart failure
+
+Severe sepsis
+
+Advanced respiratory failure
+
+Output: 4
+
+Predict ASA 5
+
+Patient not expected to survive without surgery.
+
+Examples:
+
+Ruptured aneurysm
+
+Massive trauma
+
+Critical organ failure
+
+Output: 5
+
+Predict ASA 6
+
+Used only for brain-dead organ donor cases.
+
+Output: 6
+
+Important Prediction Rules
+
+1️⃣ Procedure type must NOT determine ASA alone.
+
+2️⃣ Diagnosis alone must NOT determine ASA.
+
+3️⃣ The AI must evaluate overall systemic condition.
+
+4️⃣ If multiple comorbidities exist, choose the highest appropriate ASA level.
+
+5️⃣ If the record does not contain enough medical information, default to:
+
+ASA 2
+
+because most elective anesthesia patients fall into ASA II.
 
 Output Rule
 
-✔ Always output the corrected, standardized name from the reference list.
-✖ Never output anything outside the list.
-✖ If multiple Physical Status → select the primary one mentioned in “Physical Status”.  if present, take the FINAL Physical Status.
-Output format: Physical Status – EXTRACTION INSTRUCTION
-Capture Rule
+The output must be only one value:
 
-The AI must strictly match the Physical Status from the medical record to the standardized reference list.
+1, 2, 3, 4, 5, or 6
 
-If the Physical Status found in the document is:
+✅ Example Cases
 
-Misspelled
+| Record Info    | ASA Output |
+| -------------- | ---------- |
+| No conditions  | 1          |
+| Controlled HTN | 2          |
+| HTN + Diabetes | 3          |
+| COPD + CHF     | 3          |
+| Recent MI      | 4          |
 
-Abbreviated
+💡 Important Suggestion (used in real anesthesia AI systems)
 
-Partially written
+Many billing AI systems use a safe fallback rule:
 
-Contains extra words
+If ASA is missing
+AND no major comorbidity detected
+→ Default ASA = 2
+Where to find: Physical Status (ASA) – Extraction & Prediction Instruction
+Step 1: Direct Capture (Highest Priority)
 
-Written in mixed case (upper/lower)
+The AI must first check the anesthesia record for explicit ASA or Physical Status documentation.
 
-→ The AI must auto-correct it to the correct standardized format.
+Possible formats in the record:
 
-Allowed Reference List (Exact Output Format)
+P1, P2, P3, P4, P5, P6
 
-The AI must output ONLY one of the following standardized types:
+ASA I, ASA II, ASA III, ASA IV, ASA V, ASA VI
 
-1
-2
-3
-4
-5
+ASA-1, ASA-2, ASA-3, ASA-4, ASA-5, ASA-6
+
+Physical Status: P1–P6
+
+Output Conversion
+
+| Document Value | Output |
+| -------------- | ------ |
+| P1 / ASA I     | 1      |
+| P2 / ASA II    | 2      |
+| P3 / ASA III   | 3      |
+| P4 / ASA IV    | 4      |
+| P5 / ASA V     | 5      |
+| P6 / ASA VI    | 6      |
+
+If found → Return the numeric value only.
+
+Example
+ASA III → Output: 3
+
+Step 2: Prediction (Only if ASA is NOT documented)
+
+If no ASA status is documented in EMR or handwritten record, the AI must predict the most appropriate ASA level based on:
+
+Patient systemic health
+
+Comorbidities
+
+Severity of conditions
+
+Functional limitations
+
+Active medical problems
+
+The AI must analyze the entire record, including:
+
+Pre-anesthesia evaluation
+
+History & Physical
+
+Medical history
+
+Diagnosis list
+
+Medication list
+
+Clinical notes
+
+ASA Prediction Guidelines
+Predict ASA 1
+
+Healthy patient.
+
+Indicators:
+
+No comorbidities
+
+No chronic disease
+
+Normal medical history
+
+Example:
+
+Young healthy patient
+
+No medical conditions documented
+
+Output: 1
+
+Predict ASA 2
+
+Patient with mild systemic disease that is well controlled.
+
+Common conditions:
+
+Controlled hypertension
+
+Mild asthma
+
+Mild obesity
+
+Controlled diabetes without complications
+
+Mild GERD
+
+Smoking history
+
+Output: 2
+
+Predict ASA 3
+
+Patient with severe systemic disease causing functional limitation.
+
+Examples:
+
+Diabetes with complications
+
+COPD
+
+Chronic kidney disease
+
+CHF history
+
+Morbid obesity
+
+Multiple chronic diseases
+
+Output: 3
+
+Predict ASA 4
+
+Patient with severe systemic disease that is a constant threat to life.
+
+Examples:
+
+Recent myocardial infarction
+
+Unstable angina
+
+Severe heart failure
+
+Severe sepsis
+
+Advanced respiratory failure
+
+Output: 4
+
+Predict ASA 5
+
+Patient not expected to survive without surgery.
+
+Examples:
+
+Ruptured aneurysm
+
+Massive trauma
+
+Critical organ failure
+
+Output: 5
+
+Predict ASA 6
+
+Used only for brain-dead organ donor cases.
+
+Output: 6
+
+Important Prediction Rules
+
+1️⃣ Procedure type must NOT determine ASA alone.
+
+2️⃣ Diagnosis alone must NOT determine ASA.
+
+3️⃣ The AI must evaluate overall systemic condition.
+
+4️⃣ If multiple comorbidities exist, choose the highest appropriate ASA level.
+
+5️⃣ If the record does not contain enough medical information, default to:
+
+ASA 2
+
+because most elective anesthesia patients fall into ASA II.
 
 Output Rule
 
-✔ Always output the corrected, standardized name from the reference list.
-✖ Never output anything outside the list.
-✖ If multiple Physical Status → select the primary one mentioned in “Physical Status”.  if present, take the FINAL Physical Status.
+The output must be only one value:
+
+1, 2, 3, 4, 5, or 6
+
+✅ Example Cases
+
+| Record Info    | ASA Output |
+| -------------- | ---------- |
+| No conditions  | 1          |
+| Controlled HTN | 2          |
+| HTN + Diabetes | 3          |
+| COPD + CHF     | 3          |
+| Recent MI      | 4          |
+
+💡 Important Suggestion (used in real anesthesia AI systems)
+
+Many billing AI systems use a safe fallback rule:
+
+If ASA is missing
+AND no major comorbidity detected
+→ Default ASA = 2
 Extract: Physical Status
 
 
@@ -862,11 +678,11 @@ Extract: Discharge Date
 
 === Primary Cvg Mem Rel to Sub ===
 Description: relation of the primary insurance holder to the patient (Self, Child, Spouse or Other) -those are the only 4 options
+Output format: If the primary insurance holder and the patient are the same person, select "self."
 Extract: Primary Cvg Mem Rel to Sub
 
 
 === Primary Mednet Code ===
-Output format: always leave empty string!
 Extract: Primary Mednet Code
 
 
@@ -940,29 +756,17 @@ Extract: Primary Sub Gender
 
 === Primary Sub Group Num ===
 Description: group number of primary insurance
-Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
-
-How this can be applied:
-
-If you want integers:
-AI should parse numbers as int or decimal, avoiding scientific notation.
-Example:
-1.01379E+11 → 101379000000
-
-If you want strings:
-AI should save them exactly as they appear.
-Example:
-1.01379E+11 → "101379000000"
-
-and all are should be in capital
+Output format: Extract data from the PDF into a CSV and preserve all large numbers exactly. Do not use scientific notation. If a value appears like 1.01379E+11, convert it to the full integer (101379000000) or store it as a plain quoted string. All large numbers must remain fully expanded and never in exponential form. Also When extracting data, capture the group number only if the primary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no numbers (e.g., “OHMCRWPO”).
 Extract: Primary Sub Group Num
 
 
 === Primary Sub Auth Num ===
+Where to find: Precert #
 Extract: Primary Sub Auth Num
 
 
 === Secondary Cvg Mem Rel to Sub ===
+Output format: If the secondary insurance holder and the patient are the same person, select "self."
 Extract: Secondary Cvg Mem Rel to Sub
 
 
@@ -1018,7 +822,6 @@ Extract: Secondary Sub ID
 
 === Secondary Sub Name ===
 Description: Capture the name of the person who holds the policy in the format: Last Name, First Name.
-Output format: all caps
 Extract: Secondary Sub Name
 
 
@@ -1038,7 +841,7 @@ Extract: Secondary Sub Gender
 
 === Secondary Sub Group Num ===
 Description: group number of secondary insurance
-Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.Also When extracting data, capture the group number only if the Secondary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no digits (e.g., “OHMCRWPO”).
 
 How this can be applied:
 
@@ -1057,10 +860,12 @@ Extract: Secondary Sub Group Num
 
 
 === Secondary Auth Num ===
+Description: Precert #
 Extract: Secondary Auth Num
 
 
 === Tertiary Cvg Mem Rel to Sub ===
+Output format: If the tertiary insurance holder and the patient are the same person, select "self."
 Extract: Tertiary Cvg Mem Rel to Sub
 
 
@@ -1116,7 +921,6 @@ Extract: Tertiary Sub ID
 
 === Tertiary Sub Name ===
 Description: Capture the name of the person who holds the policy in the format: Last Name, First Name.
-Output format: all caps
 Extract: Tertiary Sub Name
 
 
@@ -1136,7 +940,7 @@ Extract: Tertiary Sub Gender
 
 === Tertiary Sub Group ===
 Description: group number of tertiary insurance
-Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation.
+Output format: When extracting data from PDF into CSV, ensure that large numbers (which may appear in scientific notation, e.g., 1.01379E+11) are preserved as full integers (e.g., 101379000000) or as plain strings instead of exponential notation. Also When extracting data, capture the group number only if the Tertiary company name contains one of the following: Humana, UMR, UHC, BCBS, Blue Cross, Blue Shield, Aetna, United Health Care, or Cigna. Do not capture group numbers for any other company names. Additionally, do not capture any group number that consists only of alphabetic characters with no digits (e.g., “OHMCRWPO”).
 
 How this can be applied:
 
@@ -1155,6 +959,7 @@ Extract: Tertiary Sub Group
 
 
 === Tertiary Sub Auth Num ===
+Description: Precert #
 Extract: Tertiary Sub Auth Num
 
 
@@ -1162,36 +967,336 @@ Extract: Tertiary Sub Auth Num
 Extract: EhrPath
 
 
-=== Account ===
-Output format: the account number was on the first sheet it will be reflect as in red colour
-Extract: Account
+=== peripheral_blocks ===
+Description: In this field list out all blocks/lines performed on the patient, using the strict pipe-delimited format below.
+
+OUTPUT FORMAT:
+|cpt_code;MD;Resident;CRNA;M1;M2|cpt_code;MD;Resident;CRNA;M1;M2|...
+
+Each block must have EXACTLY 6 semicolon-delimited fields in this order:
+1. CPT code
+2. MD (always from "Responsible Anesthesiologist")
+3. Resident (provider with MD suffix from the "Resident/CRNA" line)
+4. CRNA (provider with CRNA suffix from the "Resident/CRNA" line)
+5. Modifier 1
+6. Modifier 2
+
+If a field is empty, leave it blank between semicolons (e.g. `;;`). NEVER put something in M2 without something in M1 — modifiers are sequential. Modifier 59 ALWAYS goes in M1, NEVER in M2.
+
+Use provider mapping strings exactly as given for the provider fields elsewhere in the template — do not extract provider names directly from the PDF text; map them to one of the canonical provider strings. If you cannot map a provider, leave the field blank rather than guessing.
+
+ONLY output blocks that are documented as ACTUALLY PERFORMED, with a clear dedicated section in the PDF showing: laterality, technique (single-shot vs catheter), provider(s), and time. Do NOT output blocks that are only mentioned in surgical plans, anesthesia plans, schedules, postop summaries, or simple lists like "lines and airways". If no blocks or lines were performed: output `NONE DONE`.
+
+Laterality maps: RT = right, LT = left, 50 = bilateral. For CPT codes that are inherently bilateral (e.g. 64468/64469/64488/64489), do NOT add 50 — the bilaterality is already in the code, just use 59 in M1 with M2 blank.
+
+Continuous catheter wording ALWAYS overrides single-shot.
+
+---
+
+## SCIATIC BLOCK
+- Single injection: 64445
+- Continuous catheter: 64446
+- Modifiers: 59 (M1) + RT (M2), or 59 + LT, or 59 + 50
+
+## INTERSCALENE BLOCK
+- Single injection: 64415
+- Continuous catheter: 64416
+- Modifiers: 59 (M1) + RT (M2), or 59 + LT, or 59 + 50
+
+## AXILLARY BLOCK
+- Single injection: 64417
+- Continuous catheter: 64418
+- Modifiers: 59 (M1) + RT (M2), or 59 + LT, or 59 + 50
+
+## FEMORAL BLOCK
+- Single injection: 64447
+- Continuous catheter: 64448
+- Modifiers: 59 (M1) + RT (M2), or 59 + LT, or 59 + 50
+
+## SAPHENOUS / ADDUCTOR CANAL BLOCK
+Saphenous nerve and adductor canal blocks (including in arthroplasty cases) → same codes as femoral:
+- Single injection: 64447
+- Continuous catheter: 64448
+- Modifiers: 59 (M1) + RT or LT
+
+## THORACIC PLANE BLOCKS
+Also called: Erector Spinae Plane (ESP), Parasternal block, Serratus anterior plane, Thoracolumbar interfascial plane (TLIP), Transverse Thoracic Plane (TTP), PECS I, PECS II.
+- Unilateral single injection: 64466
+- Unilateral continuous catheter: 64467
+- Bilateral single injection: 64468
+- Bilateral continuous catheter: 64469
+- 64466/64467 modifiers: 59 (M1) + RT or LT
+- 64468/64469 modifiers: 59 only — NO RT/LT/50 (bilaterality is in the code)
+
+## LOWER EXTREMITY FASCIAL PLANE BLOCKS
+Also called: Fascia Iliaca block (FIB / FICB / fascia iliaca compartment block), iPACK (interspace between popliteal artery and capsule of knee), PENG (pericapsular nerve group), SPANK (suprainguinal pericapsular).
+- Single injection: 64473
+- Continuous catheter: 64474
+- Modifiers: 59 (M1) + RT or LT
+
+IMPORTANT: Fascia Iliaca block → 64473, NOT 64450. Applies regardless of approach (suprainguinal, infrainguinal, single-shot, continuous). 64450 is still correct for OTHER peripheral nerves (e.g. LFCN — lateral femoral cutaneous nerve).
+
+## TAP BLOCK (TRANSVERSUS ABDOMINIS PLANE) / RECTUS SHEATH / QUADRATUS LUMBORUM
+TAP, rectus sheath, and Quadratus Lumborum (QL) all map to the same set of codes:
+- Unilateral single injection: 64486
+- Unilateral continuous catheter: 64487
+- Bilateral single injection: 64488
+- Bilateral continuous catheter: 64489
+- 64486/64487 modifiers: 59 (M1) + RT or LT
+- 64488/64489 modifiers: 59 only — NO RT/LT/50
+
+## LUMBAR PLEXUS BLOCK
+- Single injection: 64449
+- Continuous catheter: 64449 with continuous-catheter documentation
+- Modifiers: 59 (M1) + RT or LT
+
+## OTHER PERIPHERAL NERVE BLOCK
+- 64450 — single injection for peripheral nerves not specifically named above (e.g. LFCN).
+- Modifiers: 59 (M1) + RT or LT
+
+## SACROILIAC JOINT BLOCK
+- 64451
+- Modifiers: 59 (M1) + RT or LT
+
+## GENICULATE NERVE BLOCK
+- 64454
+- Modifiers: 59 (M1) + RT or LT
+
+## PLANTAR COMMON DIGITAL NERVE BLOCK
+- 64455
+- Modifiers: 59 (M1) + RT or LT
+
+## PARAVERTEBRAL BLOCK (THORACIC)
+- First injection site: 64461
+- Each additional injection site: 64462 (list separately, in addition to 64461)
+- Continuous infusion catheter: 64463
+- Modifiers: 59 (M1) + RT or LT
+
+## TRANSFORAMINAL EPIDURAL BLOCK
+- Cervical/thoracic, single level: 64479
+- Cervical/thoracic, each additional level: 64480 (in addition to 64479)
+- Lumbar/sacral, single level: 64483
+- Lumbar/sacral, each additional level: 64484 (in addition to 64483)
+- Modifiers: 59 (M1) + RT or LT
+
+## EPIDURAL / SPINAL
+- Blood patch: 62273
+- Cervical/thoracic epidural, no imaging: 62320
+- Lumbar/sacral epidural, no imaging: 62322
+- Lumbar/sacral epidural WITH imaging: 62323
+- Continuous epidural catheter: 62324
+
+---
+
+## ARTERIAL LINE
+- 36620 — no modifiers
+- Triggers: "Arterial Line", "A-line", "arterial catheterization"
+
+## CENTRAL VENOUS CATHETER
+- 36556 — no modifiers
+- Triggers: "Central Line", "Central Venous Catheter", "CVP", "triple lumen central line", "internal jugular central line"
+
+## SWAN-GANZ / PULMONARY ARTERY CATHETER
+- 93503 — no modifiers
+- Triggers: "Pulmonary artery catheter", "pulmonary vein catheterized", "Swan-Ganz", "flow directed catheter" — at the end of a central-line section.
+
+## ULTRASOUND GUIDANCE (76937)
+- ONLY for arterial line (36620). NEVER for central venous catheters, blocks, TAP, epidurals, nerve blocks.
+- If ultrasound guidance is documented for the arterial line, add 76937 as an ADDITIONAL line immediately after the 36620 line.
+- 76937 ALWAYS requires modifier 26 in M1 (professional component).
+- 76937 is billed ONCE per encounter only. Never output more than one 76937 line per case.
+- Do NOT add a 76937 line for a central venous catheter (36556), even if the CVC placement was ultrasound guided.
+
+## TRANSESOPHAGEAL ECHOCARDIOGRAPHY (TEE)
+TEE handling depends on whether it is the main procedure or a supporting procedure:
+1. TEE is THE MAIN procedure → do NOT output 93312. Do NOT add any peripheral_blocks line for the TEE.
+2. TEE is a supporting procedure to a different main procedure → add 93312 as a peripheral_blocks line.
+
+Output format when TEE is supporting (case 2 only):
+|93312;MD;Resident;CRNA;;|
+
+No modifiers on 93312.
+
+---
+
+## OTHER CPT CODES (reference)
+36556 = central venous catheter
+36620 = arterial line
+62273 = epidural blood patch
+62320 = cervical/thoracic epidural injection
+62322 = lumbar/sacral epidural injection
+62323 = lumbar/sacral epidural with imaging
+62324 = continuous epidural catheter
+64415 = interscalene single
+64416 = interscalene catheter
+64417 = axillary single
+64418 = axillary catheter
+64445 = sciatic single
+64446 = sciatic catheter
+64447 = femoral / adductor canal / saphenous single
+64448 = femoral catheter
+64449 = lumbar plexus
+64450 = other peripheral nerve single (e.g. LFCN)
+64451 = sacroiliac joint
+64454 = geniculate nerve
+64455 = plantar common digital nerve
+64461 = thoracic paravertebral, first level
+64462 = thoracic paravertebral, each additional level
+64463 = thoracic paravertebral continuous catheter
+64466 = thoracic fascial plane block (ESP/Parasternal/Serratus/TLIP/TTP/PECS) unilateral single
+64467 = thoracic fascial plane block unilateral catheter
+64468 = thoracic fascial plane block bilateral single
+64469 = thoracic fascial plane block bilateral catheter
+64473 = lower extremity fascial plane (Fascia Iliaca/iPACK/PENG/SPANK) single
+64474 = lower extremity fascial plane catheter
+64479 = transforaminal epidural cervical/thoracic first level
+64480 = transforaminal epidural cervical/thoracic each additional
+64483 = transforaminal epidural lumbar/sacral first level
+64484 = transforaminal epidural lumbar/sacral each additional
+64486 = TAP / Rectus Sheath / QL unilateral single
+64487 = TAP / Rectus Sheath / QL unilateral catheter
+64488 = TAP / Rectus Sheath / QL bilateral single
+64489 = TAP / Rectus Sheath / QL bilateral catheter
+76937 = ultrasound guidance for arterial line (36620) only — never for CVC
+93312 = TEE (only when supporting another main procedure)
+93503 = Swan-Ganz / pulmonary artery catheter
+
+---
+
+## EXAMPLES
+|36620;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|
+|36620;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|76937;Traylor, Philip R, MD;Kersey, Kolten Max, MD;26;|
+|36556;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;;|
+|64447;Traylor, Philip R, MD;Kersey, Kolten Max, MD;;59;RT|
+|64468;Traylor, Philip R, MD;;Jane Smith, CRNA;59;|
+|64473;Smith, John, MD;;;59;LT|
+|93312;Smith, John, MD;;;;|
+
+## FINAL OUTPUT RULES
+Return ONLY the pipe-delimited blocks.
+NO JSON. NO markdown. NO explanations. NO labels. NO comments. NO line breaks.
+If no blocks or lines were done: output exactly `NONE DONE`.
 
 
-=== emergent_case ===
-Description: if anywhere in the record you see: "ASA status: 3 - Emergent" (emergent is the keyword!!)
+⚠️ POST-OP PAIN REQUIREMENT (BLOCKS ONLY — does NOT apply to vascular lines, TEE, or ultrasound guidance):
 
-then indicate in here : "TRUE" otherwise if it is not an emergent case then "FALSE"
-Extract: emergent_case
+Peripheral nerve blocks, spinal blocks, and epidural blocks are ONLY billable as second-line charges when they are performed SPECIFICALLY for POST-OPERATIVE PAIN management — separate from the primary anesthetic.
+
+DO NOT bill a block (or include it in this field) if:
+
+1. The block IS the primary anesthetic for the case. For example, if "Spinal" is documented as "Primary anesthetic" / "Indication: Primary anesthetic" / "Requested by surgeon for primary anesthesia", it is the anesthesia for the case itself — NOT a post-op pain block. Do not add it as a peripheral_block line.
+
+2. There is no documentation that the block was for post-operative pain. Look for explicit indicators like: "for post-op pain", "post-operative pain control", "post-op analgesia", "requested by surgeon for post-op pain", or a clearly separate block performed before/after the case for analgesic purposes.
+
+3. The indication is "intraoperative anesthesia" or the block is listed under the primary anesthesia type (e.g., "Anesthesia Type: Spinal" with no separate post-op block documented).
+
+EXAMPLE OF A NON-BILLABLE SPINAL (DO NOT INCLUDE):
+  Spinal performed at 0835 with Indication: "Primary anesthetic" → this is the primary anesthetic for the case, not a post-op pain block. Do NOT add a peripheral_block line for it.
+
+EXAMPLE OF A BILLABLE SPINAL (INCLUDE):
+  Spinal performed at the END of the case with Indication: "Post-operative pain" or "Requested by surgeon for post-op pain control" → this IS a post-op pain block. Add it as a peripheral_block line.
+
+Only extract the MD or CRNA that did the block administration, never both of them because they cant both administer it
+Where to find: N/A - See description
+Output format: See description
 
 
-=== Account Id ===
-Description: here extract the RED number on start of first page that starts with "25...", a red number that looks "Pasted" on the pdf and starts with "25..."
-Extract: Account Id
+---
 
+## PROVIDER MAPPING FOR THIS GROUP
 
-=== is_colonoscopy ===
-Description: in this field please indicate if the procedure was a colonoscopy (TRUE) or anything else (FALSE)
-Extract: is_colonoscopy
+The standardized list of providers is:
 
+AGNICH, ANGELA, CRNA
+AGNICH, MICHAEL, CRNA
+AGUILAR, DANIELLE, CRNA
+AHMAD, AHMAD, CRNA
+ALAZZAM, HIA, CRNA
+BIELA, WENDY, CRNA
+BINIEWICZ, DIANA, CRNA
+BRIDGWATER, JAMIE, CRNA
+BRYANT, KAREN K, CRNA
+CARIE, AUSTEN, CRNA
+CHAVEZ, GUADALUPE, CRNA
+CITARI, ALICIA, CRNA
+D'AMATO, CHRISTINE, CRNA
+DAVIS, MEREDITH, CRNA
+DIAB, GLORIA, CRNA
+DOHERTY, BARBARA, CRNA
+DOTY, JUSTIN, CRNA
+ESCALANTE, LILLIBET, CRNA
+HENDERSON, SAWYER, CRNA
+FISCHMEISTER, SARA, CRNA
+JONES, DENIS, CRNA
+KELLY, AMANDA, CRNA
+KRISTIANSEN, STANLEY, CRNA
+LACEK, TERESA, CRNA
+LAZAROFF, STEVEN, CRNA
+LOUDERMILK, ELIZABETH, CRNA
+MARTIN, LINDSEY, CRNA
+MIGUEL, MAY, CRNA
+MIS, KELLY, CRNA
+MITCHENER, JULIE, CRNA
+MIZYED, SALEH, CRNA
+MURTAUGH, PATRICIA, CRNA
+OLSEN, KATHLEEN, CRNA
+OMELOGU, ENYINNAYA, CRNA
+OSTERINK, KEVIN, CRNA
+PUFUNDT, KRISTA, CRNA
+PUPALOSKI, JO ANN, CRNA
+RYAN, JEFFREY, CRNA
+SCHNEIDER, CATHERINE, CRNA
+SMIERCIAK, SUZETTE, CRNA
+SMITH, ALLISON, CRNA
+SPRINGER, PATRICK, CRNA
+TOMCZAK, MARK, CRNA
+TRABADO, MARK, CRNA
+TURNER, KELLY, CRNA
+TURNER, MICHAEL, CRNA
+TYLKA, SAMANTHA, CRNA
+WEBER, KIMBERLY, CRNA
+WILKINS, ROBERT, CRNA
+WITHALL, MICHAEL, CRNA
+FULKERSON, JUSTIN, CRNA
+ALEXANDREANU, CONSTANTA, MD
+BARAKAT, TAWFIK, MD
+CHRZASZCZ, MARYANN, MD
+CRALLE, DORIS, MD
+FELLER, ALEXANDER, MD
+FOULIARD, ERIC SEAN, MD
+GLUNCIC, VICKO, MD
+JABRI, RASHA, MD
+KATARIA, TRIPTI, MD
+KHAN, ABDUL, MD
+KIOKEMEISTER, JAY F, MD
+LEE, EDWARD, MD
+LEE, MICHELE, MD
+LU, JEFFREY, MD
+MOORE, LISA, MD
+OGUEJIOFOR, CHIEBONAM C, MD
+PARDO-ISAAC, HELENE, MD
+PODRAZA, ADAMINA, MD
+ROGOZINSKI, THADDEUS, MD
+ROTH, DAVID, MD
+SANDERS, TIMOTHY, MD
+STEPHENSON, RICHARD, MD
 
-=== colonoscopy_is_screening ===
-Description: here indicate if the colonoscopy description includes the word screening, it it was a screening colonoscopy put here TRUE otherwise put FALSE (if it was just standard diagnosit colonoscopy OR it was any other procedure), maybe it doesnt say in the pdf it was screening explicitly but if it says it is the patients first time also then indicate screening with TRUE, SOMETIMES they mention that it was screening in lower pages of the pdf also... check thouroughly
-Extract: colonoscopy_is_screening
+On the PDF where the block is listed there will be either:
+- a provider for the block clearly written, OR
+- if no provider is written for the block, the provider for the block is the same as for the main procedure.
+
+Output the provider name EXACTLY as written in the standardized list above. If the name on the PDF is misspelled, abbreviated, or formatted differently, map it to the closest match from the list. Never output a provider that is not in the list.
+Extract: peripheral_blocks
 
 
 === Polyps found ===
 Description: IF the procedure was *colonoscopy* AND somewhere in the pdf they indicated that they FOUND polyps, then put "FOUND" here, otherwise leave this field EMPTY just ""
 Extract: Polyps found
+
+
+=== CoderVerify ===
+Description: If the procedure is an IOWERA procedure, write "IOWERA". Otherwise leave this field EMPTY just "".
+Extract: CoderVerify
 
 
 
