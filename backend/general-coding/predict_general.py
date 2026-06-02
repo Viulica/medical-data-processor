@@ -2102,41 +2102,72 @@ def predict_codes_general_api(input_file, output_file, model="gpt5", api_key=Non
         return False
 
 
+_OPENROUTER_PAYLOAD_BUDGET = 20 * 1024 * 1024  # 20 MB base64 budget (OpenRouter ~30 MB hard cap, leave headroom)
+
+
 def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=200):
     """
-    Convert first N pages of a PDF to base64 encoded PNG images
-    
+    Convert first N pages of a PDF to base64 encoded images.
+
+    Adaptive size control: starts with PNG @ requested DPI. If the combined
+    base64 payload would exceed the OpenRouter budget, retries with JPEG @ q=80,
+    then JPEG @ q=70 / DPI*0.75, then JPEG @ q=60 / DPI*0.6. This keeps the
+    image route viable for large multi-page PDFs (e.g. UNI-RSC sections that
+    routinely tripped OpenRouter's 30 MB cap before).
+
     Args:
         pdf_path: Path to PDF file
         n_pages: Number of pages to extract (default 1)
-        dpi: DPI for image rendering (default 150)
-    
+        dpi: DPI for image rendering (default 200)
+
     Returns:
         list: List of base64 encoded image strings
     """
     try:
         import fitz  # PyMuPDF
-        from io import BytesIO
-        
+
+        attempts = [
+            {"fmt": "png", "dpi": dpi, "jpeg_quality": None},
+            {"fmt": "jpeg", "dpi": dpi, "jpeg_quality": 80},
+            {"fmt": "jpeg", "dpi": int(dpi * 0.75), "jpeg_quality": 70},
+            {"fmt": "jpeg", "dpi": int(dpi * 0.6), "jpeg_quality": 60},
+        ]
+
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
         pages_to_extract = min(n_pages, total_pages)
-        
+
         base64_images = []
-        for page_num in range(pages_to_extract):
-            page = doc.load_page(page_num)
-            
-            # Convert to image
-            mat = fitz.Matrix(dpi/72, dpi/72)  # Scale factor for DPI
-            pix = page.get_pixmap(matrix=mat)
-            img_data = pix.tobytes("png")
-            
-            # Convert to base64
-            base64_img = base64.b64encode(img_data).decode('utf-8')
-            base64_images.append(base64_img)
-        
+        chosen = None
+        for plan in attempts:
+            base64_images = []
+            total_b64_size = 0
+            cur_dpi = max(plan["dpi"], 72)
+            for page_num in range(pages_to_extract):
+                page = doc.load_page(page_num)
+                mat = fitz.Matrix(cur_dpi / 72, cur_dpi / 72)
+                pix = page.get_pixmap(matrix=mat)
+                if plan["fmt"] == "jpeg":
+                    img_data = pix.tobytes("jpeg", jpg_quality=plan["jpeg_quality"])
+                else:
+                    img_data = pix.tobytes("png")
+                base64_img = base64.b64encode(img_data).decode("utf-8")
+                base64_images.append(base64_img)
+                total_b64_size += len(base64_img)
+            chosen = plan
+            if total_b64_size <= _OPENROUTER_PAYLOAD_BUDGET:
+                break
+            logger.warning(
+                f"PDF render at {plan['fmt'].upper()} dpi={cur_dpi} "
+                f"q={plan['jpeg_quality']} produced ~{total_b64_size/1024/1024:.1f} MB base64 "
+                f"for {pdf_path}; retrying with stronger compression"
+            )
+
         doc.close()
-        logger.info(f"Extracted {pages_to_extract} page(s) from {pdf_path}")
+        logger.info(
+            f"Extracted {pages_to_extract} page(s) from {pdf_path} "
+            f"using {chosen['fmt']} dpi={max(chosen['dpi'],72)} q={chosen['jpeg_quality']}"
+        )
         return base64_images
         
     except Exception as e:
