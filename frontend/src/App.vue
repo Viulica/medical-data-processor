@@ -99,6 +99,7 @@
  'add-peripheral-blocks-field',
  'add-colonoscopy-fields',
  'payments',
+ 'payments-split',
  ].includes(activeTab),
  }"
  class="tab-btn dropdown-btn"
@@ -153,6 +154,9 @@
  </button>
  <button @click="selectTab('payments')" class="dropdown-item">
  Extract Payments from PDF
+ </button>
+ <button @click="selectTab('payments-split')" class="dropdown-item">
+ Extract Payments + Split PDF
  </button>
  </div>
  </div>
@@ -9222,6 +9226,96 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
  </div>
 
+ <!-- Payments + Split PDF Tab -->
+ <div v-if="activeTab === 'payments-split'" class="upload-section">
+ <div class="section-header">
+ <h2>Extract Payments + Split PDF</h2>
+ <p>
+ Upload a mixed PDF (patient checks + EOBs + other docs). The model
+ identifies PATIENT CHECKS only (Personal / Bank Generated / Money Order),
+ extracts them to a CSV, and produces a "cleaned" PDF with those patient-check
+ pages removed — non-patient pages (insurance EOBs, business checks, summaries)
+ stay in the cleaned PDF.
+ </p>
+ </div>
+
+ <div class="upload-grid">
+ <div class="upload-card">
+ <div class="card-header">
+ <div class="step-number">1</div>
+ <h3>Mixed PDF</h3>
+ </div>
+ <div
+ class="dropzone"
+ :class="{ active: isPaymentsSplitPdfDragActive, 'has-file': !!paymentsSplitPdfFile }"
+ @drop="onPaymentsSplitPdfDrop"
+ @dragover.prevent="isPaymentsSplitPdfDragActive = true"
+ @dragenter.prevent="isPaymentsSplitPdfDragActive = true"
+ @dragleave.prevent="isPaymentsSplitPdfDragActive = false"
+ @click="triggerPaymentsSplitPdfUpload"
+ >
+ <input
+ ref="paymentsSplitPdfInput"
+ type="file"
+ accept=".pdf,application/pdf"
+ @change="onPaymentsSplitPdfFileSelect"
+ style="display: none"
+ />
+ <div class="upload-content">
+ <div class="upload-icon"></div>
+ <div v-if="paymentsSplitPdfFile" class="file-info">
+ <div class="file-icon"></div>
+ <span class="file-name">{{ paymentsSplitPdfFile.name }}</span>
+ <span class="file-size">{{ formatFileSize(paymentsSplitPdfFile.size) }}</span>
+ <button
+ @click.stop="paymentsSplitPdfFile = null"
+ class="remove-file-btn"
+ title="Remove file"
+ >
+ ×
+ </button>
+ </div>
+ <p v-else class="upload-text">
+ Drag &amp; drop a PDF here<br /> or click to browse<br />
+ <small>(One PDF at a time)</small>
+ </p>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div class="form-actions" style="margin-top: 20px">
+ <button
+ @click="runPaymentsSplit"
+ class="btn-primary btn-large"
+ :disabled="!paymentsSplitPdfFile || isPaymentsSplitExtracting"
+ >
+ <span v-if="isPaymentsSplitExtracting">Processing… (Gemini 3.1 Pro typically takes ~1–3 min)</span>
+ <span v-else>Extract Patient Checks &amp; Download ZIP</span>
+ </button>
+ </div>
+
+ <div v-if="paymentsSplitError" class="result-section" style="margin-top: 20px">
+ <div class="error-message">
+ <h3>Error</h3>
+ <p>{{ paymentsSplitError }}</p>
+ </div>
+ </div>
+
+ <div v-if="paymentsSplitResult" class="result-section" style="margin-top: 20px">
+ <div class="success-message">
+ <h3>Done</h3>
+ <p>
+ Extracted <strong>{{ paymentsSplitResult.rowCount }}</strong> patient check(s) from
+ <strong>{{ paymentsSplitResult.sourceFile }}</strong>.<br />
+ Removed <strong>{{ paymentsSplitResult.pagesRemoved }}</strong> patient-check page(s).
+ Kept <strong>{{ paymentsSplitResult.pagesKept }}</strong> of {{ paymentsSplitResult.pagesTotal }} page(s) in the cleaned PDF.<br />
+ A ZIP containing the CSV + cleaned PDF has been downloaded.
+ </p>
+ </div>
+ </div>
+ </div>
+
  <!-- Base Prompts & CPT Codes Tab -->
  <div v-if="activeTab === 'base-prompts'" class="tab-content">
  <div class="section">
@@ -9809,6 +9903,12 @@ export default {
  isPaymentsExtracting: false,
  paymentsError: null,
  paymentsResult: null,
+ // Payments + Split tab
+ paymentsSplitPdfFile: null,
+ isPaymentsSplitPdfDragActive: false,
+ isPaymentsSplitExtracting: false,
+ paymentsSplitError: null,
+ paymentsSplitResult: null,
  splitOutputFileName: "", // Custom output filename for downloads
  statusPollingInterval: null,
  splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
@@ -10955,6 +11055,102 @@ export default {
  this.toast.error(`Payments extraction failed: ${detail.substring(0, 200)}`);
  } finally {
  this.isPaymentsExtracting = false;
+ }
+ },
+
+ // Payments + Split tab
+ triggerPaymentsSplitPdfUpload() {
+ this.$refs.paymentsSplitPdfInput.click();
+ },
+ onPaymentsSplitPdfDrop(e) {
+ e.preventDefault();
+ this.isPaymentsSplitPdfDragActive = false;
+ const files = Array.from(e.dataTransfer.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please drop a valid PDF file");
+ return;
+ }
+ this.paymentsSplitPdfFile = files[0];
+ this.paymentsSplitResult = null;
+ this.paymentsSplitError = null;
+ },
+ onPaymentsSplitPdfFileSelect(e) {
+ const files = Array.from(e.target.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please choose a valid PDF file");
+ e.target.value = "";
+ return;
+ }
+ this.paymentsSplitPdfFile = files[0];
+ this.paymentsSplitResult = null;
+ this.paymentsSplitError = null;
+ e.target.value = "";
+ },
+ async runPaymentsSplit() {
+ if (!this.paymentsSplitPdfFile) return;
+ this.isPaymentsSplitExtracting = true;
+ this.paymentsSplitError = null;
+ this.paymentsSplitResult = null;
+ try {
+ const fd = new FormData();
+ fd.append("pdf_file", this.paymentsSplitPdfFile);
+ const resp = await axios.post(
+ joinUrl(API_BASE_URL, "api/extract-patient-checks-split-pdf"),
+ fd,
+ {
+ responseType: "blob",
+ timeout: 15 * 60 * 1000,
+ headers: { "Content-Type": "multipart/form-data" },
+ }
+ );
+ const rowCount = resp.headers["x-row-count"] || "?";
+ const pagesRemoved = resp.headers["x-pages-removed"] || "?";
+ const pagesKept = resp.headers["x-pages-kept"] || "?";
+ const pagesTotal = resp.headers["x-pages-total"] || "?";
+ const baseName = (this.paymentsSplitPdfFile.name || "input").replace(/\.pdf$/i, "");
+ const filename = `${baseName}_split.zip`;
+ const blob = new Blob([resp.data], { type: "application/zip" });
+ const url = window.URL.createObjectURL(blob);
+ const link = document.createElement("a");
+ link.href = url;
+ link.download = filename;
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+ window.URL.revokeObjectURL(url);
+ this.paymentsSplitResult = {
+ rowCount,
+ pagesRemoved,
+ pagesKept,
+ pagesTotal,
+ sourceFile: this.paymentsSplitPdfFile.name,
+ };
+ this.toast.success(`Extracted ${rowCount} patient check(s); removed ${pagesRemoved} page(s)`);
+ } catch (err) {
+ let detail = err?.message || "Extraction failed";
+ if (err?.response?.data && err.response.data instanceof Blob) {
+ try {
+ const text = await err.response.data.text();
+ try {
+ const parsed = JSON.parse(text);
+ detail = parsed.detail || text;
+ } catch {
+ detail = text;
+ }
+ } catch (_) {
+ // keep the original detail message
+ }
+ } else if (err?.response?.data?.detail) {
+ detail = err.response.data.detail;
+ }
+ this.paymentsSplitError = detail;
+ this.toast.error(`Split failed: ${detail.substring(0, 200)}`);
+ } finally {
+ this.isPaymentsSplitExtracting = false;
  }
  },
 

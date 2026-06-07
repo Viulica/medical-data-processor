@@ -12286,14 +12286,25 @@ async def extract_payments_from_pdf(
         "- amount (float, the dollar amount of the check)\n"
         "- check_number (see rules below — depends on check_type)\n"
         "- check_date (the date printed/written on the check, output as M/D/YYYY)\n"
-        "- account_number — the ID number on the remittance. Format is ALWAYS a "
-        "three-letter group prefix + the digits, e.g. PRE-25334578, GAP-55347511, "
-        "PAC-2603230014, EAP25072169. You MUST include the three-letter prefix in "
-        "the output, exactly as shown on the document (preserve the dash if it "
-        "appears). NEVER output just the digits without the prefix. If the document "
-        "doesn't show the prefix next to a digit string, look at the header / cover "
-        "page / 'Account:' label to find which group code it belongs to and "
-        "prepend it as PREFIX-<digits>.\n"
+        "- account_number — the ID number tied to this check. Format is ALWAYS a "
+        "three-to-four-letter group prefix + the digits, e.g. PRE-25334578, "
+        "GAP-55347511, PAC-2603230014, BAPC-26012345, EAP25072169. The digits "
+        "most often start with 25... or 26... but CAN be any number (e.g. 1422458). "
+        "You MUST include the prefix in the output, exactly as shown on the "
+        "document (preserve the dash if it appears). NEVER output just the digits "
+        "without the prefix. If the prefix isn't next to the digits, look at the "
+        "header / cover page / 'Account:' label and prepend it as PREFIX-<digits>.\n"
+        "  WHERE TO FIND THE ACCOUNT NUMBER (in priority order):\n"
+        "    1. PREFERRED — the remittance advice / statement that came with the check. "
+        "       This is correct ~99.9% of the time when present.\n"
+        "    2. FALLBACK — if there is NO remittance advice for this check (patient mailed "
+        "       only the check), look on the check itself. Patients often write the account "
+        "       number in the memo line, on the back, or somewhere on the check face. "
+        "       Use that if it is clearly written.\n"
+        "    3. EMPTY — if neither the remittance nor the check shows an account number, "
+        "       output account_number as an EMPTY STRING (\"\"). Do NOT guess, do NOT "
+        "       infer from the payor name, do NOT look up the patient. Empty string means "
+        "       a human needs to find the account.\n"
         "- check_type (one of: \"Personal\", \"Bank Generated\", \"Money Order\")\n"
         "\n"
         "================================================================\n"
@@ -12436,8 +12447,228 @@ async def extract_payments_from_pdf(
     )
 
 
+# =============================================================================
+# Patient-check split — single mixed PDF -> CSV of patient checks + cleaned PDF
+# Gemini reads the PDF, identifies PATIENT CHECKS (Personal / Bank Generated /
+# Money Order), reports their page indexes, and we return a ZIP containing:
+#   - <name>_payments.csv  (one row per patient check)
+#   - <name>_cleaned.pdf   (original PDF minus the patient-check pages)
+# Non-patient pages (insurance EOBs, business checks, summaries, etc.) are
+# preserved in the cleaned PDF; patient checks are NOT.
+# =============================================================================
+@app.post("/api/extract-patient-checks-split-pdf")
+async def extract_patient_checks_split_pdf(
+    pdf_file: UploadFile = File(...),
+    model: str = Form("google/gemini-3.1-pro-preview"),
+):
+    import base64, json, re, csv as csv_mod, io as io_mod, zipfile
+    import requests as req_mod
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not configured on backend")
+
+    pdf_bytes = await pdf_file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty PDF uploaded")
+
+    # Count pages up front so we can clip out-of-range page indexes
+    try:
+        import fitz  # PyMuPDF
+        src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total_pages = len(src_doc)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not open PDF: {type(e).__name__}: {e}")
+
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    prompt = (
+        "You are processing a PDF that contains a mix of documents — some are PATIENT CHECKS with their remittance advice, "
+        "others are NOT patient checks (e.g. insurance EOBs, ERAs, business checks from carriers, summary reports, blank pages).\n"
+        "\n"
+        "Your job:\n"
+        "1. Identify every PATIENT CHECK in the PDF. A patient check is one of exactly these three types:\n"
+        "   - Personal check (handwritten payee/amount/signature)\n"
+        "   - Bank Generated check (everything printed/typed; often 'Bill Payment Processing Center' / 'Signature On File')\n"
+        "   - Money Order (document explicitly says 'MONEY ORDER' / 'POSTAL MONEY ORDER' / 'USPS MONEY ORDER' etc.)\n"
+        "2. For every PATIENT CHECK, extract its data AND list the 1-indexed page numbers in the PDF that belong to that check (the check page itself plus its remittance advice pages — everything that should be removed together as a unit).\n"
+        "3. Any page that is NOT part of a patient check is to be KEPT. Do NOT include those pages in any row's pages array; do NOT output rows for them.\n"
+        "\n"
+        "For each patient check, output:\n"
+        "- amount (float, the dollar amount of the check)\n"
+        "- check_number (see rules below — depends on check_type)\n"
+        "- check_date (the date printed/written on the check, output as M/D/YYYY)\n"
+        "- account_number — three-to-four-letter group prefix + digits, e.g. PRE-25334578, BAP-26012345, BAPC-26012345, EAP25072169. The digits most often start with 25... or 26... but CAN be any number (e.g. 1422458). MUST include the prefix. If not next to the digits, look at the cover/header for the group code and prepend it.\n"
+        "  WHERE TO FIND IT (priority order):\n"
+        "    1. PREFERRED — the remittance advice / statement that came with the check (~99.9% accurate when present).\n"
+        "    2. FALLBACK — if there is NO remittance for this check, look on the check itself. Patients often write the account number in the memo line, on the back, or somewhere on the check face.\n"
+        "    3. EMPTY — if neither the remittance nor the check shows an account number, output an EMPTY STRING (\"\"). Do NOT guess, do NOT infer from the payor name, do NOT look up the patient. Empty means a human needs to find it.\n"
+        "- check_type (one of: \"Personal\", \"Bank Generated\", \"Money Order\")\n"
+        "- pages — JSON array of 1-indexed page numbers occupied by this patient check + its remittance advice.\n"
+        "\n"
+        "================================================================\n"
+        "CHECK TYPE IDENTIFICATION (this drives how to find the check number)\n"
+        "================================================================\n"
+        "\n"
+        "1) PERSONAL CHECK — \"Personal\"\n"
+        "   - Identified by: handwritten payee, handwritten amount, handwritten signature, personal/family names printed top-left.\n"
+        "   - MICR line has THREE groups of digits. Format: |:routing:|  account  |:check_number\n"
+        "   - The check_number is the LAST (third) group. Also appears in the upper right corner of the check — should MATCH. Use whichever is clearer.\n"
+        "   - Example MICR: \":271973924:  100025922501531\"  →  check_number = 1531\n"
+        "\n"
+        "2) BANK GENERATED CHECK — \"Bank Generated\"\n"
+        "   - Identified by: EVERYTHING is printed/typed, nothing handwritten. Often issued from a 'Bill Payment Processing Center'. May say 'Signature On File' / 'This check has been authorized by your depositor'.\n"
+        "   - MICR line has THREE groups of digits. The check_number is the FIRST group (NOT the last).\n"
+        "   - Example MICR: \"008176   071921891  4635257844\"  →  check_number = 008176\n"
+        "\n"
+        "3) MONEY ORDER — \"Money Order\"\n"
+        "   - Identified by: text explicitly says \"MONEY ORDER\".\n"
+        "   - MICR line has TWO groups of digits. The check_number is the SECOND group.\n"
+        "   - Amount and date are PRINTED; payee/remitter are handwritten.\n"
+        "   - Example MICR: \":000011931:  5512250920211\"  →  check_number = 5512250920211\n"
+        "\n"
+        "================================================================\n"
+        "MULTI-ACCOUNT RULE\n"
+        "================================================================\n"
+        "If ONE check pays for MULTIPLE remittances/accounts, output ONE row with ALL account numbers comma+space separated in account_number. Include ALL pages (check + every remittance) in the pages array.\n"
+        "\n"
+        "================================================================\n"
+        "WHAT TO EXCLUDE FROM OUTPUT\n"
+        "================================================================\n"
+        "Do NOT output rows for:\n"
+        "- Insurance EOBs / ERAs / insurance company remittances\n"
+        "- Business checks from insurance carriers, government payers, TPAs\n"
+        "- Summary/cover pages, blank pages, bank statements\n"
+        "- Anything that is NOT a personal / bank-generated / money-order patient payment\n"
+        "Those pages stay in the cleaned PDF; we just don't extract them.\n"
+        "\n"
+        "================================================================\n"
+        "OUTPUT FORMAT\n"
+        "================================================================\n"
+        "Return ONLY a JSON array of objects, one per PATIENT CHECK. Example:\n"
+        "[\n"
+        '  {"amount": 164, "check_number": "1075", "check_date": "4/4/2026", "account_number": "BAP-2603230014", "check_type": "Personal", "pages": [3, 4]},\n'
+        '  {"amount": 25, "check_number": "008176", "check_date": "5/8/2026", "account_number": "BAP-25072169", "check_type": "Bank Generated", "pages": [7]},\n'
+        '  {"amount": 720, "check_number": "5512250920211", "check_date": "5/1/2026", "account_number": "BAP-2603120004, BAP-2603120005", "check_type": "Money Order", "pages": [12, 13, 14]}\n'
+        "]\n"
+        "\n"
+        "Do NOT include commentary or markdown. Just the JSON array."
+    )
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "file", "file": {
+                    "filename": pdf_file.filename or "input.pdf",
+                    "file_data": f"data:application/pdf;base64,{b64}",
+                }},
+            ],
+        }],
+    }
+
+    try:
+        resp = req_mod.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload, timeout=600,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {type(e).__name__}: {e}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"OpenRouter HTTP {resp.status_code}: {resp.text[:500]}")
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned non-JSON (HTTP {resp.status_code}): {resp.text[:500]}")
+    if "choices" not in data or not data["choices"]:
+        err_body = data.get("error") if isinstance(data, dict) else None
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned no choices. error={err_body}")
+
+    content = (data["choices"][0]["message"].get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=502, detail="OpenRouter returned empty content")
+
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\n?", "", content)
+        content = re.sub(r"\n?```$", "", content).strip()
+
+    m = re.search(r"\[\s*\{.*\}\s*\]|\[\s*\]", content, re.DOTALL)
+    json_text = m.group(0) if m else content
+    try:
+        rows = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Could not parse model JSON: {e}. Raw: {content[:500]}")
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=500, detail=f"Model returned non-list JSON: {type(rows).__name__}")
+
+    # Build CSV
+    out_buf = io_mod.StringIO()
+    writer = csv_mod.writer(out_buf)
+    writer.writerow(["Amount", "Check Number", "Check Date", "Account Number", "Check Type"])
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        writer.writerow([
+            r.get("amount", ""),
+            r.get("check_number", ""),
+            r.get("check_date", ""),
+            r.get("account_number", ""),
+            r.get("check_type", ""),
+        ])
+    csv_bytes = out_buf.getvalue().encode("utf-8")
+
+    # Collect pages to remove (dedupe + clip to valid range)
+    remove_set = set()
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for p in r.get("pages") or []:
+            try:
+                pi = int(p)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= pi <= total_pages:
+                remove_set.add(pi)
+    keep_pages = [p for p in range(1, total_pages + 1) if p not in remove_set]
+
+    # Build cleaned PDF with kept pages
+    out_pdf = fitz.open()
+    for p in keep_pages:
+        out_pdf.insert_pdf(src_doc, from_page=p-1, to_page=p-1)
+    pdf_out_buf = io_mod.BytesIO()
+    out_pdf.save(pdf_out_buf)
+    out_pdf.close()
+    src_doc.close()
+    pdf_out_bytes = pdf_out_buf.getvalue()
+
+    # Bundle CSV + cleaned PDF into a ZIP
+    base_name = (pdf_file.filename or "input").rsplit(".", 1)[0]
+    zip_buf = io_mod.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{base_name}_payments.csv", csv_bytes)
+        zf.writestr(f"{base_name}_cleaned.pdf", pdf_out_bytes)
+
+    from fastapi.responses import Response
+    return Response(
+        content=zip_buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_name}_split.zip"',
+            "X-Row-Count": str(len(rows)),
+            "X-Pages-Removed": str(len(remove_set)),
+            "X-Pages-Kept": str(len(keep_pages)),
+            "X-Pages-Total": str(total_pages),
+        },
+    )
+
+
 if __name__ == "__main__":
     # This is for local development only
     # Railway will use uvicorn directly via railway.json
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info") 
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
