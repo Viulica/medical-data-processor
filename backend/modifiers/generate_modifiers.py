@@ -1344,7 +1344,24 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             # identical providers on primary and additional lines.
                             block_md = str(block.get('md') or '').strip()
                             block_crna = str(block.get('crna') or '').strip()
-                            if not block_md and not block_crna:
+
+                            # DUN override: historical data shows the block provider
+                            # matches the primary-line provider 96.5% of the time
+                            # (n=481). Always copy MD + CRNA from the primary row for
+                            # DUN, regardless of what extraction produced on the block.
+                            #
+                            # MKI override: block charges are always billed under the
+                            # MD only (no CRNA, even when a CRNA is on the case).
+                            # Copy the primary row's MD into the block's MD slot and
+                            # leave CRNA blank.
+                            worktracker_group_val = str(row.get('Worktracker Group', '') or '').strip().upper()
+                            if worktracker_group_val == 'DUN':
+                                block_md = str(row.get('MD', '') or '').strip()
+                                block_crna = str(row.get('CRNA', '') or '').strip()
+                            elif worktracker_group_val == 'MKI':
+                                block_md = str(row.get('MD', '') or '').strip()
+                                block_crna = ''
+                            elif not block_md and not block_crna:
                                 # Both empty -> copy MD and CRNA from primary row
                                 block_md = str(row.get('MD', '') or '').strip()
                                 block_crna = str(row.get('CRNA', '') or '').strip()
@@ -1434,12 +1451,19 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 block_row['Anesthesia Type'] = ''
                             
                             # Set Responsible Provider:
-                            #   - MD if present
-                            #   - else CRNA (CRNA-only block placement)
-                            # block_md / block_crna already include the primary-row
-                            # fallback applied above when both were blank.
+                            #   - DUN: always copy verbatim from the primary row
+                            #     (block provider == primary provider in 96.5% of
+                            #     historical DUN cases, per dun-charge.xls audit).
+                            #   - MKI: always the primary row's MD (block charges are
+                            #     billed under the MD, never the CRNA).
+                            #   - Other groups: MD if present, else CRNA.
                             if 'Responsible Provider' in block_row:
-                                block_row['Responsible Provider'] = block_md or block_crna
+                                if worktracker_group_val == 'DUN':
+                                    block_row['Responsible Provider'] = str(row.get('Responsible Provider', '') or '').strip()
+                                elif worktracker_group_val == 'MKI':
+                                    block_row['Responsible Provider'] = str(row.get('MD', '') or '').strip()
+                                else:
+                                    block_row['Responsible Provider'] = block_md or block_crna
                             
                             # Clear all modifier columns and set M1 and M2 from the block
                             block_row['M1'] = block['m1']

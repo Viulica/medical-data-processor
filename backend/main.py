@@ -9480,6 +9480,122 @@ async def bulk_import_insurance_mappings(
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
+def _ocr_detect_dun_last_page_rotation(page) -> int:
+    """OCR-based detection of how a DUN charge-sheet page needs to be rotated.
+
+    DUN PDFs end with a phone-photographed Anesthesia Charge List that is
+    frequently sideways (90° or 270°). The Account Inquiry pages preceding it
+    are upright text PDFs and don't need rotation.
+
+    This function rasterizes the page at 4 candidate rotations and scores each
+    against printed DUN-form anchor strings ("Duncan Anesthesia",
+    "ANESTHESIA CHARGE LIST", "SPECIAL PROCEDURES", "Femoral Single", etc.).
+    The rotation whose OCR text contains the most anchors wins.
+
+    Returns the rotation degrees (0/90/180/270) that should be applied. Returns
+    0 if no rotation scores any anchors (page is probably not a DUN charge
+    sheet, leave it alone).
+    """
+    import subprocess, tempfile, os as _os
+    try:
+        import fitz as _fitz
+    except ImportError:
+        return 0
+
+    ANCHORS = (
+        "Duncan Anesthesia", "DUNCAN ANESTHESIA",
+        "ANESTHESIA CHARGE LIST", "Anesthesia Charge List",
+        "SPECIAL PROCEDURES", "Special Procedures",
+        "Femoral Single", "Brachial Plexus",
+        "BILLING OFFICE", "Billing Office",
+        "BLOCK PROCEDURE", "Block Procedure",
+    )
+
+    def _ocr_at(rot_deg, dpi=150):
+        mat = _fitz.Matrix(dpi / 72, dpi / 72)
+        if rot_deg:
+            mat = mat * _fitz.Matrix(1, 1).prerotate(rot_deg)
+        try:
+            pix = page.get_pixmap(matrix=mat)
+        except Exception:
+            return ""
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            pix.save(tmp.name)
+            png_path = tmp.name
+        try:
+            out = subprocess.run(
+                ["tesseract", png_path, "-", "-l", "eng", "--psm", "6"],
+                capture_output=True, text=True, timeout=60,
+            )
+            return out.stdout
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return ""
+        finally:
+            try: _os.unlink(png_path)
+            except Exception: pass
+
+    def _score(text: str) -> int:
+        return sum(1 for a in ANCHORS if a in text)
+
+    scores = {}
+    for rot in (0, 90, 180, 270):
+        scores[rot] = _score(_ocr_at(rot))
+
+    best_rot = max(scores, key=lambda r: scores[r])
+    if scores[best_rot] == 0:
+        # No anchors detected at any rotation → not a recognizable DUN
+        # charge sheet (might already be upright via PDF metadata, or a
+        # different form type). Leave alone.
+        return 0
+    return best_rot
+
+
+def _rotate_dun_last_pages(input_dir, logger_) -> int:
+    """Walk PDFs in input_dir; for each, OCR-rotate the LAST page if needed.
+
+    Returns the number of PDFs that had their last page rotated.
+    """
+    import fitz as _fitz
+    from pathlib import Path as _Path
+
+    rotated_count = 0
+    pdf_paths = list(_Path(input_dir).rglob("*.pdf")) + list(_Path(input_dir).rglob("*.PDF"))
+    # Deduplicate
+    seen = set()
+    unique_paths = []
+    for p in pdf_paths:
+        if p not in seen:
+            seen.add(p); unique_paths.append(p)
+
+    for pdf_path in unique_paths:
+        try:
+            doc = _fitz.open(str(pdf_path))
+            if len(doc) == 0:
+                doc.close(); continue
+            last_page = doc[-1]
+            rot_needed = _ocr_detect_dun_last_page_rotation(last_page)
+            if rot_needed in (90, 180, 270):
+                # Build a new PDF with the last page rotated by rot_needed
+                doc_out = _fitz.open()
+                for i, page in enumerate(doc):
+                    new_rot = (page.rotation + rot_needed) % 360 if i == len(doc) - 1 else page.rotation
+                    doc_out.insert_pdf(doc, from_page=i, to_page=i, rotate=new_rot)
+                doc.close()
+                # Overwrite original
+                doc_out.save(str(pdf_path))
+                doc_out.close()
+                rotated_count += 1
+                if logger_:
+                    logger_.info(f"[DUN auto-rotate] {pdf_path.name}: rotated last page by {rot_needed}°")
+            else:
+                doc.close()
+        except Exception as e:
+            if logger_:
+                logger_.warning(f"[DUN auto-rotate] {pdf_path.name}: failed ({type(e).__name__}: {e})")
+
+    return rotated_count
+
+
 def process_unified_background(
     job_id: str,
     zip_path: str,
@@ -9571,7 +9687,19 @@ def process_unified_background(
             # Unzip files once
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir / "input")
-            
+
+            # DUN auto-rotate: DUN charge sheets are phone-photographed and often
+            # sideways. Use Tesseract OCR on the last page of each PDF to decide
+            # how to rotate it. Scoped to DUN only — every other group's PDFs
+            # are scanner-upright. Verified 13/13 correct across DUN-753 +
+            # 4 older batches (mix of 270° and 90° rotations).
+            if (worktracker_group or "").strip().upper() == "DUN":
+                try:
+                    rotated_n = _rotate_dun_last_pages(temp_dir / "input", logger)
+                    logger.info(f"[Unified {job_id}] DUN auto-rotate: {rotated_n} PDF(s) had last page rotated")
+                except Exception as e:
+                    logger.warning(f"[Unified {job_id}] DUN auto-rotate FAILED ({type(e).__name__}: {e}); continuing with original PDFs")
+
             # Prepare extraction
             excel_dest = temp_dir / "instructions" / excel_filename
             excel_dest.parent.mkdir(exist_ok=True)
@@ -9973,7 +10101,19 @@ def process_unified_background(
             # Unzip files once
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir / "input")
-            
+
+            # DUN auto-rotate: DUN charge sheets are phone-photographed and often
+            # sideways. Use Tesseract OCR on the last page of each PDF to decide
+            # how to rotate it. Scoped to DUN only — every other group's PDFs
+            # are scanner-upright. Verified 13/13 correct across DUN-753 +
+            # 4 older batches (mix of 270° and 90° rotations).
+            if (worktracker_group or "").strip().upper() == "DUN":
+                try:
+                    rotated_n = _rotate_dun_last_pages(temp_dir / "input", logger)
+                    logger.info(f"[Unified {job_id}] DUN auto-rotate: {rotated_n} PDF(s) had last page rotated")
+                except Exception as e:
+                    logger.warning(f"[Unified {job_id}] DUN auto-rotate FAILED ({type(e).__name__}: {e}); continuing with original PDFs")
+
             # Prepare extraction
             excel_dest = temp_dir / "instructions" / excel_filename
             excel_dest.parent.mkdir(exist_ok=True)

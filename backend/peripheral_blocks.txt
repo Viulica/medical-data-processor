@@ -94,6 +94,13 @@ IF continuous infusion catheter: -> use 64448
 
 Modifiers: 59 (M1) + RT (M2) for right, LT + 59 for left, 50 + 59 for bilateral.
 
+ACB + AFCN RULE - BILL BOTH CODES SEPARATELY:
+When a single block note documents BOTH an Adductor Canal Block (ACB) AND an AFCN block (Anterior Femoral Cutaneous Nerve, also written "AFCNs"), these are TWO distinct billable charges, not one. Bill BOTH:
+  - ACB (adductor canal) -> 64447 (with 59 + RT/LT)
+  - AFCN (anterior femoral cutaneous nerve) -> 64450 (with 59 + RT/LT)
+This applies even when both are listed on the SAME block note line (e.g. "Block Type: ACB and AFCN" or "Block Type: Adductor Canal and AFCNs" or "Adductor Canal + AFCN, iPACK"). Do NOT merge them into a single 64447 charge. The AFCN portion is a separate "other peripheral nerve" and codes to 64450.
+Same rule when written as: "ACB + AFCN", "Adductor Canal and AFCN", "ACB and AFCNs", "adductor + saphenous + AFCN", or any variant that lists AFCN as a distinct component alongside the adductor canal.
+
 ERECTOR SPINAE PLANE (ESP) BLOCK
 
 IF single injection (Unilateral): -> use 64466
