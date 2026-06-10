@@ -11284,11 +11284,11 @@ def process_unified_background(
                 # flag "BLOCK" so the coder reviews the block lines before posting.
                 # Applies to all auto-posting groups uniformly.
                 block_tags = [""] * len(base_df)
-                if "peripheral_blocks" in base_df.columns:
-                    for i, v in enumerate(base_df["peripheral_blocks"].tolist()):
-                        nv = _norm_cell(v)
-                        if nv and nv.strip().upper() != "NONE DONE":
-                            block_tags[i] = "BLOCK"
+                # if "peripheral_blocks" in base_df.columns:
+                #     for i, v in enumerate(base_df["peripheral_blocks"].tolist()):
+                #         nv = _norm_cell(v)
+                #         if nv and nv.strip().upper() != "NONE DONE":
+                #             block_tags[i] = "BLOCK"
 
                 # CoderVerify: rule-based "CPT" + combo "Icd1"/"DX"/"BLOCK" prepended, then extracted appended.
                 extracted_coder_vals = (
