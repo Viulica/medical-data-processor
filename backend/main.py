@@ -11116,7 +11116,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE", "TQA-RSC", "OAP-PDP", "ARKMETH", "IAS-MOR", "IAS-FVO", "STA-HLX", "LOV", "APO-UTP", "APO-ORA", "SAY-AVH", "PDK", "PRM", "SAJ-AEC", "TAN-DES", "CHA-SCH", "MAV", "IRE-ASJ", "EAP-CMI"}
 
         # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
         # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
@@ -11163,6 +11163,33 @@ def process_unified_background(
                 # 2x 01810 wrong (hand/wrist code confusion).
                 "00812", "00840", "01967", "01810",
             },
+            # TQA-RSC: pass everything — empty exclude set means no CPT-rule flags.
+            # Sorters update times reliably, so all codes are eligible for auto-post.
+            "TQA-RSC": set(),
+            # OAP-PDP: pass everything — same rationale as TQA-RSC.
+            "OAP-PDP": set(),
+            # ARKMETH: pass everything — same rationale as TQA-RSC.
+            "ARKMETH": set(),
+            # IAS-MOR: pass everything — same rationale as TQA-RSC.
+            "IAS-MOR": set(),
+            # IAS-FVO: pass everything — same rationale as TQA-RSC.
+            "IAS-FVO": set(),
+            # STA-HLX: pass everything — same rationale as TQA-RSC.
+            "STA-HLX": set(),
+            # LOV: pass everything — same rationale as TQA-RSC.
+            "LOV": set(),
+            # Bulk-added — pass everything (empty exclude set).
+            "APO-UTP": set(),
+            "APO-ORA": set(),
+            "SAY-AVH": set(),
+            "PDK": set(),
+            "PRM": set(),
+            "SAJ-AEC": set(),
+            "TAN-DES": set(),
+            "CHA-SCH": set(),
+            "MAV": set(),
+            "IRE-ASJ": set(),
+            "EAP-CMI": set(),
         }
 
         def _get_exclude_set(g):
@@ -11221,10 +11248,14 @@ def process_unified_background(
                 if exclude_set is not None and cpt_col:
                     # Exclusion mode: flag CPT if it's IN the exclude set, or if it
                     # starts with "019" (endovascular/IR/OB family — high error rate).
-                    rule_tags = [
-                        "CPT" if (_norm_cell(c) in exclude_set or _norm_cell(c).startswith("019")) else ""
-                        for c in base_df[cpt_col].tolist()
-                    ]
+                    # Empty exclude set = "pass everything" (no flags at all).
+                    if len(exclude_set) == 0:
+                        rule_tags = [""] * len(base_df)
+                    else:
+                        rule_tags = [
+                            "CPT" if (_norm_cell(c) in exclude_set or _norm_cell(c).startswith("019")) else ""
+                            for c in base_df[cpt_col].tolist()
+                        ]
                 else:
                     # Default inclusion mode: flag CPT unless it's in the group's HP set.
                     # X-groups use a fixed HP set (GI anesthesia codes) rather than

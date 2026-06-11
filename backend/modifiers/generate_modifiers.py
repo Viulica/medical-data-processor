@@ -912,8 +912,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if primary_mednet_code in ['3136', '003']:
                         print(f"   QS modifier NOT added (enable_qs=False for this insurance)")
             
+            # MedNet codes that never get a P modifier (per payer rules).
+            P_MODIFIER_SUPPRESS_MEDNET = {
+                '6246', '1406', '9086', '6652', '00541', '00047', '00047M', '6246M'
+            }
+
             # Determine P modifier based on Physical Status
-            if has_physical_status:
+            if has_physical_status and primary_mednet_code not in P_MODIFIER_SUPPRESS_MEDNET:
                 physical_status = str(row.get('Physical Status', '')).strip()
                 if physical_status and physical_status != '' and physical_status.lower() != 'nan':
                     try:
@@ -933,6 +938,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         if primary_mednet_code in ['3136', '003']:
                             print(f"   P modifier NOT added (Invalid Physical Status: '{physical_status}')")
                         pass
+            elif primary_mednet_code in P_MODIFIER_SUPPRESS_MEDNET:
+                print(f"Row {idx + 1}: MedNet Code {primary_mednet_code} - P modifier suppressed by payer rule")
             
             # Determine PT modifier based on Polyps found during ANY colonoscopy (screening or surveillance)
             # PT is added when a screening/surveillance procedure converts to therapeutic (polypectomy)
@@ -1096,7 +1103,26 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if 'ICD1' in new_row:
                         new_row['ICD1'] = 'O80'
                         print(f"Row {idx + 1}: ASA Code 01967 detected - cleared ICD1-ICD4 and set ICD1 = 'O80'")
-            
+
+            # OB/labor anesthesia codes always bill as INPATIENT HOSPITAL.
+            asa_code = str(new_row.get('ASA Code', '')).strip()
+            if asa_code in ('01967', '01961', '01968'):
+                if 'Place Of Service' in new_row:
+                    new_row['Place Of Service'] = 'INPATIENT HOSPITAL'
+                    print(f"Row {idx + 1}: ASA Code {asa_code} detected - Place Of Service set to 'INPATIENT HOSPITAL'")
+
+            # Line/IV placement procedures: no anesthesia time billed.
+            # Zero the time portion of An Start / An Stop but keep the date.
+            asa_code = str(new_row.get('ASA Code', '')).strip()
+            if asa_code in ('36410', '36568', '36569', '36572', '36573'):
+                for col in ('An Start', 'An Stop'):
+                    if col in new_row:
+                        original = str(new_row.get(col, '')).strip()
+                        if original:
+                            date_part = original.split(' ', 1)[0]
+                            new_row[col] = f"{date_part} 00:00:00 AM"
+                print(f"Row {idx + 1}: ASA Code {asa_code} detected - zeroed time on An Start / An Stop")
+
             result_rows.append(new_row)
             
             # Check if we need to create a QK duplicate row
