@@ -11116,7 +11116,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE", "TQA-RSC", "OAP-PDP", "ARKMETH", "IAS-MOR", "IAS-FVO", "STA-HLX", "LOV", "APO-UTP", "APO-ORA", "SAY-AVH", "PDK", "PRM", "SAJ-AEC", "TAN-DES", "CHA-SCH", "MAV", "IRE-ASJ", "EAP-CMI"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE", "TQA-RSC", "OAP-PDP", "ARKMETH", "IAS-MOR", "IAS-FVO", "STA-HLX", "LOV", "APO-UTP", "APO-ORA", "SAY-AVH", "PDK", "PRM", "SAJ-AEC", "TAN-DES", "CHA-SCH", "MAV", "IRE-ASJ", "EAP-CMI", "TQA-CFM"}
 
         # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
         # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
@@ -11190,6 +11190,7 @@ def process_unified_background(
             "MAV": set(),
             "IRE-ASJ": set(),
             "EAP-CMI": set(),
+            "TQA-CFM": set(),
         }
 
         def _get_exclude_set(g):
