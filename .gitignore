@@ -69,4 +69,7 @@ batches/
 eap-tin-setup/
 input/
 run_eap_tin.py
-*.csv 
+*.csv
+
+# Ad-hoc template backup dumps
+backend/template_backups_*/

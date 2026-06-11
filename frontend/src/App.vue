@@ -1341,6 +1341,21 @@
  </option>
  </select>
  </div>
+ <div class="setting-group" style="margin-top: 15px">
+ <label for="unified-rename-mode"> PDF Rename Method</label>
+ <select
+ id="unified-rename-mode"
+ v-model="unifiedRenameMode"
+ class="form-select"
+ >
+ <option value="default">
+ Default (First_Last_Middle.pdf)
+ </option>
+ <option value="hank_ai">
+ Hank AI renaming (First Last.pdf)
+ </option>
+ </select>
+ </div>
  <div class="setting-group" style="display: none">
  <label for="unified-extraction-workers"> Max Workers</label>
  <div class="input-wrapper">
@@ -10073,6 +10088,7 @@ export default {
  // Unified - Extraction settings
  unifiedExtractionPages: 49,
  unifiedExtractionModel: "gemini-3-flash-preview",
+ unifiedRenameMode: "default",
  unifiedExtractionMaxWorkers: 50,
  unifiedWorktrackerGroup: "",
  unifiedWorktrackerBatch: "",
@@ -11922,6 +11938,7 @@ export default {
  formData.append("enable_extraction", this.unifiedEnableExtraction);
  formData.append("extraction_n_pages", this.unifiedExtractionPages);
  formData.append("extraction_model", this.unifiedExtractionModel);
+ formData.append("rename_mode", this.unifiedRenameMode);
  formData.append(
  "extraction_max_workers",
  this.unifiedExtractionMaxWorkers
@@ -12466,6 +12483,7 @@ export default {
  // Extraction settings
  this.unifiedExtractionPages = 49;
  this.unifiedExtractionModel = "gemini-3-flash-preview";
+ this.unifiedRenameMode = "default";
  this.unifiedExtractionMaxWorkers = 50;
  this.unifiedWorktrackerGroup = "";
  this.unifiedWorktrackerBatch = "";

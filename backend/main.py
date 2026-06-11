@@ -9636,6 +9636,8 @@ def process_unified_background(
     combined_cpt_icd_model: str = "openai/gpt-5.2:online",
     # Serial CPT-then-ICD mode: wait for CPT to finish, then pass predicted CPT into ICD prompt
     icd_use_cpt_guidance: bool = True,
+    # PDF rename method: "default" → First_Last_Middle.pdf; "hank_ai" → First Last.pdf
+    rename_mode: str = "default",
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
@@ -11346,7 +11348,7 @@ def process_unified_background(
         if enable_extraction and 'source_file' in base_df.columns:
             try:
                 job.message = "Creating renamed PDFs ZIP..."
-                logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data")
+                logger.info(f"[Unified {job_id}] Creating renamed PDFs ZIP from extraction data (rename_mode={rename_mode})")
 
                 name_cols = ['Patient First Name', 'Patient Last Name', 'Patient Middle Name']
                 has_name_cols = all(col in base_df.columns for col in name_cols)
@@ -11368,23 +11370,38 @@ def process_unified_background(
                         if not source_file or source_file.lower() == 'nan':
                             continue
 
-                        name_parts = []
-                        if first_name and first_name.lower() != 'nan':
-                            name_parts.append(first_name)
-                        if last_name and last_name.lower() != 'nan':
-                            name_parts.append(last_name)
-                        if middle_name and middle_name.lower() != 'nan':
-                            name_parts.append(middle_name)
-
-                        if name_parts:
-                            new_name = '_'.join(name_parts)
-                            new_name = ''.join(c for c in new_name if c.isalnum() or c in '_ -').strip()
-                            new_name = new_name.replace(' ', '_')
-                            if not new_name:
-                                new_name = f"patient_{renamed_count + 1}"
-                            new_filename = f"{new_name}.pdf"
+                        if rename_mode == "hank_ai":
+                            parts = []
+                            if first_name and first_name.lower() != 'nan':
+                                parts.append(first_name)
+                            if last_name and last_name.lower() != 'nan':
+                                parts.append(last_name)
+                            if parts:
+                                new_name = ' '.join(parts)
+                                new_name = ''.join(c for c in new_name if c.isalnum() or c in ' -').strip()
+                                if not new_name:
+                                    new_name = f"patient_{renamed_count + 1}"
+                                new_filename = f"{new_name}.pdf"
+                            else:
+                                new_filename = source_file
                         else:
-                            new_filename = source_file
+                            name_parts = []
+                            if first_name and first_name.lower() != 'nan':
+                                name_parts.append(first_name)
+                            if last_name and last_name.lower() != 'nan':
+                                name_parts.append(last_name)
+                            if middle_name and middle_name.lower() != 'nan':
+                                name_parts.append(middle_name)
+
+                            if name_parts:
+                                new_name = '_'.join(name_parts)
+                                new_name = ''.join(c for c in new_name if c.isalnum() or c in '_ -').strip()
+                                new_name = new_name.replace(' ', '_')
+                                if not new_name:
+                                    new_name = f"patient_{renamed_count + 1}"
+                                new_filename = f"{new_name}.pdf"
+                            else:
+                                new_filename = source_file
 
                         final_filename = new_filename
                         counter = 1
@@ -11579,6 +11596,8 @@ async def process_unified(
     # Combined CPT+ICD params
     enable_combined_cpt_icd: bool = Form(default=False),
     combined_cpt_icd_model: str = Form(default="openai/gpt-5.2:online"),
+    # PDF rename method: "default" → First_Last_Middle.pdf; "hank_ai" → "First Last.pdf"
+    rename_mode: str = Form(default="default"),
 ):
     """
     Unified endpoint to run PDF splitting (optional) + data extraction + CPT prediction + ICD prediction
@@ -11785,6 +11804,9 @@ async def process_unified(
         # Default: "" (no auto-enable). Example: "PCE-PMC,PCE-WWMG,INJE-CSCG"
         icd_guidance_groups_env = os.getenv("ICD_CPT_GUIDANCE_GROUPS", "")
         icd_guidance_groups = {g.strip() for g in icd_guidance_groups_env.split(",") if g.strip()}
+        if rename_mode not in ("default", "hank_ai"):
+            raise HTTPException(status_code=400, detail=f"Invalid rename_mode: {rename_mode!r} (expected 'default' or 'hank_ai')")
+
         if worktracker_group and worktracker_group in icd_guidance_groups and not icd_use_cpt_guidance:
             logger.info(
                 f"[Unified {job_id}] Auto-enabling icd_use_cpt_guidance for group {worktracker_group!r} "
@@ -11846,6 +11868,7 @@ async def process_unified(
             enable_combined_cpt_icd=enable_combined_cpt_icd,
             combined_cpt_icd_model=combined_cpt_icd_model,
             icd_use_cpt_guidance=icd_use_cpt_guidance,
+            rename_mode=rename_mode,
         )
 
         logger.info(f"Background unified processing task started for job {job_id}")
