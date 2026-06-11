@@ -100,6 +100,7 @@
  'add-colonoscopy-fields',
  'payments',
  'payments-split',
+ 'hank-source-file',
  ].includes(activeTab),
  }"
  class="tab-btn dropdown-btn"
@@ -157,6 +158,9 @@
  </button>
  <button @click="selectTab('payments-split')" class="dropdown-item">
  Extract Payments + Split PDF
+ </button>
+ <button @click="selectTab('hank-source-file')" class="dropdown-item">
+ HANK AI source file column adding
  </button>
  </div>
  </div>
@@ -9331,6 +9335,116 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
  </div>
 
+ <!-- HANK AI source file column adding -->
+ <div v-if="activeTab === 'hank-source-file'" class="upload-section">
+ <div class="section-header">
+ <h2>HANK AI source file column adding</h2>
+ <p>
+ Upload a CSV with <code>patient.first</code> and <code>patient.last</code> columns.
+ A <code>source_file</code> column will be added with the format
+ <strong>"&lt;first&gt; &lt;last&gt;.pdf"</strong>. Output is downloaded as a new CSV.
+ </p>
+ </div>
+
+ <div class="upload-grid">
+ <div class="upload-card">
+ <div class="card-header">
+ <div class="step-number">1</div>
+ <h3>CSV File</h3>
+ </div>
+ <div
+ class="dropzone"
+ :class="{ active: isHankCsvDragActive, 'has-file': !!hankCsvFile }"
+ @drop="onHankCsvDrop"
+ @dragover.prevent="isHankCsvDragActive = true"
+ @dragenter.prevent="isHankCsvDragActive = true"
+ @dragleave.prevent="isHankCsvDragActive = false"
+ @click="triggerHankCsvUpload"
+ >
+ <input
+ ref="hankCsvInput"
+ type="file"
+ accept=".csv,text/csv"
+ @change="onHankCsvFileSelect"
+ style="display: none"
+ />
+ <div class="upload-content">
+ <div class="upload-icon"></div>
+ <div v-if="hankCsvFile" class="file-info">
+ <div class="file-icon"></div>
+ <span class="file-name">{{ hankCsvFile.name }}</span>
+ <span class="file-size">{{ formatFileSize(hankCsvFile.size) }}</span>
+ <button
+ @click.stop="hankCsvFile = null; hankResult = null; hankError = ''"
+ class="remove-file-btn"
+ title="Remove file"
+ >
+ ×
+ </button>
+ </div>
+ <p v-else class="upload-text">
+ Drag &amp; drop a CSV here<br /> or click to browse
+ </p>
+ </div>
+ </div>
+ </div>
+
+ <div class="upload-card">
+ <div class="card-header">
+ <div class="step-number">2</div>
+ <h3>Requirements</h3>
+ </div>
+ <div class="settings-content">
+ <div class="requirement-list">
+ <div class="requirement-item">
+ <span class="requirement-icon">•</span>
+ <span>CSV must contain a <code>patient.first</code> column</span>
+ </div>
+ <div class="requirement-item">
+ <span class="requirement-icon">•</span>
+ <span>CSV must contain a <code>patient.last</code> column</span>
+ </div>
+ <div class="requirement-item">
+ <span class="requirement-icon">•</span>
+ <span>Existing <code>source_file</code> column (if any) will be overwritten</span>
+ </div>
+ <div class="requirement-item">
+ <span class="requirement-icon">•</span>
+ <span>Runs entirely in your browser — nothing is uploaded</span>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div class="form-actions" style="margin-top: 20px">
+ <button
+ @click="runHankSourceFile"
+ class="btn-primary btn-large"
+ :disabled="!hankCsvFile"
+ >
+ Add source_file column &amp; Download
+ </button>
+ </div>
+
+ <div v-if="hankError" class="result-section" style="margin-top: 20px">
+ <div class="error-message">
+ <h3>Error</h3>
+ <p>{{ hankError }}</p>
+ </div>
+ </div>
+
+ <div v-if="hankResult" class="result-section" style="margin-top: 20px">
+ <div class="success-message">
+ <h3>Done</h3>
+ <p>
+ Processed <strong>{{ hankResult.rowCount }}</strong> row(s).
+ Output downloaded as <strong>{{ hankResult.outputName }}</strong>.
+ </p>
+ </div>
+ </div>
+ </div>
+
  <!-- Base Prompts & CPT Codes Tab -->
  <div v-if="activeTab === 'base-prompts'" class="tab-content">
  <div class="section">
@@ -9924,6 +10038,11 @@ export default {
  isPaymentsSplitExtracting: false,
  paymentsSplitError: null,
  paymentsSplitResult: null,
+ // HANK AI source file column adding tab
+ hankCsvFile: null,
+ isHankCsvDragActive: false,
+ hankError: "",
+ hankResult: null,
  splitOutputFileName: "", // Custom output filename for downloads
  statusPollingInterval: null,
  splitMethod: "ocrspace", // Default to OCR.space (fastest and most reliable)
@@ -11167,6 +11286,140 @@ export default {
  this.toast.error(`Split failed: ${detail.substring(0, 200)}`);
  } finally {
  this.isPaymentsSplitExtracting = false;
+ }
+ },
+
+ // HANK AI source file column adding tab
+ triggerHankCsvUpload() {
+ this.$refs.hankCsvInput.click();
+ },
+ _acceptHankCsv(file) {
+ if (!file) return;
+ if (!file.name.toLowerCase().endsWith(".csv")) {
+ this.toast.error("Please choose a .csv file");
+ return;
+ }
+ this.hankCsvFile = file;
+ this.hankResult = null;
+ this.hankError = "";
+ },
+ onHankCsvDrop(e) {
+ e.preventDefault();
+ this.isHankCsvDragActive = false;
+ const files = Array.from(e.dataTransfer.files);
+ this._acceptHankCsv(files[0]);
+ },
+ onHankCsvFileSelect(e) {
+ const files = Array.from(e.target.files);
+ this._acceptHankCsv(files[0]);
+ e.target.value = "";
+ },
+ _parseCsvLine(line) {
+ // RFC4180-style splitter: handles quoted fields with embedded commas / escaped quotes
+ const out = [];
+ let cur = "";
+ let inQ = false;
+ for (let i = 0; i < line.length; i++) {
+ const c = line[i];
+ if (inQ) {
+ if (c === '"') {
+ if (line[i + 1] === '"') {
+ cur += '"';
+ i++;
+ } else {
+ inQ = false;
+ }
+ } else {
+ cur += c;
+ }
+ } else {
+ if (c === '"') {
+ inQ = true;
+ } else if (c === ",") {
+ out.push(cur);
+ cur = "";
+ } else {
+ cur += c;
+ }
+ }
+ }
+ out.push(cur);
+ return out;
+ },
+ _csvEscape(v) {
+ const s = v == null ? "" : String(v);
+ if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+ return s;
+ },
+ async runHankSourceFile() {
+ if (!this.hankCsvFile) return;
+ this.hankError = "";
+ this.hankResult = null;
+ try {
+ const text = await this.hankCsvFile.text();
+ // Normalize line endings, strip a trailing newline
+ const rawLines = text.replace(/\r\n?/g, "\n").split("\n");
+ while (rawLines.length && rawLines[rawLines.length - 1] === "") rawLines.pop();
+ if (rawLines.length < 2) {
+ throw new Error("CSV must have a header row and at least one data row");
+ }
+ const header = this._parseCsvLine(rawLines[0]);
+ const firstIdx = header.indexOf("patient.first");
+ const lastIdx = header.indexOf("patient.last");
+ if (firstIdx === -1 || lastIdx === -1) {
+ throw new Error(
+ 'CSV must contain both "patient.first" and "patient.last" columns'
+ );
+ }
+ let sourceIdx = header.indexOf("source_file");
+ const newHeader = sourceIdx === -1 ? [...header, "source_file"] : header.slice();
+ if (sourceIdx === -1) sourceIdx = newHeader.length - 1;
+
+ const outLines = [newHeader.map(this._csvEscape).join(",")];
+ let rowCount = 0;
+ for (let i = 1; i < rawLines.length; i++) {
+ const line = rawLines[i];
+ if (line === "") continue;
+ const cells = this._parseCsvLine(line);
+ while (cells.length < header.length) cells.push("");
+ const first = (cells[firstIdx] || "").trim();
+ const last = (cells[lastIdx] || "").trim();
+ const sourceFile =
+ first && last
+ ? `${first} ${last}.pdf`
+ : first
+ ? `${first}.pdf`
+ : last
+ ? `${last}.pdf`
+ : "";
+ if (sourceIdx >= cells.length) {
+ while (cells.length < sourceIdx) cells.push("");
+ cells.push(sourceFile);
+ } else {
+ cells[sourceIdx] = sourceFile;
+ }
+ outLines.push(cells.map(this._csvEscape).join(","));
+ rowCount++;
+ }
+
+ const baseName = (this.hankCsvFile.name || "input.csv").replace(/\.csv$/i, "");
+ const outputName = `${baseName}_with_source_file.csv`;
+ const blob = new Blob([outLines.join("\n") + "\n"], {
+ type: "text/csv;charset=utf-8",
+ });
+ const url = window.URL.createObjectURL(blob);
+ const link = document.createElement("a");
+ link.href = url;
+ link.download = outputName;
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+ window.URL.revokeObjectURL(url);
+ this.hankResult = { rowCount, outputName };
+ this.toast.success(`Added source_file to ${rowCount} row(s)`);
+ } catch (err) {
+ this.hankError = err?.message || "Failed to process CSV";
+ this.toast.error(this.hankError);
  }
  },
 
