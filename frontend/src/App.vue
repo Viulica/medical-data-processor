@@ -156,6 +156,9 @@
  <button @click="selectTab('payments')" class="dropdown-item">
  Extract Payments from PDF
  </button>
+ <button @click="selectTab('insurance-payments')" class="dropdown-item">
+ Extract Insurance Payments
+ </button>
  <button @click="selectTab('payments-split')" class="dropdown-item">
  Extract Payments + Split PDF
  </button>
@@ -9245,6 +9248,96 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
  </div>
 
+ <!-- Extract Insurance Payments Tab -->
+ <div v-if="activeTab === 'insurance-payments'" class="upload-section">
+ <div class="section-header">
+ <h2>Extract Insurance Payments</h2>
+ <p>
+ Upload a single PDF of insurance EOBs/ERAs and/or patient checks.
+ The model (Gemini 3.1 Pro) reads each payment and returns a CSV with
+ <strong>one row per service line</strong>. For insurance checks it also
+ extracts the Insurance Name and ICN (a.k.a. claim number), and splits each
+ line into Paid and Transferred amounts. One check covering multiple accounts
+ — or one account covering multiple lines — is expanded into separate rows.
+ </p>
+ </div>
+
+ <div class="upload-grid">
+ <div class="upload-card">
+ <div class="card-header">
+ <div class="step-number">1</div>
+ <h3>Payment PDF</h3>
+ </div>
+ <div
+ class="dropzone"
+ :class="{ active: isInsurancePdfDragActive, 'has-file': !!insurancePdfFile }"
+ @drop="onInsurancePdfDrop"
+ @dragover.prevent="isInsurancePdfDragActive = true"
+ @dragenter.prevent="isInsurancePdfDragActive = true"
+ @dragleave.prevent="isInsurancePdfDragActive = false"
+ @click="triggerInsurancePdfUpload"
+ >
+ <input
+ ref="insurancePdfInput"
+ type="file"
+ accept=".pdf,application/pdf"
+ @change="onInsurancePdfFileSelect"
+ style="display: none"
+ />
+ <div class="upload-content">
+ <div class="upload-icon"></div>
+ <div v-if="insurancePdfFile" class="file-info">
+ <div class="file-icon"></div>
+ <span class="file-name">{{ insurancePdfFile.name }}</span>
+ <span class="file-size">{{ formatFileSize(insurancePdfFile.size) }}</span>
+ <button
+ @click.stop="insurancePdfFile = null"
+ class="remove-file-btn"
+ title="Remove file"
+ >
+ ×
+ </button>
+ </div>
+ <p v-else class="upload-text">
+ Drag &amp; drop a PDF here<br /> or click to browse<br />
+ <small>(One PDF at a time)</small>
+ </p>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div class="form-actions" style="margin-top: 20px">
+ <button
+ @click="runInsurancePayments"
+ class="btn-primary btn-large"
+ :disabled="!insurancePdfFile || isInsuranceExtracting"
+ >
+ <span v-if="isInsuranceExtracting">Extracting… (Gemini 3.1 Pro typically takes ~1–3 min)</span>
+ <span v-else>Extract Insurance Payments &amp; Download CSV</span>
+ </button>
+ </div>
+
+ <div v-if="insuranceError" class="result-section" style="margin-top: 20px">
+ <div class="error-message">
+ <h3>Error</h3>
+ <p>{{ insuranceError }}</p>
+ </div>
+ </div>
+
+ <div v-if="insuranceResult" class="result-section" style="margin-top: 20px">
+ <div class="success-message">
+ <h3>Done</h3>
+ <p>
+ Extracted <strong>{{ insuranceResult.rowCount }}</strong> line row(s) across
+ <strong>{{ insuranceResult.checkCount }}</strong> check(s) from
+ <strong>{{ insuranceResult.sourceFile }}</strong>. The CSV has been downloaded
+ to your computer.
+ </p>
+ </div>
+ </div>
+ </div>
+
  <!-- Payments + Split PDF Tab -->
  <div v-if="activeTab === 'payments-split'" class="upload-section">
  <div class="section-header">
@@ -10032,6 +10125,12 @@ export default {
  isPaymentsExtracting: false,
  paymentsError: null,
  paymentsResult: null,
+ // Insurance payments tab
+ insurancePdfFile: null,
+ isInsurancePdfDragActive: false,
+ isInsuranceExtracting: false,
+ insuranceError: null,
+ insuranceResult: null,
  // Payments + Split tab
  paymentsSplitPdfFile: null,
  isPaymentsSplitPdfDragActive: false,
@@ -11190,6 +11289,100 @@ export default {
  this.toast.error(`Payments extraction failed: ${detail.substring(0, 200)}`);
  } finally {
  this.isPaymentsExtracting = false;
+ }
+ },
+
+ // Insurance payments tab
+ triggerInsurancePdfUpload() {
+ this.$refs.insurancePdfInput.click();
+ },
+ onInsurancePdfDrop(e) {
+ e.preventDefault();
+ this.isInsurancePdfDragActive = false;
+ const files = Array.from(e.dataTransfer.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please drop a valid PDF file");
+ return;
+ }
+ this.insurancePdfFile = files[0];
+ this.insuranceResult = null;
+ this.insuranceError = null;
+ },
+ onInsurancePdfFileSelect(e) {
+ const files = Array.from(e.target.files).filter((f) =>
+ f.name.toLowerCase().endsWith(".pdf")
+ );
+ if (files.length === 0) {
+ this.toast.error("Please choose a valid PDF file");
+ e.target.value = "";
+ return;
+ }
+ this.insurancePdfFile = files[0];
+ this.insuranceResult = null;
+ this.insuranceError = null;
+ e.target.value = "";
+ },
+ async runInsurancePayments() {
+ if (!this.insurancePdfFile) return;
+ this.isInsuranceExtracting = true;
+ this.insuranceError = null;
+ this.insuranceResult = null;
+ try {
+ const fd = new FormData();
+ fd.append("pdf_file", this.insurancePdfFile);
+ const resp = await axios.post(
+ joinUrl(API_BASE_URL, "api/extract-insurance-payments"),
+ fd,
+ {
+ responseType: "blob",
+ timeout: 15 * 60 * 1000, // 15 min
+ headers: { "Content-Type": "multipart/form-data" },
+ }
+ );
+ // Download the CSV
+ const rowCount = resp.headers["x-row-count"] || "?";
+ const checkCount = resp.headers["x-check-count"] || "?";
+ const baseName = (this.insurancePdfFile.name || "payments").replace(/\.pdf$/i, "");
+ const filename = `${baseName}_insurance_payments.csv`;
+ const blob = new Blob([resp.data], { type: "text/csv" });
+ const url = window.URL.createObjectURL(blob);
+ const link = document.createElement("a");
+ link.href = url;
+ link.download = filename;
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+ window.URL.revokeObjectURL(url);
+ this.insuranceResult = {
+ rowCount,
+ checkCount,
+ sourceFile: this.insurancePdfFile.name,
+ };
+ this.toast.success(`Extracted ${rowCount} line row(s)`);
+ } catch (err) {
+ let detail = err?.message || "Extraction failed";
+ // If backend returned JSON error in a blob, parse it
+ if (err?.response?.data && err.response.data instanceof Blob) {
+ try {
+ const text = await err.response.data.text();
+ try {
+ const parsed = JSON.parse(text);
+ detail = parsed.detail || text;
+ } catch {
+ detail = text;
+ }
+ } catch (_) {
+ // keep the original detail message
+ }
+ } else if (err?.response?.data?.detail) {
+ detail = err.response.data.detail;
+ }
+ this.insuranceError = detail;
+ this.toast.error(`Insurance extraction failed: ${detail.substring(0, 200)}`);
+ } finally {
+ this.isInsuranceExtracting = false;
  }
  },
 

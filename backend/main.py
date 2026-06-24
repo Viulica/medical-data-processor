@@ -12479,7 +12479,7 @@ async def extract_payments_from_pdf(
         "multiple accounts/remittances — see the multi-account rule below.\n"
         "\n"
         "For each check, extract these fields:\n"
-        "- amount (float, the dollar amount of the check)\n"
+        "- amount (float, the dollar amount of the check). On personal checks, the amount appears TWICE: once in digits (the numeric box) and once written out in words on the courtesy/legal line. If these two DO NOT MATCH, use the amount written in WORDS — that is the legally controlling amount. Convert the words to a float for output.\n"
         "- check_number (see rules below — depends on check_type)\n"
         "- check_date (the date printed/written on the check, output as M/D/YYYY)\n"
         "- account_number — the ID number tied to this check. Format is ALWAYS a "
@@ -12644,6 +12644,270 @@ async def extract_payments_from_pdf(
 
 
 # =============================================================================
+# Insurance + patient payments — single PDF -> flattened CSV (one row per line)
+# Handles BOTH patient checks (Personal / Bank Generated / Money Order) and
+# INSURANCE checks (EOB/ERA). Insurance checks add: insurance_name, ICN (a.k.a.
+# claim number), and per-service-line paid + transferred amounts. The model
+# returns nested JSON (check -> accounts -> lines); we flatten it so every
+# service line is its own CSV row, with check/account fields repeated.
+# =============================================================================
+@app.post("/api/extract-insurance-payments")
+async def extract_insurance_payments(
+    pdf_file: UploadFile = File(...),
+    model: str = Form("google/gemini-3.1-pro-preview"),
+):
+    import base64, json, re, csv as csv_mod, io as io_mod
+    import requests as req_mod
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not configured on backend")
+
+    pdf_bytes = await pdf_file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty PDF uploaded")
+    if not (pdf_file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    prompt = (
+        "You are processing a PDF that contains payment documents. Each is either a PATIENT CHECK "
+        "(with its remittance advice) or an INSURANCE payment (an EOB / ERA / remittance from a payer, "
+        "with or without an attached check). Extract every payment with FULL line-level detail.\n"
+        "\n"
+        "================================================================\n"
+        "STRUCTURE — read this carefully, it controls the whole output\n"
+        "================================================================\n"
+        "The real-world hierarchy is:  CHECK  ->  one or more ACCOUNTS (claims)  ->  one or more service LINES.\n"
+        "  - One CHECK may pay for MULTIPLE accounts (patients). This is common on insurance checks and\n"
+        "    also happens on patient checks.\n"
+        "  - Within ONE account/claim, the payer may pay MULTIPLE service LINES (e.g. a main procedure line\n"
+        "    plus a peripheral block line). Each line has its own paid amount.\n"
+        "You MUST return this as NESTED JSON: a check object containing an 'accounts' array, each account\n"
+        "containing a 'lines' array. Do NOT flatten it yourself — return the nesting.\n"
+        "\n"
+        "================================================================\n"
+        "CHECK-LEVEL FIELDS (one per check object)\n"
+        "================================================================\n"
+        "- check_number — see the check-type rules below (depends on check_type).\n"
+        "- check_date — the date printed/written on the check or remittance, output as M/D/YYYY.\n"
+        "- check_amount — float, the TOTAL dollar amount of the check (the whole check, summing all accounts "
+        "and lines). On personal checks the amount appears twice (digits + words); if they DISAGREE use the "
+        "WORDS amount (legally controlling) and convert to a float.\n"
+        "- check_type — one of: \"Personal\", \"Bank Generated\", \"Money Order\", \"Insurance\".\n"
+        "    * Personal / Bank Generated / Money Order = a PATIENT check (rules below).\n"
+        "    * Insurance = a payer/EOB/ERA payment (printed remittance from an insurance company, Medicare, "
+        "Medicaid, a clearinghouse, etc.).\n"
+        "- insurance_name — ONLY for insurance checks: the name of the insurance company / payer making the "
+        "payment (e.g. \"Aetna\", \"UnitedHealthcare\", \"BCBS\", \"Medicare\"). If the insurance name is NOT "
+        "CLEARLY listed on the document, leave it as an EMPTY STRING (\"\") — do NOT guess or infer it. For "
+        "PATIENT checks, always leave insurance_name as \"\".\n"
+        "\n"
+        "================================================================\n"
+        "ACCOUNT-LEVEL FIELDS (one per object in 'accounts')\n"
+        "================================================================\n"
+        "- account_number — three-to-four-letter group prefix + digits, e.g. PRE-25334578, GAP-55347511, "
+        "PAC-2603230014, BAPC-26012345, EAP25072169. Digits most often start with 25... or 26... but CAN be "
+        "any number (e.g. 1422458). ALWAYS include the prefix exactly as shown (preserve the dash if present). "
+        "NEVER output just the digits without the prefix. If the prefix isn't next to the digits, look at the "
+        "header / cover page / 'Account:' label and prepend it as PREFIX-<digits>.\n"
+        "  WHERE TO FIND IT (priority order):\n"
+        "    1. PREFERRED — the remittance advice / statement that came with the check (~99.9% accurate).\n"
+        "    2. FALLBACK — if there's no remittance, look on the check itself (memo line, back, face).\n"
+        "    3. EMPTY — if neither shows an account number, output an EMPTY STRING (\"\"). Do NOT guess, do NOT "
+        "infer from the payor name, do NOT look up the patient.\n"
+        "  NOTE: If one check covers MULTIPLE accounts, output MULTIPLE objects in the 'accounts' array — one "
+        "per account. Do NOT comma-join account numbers; give each its own account object with its own lines.\n"
+        "- icn — the ICN (Internal Control Number). It may instead be labeled \"Claim Number\", \"Claim #\", "
+        "\"CCN\", or \"Document Control Number / DCN\" — any of these counts as the ICN; extract whichever is "
+        "present. One ICN per account/claim (all lines under that account share it). Insurance checks usually "
+        "have an ICN; patient checks usually do NOT — if there's no ICN, output an EMPTY STRING (\"\").\n"
+        "\n"
+        "================================================================\n"
+        "LINE-LEVEL FIELDS (one per object in 'lines')\n"
+        "================================================================\n"
+        "- line_description — a short label for the service line (e.g. the CPT/procedure code or its name, "
+        "\"Main procedure\", \"Peripheral block\", or whatever identifies the line on the EOB). If the account "
+        "has only a single line / the document doesn't itemize, use one line for the whole account.\n"
+        "- paid_amount — float, the dollar amount PAID on THIS line (what the payer actually paid for this "
+        "service line). All paid_amounts across all lines and accounts should sum to check_amount.\n"
+        "- transferred_amount — float, the dollar amount on THIS line that is TRANSFERRED / moved to the next "
+        "responsible party (the coinsurance / deductible / patient-responsibility / balance that goes from "
+        "primary to secondary, primary to patient, or secondary to patient). The EOB may not literally use the "
+        "word 'transferred' — infer it from the patient-responsibility / coinsurance / deductible / balance "
+        "columns for that line. If there is no transferred/coinsurance amount on the line, output 0.\n"
+        "\n"
+        "For a PATIENT check (Personal / Bank Generated / Money Order) there is normally just ONE account with "
+        "ONE line: line_description can be \"\" or \"Payment\", paid_amount = the check amount, "
+        "transferred_amount = 0, icn = \"\", insurance_name = \"\".\n"
+        "\n"
+        "================================================================\n"
+        "CHECK TYPE IDENTIFICATION (drives how to find the check number)\n"
+        "================================================================\n"
+        "1) PERSONAL CHECK — \"Personal\"\n"
+        "   - Handwritten payee/amount/signature; personal/family names printed top-left.\n"
+        "   - MICR line has THREE groups; check_number is the LAST (third) group, and also appears upper-right.\n"
+        "   - Example MICR: \":271973924:  100025922501531\"  ->  check_number = 1531\n"
+        "2) BANK GENERATED CHECK — \"Bank Generated\"\n"
+        "   - Everything printed/typed; often 'Bill Payment Processing Center' / 'Signature On File'.\n"
+        "   - MICR line has THREE groups; check_number is the FIRST group.\n"
+        "   - Example MICR: \"008176   071921891  4635257844\"  ->  check_number = 008176\n"
+        "3) MONEY ORDER — \"Money Order\"\n"
+        "   - Document explicitly says 'MONEY ORDER' (POSTAL / USPS / Western Union, etc.).\n"
+        "   - MICR line has TWO groups; check_number is the SECOND group.\n"
+        "   - Example MICR: \":000011931:  5512250920211\"  ->  check_number = 5512250920211\n"
+        "4) INSURANCE — \"Insurance\"\n"
+        "   - A printed payer remittance / EOB / ERA. Use the check/EFT number printed on the remittance as "
+        "check_number (or the EFT trace number if that's all that's shown).\n"
+        "\n"
+        "================================================================\n"
+        "OUTPUT FORMAT\n"
+        "================================================================\n"
+        "Return ONLY a JSON array of check objects. Example:\n"
+        "[\n"
+        '  {"check_number": "8841", "check_date": "5/1/2026", "check_amount": 500.0, '
+        '"check_type": "Insurance", "insurance_name": "Aetna", "accounts": [\n'
+        '    {"account_number": "PRE-2533", "icn": "1234567890", "lines": [\n'
+        '      {"line_description": "Main procedure", "paid_amount": 400.0, "transferred_amount": 50.0},\n'
+        '      {"line_description": "Peripheral block", "paid_amount": 100.0, "transferred_amount": 0}\n'
+        "    ]},\n"
+        '    {"account_number": "GAP-5534", "icn": "9876543210", "lines": [\n'
+        '      {"line_description": "Office visit", "paid_amount": 0.0, "transferred_amount": 0}\n'
+        "    ]}\n"
+        "  ]},\n"
+        '  {"check_number": "1075", "check_date": "4/4/2026", "check_amount": 164.0, '
+        '"check_type": "Personal", "insurance_name": "", "accounts": [\n'
+        '    {"account_number": "PAC-2603230014", "icn": "", "lines": [\n'
+        '      {"line_description": "Payment", "paid_amount": 164.0, "transferred_amount": 0}\n'
+        "    ]}\n"
+        "  ]}\n"
+        "]\n"
+        "\n"
+        "Do NOT include any commentary, markdown, or explanation. Just the JSON array."
+    )
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "file", "file": {
+                    "filename": pdf_file.filename,
+                    "file_data": f"data:application/pdf;base64,{b64}",
+                }},
+            ],
+        }],
+    }
+
+    try:
+        resp = req_mod.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload, timeout=600,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {type(e).__name__}: {e}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"OpenRouter HTTP {resp.status_code}: {resp.text[:500]}")
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned non-JSON response (HTTP {resp.status_code}): {resp.text[:500]}")
+    if "choices" not in data or not data["choices"]:
+        err_body = data.get("error") if isinstance(data, dict) else None
+        raise HTTPException(status_code=502, detail=f"OpenRouter returned no choices. error={err_body}")
+
+    content = (data["choices"][0]["message"].get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=502, detail="OpenRouter returned empty content")
+
+    # strip markdown fences if present
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\n?", "", content)
+        content = re.sub(r"\n?```$", "", content).strip()
+
+    # extract the JSON array
+    m = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
+    json_text = m.group(0) if m else content
+    try:
+        checks = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Could not parse model JSON: {e}. Raw: {content[:500]}")
+
+    if not isinstance(checks, list):
+        raise HTTPException(status_code=500, detail=f"Model returned non-list JSON: {type(checks).__name__}")
+
+    # Flatten check -> accounts -> lines into one CSV row per service line.
+    out_buf = io_mod.StringIO()
+    writer = csv_mod.writer(out_buf)
+    writer.writerow([
+        "Check Number", "Check Date", "Check Amount", "Check Type",
+        "Insurance Name", "Account Number", "ICN",
+        "Line Description", "Paid Amount", "Transferred Amount",
+    ])
+    line_count = 0
+    for chk in checks:
+        if not isinstance(chk, dict):
+            continue
+        check_number = chk.get("check_number", "")
+        check_date = chk.get("check_date", "")
+        check_amount = chk.get("check_amount", "")
+        check_type = chk.get("check_type", "")
+        insurance_name = chk.get("insurance_name", "")
+        accounts = chk.get("accounts")
+        if not isinstance(accounts, list) or not accounts:
+            # No account breakdown — still emit a single row so nothing is lost.
+            writer.writerow([
+                check_number, check_date, check_amount, check_type,
+                insurance_name, "", "", "", check_amount, 0,
+            ])
+            line_count += 1
+            continue
+        for acct in accounts:
+            if not isinstance(acct, dict):
+                continue
+            account_number = acct.get("account_number", "")
+            icn = acct.get("icn", "")
+            lines = acct.get("lines")
+            if not isinstance(lines, list) or not lines:
+                # Account with no itemized lines — one row for the account.
+                writer.writerow([
+                    check_number, check_date, check_amount, check_type,
+                    insurance_name, account_number, icn, "", "", 0,
+                ])
+                line_count += 1
+                continue
+            for ln in lines:
+                if not isinstance(ln, dict):
+                    continue
+                writer.writerow([
+                    check_number, check_date, check_amount, check_type,
+                    insurance_name, account_number, icn,
+                    ln.get("line_description", ""),
+                    ln.get("paid_amount", ""),
+                    ln.get("transferred_amount", 0),
+                ])
+                line_count += 1
+
+    from fastapi.responses import Response
+    csv_data = out_buf.getvalue().encode("utf-8")
+    filename = (pdf_file.filename or "payments").rsplit(".", 1)[0] + "_insurance_payments.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Row-Count": str(line_count),
+            "X-Check-Count": str(sum(1 for c in checks if isinstance(c, dict))),
+        },
+    )
+
+
+# =============================================================================
 # Patient-check split — single mixed PDF -> CSV of patient checks + cleaned PDF
 # Gemini reads the PDF, identifies PATIENT CHECKS (Personal / Bank Generated /
 # Money Order), reports their page indexes, and we return a ZIP containing:
@@ -12691,7 +12955,7 @@ async def extract_patient_checks_split_pdf(
         "3. Any page that is NOT part of a patient check is to be KEPT. Do NOT include those pages in any row's pages array; do NOT output rows for them.\n"
         "\n"
         "For each patient check, output:\n"
-        "- amount (float, the dollar amount of the check)\n"
+        "- amount (float, the dollar amount of the check). On personal checks, the amount appears TWICE: once in digits (the numeric box) and once written out in words on the courtesy/legal line. If these two DO NOT MATCH, use the amount written in WORDS — that is the legally controlling amount. Convert the words to a float for output.\n"
         "- check_number (see rules below — depends on check_type)\n"
         "- check_date (the date printed/written on the check, output as M/D/YYYY)\n"
         "- account_number — three-to-four-letter group prefix + digits, e.g. PRE-25334578, BAP-26012345, BAPC-26012345, EAP25072169. The digits most often start with 25... or 26... but CAN be any number (e.g. 1422458). MUST include the prefix. If not next to the digits, look at the cover/header for the group code and prepend it.\n"

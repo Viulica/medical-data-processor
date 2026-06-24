@@ -982,6 +982,12 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     
     # Remove page_number but keep source_file for tracking
     fieldnames = [field for field in fieldnames if field not in ['page_number']]
+
+    # Auto-add Referring column next to Surgeon — value is copied from Surgeon
+    # downstream (see merged_data['Referring'] = merged_data['Surgeon']).
+    # Without this, the Referring value gets stripped by the CSV column filter.
+    if 'Surgeon' in fieldnames and 'Referring' not in fieldnames:
+        fieldnames.insert(fieldnames.index('Surgeon') + 1, 'Referring')
     
     # Add CSN as the first column if extract_csn is enabled
     if extract_csn:
