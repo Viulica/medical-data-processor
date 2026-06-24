@@ -12695,6 +12695,13 @@ async def extract_insurance_payments(
         "- check_amount — float, the TOTAL dollar amount of the check (the whole check, summing all accounts "
         "and lines). On personal checks the amount appears twice (digits + words); if they DISAGREE use the "
         "WORDS amount (legally controlling) and convert to a float.\n"
+        "- exception — a string. Leave it as an EMPTY STRING (\"\") normally. ONLY fill it in when the EXCEPTION "
+        "condition below is met. When set, put a short human-readable reason in it.\n"
+        "  EXCEPTION CONDITION: if the amount on the CHECK and the total on its REMITTANCE ADVICE / EOB do NOT "
+        "match (a remittance advice and an EOB are the SAME thing — a payer's explanation of the payment), set "
+        "exception to a reason like \"Check amount $X does not match remittance/EOB total $Y\". Still output "
+        "check_amount as the CHECK's amount, but flag the mismatch here so a human can review it. Do NOT try to "
+        "reconcile or pick a 'right' value yourself — just report both amounts in the exception text.\n"
         "- check_type — one of: \"Personal\", \"Bank Generated\", \"Money Order\", \"Insurance\".\n"
         "    * Personal / Bank Generated / Money Order = a PATIENT check (rules below).\n"
         "    * Insurance = a payer/EOB/ERA payment (printed remittance from an insurance company, Medicare, "
@@ -12732,6 +12739,10 @@ async def extract_insurance_payments(
         "has only a single line / the document doesn't itemize, use one line for the whole account.\n"
         "- paid_amount — float, the dollar amount PAID on THIS line (what the payer actually paid for this "
         "service line). All paid_amounts across all lines and accounts should sum to check_amount.\n"
+        "  IMPORTANT — SKIP THESE LINES ENTIRELY: if a service line's paid amount is ZERO (0 / 0.00) OR is "
+        "NEGATIVE (a minus amount / takeback / reversal), DO NOT include that line in the output at all. Omit it "
+        "from the account's 'lines' array. Only emit lines that were paid a positive dollar amount. If an account "
+        "ends up with no positive-paid lines, omit that account too.\n"
         "- transferred_amount — float, the dollar amount on THIS line that is TRANSFERRED / moved to the next "
         "responsible party (the coinsurance / deductible / patient-responsibility / balance that goes from "
         "primary to secondary, primary to patient, or secondary to patient). The EOB may not literally use the "
@@ -12767,17 +12778,17 @@ async def extract_insurance_payments(
         "Return ONLY a JSON array of check objects. Example:\n"
         "[\n"
         '  {"check_number": "8841", "check_date": "5/1/2026", "check_amount": 500.0, '
-        '"check_type": "Insurance", "insurance_name": "Aetna", "accounts": [\n'
+        '"check_type": "Insurance", "insurance_name": "Aetna", "exception": "", "accounts": [\n'
         '    {"account_number": "PRE-2533", "icn": "1234567890", "lines": [\n'
         '      {"line_description": "Main procedure", "paid_amount": 400.0, "transferred_amount": 50.0},\n'
         '      {"line_description": "Peripheral block", "paid_amount": 100.0, "transferred_amount": 0}\n'
         "    ]},\n"
         '    {"account_number": "GAP-5534", "icn": "9876543210", "lines": [\n'
-        '      {"line_description": "Office visit", "paid_amount": 0.0, "transferred_amount": 0}\n'
+        '      {"line_description": "Office visit", "paid_amount": 75.0, "transferred_amount": 0}\n'
         "    ]}\n"
         "  ]},\n"
         '  {"check_number": "1075", "check_date": "4/4/2026", "check_amount": 164.0, '
-        '"check_type": "Personal", "insurance_name": "", "accounts": [\n'
+        '"check_type": "Personal", "insurance_name": "", "exception": "", "accounts": [\n'
         '    {"account_number": "PAC-2603230014", "icn": "", "lines": [\n'
         '      {"line_description": "Payment", "paid_amount": 164.0, "transferred_amount": 0}\n'
         "    ]}\n"
@@ -12847,7 +12858,7 @@ async def extract_insurance_payments(
     writer.writerow([
         "Check Number", "Check Date", "Check Amount", "Check Type",
         "Insurance Name", "Account Number", "ICN",
-        "Line Description", "Paid Amount", "Transferred Amount",
+        "Line Description", "Paid Amount", "Transferred Amount", "Exception",
     ])
     line_count = 0
     for chk in checks:
@@ -12858,12 +12869,13 @@ async def extract_insurance_payments(
         check_amount = chk.get("check_amount", "")
         check_type = chk.get("check_type", "")
         insurance_name = chk.get("insurance_name", "")
+        exception = chk.get("exception", "")
         accounts = chk.get("accounts")
         if not isinstance(accounts, list) or not accounts:
             # No account breakdown — still emit a single row so nothing is lost.
             writer.writerow([
                 check_number, check_date, check_amount, check_type,
-                insurance_name, "", "", "", check_amount, 0,
+                insurance_name, "", "", "", check_amount, 0, exception,
             ])
             line_count += 1
             continue
@@ -12877,19 +12889,29 @@ async def extract_insurance_payments(
                 # Account with no itemized lines — one row for the account.
                 writer.writerow([
                     check_number, check_date, check_amount, check_type,
-                    insurance_name, account_number, icn, "", "", 0,
+                    insurance_name, account_number, icn, "", "", 0, exception,
                 ])
                 line_count += 1
                 continue
             for ln in lines:
                 if not isinstance(ln, dict):
                     continue
+                paid = ln.get("paid_amount", "")
+                # Safety net for the prompt rule: skip lines paid <= 0 (zero or
+                # negative takebacks/reversals). Only drop when the amount parses
+                # as a number; leave unparseable values to a human.
+                try:
+                    if float(paid) <= 0:
+                        continue
+                except (TypeError, ValueError):
+                    pass
                 writer.writerow([
                     check_number, check_date, check_amount, check_type,
                     insurance_name, account_number, icn,
                     ln.get("line_description", ""),
-                    ln.get("paid_amount", ""),
+                    paid,
                     ln.get("transferred_amount", 0),
+                    exception,
                 ])
                 line_count += 1
 

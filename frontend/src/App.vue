@@ -9259,6 +9259,9 @@ Johnson, Robert, MD (MedNet Code: 1)"
  extracts the Insurance Name and ICN (a.k.a. claim number), and splits each
  line into Paid and Transferred amounts. One check covering multiple accounts
  — or one account covering multiple lines — is expanded into separate rows.
+ Lines paid $0 or a negative amount are skipped. If a check amount doesn't
+ match its remittance advice/EOB total, the row is flagged in an
+ <strong>Exception</strong> column for human review.
  </p>
  </div>
 
