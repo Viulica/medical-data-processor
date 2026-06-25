@@ -11246,7 +11246,14 @@ def process_unified_background(
                     "ASA Code" if "ASA Code" in base_df.columns else None
                 )
 
-                exclude_set = _get_exclude_set(worktracker_group)
+                # RIV rule: NEVER flag CPT for any RIV-family group (name contains
+                # "RIV"). RIV charges always pass the CPT gate, regardless of the
+                # predicted code. Force an empty exclude set so no "CPT" tag is set.
+                _is_riv = bool(worktracker_group) and "RIV" in worktracker_group.upper()
+                if _is_riv:
+                    exclude_set = set()
+                else:
+                    exclude_set = _get_exclude_set(worktracker_group)
                 if exclude_set is not None and cpt_col:
                     # Exclusion mode: flag CPT if it's IN the exclude set, or if it
                     # starts with "019" (endovascular/IR/OB family — high error rate).
