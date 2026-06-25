@@ -11246,11 +11246,16 @@ def process_unified_background(
                     "ASA Code" if "ASA Code" in base_df.columns else None
                 )
 
-                # RIV rule: NEVER flag CPT for any RIV-family group (name contains
-                # "RIV"). RIV charges always pass the CPT gate, regardless of the
-                # predicted code. Force an empty exclude set so no "CPT" tag is set.
-                _is_riv = bool(worktracker_group) and "RIV" in worktracker_group.upper()
-                if _is_riv:
+                # NEVER-FLAG-CPT rule: certain families always pass the CPT gate,
+                # regardless of the predicted code, so no "CPT" tag is ever set:
+                #   - RIV  (any group whose name contains "RIV")
+                #   - EAP  (any group whose name contains "EAP", e.g. EAP-TIN, EAP-SCA)
+                # For these we force an empty exclude set, which routes through the
+                # "pass everything" branch below (and we also skip the inclusion-mode
+                # HP lookup further down).
+                _wg_upper = worktracker_group.upper() if worktracker_group else ""
+                _never_flag_cpt = ("RIV" in _wg_upper) or ("EAP" in _wg_upper)
+                if _never_flag_cpt:
                     exclude_set = set()
                 else:
                     exclude_set = _get_exclude_set(worktracker_group)
