@@ -6,6 +6,8 @@ import tempfile
 import sys
 import time
 import random
+import shutil
+import subprocess
 
 print("🚀 [STARTUP] Extraction script started", flush=True)
 
@@ -244,20 +246,65 @@ def _build_image_messages(extraction_prompt, image_data_list):
     return [{"role": "user", "content": content}]
 
 
+def _lossless_compress_pdf(patient_pdf_path):
+    """Shrink a PDF without touching image resolution/quality.
+
+    Runs Ghostscript with -dPDFSETTINGS=/default, which restructures the file:
+    deflates streams, dedupes/compresses objects, and strips redundant metadata —
+    the same kind of result a free "compress PDF" website produces. No DPI or JPEG
+    quality reduction, so text/scans stay pixel-identical. Returns compressed bytes,
+    or the original bytes if Ghostscript is unavailable or doesn't help.
+    """
+    try:
+        with open(patient_pdf_path, "rb") as _fp:
+            original = _fp.read()
+    except Exception as _e:
+        print(f"    ⚠️  Failed to read PDF bytes: {_e}")
+        return None
+
+    gs = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+    if not gs:
+        return original
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as _out:
+            out_path = _out.name
+        subprocess.run(
+            [gs, "-q", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+             "-sDEVICE=pdfwrite", "-dPDFSETTINGS=/default",
+             "-dCompressFonts=true", "-dDetectDuplicateImages=true",
+             f"-sOutputFile={out_path}", patient_pdf_path],
+            check=True, capture_output=True, timeout=180,
+        )
+        with open(out_path, "rb") as _fp:
+            compressed = _fp.read()
+        os.unlink(out_path)
+        # Only use it if it actually got smaller (and isn't empty/corrupt).
+        if compressed and len(compressed) < len(original):
+            print(f"    🗜️  Lossless PDF compression: {len(original)/1e6:.1f}MB -> {len(compressed)/1e6:.1f}MB")
+            return compressed
+        return original
+    except Exception as _e:
+        print(f"    ⚠️  Lossless PDF compression failed ({_e}); using original PDF bytes")
+        try:
+            os.unlink(out_path)
+        except Exception:
+            pass
+        return original
+
+
 def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
     """Build OpenRouter messages payload using direct PDF upload (file_data).
 
-    Used as a fallback when image-route fails due to OpenRouter's 30 MB image
-    payload limit. Gemini handles PDFs natively, so this bypasses the cap.
+    Used as a fallback when the image route fails. The PDF is losslessly
+    compressed first (no quality loss) to keep the upload small, then sent via
+    file_data — Gemini handles PDFs natively, bypassing the per-image cap.
     """
     import base64 as _b64
-    try:
-        with open(patient_pdf_path, "rb") as _fp:
-            _pdf_bytes = _fp.read()
-        _pdf_b64 = _b64.b64encode(_pdf_bytes).decode("ascii")
-    except Exception as _e:
-        print(f"    ⚠️  Failed to read PDF bytes for direct-PDF fallback: {_e}")
+    _pdf_bytes = _lossless_compress_pdf(patient_pdf_path)
+    if not _pdf_bytes:
         return None
+    _pdf_b64 = _b64.b64encode(_pdf_bytes).decode("ascii")
     return [{
         "role": "user",
         "content": [
@@ -268,11 +315,6 @@ def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
             }},
         ],
     }]
-
-
-# OpenRouter caps the *image* payload at 30 MB. If our base64-encoded images
-# approach this, switch to direct PDF mode preemptively. 25 MB headroom.
-_OPENROUTER_IMAGE_PAYLOAD_BUDGET = 25 * 1024 * 1024  # 25 MB of base64 image data
 
 
 def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries=5, field_name_for_log=None):
@@ -297,22 +339,12 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
         return None
 
-    # Decide between image route and direct-PDF route based on total image size.
-    image_payload_size = sum(len(d) for d in image_data_list)
+    # Always use the image route first (full DPI, unchanged). If a request fails
+    # in a way that suggests the image payload is the problem (size error or a
+    # transport timeout from too-large an upload), we fall back to a direct,
+    # losslessly-compressed PDF upload inside the retry loop below.
     using_direct_pdf = False
-    if image_payload_size > _OPENROUTER_IMAGE_PAYLOAD_BUDGET:
-        print(
-            f"    📦 {pdf_filename}{log_suffix}: image payload ~{image_payload_size/1024/1024:.1f} MB "
-            f"exceeds OpenRouter image cap; using direct-PDF upload (file_data)."
-        )
-        messages = _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename)
-        if not messages:
-            # fallback to images even if oversized, let the API reject it
-            messages = _build_image_messages(extraction_prompt, image_data_list)
-        else:
-            using_direct_pdf = True
-    else:
-        messages = _build_image_messages(extraction_prompt, image_data_list)
+    messages = _build_image_messages(extraction_prompt, image_data_list)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -345,12 +377,30 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 "usage": {"include": True},
             }
 
+            # For direct-PDF uploads, pin the native file engine so the PDF goes
+            # straight to Gemini (input tokens) rather than OpenRouter's default
+            # Mistral-OCR engine, which bills per page and caps at 8 images.
+            if using_direct_pdf:
+                payload["plugins"] = [{"id": "file-parser", "pdf": {"engine": "native"}}]
+
             # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
             if "gemini-3" in openrouter_model:
                 payload["reasoning"] = {"effort": "high"}
                 if not flex_disabled:
                     payload["service_tier"] = "flex"
                     payload["provider"] = {"sort": "throughput"}
+            # Optionally disable reasoning for reasoning-capable non-Gemini models
+            # (e.g. Qwen/Minimax). Their default "thinking" pass is the wrong tool
+            # for structured extraction: it burns most tokens/wall-clock thinking,
+            # making them slower AND more expensive. OpenRouter's native
+            # reasoning.enabled=false suppresses it at the provider level, which on
+            # Qwen3.5-flash cut a 89-field call from 204s/$0.0052 to 21s/$0.0013 with
+            # no loss of structured output. Gated behind an env flag so production
+            # behaviour is unchanged unless explicitly opted in.
+            elif os.environ.get("EXTRACTION_DISABLE_REASONING", "").lower() in ("1", "true", "yes"):
+                payload["reasoning"] = {"enabled": False}
+            elif os.environ.get("EXTRACTION_REASONING_EFFORT", "").lower() in ("low", "medium", "high"):
+                payload["reasoning"] = {"effort": os.environ["EXTRACTION_REASONING_EFFORT"].lower()}
 
             response = requests.post(url, headers=headers, json=payload, timeout=300)
             # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
@@ -435,22 +485,33 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             except Exception:
                 pass
 
-            # If image payload was too big, swap to direct-PDF upload and retry.
-            # Catches both HTTP 413 and HTTP 400 variants (OpenRouter sometimes
-            # returns 400 with a size-related message when the upstream provider
-            # rejects an oversized inline image before the gateway 413 fires).
+            # If the image route failed in a way that points at an oversized
+            # payload, swap to a losslessly-compressed direct-PDF upload and retry.
+            # Two triggers:
+            #  1. Explicit size errors — HTTP 413, or 400 with a size-related body
+            #     (OpenRouter sometimes returns 400 when the upstream provider
+            #     rejects an oversized inline image before the gateway 413 fires).
+            #  2. Write/connection timeouts — a huge image upload often dies as a
+            #     socket "write operation timed out" / ConnectionError rather than a
+            #     clean HTTP status, which previously retried the same doomed payload.
             status_code = getattr(getattr(e, 'response', None), 'status_code', None)
             size_keywords = ("payload too large", "cannot exceed 30mb", "request entity", "too large", "exceeds", "size limit")
+            err_str_lc = str(e).lower()
             is_size_error = (
                 status_code == 413
                 or "413" in str(e)
                 or any(kw in body_preview_lc for kw in size_keywords)
                 or (status_code == 400 and any(kw in body_preview_lc for kw in size_keywords))
             )
-            if is_size_error and not using_direct_pdf:
+            is_upload_timeout = any(
+                kw in err_str_lc for kw in
+                ("write operation timed out", "connection aborted", "connection reset", "broken pipe")
+            )
+            if (is_size_error or is_upload_timeout) and not using_direct_pdf:
                 pdf_messages = _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename)
                 if pdf_messages:
-                    print(f"    🔁 Switching {pdf_filename}{log_suffix} to direct-PDF upload (file_data) after {status_code} size error; retrying.")
+                    reason = f"{status_code} size error" if is_size_error else "upload timeout"
+                    print(f"    🔁 Switching {pdf_filename}{log_suffix} to compressed direct-PDF upload (file_data) after {reason}; retrying.")
                     messages = pdf_messages
                     using_direct_pdf = True
                     # Don't burn a retry attempt — proceed to backoff/retry block.

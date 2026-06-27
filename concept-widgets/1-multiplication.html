@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What Does "Times" Mean?</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Trebuchet MS', 'Comic Sans MS', sans-serif;
+    background: linear-gradient(135deg, #ffe9f3 0%, #e9f3ff 100%);
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px; color: #333;
+  }
+  h1 { color: #d6336c; font-size: 1.9rem; text-align: center; margin-bottom: 4px; }
+  .subtitle { color: #777; margin-bottom: 20px; text-align: center; }
+  .card {
+    background: #fff; border-radius: 24px; padding: 28px;
+    box-shadow: 0 12px 40px rgba(214,51,108,0.15);
+    max-width: 640px; width: 100%;
+  }
+  .controls { display: flex; gap: 28px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .control { text-align: center; }
+  .control label { display: block; font-weight: bold; color: #555; margin-bottom: 6px; }
+  .stepper { display: flex; align-items: center; gap: 10px; }
+  .stepper button {
+    width: 44px; height: 44px; border: none; border-radius: 50%;
+    font-size: 1.5rem; font-weight: bold; cursor: pointer; color: #fff;
+    transition: transform .1s; line-height: 1;
+  }
+  .stepper button:active { transform: scale(0.88); }
+  .rows-btn { background: #ff922b; }
+  .cols-btn { background: #4dabf7; }
+  .stepper .num { font-size: 2rem; font-weight: bold; min-width: 40px; text-align: center; }
+  .grid-wrap { display: flex; justify-content: center; margin: 10px 0 18px; min-height: 220px; align-items: center; }
+  .grid { display: inline-grid; gap: 8px; }
+  .dot {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #ffd43b, #f59f00);
+    box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+    animation: pop .35s cubic-bezier(.2,1.4,.5,1) backwards;
+  }
+  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+  .equation {
+    text-align: center; font-size: 2.2rem; font-weight: bold;
+    background: #fff3bf; border-radius: 16px; padding: 16px; margin-top: 8px;
+  }
+  .equation .r { color: #f76707; }
+  .equation .c { color: #1c7ed6; }
+  .equation .ans { color: #d6336c; }
+  .story { text-align: center; color: #868e96; margin-top: 14px; font-size: 1.05rem; min-height: 1.4em; }
+</style>
+</head>
+<body>
+  <h1>🍪 What Does "Times" Really Mean?</h1>
+  <p class="subtitle">Multiplication is just <b>rows of groups</b>. Press the buttons and watch!</p>
+  <div class="card">
+    <div class="controls">
+      <div class="control">
+        <label style="color:#f76707">Rows (plates)</label>
+        <div class="stepper">
+          <button class="rows-btn" onclick="change('rows',-1)">−</button>
+          <span class="num" id="rowsNum">3</span>
+          <button class="rows-btn" onclick="change('rows',1)">+</button>
+        </div>
+      </div>
+      <div class="control">
+        <label style="color:#1c7ed6">Cookies per plate</label>
+        <div class="stepper">
+          <button class="cols-btn" onclick="change('cols',-1)">−</button>
+          <span class="num" id="colsNum">4</span>
+          <button class="cols-btn" onclick="change('cols',1)">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-wrap"><div class="grid" id="grid"></div></div>
+
+    <div class="equation">
+      <span class="r" id="eqR">3</span> rows × <span class="c" id="eqC">4</span> cookies =
+      <span class="ans" id="eqAns">12</span>
+    </div>
+    <p class="story" id="story"></p>
+  </div>
+
+<script>
+  let rows = 3, cols = 4;
+  const stories = [
+    "Count them one by one — same answer, way slower!",
+    "Each plate is a GROUP. Multiplying just adds the groups super fast.",
+    "If you had to share with friends, this is how many you'd have.",
+  ];
+  function change(which, delta) {
+    if (which === 'rows') rows = Math.min(8, Math.max(1, rows + delta));
+    else cols = Math.min(8, Math.max(1, cols + delta));
+    render();
+  }
+  function render() {
+    rowsNum.textContent = rows; colsNum.textContent = cols;
+    eqR.textContent = rows; eqC.textContent = cols;
+    eqAns.textContent = rows * cols;
+    const g = document.getElementById('grid');
+    g.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    g.innerHTML = '';
+    for (let i = 0; i < rows * cols; i++) {
+      const d = document.createElement('div');
+      d.className = 'dot';
+      d.style.animationDelay = (i * 0.03) + 's';
+      g.appendChild(d);
+    }
+    story.textContent = stories[(rows + cols) % stories.length];
+  }
+  render();
+</script>
+</body>
+</html>

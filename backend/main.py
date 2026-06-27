@@ -11155,14 +11155,9 @@ def process_unified_background(
                 "00100", "00120", "00211", "00220", "00404", "00540", "00560",
                 "00770", "00802", "00851", "00862", "00942", "01810",
             },
-            "RIV": {
-                # Top recurring AI errors across all RIV provider subgroups (May 2026 audit):
-                # 20x 00812 wrong (screening vs therapeutic colonoscopy),
-                # 13x 00840 wrong (lower abdomen confused with 00790/00752/00865),
-                # 4x 01967 wrong (labor analgesia vs direct C-section),
-                # 2x 01810 wrong (hand/wrist code confusion).
-                "00812", "00840", "01967", "01810",
-            },
+            # NOTE: RIV and EAP families NEVER flag CPT (see the _never_flag_cpt
+            # bypass below). Their exclude/HP lists are intentionally not defined
+            # here — any code from those groups always passes the CPT gate.
             # TQA-RSC: pass everything — empty exclude set means no CPT-rule flags.
             # Sorters update times reliably, so all codes are eligible for auto-post.
             "TQA-RSC": set(),

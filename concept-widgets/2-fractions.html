@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pizza Fractions</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Trebuchet MS', sans-serif;
+    background: linear-gradient(135deg, #fff4e6 0%, #ffe3e3 100%);
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 24px; color: #333;
+  }
+  h1 { color: #e8590c; text-align: center; font-size: 1.9rem; }
+  .subtitle { color: #777; margin: 4px 0 18px; text-align: center; }
+  .card {
+    background: #fff; border-radius: 24px; padding: 28px;
+    box-shadow: 0 12px 40px rgba(232,89,12,0.18);
+    max-width: 560px; width: 100%; text-align: center;
+  }
+  svg { max-width: 320px; width: 100%; cursor: pointer; }
+  .slice { transition: opacity .3s, transform .3s; transform-origin: center; }
+  .slice:hover { opacity: 0.85; }
+  .eaten { opacity: 0.12; }
+  .controls { margin: 16px 0; }
+  .controls label { font-weight: bold; color: #555; margin-right: 10px; }
+  .controls button {
+    width: 40px; height: 40px; border: none; border-radius: 50%;
+    background: #ff922b; color: #fff; font-size: 1.4rem; font-weight: bold;
+    cursor: pointer; margin: 0 6px;
+  }
+  .controls button:active { transform: scale(0.9); }
+  #sliceCount { font-size: 1.6rem; font-weight: bold; }
+  .fraction {
+    display: inline-block; font-size: 2.6rem; font-weight: bold;
+    line-height: 1; margin: 8px 0;
+  }
+  .fraction .top { color: #e8590c; display: block; border-bottom: 4px solid #333; padding-bottom: 4px; }
+  .fraction .bot { color: #1c7ed6; display: block; padding-top: 4px; }
+  .hint { color: #868e96; margin-top: 10px; font-size: 1.05rem; }
+  .reset { background:#adb5bd !important; width:auto !important; border-radius:20px !important; padding:8px 18px; font-size:1rem !important; margin-top:8px; }
+</style>
+</head>
+<body>
+  <h1>🍕 Fractions = Sharing a Pizza</h1>
+  <p class="subtitle">Tap slices to "eat" them. Watch the fraction change!</p>
+  <div class="card">
+    <div class="controls">
+      <label>How many slices?</label>
+      <button onclick="setSlices(-1)">−</button>
+      <span id="sliceCount">8</span>
+      <button onclick="setSlices(1)">+</button>
+    </div>
+
+    <svg id="pizza" viewBox="-110 -110 220 220"></svg>
+
+    <div class="fraction">
+      <span class="top" id="eaten">0</span>
+      <span class="bot" id="total">8</span>
+    </div>
+    <p class="hint" id="hint">Bottom = total slices. Top = how many you ate.</p>
+    <br>
+    <button class="reset" onclick="resetEaten()">↺ New pizza</button>
+  </div>
+
+<script>
+  let slices = 8;
+  let eaten = new Set();
+  const colors = ['#ffd8a8','#ffc078','#ffa94d'];
+
+  function setSlices(d){ slices = Math.min(12, Math.max(2, slices + d)); eaten.clear(); render(); }
+  function resetEaten(){ eaten.clear(); render(); }
+
+  function render(){
+    const svg = document.getElementById('pizza');
+    svg.innerHTML = '';
+    // crust circle
+    const crust = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    crust.setAttribute('r',102); crust.setAttribute('fill','#d9480f');
+    svg.appendChild(crust);
+
+    const R = 95;
+    for(let i=0;i<slices;i++){
+      const a1 = (i/slices)*2*Math.PI - Math.PI/2;
+      const a2 = ((i+1)/slices)*2*Math.PI - Math.PI/2;
+      const x1 = R*Math.cos(a1), y1 = R*Math.sin(a1);
+      const x2 = R*Math.cos(a2), y2 = R*Math.sin(a2);
+      const large = (a2-a1) > Math.PI ? 1 : 0;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',`M0,0 L${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2} Z`);
+      path.setAttribute('fill', colors[i % colors.length]);
+      path.setAttribute('stroke','#fff'); path.setAttribute('stroke-width','3');
+      path.setAttribute('class','slice' + (eaten.has(i)?' eaten':''));
+      path.addEventListener('click',()=>{ eaten.has(i)?eaten.delete(i):eaten.add(i); render(); });
+      svg.appendChild(path);
+      // pepperoni dots for uneaten
+      if(!eaten.has(i)){
+        const mid = (a1+a2)/2;
+        for(let p=0;p<2;p++){
+          const rr = 35 + p*32;
+          const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+          dot.setAttribute('cx', rr*Math.cos(mid)); dot.setAttribute('cy', rr*Math.sin(mid));
+          dot.setAttribute('r', 6); dot.setAttribute('fill','#c92a2a');
+          dot.style.pointerEvents='none';
+          svg.appendChild(dot);
+        }
+      }
+    }
+    document.getElementById('eaten').textContent = eaten.size;
+    document.getElementById('total').textContent = slices;
+    const h = document.getElementById('hint');
+    if(eaten.size === slices) h.textContent = `You ate the WHOLE pizza! ${slices}/${slices} = 1 whole. 🎉`;
+    else if(eaten.size === 0) h.textContent = "Bottom = total slices. Top = how many you ate.";
+    else if(eaten.size*2 === slices) h.textContent = `That's exactly HALF! ${eaten.size}/${slices} is the same as 1/2. 😋`;
+    else h.textContent = `You ate ${eaten.size} out of ${slices} slices.`;
+  }
+  render();
+</script>
+</body>
+</html>
