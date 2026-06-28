@@ -5,6 +5,7 @@ Handles modifiers configuration storage.
 """
 
 import os
+import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager

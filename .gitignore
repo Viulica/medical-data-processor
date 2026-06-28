@@ -73,3 +73,4 @@ run_eap_tin.py
 
 # Ad-hoc template backup dumps
 backend/template_backups_*/
+cpt_agent_eval/
