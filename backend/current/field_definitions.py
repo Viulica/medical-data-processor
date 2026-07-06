@@ -243,22 +243,32 @@ def extract_provider_list_from_text(text):
     return out
 
 
-def derive_provider_mapping_for_template(template_provider_mapping, template_fields):
+def derive_provider_mapping_for_template(template_provider_mapping, template_fields,
+                                         extract_from_annotations=False):
     """Return the effective provider-mapping text to inject into peripheral_blocks
     prompts for a given template, plus a flag indicating whether MedNet codes
     are present.
 
-    Priority:
-      1. Use template_provider_mapping (from the DB column) if non-empty —
-         these strings typically include "(MedNet Code: NN)".
-      2. Otherwise, harvest names from the Responsible Provider field via
-         extract_provider_list_from_text. The harvested list has NO MedNet
-         codes; the footer text will be auto-softened to drop red-number
-         language.
+    Source selection is controlled by extract_from_annotations (the template's
+    "Extract providers from PDF annotated (pasted) providers" checkbox):
+
+      * When ENABLED: use template_provider_mapping (the DB column) if non-empty —
+        these strings include "(MedNet Code: NN)" for red-number annotation matching.
+      * When DISABLED (or the mapping column is empty): harvest names from the
+        Responsible Provider field via extract_provider_list_from_text. This is the
+        roster users actually maintain when the checkbox is off. The harvested list
+        has NO MedNet codes; the footer text is auto-softened to drop red-number language.
+
+    Rationale: previously the mapping column was preferred whenever it was non-empty,
+    regardless of the checkbox. Templates with the checkbox OFF but a stale/leftover
+    provider_mapping (from when it was once ON) would inject that stale roster and
+    ignore the maintained Responsible Provider field — silently dropping providers
+    (e.g. block CRNAs added later), which the AI is then instructed never to output.
 
     Returns: (mapping_text, has_mednet) — (None, False) if nothing usable.
     """
-    if template_provider_mapping and template_provider_mapping.strip():
+    # Only trust the provider_mapping DB column when annotation-extraction is enabled.
+    if extract_from_annotations and template_provider_mapping and template_provider_mapping.strip():
         return template_provider_mapping.strip(), True
     if template_fields:
         rp = next((f for f in template_fields if f.get('name') == 'Responsible Provider'), None)

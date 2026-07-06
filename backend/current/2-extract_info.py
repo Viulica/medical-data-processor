@@ -948,19 +948,17 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         print(f"📊 Normal fields (single API call): {len(normal_fields)} fields")
     
     # Resolve the effective provider-mapping text for this template ONCE.
-    # Independent of extract_providers_from_annotations: we want the canonical
-    # provider list injected into the peripheral_blocks prompt whenever it is
-    # available. The toggle controls a separate code path (red-number annotation
-    # parsing in extract_annotations_data); the prompt-injection is always
-    # useful for letting the AI map raw PDF text → canonical names.
-    #
-    # Priority order: 1) provider_mapping column (typically with MedNet codes
-    # for scanned/handwritten PDFs); 2) Responsible Provider field text (for
-    # electronic EMR PDFs where no MedNet codes exist).
+    # The source is gated by extract_providers_from_annotations (the "Extract
+    # providers from PDF annotated (pasted) providers" checkbox):
+    #   * checkbox ON  → use the provider_mapping DB column (has MedNet codes for
+    #                    red-number annotation matching), which users keep updated.
+    #   * checkbox OFF → harvest the roster from the Responsible Provider field,
+    #                    which is what users maintain in that mode. A stale/leftover
+    #                    provider_mapping column is NOT used when the checkbox is off.
     from field_definitions import derive_provider_mapping_for_template, get_field_definitions
     all_template_fields = get_field_definitions(excel_file_path)
     _pb_provider_mapping, _pb_has_mednet = derive_provider_mapping_for_template(
-        provider_mapping, all_template_fields
+        provider_mapping, all_template_fields, extract_providers_from_annotations
     )
     if _pb_provider_mapping:
         src = 'provider_mapping column (with MedNet codes)' if _pb_has_mednet else 'Responsible Provider field (regex, no MedNet codes)'
