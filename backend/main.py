@@ -7967,7 +7967,8 @@ async def upload_template(
     description: str = Form(""),
     excel_file: UploadFile = File(...),
     provider_mapping: str = Form(default=""),
-    extract_providers_from_annotations: bool = Form(default=False)
+    extract_providers_from_annotations: bool = Form(default=False),
+    annotation_rendering_preference: str = Form(default="md")
 ):
     """Upload an Excel file and save it as an instruction template"""
     import pandas as pd
@@ -8000,7 +8001,8 @@ async def upload_template(
                 description=description,
                 template_data={'fields': field_definitions},
                 provider_mapping=provider_mapping if provider_mapping else None,
-                extract_providers_from_annotations=extract_providers_from_annotations
+                extract_providers_from_annotations=extract_providers_from_annotations,
+                annotation_rendering_preference=annotation_rendering_preference
             )
             
             if template_id:
@@ -8036,7 +8038,8 @@ async def update_template(
     description: str = Form(None),
     excel_file: UploadFile = File(None),
     provider_mapping: str = Form(None),
-    extract_providers_from_annotations: bool = Form(None)
+    extract_providers_from_annotations: bool = Form(None),
+    annotation_rendering_preference: str = Form(None)
 ):
     """Update an existing instruction template"""
     import pandas as pd
@@ -8086,7 +8089,8 @@ async def update_template(
             description=description,
             template_data=template_data,
             provider_mapping=provider_mapping,
-            extract_providers_from_annotations=extract_providers_from_annotations
+            extract_providers_from_annotations=extract_providers_from_annotations,
+            annotation_rendering_preference=annotation_rendering_preference
         )
         
         if success:
@@ -9613,6 +9617,7 @@ def process_unified_background(
     extract_csn: bool,
     provider_mapping: Optional[str],
     extract_providers_from_annotations: bool,
+    annotation_rendering_preference: str,
     # CPT params
     enable_cpt: bool,
     cpt_vision_mode: bool,
@@ -9834,6 +9839,9 @@ def process_unified_background(
                         cmd.append(scanned_date)
                     else:
                         cmd.append("")
+
+                    # Add annotation rendering preference (md/crna) — argv[13]
+                    cmd.append((annotation_rendering_preference or "md"))
 
                     logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
                     
@@ -11771,22 +11779,25 @@ async def process_unified(
         excel_filename = None
         provider_mapping = None
         extract_providers_from_annotations = False
-        
+        annotation_rendering_preference = 'md'
+
         if template_id:
             # Export template to temporary Excel file
             from db_utils import get_template
             template = get_template(template_id)
             if not template:
                 raise HTTPException(status_code=404, detail=f"Template with ID {template_id} not found")
-            
+
             logger.info(f"Using template '{template['name']}' (ID: {template_id}) for extraction")
-            
+
             # Extract provider mapping settings from template
             provider_mapping = template.get('provider_mapping')
             extract_providers_from_annotations = template.get('extract_providers_from_annotations', False)
-            
+            annotation_rendering_preference = (template.get('annotation_rendering_preference') or 'md')
+
             if extract_providers_from_annotations:
                 logger.info(f"Provider extraction from annotations: ENABLED")
+                logger.info(f"Annotation rendering preference (both MD+CRNA present): {annotation_rendering_preference}")
                 if provider_mapping:
                     logger.info(f"Provider mapping loaded: {len(provider_mapping)} characters")
                 else:
@@ -11895,6 +11906,7 @@ async def process_unified(
             extract_csn=extract_csn,
             provider_mapping=provider_mapping,
             extract_providers_from_annotations=extract_providers_from_annotations,
+            annotation_rendering_preference=annotation_rendering_preference,
             enable_cpt=enable_cpt,
             cpt_vision_mode=cpt_vision_mode,
             cpt_client=cpt_client,

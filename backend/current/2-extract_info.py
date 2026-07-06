@@ -669,7 +669,7 @@ def process_single_patient_pdf_task(args):
     import time
     task_start = time.time()
 
-    client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, pb_provider_mapping, pb_has_mednet = args
+    client, pdf_file_path, extraction_prompt, priority_fields, low_priority_fields, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, pb_provider_mapping, pb_has_mednet, annotation_rendering_preference = args
 
     pdf_filename = os.path.basename(pdf_file_path)
     is_problem_pdf = pdf_filename in ['Record_04.pdf', 'Record_07.pdf']
@@ -865,7 +865,7 @@ def process_single_patient_pdf_task(args):
                 sys.path.insert(0, parent_dir)
             from provider_annotation_utils import extract_annotations_data
 
-            ann = extract_annotations_data(pdf_file_path, provider_mapping)
+            ann = extract_annotations_data(pdf_file_path, provider_mapping, annotation_rendering_preference)
 
             # Providers
             if ann['responsible']:
@@ -909,7 +909,7 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", very_high_priority_model="gemini-3.1-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False, scanned_date=None):
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", very_high_priority_model="gemini-3.1-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False, scanned_date=None, annotation_rendering_preference='md'):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}, extract_providers_from_annotations={extract_providers_from_annotations}")
@@ -1101,7 +1101,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         # Prepare tasks for all PDFs with order tracking
         tasks = []
         for order_index, pdf_file in enumerate(pdf_files):
-            tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, _pb_provider_mapping, _pb_has_mednet))
+            tasks.append((client, pdf_file, extraction_prompt, priority_fields, low_priority_fields_list, excel_file_path, n_pages, model, priority_model, low_priority_model, order_index, provider_mapping, extract_providers_from_annotations, very_high_priority_fields, very_high_priority_model, _pb_provider_mapping, _pb_has_mednet, annotation_rendering_preference))
 
         import time
         start_time = time.time()
@@ -1350,6 +1350,7 @@ if __name__ == "__main__":
     provider_mapping = None  # Optional provider mapping text
     extract_providers_from_annotations = False  # Extract providers from PDF annotations
     scanned_date = None  # Optional scanned date (RIV only)
+    annotation_rendering_preference = 'md'  # 'md' or 'crna' when both present in annotations
     
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
@@ -1382,7 +1383,11 @@ if __name__ == "__main__":
         extract_providers_from_annotations = sys.argv[11].lower() == "true" if sys.argv[11].strip() else False
     if len(sys.argv) > 12:
         scanned_date = sys.argv[12] if sys.argv[12].strip() else None
-    
+    if len(sys.argv) > 13:
+        annotation_rendering_preference = sys.argv[13].strip().lower() if sys.argv[13].strip() else 'md'
+        if annotation_rendering_preference not in ('md', 'crna'):
+            annotation_rendering_preference = 'md'
+
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
     print(f"   Excel file: {excel_file}")
@@ -1402,10 +1407,11 @@ if __name__ == "__main__":
         print(f"   Progress file: {progress_file}")
     if extract_providers_from_annotations:
         print(f"   Extract Providers from Annotations: Enabled")
+        print(f"   Annotation Rendering Preference (both MD+CRNA): {annotation_rendering_preference}")
         if provider_mapping:
             print(f"   Provider Mapping: Loaded ({len(provider_mapping)} characters)")
     if scanned_date:
         print(f"   Scanned Date: {scanned_date}")
     print()
-    
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, very_high_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations, scanned_date)
+
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, very_high_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations, scanned_date, annotation_rendering_preference)

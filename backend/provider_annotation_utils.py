@@ -146,7 +146,8 @@ def extract_annotations_from_pdf(pdf_path: str) -> List[str]:
 
 def match_providers_from_annotations(
     annotation_texts: List[str],
-    provider_mapping: Dict[str, Dict[str, str]]
+    provider_mapping: Dict[str, Dict[str, str]],
+    rendering_preference: str = 'md'
 ) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
     """
     Match provider codes from annotation texts against the provider mapping.
@@ -159,6 +160,10 @@ def match_providers_from_annotations(
     Args:
         annotation_texts: List of text strings extracted from annotations
         provider_mapping: Dict mapping mednet_code -> provider info
+        rendering_preference: When BOTH an MD and a CRNA are present on a case,
+            which one becomes the Responsible/Rendering provider. 'md' (default)
+            keeps the historical behavior (first code pasted is responsible);
+            'crna' forces the CRNA to be responsible regardless of paste order.
 
     Returns:
         Tuple of (responsible_provider, md_provider, crna_provider, has_srna)
@@ -228,6 +233,16 @@ def match_providers_from_annotations(
                     if not responsible_provider:
                         responsible_provider = provider2['name']
 
+                # Rendering-provider preference: when both an MD and a CRNA are
+                # present, some groups always bill the CRNA as the rendering
+                # provider regardless of which code was pasted first. When
+                # preference is 'crna', force the CRNA; otherwise leave the
+                # paste-order default ('md' = historical behavior).
+                if (rendering_preference or 'md').lower() == 'crna' and crna_provider and md_provider:
+                    if responsible_provider != crna_provider:
+                        logger.info(f"Rendering preference 'crna': overriding responsible {responsible_provider} -> {crna_provider}")
+                    responsible_provider = crna_provider
+
                 logger.info(f"Matched two providers from annotation '{text}': Responsible={responsible_provider}, MD={md_provider}, CRNA={crna_provider}, SRNA={has_srna}")
                 return responsible_provider, md_provider, crna_provider, has_srna
 
@@ -294,10 +309,17 @@ def parse_insurance_codes(
 
 def extract_annotations_data(
     pdf_path: str,
-    provider_mapping_text: Optional[str]
+    provider_mapping_text: Optional[str],
+    rendering_preference: str = 'md'
 ) -> Dict:
     """
     Single-pass extraction of both provider and insurance info from PDF annotations.
+
+    Args:
+        pdf_path: Path to the PDF file
+        provider_mapping_text: Provider mapping text (mednet code -> provider)
+        rendering_preference: 'md' (default) or 'crna' — when both an MD and a
+            CRNA are on the case, which one is the Responsible/Rendering provider.
 
     Returns a dict with keys:
         responsible, md, crna, has_srna,
@@ -323,7 +345,7 @@ def extract_annotations_data(
         provider_mapping = parse_provider_mapping(provider_mapping_text)
         if provider_mapping:
             responsible, md, crna, has_srna = match_providers_from_annotations(
-                annotation_texts, provider_mapping
+                annotation_texts, provider_mapping, rendering_preference
             )
             result['responsible'] = responsible
             result['md'] = md

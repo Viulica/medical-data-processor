@@ -8389,6 +8389,20 @@ Johnson, Robert, MD (MedNet Code: 1)"
  Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
  </p>
  </div>
+ <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
+ <label> Rendering provider when BOTH MD and CRNA are present</label>
+ <select
+ v-model="currentTemplate.annotation_rendering_preference"
+ class="form-textarea"
+ style="height: auto;"
+ >
+ <option value="md">MD (default — first pasted code is responsible)</option>
+ <option value="crna">CRNA (always render the CRNA)</option>
+ </select>
+ <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+ When a case has both an MD and a CRNA in the pasted codes (e.g. "1/7"), choose who becomes the Responsible/Rendering provider. Select CRNA for groups that always bill the CRNA regardless of paste order.
+ </p>
+ </div>
  <div class="form-group">
  <label> Excel File *</label>
  <input
@@ -8483,6 +8497,20 @@ Johnson, Robert, MD (MedNet Code: 1)"
  ></textarea>
  <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
  Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
+ </p>
+ </div>
+ <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
+ <label> Rendering provider when BOTH MD and CRNA are present</label>
+ <select
+ v-model="currentTemplate.annotation_rendering_preference"
+ class="form-textarea"
+ style="height: auto;"
+ >
+ <option value="md">MD (default — first pasted code is responsible)</option>
+ <option value="crna">CRNA (always render the CRNA)</option>
+ </select>
+ <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+ When a case has both an MD and a CRNA in the pasted codes (e.g. "1/7"), choose who becomes the Responsible/Rendering provider. Select CRNA for groups that always bill the CRNA regardless of paste order.
  </p>
  </div>
  <div class="form-group">
@@ -8581,6 +8609,21 @@ Johnson, Robert, MD (MedNet Code: 1)"
  ></textarea>
  <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
  Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
+ </p>
+ </div>
+
+ <div class="form-group" v-if="viewingTemplate.extract_providers_from_annotations">
+ <label> Rendering provider when BOTH MD and CRNA are present</label>
+ <select
+ v-model="viewingTemplate.annotation_rendering_preference"
+ class="form-textarea"
+ style="height: auto;"
+ >
+ <option value="md">MD (default — first pasted code is responsible)</option>
+ <option value="crna">CRNA (always render the CRNA)</option>
+ </select>
+ <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
+ When a case has both an MD and a CRNA in the pasted codes (e.g. "1/7"), choose who becomes the Responsible/Rendering provider.
  </p>
  </div>
 
@@ -10463,6 +10506,7 @@ export default {
  file: null,
  provider_mapping: "",
  extract_providers_from_annotations: false,
+ annotation_rendering_preference: "md",
  },
  viewingTemplate: null,
  editingFields: [],
@@ -16402,6 +16446,7 @@ export default {
  formData.append("excel_file", this.currentTemplate.file);
  formData.append("provider_mapping", this.currentTemplate.provider_mapping || "");
  formData.append("extract_providers_from_annotations", this.currentTemplate.extract_providers_from_annotations || false);
+ formData.append("annotation_rendering_preference", this.currentTemplate.annotation_rendering_preference || "md");
 
  await axios.post(
  joinUrl(API_BASE_URL, "api/templates/upload"),
@@ -16434,6 +16479,7 @@ export default {
  file: null,
  provider_mapping: template.provider_mapping || "",
  extract_providers_from_annotations: template.extract_providers_from_annotations || false,
+ annotation_rendering_preference: template.annotation_rendering_preference || "md",
  };
  this.showEditTemplateModal = true;
  },
@@ -16454,6 +16500,7 @@ export default {
  }
  formData.append("provider_mapping", this.currentTemplate.provider_mapping || "");
  formData.append("extract_providers_from_annotations", this.currentTemplate.extract_providers_from_annotations || false);
+ formData.append("annotation_rendering_preference", this.currentTemplate.annotation_rendering_preference || "md");
 
  await axios.put(
  joinUrl(API_BASE_URL, `api/templates/${this.currentTemplate.id}`),
@@ -16490,6 +16537,9 @@ export default {
  }
  if (this.viewingTemplate.extract_providers_from_annotations === undefined) {
  this.viewingTemplate.extract_providers_from_annotations = false;
+ }
+ if (!this.viewingTemplate.annotation_rendering_preference) {
+ this.viewingTemplate.annotation_rendering_preference = "md";
  }
  // Create a deep copy of fields for editing
  this.editingFields = JSON.parse(
@@ -16567,6 +16617,7 @@ export default {
  formData.append("description", this.viewingTemplate.description || "");
  formData.append("provider_mapping", this.viewingTemplate.provider_mapping || "");
  formData.append("extract_providers_from_annotations", this.viewingTemplate.extract_providers_from_annotations || false);
+ formData.append("annotation_rendering_preference", this.viewingTemplate.annotation_rendering_preference || "md");
 
  await axios.put(
  joinUrl(API_BASE_URL, `api/templates/${this.viewingTemplate.id}`),

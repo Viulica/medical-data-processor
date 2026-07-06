@@ -124,29 +124,40 @@ def migrate_provider_mapping_columns():
             with conn.cursor() as cur:
                 # Check if columns exist
                 cur.execute("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name='instruction_templates' 
-                    AND column_name IN ('provider_mapping', 'extract_providers_from_annotations')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='instruction_templates'
+                    AND column_name IN ('provider_mapping', 'extract_providers_from_annotations', 'annotation_rendering_preference')
                 """)
                 existing_columns = {row[0] for row in cur.fetchall()}
-                
+
                 # Add provider_mapping column if it doesn't exist
                 if 'provider_mapping' not in existing_columns:
                     cur.execute("""
-                        ALTER TABLE instruction_templates 
+                        ALTER TABLE instruction_templates
                         ADD COLUMN provider_mapping TEXT
                     """)
                     logger.info("✅ Added provider_mapping column to instruction_templates")
-                
+
                 # Add extract_providers_from_annotations column if it doesn't exist
                 if 'extract_providers_from_annotations' not in existing_columns:
                     cur.execute("""
-                        ALTER TABLE instruction_templates 
+                        ALTER TABLE instruction_templates
                         ADD COLUMN extract_providers_from_annotations BOOLEAN NOT NULL DEFAULT FALSE
                     """)
                     logger.info("✅ Added extract_providers_from_annotations column to instruction_templates")
-                
+
+                # Add annotation_rendering_preference column if it doesn't exist.
+                # Controls who is the Responsible/Rendering provider when both an
+                # MD and a CRNA are present in PDF annotations: 'md' (default,
+                # historical paste-order behavior) or 'crna'.
+                if 'annotation_rendering_preference' not in existing_columns:
+                    cur.execute("""
+                        ALTER TABLE instruction_templates
+                        ADD COLUMN annotation_rendering_preference VARCHAR(10) NOT NULL DEFAULT 'md'
+                    """)
+                    logger.info("✅ Added annotation_rendering_preference column to instruction_templates")
+
                 return True
     except Exception as e:
         logger.error(f"Failed to migrate provider mapping columns: {e}")
@@ -176,6 +187,7 @@ def init_database():
         template_data JSONB NOT NULL,
         provider_mapping TEXT,
         extract_providers_from_annotations BOOLEAN NOT NULL DEFAULT FALSE,
+        annotation_rendering_preference VARCHAR(10) NOT NULL DEFAULT 'md',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -677,13 +689,13 @@ def get_template(template_id=None, template_name=None):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if template_id:
                     cur.execute("""
-                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at
+                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, annotation_rendering_preference, created_at, updated_at
                         FROM instruction_templates
                         WHERE id = %s
                     """, (template_id,))
                 elif template_name:
                     cur.execute("""
-                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at
+                        SELECT id, name, description, template_data, provider_mapping, extract_providers_from_annotations, annotation_rendering_preference, created_at, updated_at
                         FROM instruction_templates
                         WHERE name = %s
                     """, (template_name,))
@@ -697,28 +709,33 @@ def get_template(template_id=None, template_name=None):
         return None
 
 
-def create_template(name, description, template_data, provider_mapping=None, extract_providers_from_annotations=False):
+def create_template(name, description, template_data, provider_mapping=None, extract_providers_from_annotations=False, annotation_rendering_preference='md'):
     """
     Create a new instruction template.
     Returns the created template ID on success, None on failure.
-    
+
     Args:
         name: Template name (unique)
         description: Template description
         template_data: Dictionary/JSON containing the template field definitions
         provider_mapping: Optional provider mapping text
         extract_providers_from_annotations: Whether to extract providers from PDF annotations
+        annotation_rendering_preference: 'md' or 'crna' — who is Responsible when both are present
     """
     import json
-    
+
+    pref = (annotation_rendering_preference or 'md').lower()
+    if pref not in ('md', 'crna'):
+        pref = 'md'
+
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    INSERT INTO instruction_templates (name, description, template_data, provider_mapping, extract_providers_from_annotations, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO instruction_templates (name, description, template_data, provider_mapping, extract_providers_from_annotations, annotation_rendering_preference, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     RETURNING id
-                """, (name, description, json.dumps(template_data), provider_mapping, extract_providers_from_annotations))
+                """, (name, description, json.dumps(template_data), provider_mapping, extract_providers_from_annotations, pref))
                 result = cur.fetchone()
                 return result['id'] if result else None
     except Exception as e:
@@ -726,11 +743,11 @@ def create_template(name, description, template_data, provider_mapping=None, ext
         return None
 
 
-def update_template(template_id, name=None, description=None, template_data=None, provider_mapping=None, extract_providers_from_annotations=None):
+def update_template(template_id, name=None, description=None, template_data=None, provider_mapping=None, extract_providers_from_annotations=None, annotation_rendering_preference=None):
     """
     Update an existing instruction template.
     Returns True on success, False on failure.
-    
+
     Args:
         template_id: Template ID to update
         name: New name (optional)
@@ -738,6 +755,7 @@ def update_template(template_id, name=None, description=None, template_data=None
         template_data: New template data (optional)
         provider_mapping: New provider mapping text (optional, pass empty string to clear)
         extract_providers_from_annotations: Whether to extract providers from annotations (optional)
+        annotation_rendering_preference: 'md' or 'crna' (optional)
     """
     import json
     
@@ -764,7 +782,14 @@ def update_template(template_id, name=None, description=None, template_data=None
     if extract_providers_from_annotations is not None:
         updates.append("extract_providers_from_annotations = %s")
         params.append(extract_providers_from_annotations)
-    
+
+    if annotation_rendering_preference is not None:
+        pref = (annotation_rendering_preference or 'md').lower()
+        if pref not in ('md', 'crna'):
+            pref = 'md'
+        updates.append("annotation_rendering_preference = %s")
+        params.append(pref)
+
     if not updates:
         return True  # Nothing to update
     
