@@ -48,27 +48,18 @@ Peripheral Blocks Row Generation:
   * ICD codes:
     - ASA Code 01967 or 1967: Clear all, set ICD1 = "O80" (skipped if ICD1 already starts with "O")
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
+    - TEE (93312): Populate ICD1-ICD4 from the block's optional DX element (7th field);
+      if no DX provided, copy ICD1-ICD4 from original input row
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
     - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
-    - CVP (36556, 93503): Clear all ICD1-ICD4
-    - Other codes: Clear all ICD1-ICD4
+    - CVP (36556, 93503): Copy ICD1-ICD4 from original input row
+    - Other codes: Copy ICD1-ICD4 from original input row
 
-TEE (Transesophageal Echocardiogram) Row Generation:
-- When "tee_was_done" = TRUE AND "tee_diagnosis" contains diagnosis codes (not empty)
-- Creates a single duplicate row for the TEE procedure
-- Diagnosis codes format: (I35.1, I34.0, I36.1, I37) or empty ()
-- TEE row is created ONLY if diagnosis codes are present (not empty brackets)
-- Each TEE row:
-  * ASA Code and Procedure Code = 93312 (hardcoded)
-  * M1 = "26" (hardcoded)
-  * M2 = "59" (hardcoded)
-  * M3 and M4 = cleared
-  * ICD1-ICD4 = populated from tee_diagnosis codes in order
-  * Concurrent Providers cleared
-  * An Start and An Stop cleared
-  * SRNA cleared
-  * Anesthesia Type cleared
-  * Other fields copied from original row
+TEE (Transesophageal Echocardiogram) — 93312:
+- The standalone tee_was_done / tee_diagnosis path has been RETIRED.
+- TEE is now emitted as an ordinary peripheral_blocks entry: the model outputs a
+  93312 block with its diagnoses in the optional 7th DX element, e.g.
+  |93312;MD;;;;;I35.1,I34.0|. Those diagnoses become the TEE row's ICD1-ICD4.
 
 Emergent Case Row Generation:
 - When "emergent_case" = TRUE
@@ -150,41 +141,53 @@ def load_modifiers_definition(definition_file="modifiers_definition.csv"):
 def parse_peripheral_blocks(peripheral_blocks_str):
     """
     Parse the peripheral_blocks field string into a list of block dictionaries.
-    
-    Format: |cpt_code;MD;Resident;CRNA;M1;M2|cpt_code;MD;Resident;CRNA;M1;M2|...
-    
-    Returns a list of dictionaries with keys: cpt_code, md, resident, crna, m1, m2
+
+    Format: |cpt_code;MD;Resident;CRNA;M1;M2;DX|cpt_code;MD;Resident;CRNA;M1;M2;DX|...
+
+    The 7th field (DX) is OPTIONAL and only meaningful for TEE (93312) lines:
+    it holds comma-separated ICD-10 diagnosis codes (e.g. "I35.1,I34.0") that
+    become the TEE row's ICD1-ICD4. It is ignored for every other CPT code.
+    Older 6-field rows (no DX) remain valid.
+
+    Returns a list of dictionaries with keys: cpt_code, md, resident, crna, m1, m2, dx
+    where dx is a list of ICD code strings (possibly empty).
     Empty fields in the input are represented as empty strings in the output.
     """
     blocks = []
-    
+
     if not peripheral_blocks_str or pd.isna(peripheral_blocks_str):
         return blocks
-    
+
     # Split by | and filter out empty strings
     block_strings = [b.strip() for b in str(peripheral_blocks_str).split('|') if b.strip()]
-    
+
     for block_str in block_strings:
-        # Split by ; to get the 6 fields
+        # Split by ; to get the fields (6 required + 1 optional DX)
         parts = block_str.split(';')
-        
-        # Ensure we have exactly 6 parts (pad with empty strings if needed)
-        while len(parts) < 6:
+
+        # Ensure we have at least 7 parts (pad with empty strings if needed)
+        while len(parts) < 7:
             parts.append('')
-        
+
+        # Parse the optional DX field into a list of ICD codes.
+        # Accept "I35.1,I34.0", "(I35.1, I34.0)", or empty.
+        dx_raw = parts[6].strip().strip('()')
+        dx_codes = [c.strip() for c in dx_raw.split(',') if c.strip()]
+
         block = {
             'cpt_code': parts[0].strip(),
             'md': parts[1].strip(),
             'resident': parts[2].strip(),
             'crna': parts[3].strip(),
             'm1': parts[4].strip(),
-            'm2': parts[5].strip()
+            'm2': parts[5].strip(),
+            'dx': dx_codes
         }
-        
+
         # Only add block if it has a CPT code
         if block['cpt_code']:
             blocks.append(block)
-    
+
     return blocks
 
 
@@ -709,10 +712,9 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         # Check for peripheral_blocks column
         has_peripheral_blocks = 'peripheral_blocks' in df.columns
         
-        # Check for TEE columns
-        has_tee_was_done = 'tee_was_done' in df.columns
-        has_tee_diagnosis = 'tee_diagnosis' in df.columns
-        
+        # (TEE columns tee_was_done / tee_diagnosis are retired — TEE now flows
+        #  through peripheral_blocks; see parse_peripheral_blocks.)
+
         # Check for emergent_case column
         has_emergent_case = 'emergent_case' in df.columns
         
@@ -1162,71 +1164,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # Add the duplicate row to results
                 result_rows.append(qk_duplicate_row)
             
-            # Check if we need to create a TEE row
-            # Conditions:
-            # 1. tee_was_done = TRUE
-            # 2. tee_diagnosis has diagnosis codes (not empty)
-            if has_tee_was_done and has_tee_diagnosis:
-                tee_was_done_value = str(row.get('tee_was_done', '')).strip().upper()
-                tee_diagnosis_value = row.get('tee_diagnosis', '')
-                
-                if tee_was_done_value == 'TRUE':
-                    # Parse the TEE diagnosis codes
-                    tee_diagnosis_codes = parse_tee_diagnosis(tee_diagnosis_value)
-                    
-                    # Only create the row if there are diagnosis codes
-                    if tee_diagnosis_codes:
-                        # Create a copy of the original input row (not the modified new_row)
-                        tee_row = row.copy()
-                        if 'Points' in tee_row:
-                            tee_row['Points'] = ''
+            # NOTE: The standalone TEE (93312) generation path (driven by the old
+            # tee_was_done / tee_diagnosis fields) has been RETIRED. TEE is now
+            # emitted like every other second-line charge: the model outputs a
+            # 93312 entry in the peripheral_blocks field with its diagnoses in the
+            # optional 7th DX element (see parse_peripheral_blocks and the 93312
+            # branch in the peripheral-block row generation above).
 
-                        # Set ASA Code and Procedure Code to 93312
-                        tee_row['ASA Code'] = '93312'
-                        tee_row['Procedure Code'] = '93312'
-                        
-                        # Set M1 = "26" and M2 = "59" (hardcoded)
-                        tee_row['M1'] = '26'
-                        tee_row['M2'] = '59'
-                        tee_row['M3'] = ''
-                        tee_row['M4'] = ''
-                        
-                        # Populate ICD1-ICD4 from tee_diagnosis codes in order
-                        for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                            if icd_col in tee_row:
-                                tee_row[icd_col] = ''
-                        
-                        # Populate ICD codes from diagnosis list (up to 4 codes)
-                        if len(tee_diagnosis_codes) >= 1 and 'ICD1' in tee_row:
-                            tee_row['ICD1'] = tee_diagnosis_codes[0]
-                        if len(tee_diagnosis_codes) >= 2 and 'ICD2' in tee_row:
-                            tee_row['ICD2'] = tee_diagnosis_codes[1]
-                        if len(tee_diagnosis_codes) >= 3 and 'ICD3' in tee_row:
-                            tee_row['ICD3'] = tee_diagnosis_codes[2]
-                        if len(tee_diagnosis_codes) >= 4 and 'ICD4' in tee_row:
-                            tee_row['ICD4'] = tee_diagnosis_codes[3]
-                        
-                        # Clear Concurrent Providers
-                        if 'Concurrent Providers' in tee_row:
-                            tee_row['Concurrent Providers'] = ''
-                        
-                        # Clear An Start and An Stop columns (keep only in original row)
-                        if 'An Start' in tee_row:
-                            tee_row['An Start'] = ''
-                        if 'An Stop' in tee_row:
-                            tee_row['An Stop'] = ''
-                        
-                        # Clear SRNA field
-                        if 'SRNA' in tee_row:
-                            tee_row['SRNA'] = ''
-                        
-                        # Clear Anesthesia Type field
-                        if 'Anesthesia Type' in tee_row:
-                            tee_row['Anesthesia Type'] = ''
-                        
-                        # Add the TEE row to results
-                        result_rows.append(tee_row)
-            
             # Check if we need to create an emergent_case row
             # Conditions:
             # 1. emergent_case column exists
@@ -1419,7 +1363,20 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                     if icd_col in block_row:
                                         block_row[icd_col] = ''
                                 block_row['ICD1'] = 'G89.18'
-                            
+
+                            elif cpt_code == '93312':
+                                # TEE: Populate ICD1-ICD4 from the block's DX field (model-provided
+                                # TEE diagnoses). The DX field is ONLY honored for 93312. If no DX
+                                # was provided, fall back to the original row's ICDs (already in block_row).
+                                dx_codes = block.get('dx') or []
+                                if dx_codes:
+                                    for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
+                                        if icd_col in block_row:
+                                            block_row[icd_col] = ''
+                                    for i, icd_col in enumerate(['ICD1', 'ICD2', 'ICD3', 'ICD4']):
+                                        if i < len(dx_codes) and icd_col in block_row:
+                                            block_row[icd_col] = dx_codes[i]
+
                             elif cpt_code == '36620':
                                 # Arterial line: Keep ICD codes from original input row (already in block_row)
                                 pass
@@ -1436,16 +1393,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                             block_row[icd_col] = ''
                             
                             elif cpt_code in ['36556', '93503']:
-                                # CVP: Clear all ICD codes
-                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                    if icd_col in block_row:
-                                        block_row[icd_col] = ''
-                            
+                                # CVP: Keep ICD codes from original input row (already in block_row)
+                                pass
+
                             else:
-                                # Any other CPT code: Clear all ICD codes
-                                for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
-                                    if icd_col in block_row:
-                                        block_row[icd_col] = ''
+                                # Any other CPT code: Keep ICD codes from original input row (already in block_row)
+                                pass
                             
                             # Set Type Of Service based on block type (create column if it doesn't exist)
                             if cpt_code in peripheral_nerve_blocks:
@@ -1496,7 +1449,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             block_row['M2'] = block['m2']
                             block_row['M3'] = ''
                             block_row['M4'] = ''
-                            
+
+                            # TEE (93312) always bills with M1=26 (professional component)
+                            # and M2=59, regardless of what the model output. This
+                            # preserves the behavior of the retired tee_diagnosis path.
+                            if cpt_code == '93312':
+                                block_row['M1'] = '26'
+                                block_row['M2'] = '59'
+
                             # Add the block row to results
                             result_rows.append(block_row)
                 else:
