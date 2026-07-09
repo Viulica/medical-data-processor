@@ -7590,11 +7590,19 @@ async def predict_insurance_codes(
             if not template:
                 raise HTTPException(status_code=404, detail=f"Special cases template {special_cases_template_id} not found")
             
-            # Create CSV file from template mappings
+            # Create CSV file from template mappings.
+            # Map by key name, NOT by column position: mappings come from a JSONB
+            # column, which does not guarantee key order, so a positional rename can
+            # silently swap company_name <-> mednet_code and break all matching.
             import pandas as pd
-            mappings_df = pd.DataFrame(template['mappings'])
-            mappings_df.columns = ['Company name', 'Mednet code']
-            
+            mappings_df = pd.DataFrame([
+                {
+                    'Company name': m.get('company_name', ''),
+                    'Mednet code': m.get('mednet_code', ''),
+                }
+                for m in template['mappings']
+            ])
+
             special_cases_csv_path = f"/tmp/{job_id}_special_cases.csv"
             mappings_df.to_csv(special_cases_csv_path, index=False)
             logger.info(f"Special cases loaded from template {special_cases_template_id} - {len(template['mappings'])} mappings")
