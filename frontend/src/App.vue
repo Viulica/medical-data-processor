@@ -1324,9 +1324,9 @@
  v-model.number="unifiedExtractionPages"
  type="number"
  min="1"
- max="50"
+ max="100"
  class="page-input"
- placeholder="2"
+ placeholder="100"
  />
  </div>
  <small class="help-text">
@@ -10087,7 +10087,7 @@ export default {
  groupStatusForm: { group_name: "", status_description: "" },
  zipFile: null,
  excelFile: null,
- pageCount: 49,
+ pageCount: 100,
  worktrackerGroup: "",
  worktrackerBatch: "",
  scannedDate: "",
@@ -10104,7 +10104,7 @@ export default {
  // Fast processing functionality
  zipFileFast: null,
  excelFileFast: null,
- pageCountFast: 49,
+ pageCountFast: 100,
  worktrackerGroupFast: "",
  worktrackerBatchFast: "",
  scannedDateFast: "",
@@ -10307,7 +10307,7 @@ export default {
  unifiedSplitDetectionShift: 0, // Shift detections by N pages (positive = down, negative = up)
  isUnifiedPdfDragActive: false,
  // Unified - Extraction settings
- unifiedExtractionPages: 49,
+ unifiedExtractionPages: 100,
  unifiedExtractionModel: "gemini-3-flash-preview",
  unifiedRenameMode: "default",
  unifiedExtractionMaxWorkers: 50,
@@ -10635,7 +10635,7 @@ export default {
  if (this.unifiedEnableExtraction) {
  if (
  this.unifiedExtractionPages < 1 ||
- this.unifiedExtractionPages > 50
+ this.unifiedExtractionPages > 100
  ) {
  return false;
  }
@@ -12930,7 +12930,7 @@ export default {
  this.unifiedSplitMethod = "ocrspace";
  this.unifiedSplitDetectionShift = 0;
  // Extraction settings
- this.unifiedExtractionPages = 49;
+ this.unifiedExtractionPages = 100;
  this.unifiedExtractionModel = "gemini-3-flash-preview";
  this.unifiedRenameMode = "default";
  this.unifiedExtractionMaxWorkers = 50;
