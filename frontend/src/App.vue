@@ -7039,7 +7039,7 @@
  Upload CSV
  </button>
  <button
- @click="insuranceSpecialCasesMode = 'template'"
+ @click="selectSpecialCasesTemplateMode"
  :class="{ active: insuranceSpecialCasesMode === 'template' }"
  class="toggle-btn"
  >
@@ -7090,19 +7090,12 @@
  v-model="selectedSpecialCasesTemplateId"
  :options="availableSpecialCasesTemplates.map(t =>({
  ...t,
- displayName: `${t.name} (${t.mappings.length} mappings)`
+ displayName: `${t.name} (${(t.mappings || []).length} mappings)`
  }))"
  :reduce="template => template.id"
  label="displayName"
  placeholder="Select a template..."
  />
- <button
- @click="loadAvailableSpecialCasesTemplates"
- class="refresh-btn"
- title="Refresh templates"
- >
- Refresh
- </button>
  </div>
 
  <div class="field-info">
@@ -15661,6 +15654,11 @@ export default {
  console.error("Failed to load special cases templates:", error);
  this.toast.error("Failed to load templates");
  }
+ },
+
+ selectSpecialCasesTemplateMode() {
+ this.insuranceSpecialCasesMode = 'template';
+ this.loadAvailableSpecialCasesTemplates();
  },
 
  startInsuranceStatusPolling() {
