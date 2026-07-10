@@ -1248,13 +1248,21 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     anesthesia_type_val = str(row.get('Anesthesia Type', '')).strip().upper()
                 
                 # Determine if blocks should be generated based on mode
-                should_generate_blocks = False
-                if peripheral_blocks_mode == "UNI":
-                    # UNI mode: Generate ONLY when Anesthesia Type is "General" or "Neuraxial Block"
-                    should_generate_blocks = (anesthesia_type_val in ('GENERAL', 'NEURAXIAL BLOCK'))
-                else:
-                    # Other mode: Generate when Anesthesia Type is NOT "MAC"
-                    should_generate_blocks = (anesthesia_type_val != 'MAC')
+                #
+                # TEMPORARILY DISABLED: the Anesthesia Type gating was silently
+                # dropping legitimate secondary/post-op blocks whenever the
+                # PRIMARY anesthesia type wasn't General/Neuraxial (UNI) or was
+                # MAC (other) — e.g. REGIONAL, MAC, or blank primaries that still
+                # have a documented post-op block. Force-generate for now and let
+                # the extraction's peripheral_blocks field decide. Original gating
+                # kept below (commented) so it can be restored.
+                should_generate_blocks = True
+                # if peripheral_blocks_mode == "UNI":
+                #     # UNI mode: Generate ONLY when Anesthesia Type is "General" or "Neuraxial Block"
+                #     should_generate_blocks = (anesthesia_type_val in ('GENERAL', 'NEURAXIAL BLOCK'))
+                # else:
+                #     # Other mode: Generate when Anesthesia Type is NOT "MAC"
+                #     should_generate_blocks = (anesthesia_type_val != 'MAC')
                 
                 if should_generate_blocks:
                     # Check if peripheral_blocks contains "NONE DONE" - if so, skip block generation
