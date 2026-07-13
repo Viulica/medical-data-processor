@@ -1132,7 +1132,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # 1. generate_qk_duplicate is True
             # 2. M1 modifier is QK
             # 3. CRNA field has a value
-            if generate_qk_duplicate and m1_modifier == 'QK' and has_crna:
+            # 4. Medical direction was actually performed — the CRNA must have been on
+            #    the case for >= 1/3 of the total time. When crna_met_one_third == 'NO',
+            #    the MD only SUPERVISED (line stays QK) but direction was NOT performed,
+            #    so we do NOT emit the second (QX) CRNA line. 'YES'/'UNKNOWN'/absent →
+            #    unchanged (keep the QK/QX split as before).
+            _crna_one_third = str(row.get('crna_met_one_third', '')).strip().upper()
+            _skip_qx_no_direction = (_crna_one_third == 'NO')
+            if _skip_qx_no_direction:
+                print(f"   ⚠️  Row {idx + 1}: CRNA under 1/3 time — supervision only (QK kept), skipping QX duplicate (no medical direction)")
+            if generate_qk_duplicate and m1_modifier == 'QK' and has_crna and not _skip_qx_no_direction:
                 # Filter concurrent providers for medical direction lines
                 # First line (QK - MD line): Keep only MD providers
                 # Second line (QX - CRNA line): Keep only CRNA providers
