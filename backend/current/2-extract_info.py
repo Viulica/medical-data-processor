@@ -193,6 +193,86 @@ def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
         return None
 
 
+# ---------------------------------------------------------------------------
+# EXPERIMENT: self-hosted vLLM routing (revert by deleting this block + the
+# is_vllm_model() call at the top of extract_info_from_patient_pdf).
+# Enabled only when VLLM_BASE_URL is set, so production paths are unaffected.
+# ---------------------------------------------------------------------------
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "").rstrip("/")
+VLLM_API_KEY = os.getenv("VLLM_API_KEY", "")
+VLLM_THINKING = os.getenv("VLLM_THINKING", "0") == "1"
+
+
+def is_vllm_model(model_name):
+    """Route self-hosted checkpoints (nvidia/..., Qwen/...) to the vLLM server."""
+    if not VLLM_BASE_URL or not model_name:
+        return False
+    return model_name.startswith("nvidia/") or model_name.startswith("Qwen/")
+
+
+def extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model,
+                      max_retries=3, field_name_for_log=None):
+    """Extract via an OpenAI-compatible vLLM endpoint using the image route.
+
+    Mirrors extract_with_openrouter's image path; the self-hosted server has no
+    30 MB cap and no direct-PDF (file_data) support, so images are always used.
+    """
+    log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
+
+    image_data_list = pdf_to_images_base64(patient_pdf_path)
+    if not image_data_list:
+        print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
+        return None
+
+    messages = _build_image_messages(extraction_prompt, image_data_list)
+    headers = {
+        "Authorization": f"Bearer {VLLM_API_KEY}",
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 8192,
+        "temperature": 0,
+        "chat_template_kwargs": {"enable_thinking": VLLM_THINKING},
+    }
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(f"{VLLM_BASE_URL}/chat/completions",
+                                     headers=headers, json=payload,
+                                     timeout=900, verify=False)
+            response.raise_for_status()
+            msg = response.json()['choices'][0]['message']
+            # With thinking enabled the answer may land in 'reasoning'.
+            response_text = (msg.get('content') or msg.get('reasoning') or "").strip()
+            if not response_text or len(response_text) < 10:
+                raise ValueError(f"Response too short or empty: {response_text!r}")
+
+            # Same fence-stripping + JSON validation as the OpenRouter path.
+            cleaned_response = response_text
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            json.loads(cleaned_response.strip())  # Validate JSON
+
+            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with vLLM on attempt {attempt + 1}")
+            return response_text, "vllm"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 8)
+                print(f"    ⚠️  vLLM error for {pdf_filename}{log_suffix}: {e}; "
+                      f"retry {attempt+1}/{max_retries} in {wait_time}s")
+                time.sleep(wait_time)
+            else:
+                print(f"    ❌ vLLM failed for {pdf_filename}{log_suffix}: {e}")
+    return None, None
+
+
 def is_openrouter_model(model_name):
     """Check if model name indicates OpenRouter (contains '/' or starts with 'google/')"""
     return '/' in model_name or model_name.startswith('google/')
@@ -481,6 +561,11 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
     
+    # EXPERIMENT: self-hosted vLLM. Must precede the OpenRouter check because
+    # "nvidia/..." also contains "/". No-op unless VLLM_BASE_URL is set.
+    if is_vllm_model(model):
+        return extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model, 3, field_name_for_log)
+
     # Check if using OpenRouter (explicitly, or Gemini model without GOOGLE_API_KEY)
     if is_openrouter_model(model) and not is_gemini_model(model):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
