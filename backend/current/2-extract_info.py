@@ -1101,6 +1101,16 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                 fieldnames.append(field)
         print(f"📋 Provider annotation extraction enabled - added provider + insurance fields to output")
     
+    # EXPERIMENT: when the main model is a self-hosted vLLM checkpoint, force every
+    # priority tier to the same model so the A/B measures one model, not a mix.
+    # Also prevents the Gemini branch below from rewriting `model`.
+    # (Revert: delete this block.)
+    if is_vllm_model(model):
+        print(f"🧪 vLLM mode: forcing all priority tiers to '{model}'")
+        priority_model = model
+        low_priority_model = model
+        very_high_priority_model = model
+
     # Initialize Google AI client (only needed if not using OpenRouter)
     # Check if we're using Gemini models (use Gemini API) or OpenRouter models
     using_gemini = is_gemini_model(model) or (priority_model and is_gemini_model(priority_model)) or (low_priority_model and is_gemini_model(low_priority_model))
@@ -1139,7 +1149,12 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
             using_gemini = False
             using_openrouter = True
 
-    if using_openrouter:
+    # EXPERIMENT: vLLM needs no OpenRouter/Google key. (Revert: delete this branch.)
+    if is_vllm_model(model):
+        using_openrouter = False
+        using_gemini = False
+        print(f"🤖 Using self-hosted vLLM at {VLLM_BASE_URL} for extraction")
+    elif using_openrouter:
         # Verify OpenRouter API key is available
         openrouter_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not openrouter_key:
