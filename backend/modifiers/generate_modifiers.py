@@ -244,20 +244,20 @@ def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'
     
     # Split by pipe to get individual provider entries
     provider_entries = [entry.strip() for entry in concurrent_providers_str.split('|') if entry.strip()]
-    
-    # Filter entries based on provider type
+
+    # Filter entries by simple substring match — segments are pipe-separated and a
+    # segment is kept if it contains the plain substring "MD", "DO" (both count as
+    # physician) or "CRNA". No comma/semicolon anchoring: this survives format
+    # variations like "Name, MD;Role;begin;end" and, critically, keeps DO
+    # providers (previously silently dropped — no DO branch existed).
     filtered_entries = []
     for entry in provider_entries:
-        # Check if this entry contains the provider type we want to keep
-        # Format is: "LAST, FIRST, TYPE; timestamp; timestamp"
-        # We look for ", MD;" or ", CRNA;" in the entry
         if keep_type == 'MD':
-            # Keep if it contains ", MD;" (MD provider)
-            if ', MD;' in entry or ', MD ' in entry or entry.endswith(', MD'):
+            # Physicians: MD or DO
+            if 'MD' in entry or 'DO' in entry:
                 filtered_entries.append(entry)
         elif keep_type == 'CRNA':
-            # Keep if it contains ", CRNA;" (CRNA provider)
-            if ', CRNA;' in entry or ', CRNA ' in entry or entry.endswith(', CRNA'):
+            if 'CRNA' in entry:
                 filtered_entries.append(entry)
     
     # Join filtered entries back with pipe separator
@@ -852,11 +852,20 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     # Note: If turn_off_medical_direction is True, we don't allow medical_direction to be set to True
                     # Note: If turn_off_bcbs_medicare_modifiers is True, only generate P modifiers (set both to NO)
                     if primary_mednet_code == '003':
+                        _003_one_third = str(row.get('crna_met_one_third', '')).strip().upper()
                         if turn_off_bcbs_medicare_modifiers:
                             # BCBS Medicare modifiers turned off: only generate P modifiers
                             medicare_modifiers = False
                             medical_direction = False
                             print(f"   Special Case 003: BCBS Medicare Modifiers OFF - Only P modifiers will be generated")
+                        elif has_crna and _003_one_third != 'YES':
+                            # HARDCODED (BCBS): CRNA on the case but NOT confirmed at/above
+                            # 1/3 of the time (anything other than an explicit 'YES') →
+                            # generate ONLY the P modifier, nothing else (no QK/QX/AA/GC).
+                            medicare_modifiers = False
+                            medical_direction = False
+                            print(f"   Special Case 003: CRNA present, 1/3 not confirmed "
+                                  f"(crna_met_one_third='{_003_one_third or 'blank'}') - Only P modifier")
                         elif has_md and has_crna:
                             # Both MD and CRNA present: artificially set both to YES
                             medicare_modifiers = True
@@ -891,14 +900,27 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         print(f"\n❌ DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
                         print(f"   Code NOT FOUND in modifiers_dict (loaded {len(modifiers_dict)} codes)")
             
-            # Determine GC modifier based on Resident AND medicare modifiers
-            # BUT NOT when m1_modifier is QK (prevent QK + GC combination)
-            if has_resident_column and medicare_modifiers and m1_modifier != 'QK':
+            # Determine GC modifier based on Resident AND medicare modifiers.
+            #
+            # Base rule: GC is added when a Resident is present, on a Medicare case,
+            # and NOT when m1_modifier is QK (prevent QK + GC combination).
+            #
+            # GC is BLOCKED only when a CRNA is on the case AND was at/above 1/3 of
+            # the time (crna_met_one_third == 'YES') — that is real medical
+            # direction (QK + QX), which cannot also carry GC.
+            # In every other case (CRNA under 1/3, one-third unknown/blank, or no
+            # CRNA) GC is allowed — including alongside QK — as long as a Resident
+            # is actually on the case.
+            _gc_crna_one_third = str(row.get('crna_met_one_third', '')).strip().upper()
+            _gc_blocked = (has_crna and _gc_crna_one_third == 'YES')
+
+            if has_resident_column and medicare_modifiers and not _gc_blocked:
                 resident_value = row.get('Resident', '')
                 if not pd.isna(resident_value) and str(resident_value).strip() != '':
                     gc_modifier = 'GC'
                     if primary_mednet_code in ['3136', '003']:
-                        print(f"   GC modifier added (Resident: '{resident_value}')")
+                        print(f"   GC modifier added (Resident: '{resident_value}', "
+                              f"crna_met_one_third='{_gc_crna_one_third or 'n/a'}')")
             
             # Determine QS modifier based on Anesthesia Type AND medicare modifiers AND enable_qs setting
             if has_anesthesia_type and medicare_modifiers:
