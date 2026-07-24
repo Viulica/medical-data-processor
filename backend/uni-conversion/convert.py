@@ -709,15 +709,15 @@ def fix_time_format(time_str):
 def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     """
     Fix Concurrent Providers format by adding date prefix to times that don't have it
-    and fixing malformed time formats. Also filters out any records containing "CRNA".
-    
+    and fixing malformed time formats.
+
     Args:
         concurrent_providers_value: The Concurrent Providers string
         charge_date: The Charge Date value to use for missing dates
-    
+
     Returns:
-        Fixed Concurrent Providers string with dates added where needed, times formatted correctly,
-        and CRNA records removed
+        Fixed Concurrent Providers string with dates added where needed and times
+        formatted correctly. All provider entries are kept (CRNAs are no longer removed).
     """
     if not concurrent_providers_value or pd.isna(concurrent_providers_value):
         return concurrent_providers_value
@@ -751,10 +751,6 @@ def fix_concurrent_providers_dates(concurrent_providers_value, charge_date):
     fixed_entries = []
     
     for entry in provider_entries:
-        # Skip entries that contain "CRNA"
-        if "CRNA" in entry:
-            continue
-        
         # Each entry format: Name;Role;Time1;Time2
         parts = entry.split(';')
         
