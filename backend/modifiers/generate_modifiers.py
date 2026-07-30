@@ -265,15 +265,16 @@ def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'
 
     filtered_entries = []
     for entry in provider_entries:
-        is_crna = _has_credential(entry, ['CRNA', 'SRNA'])
+        is_crna = _has_credential(entry, ['CRNA'])
+        is_srna = _has_credential(entry, ['SRNA'])
         is_md   = _has_credential(entry, ['MD', 'DO'])
         if keep_type == 'MD':
-            # Physicians only (MD/DO). Never a CRNA/SRNA on the QK line.
-            if is_md and not is_crna:
+            # Physicians only (MD/DO). Never a CRNA or SRNA on the QK line.
+            if is_md and not is_crna and not is_srna:
                 filtered_entries.append(entry)
         elif keep_type == 'CRNA':
-            # CRNAs only. Never an MD/DO on the QX line.
-            if is_crna and not is_md:
+            # CRNAs ONLY on the QX line — not SRNAs, not MD/DO.
+            if is_crna and not is_md and not is_srna:
                 filtered_entries.append(entry)
 
     # Join filtered entries back with pipe separator
