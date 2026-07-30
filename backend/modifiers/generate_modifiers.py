@@ -245,21 +245,37 @@ def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'
     # Split by pipe to get individual provider entries
     provider_entries = [entry.strip() for entry in concurrent_providers_str.split('|') if entry.strip()]
 
-    # Filter entries by simple substring match — segments are pipe-separated and a
-    # segment is kept if it contains the plain substring "MD", "DO" (both count as
-    # physician) or "CRNA". No comma/semicolon anchoring: this survives format
-    # variations like "Name, MD;Role;begin;end" and, critically, keeps DO
-    # providers (previously silently dropped — no DO branch existed).
+    # Filter entries by the provider's CREDENTIAL, not any substring of the whole
+    # entry. Each entry is "Last, First, CREDENTIAL;Role;begin;end", so the
+    # credential is a comma/semicolon-delimited token — we must match it as a token,
+    # otherwise a provider whose NAME contains "MD"/"DO"/"CRNA" (e.g. "DOMBROWSKI",
+    # "DODD") would leak onto the wrong line.
+    #
+    # Rule (per coder): the QK (MD) line keeps ONLY physicians (MD or DO), and the
+    # QX (CRNA) line keeps ONLY CRNAs. A CRNA must never appear on the QK line and
+    # an MD/DO must never appear on the QX line.
+    import re as _re
+    def _has_credential(entry, creds):
+        # Credential appears as a standalone token bounded by comma/semicolon/space,
+        # e.g. ", MD;" or ", DO;" or ";CRNA;" or ", CRNA " or ending ", MD".
+        for c in creds:
+            if _re.search(r'(?:^|[,;\s])' + c + r'(?=$|[,;\s])', entry, _re.IGNORECASE):
+                return True
+        return False
+
     filtered_entries = []
     for entry in provider_entries:
+        is_crna = _has_credential(entry, ['CRNA', 'SRNA'])
+        is_md   = _has_credential(entry, ['MD', 'DO'])
         if keep_type == 'MD':
-            # Physicians: MD or DO
-            if 'MD' in entry or 'DO' in entry:
+            # Physicians only (MD/DO). Never a CRNA/SRNA on the QK line.
+            if is_md and not is_crna:
                 filtered_entries.append(entry)
         elif keep_type == 'CRNA':
-            if 'CRNA' in entry:
+            # CRNAs only. Never an MD/DO on the QX line.
+            if is_crna and not is_md:
                 filtered_entries.append(entry)
-    
+
     # Join filtered entries back with pipe separator
     return '|'.join(filtered_entries) if filtered_entries else ''
 
@@ -858,14 +874,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             medicare_modifiers = False
                             medical_direction = False
                             print(f"   Special Case 003: BCBS Medicare Modifiers OFF - Only P modifiers will be generated")
-                        elif has_crna and _003_one_third != 'YES':
-                            # HARDCODED (BCBS): CRNA on the case but NOT confirmed at/above
-                            # 1/3 of the time (anything other than an explicit 'YES') →
+                        elif has_crna and _003_one_third == 'NO':
+                            # HARDCODED (BCBS): CRNA on the case and EXPLICITLY confirmed
+                            # under 1/3 of the time (crna_met_one_third == 'NO') →
                             # generate ONLY the P modifier, nothing else (no QK/QX/AA/GC).
+                            # NOTE: only an explicit 'NO' triggers this. If the field is
+                            # absent / blank / 'YES' / anything else, fall through to the
+                            # normal medical-direction path below (backward compatible —
+                            # data without the field still gets medical direction).
                             medicare_modifiers = False
                             medical_direction = False
-                            print(f"   Special Case 003: CRNA present, 1/3 not confirmed "
-                                  f"(crna_met_one_third='{_003_one_third or 'blank'}') - Only P modifier")
+                            print(f"   Special Case 003: CRNA present, 1/3 confirmed NO "
+                                  f"(crna_met_one_third='{_003_one_third}') - Only P modifier")
                         elif has_md and has_crna:
                             # Both MD and CRNA present: artificially set both to YES
                             medicare_modifiers = True
