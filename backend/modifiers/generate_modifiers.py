@@ -251,9 +251,11 @@ def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'
     # otherwise a provider whose NAME contains "MD"/"DO"/"CRNA" (e.g. "DOMBROWSKI",
     # "DODD") would leak onto the wrong line.
     #
-    # Rule (per coder): the QK (MD) line keeps ONLY physicians (MD or DO), and the
-    # QX (CRNA) line keeps ONLY CRNAs. A CRNA must never appear on the QK line and
-    # an MD/DO must never appear on the QX line.
+    # Rule (per coder): CRNAs must NEVER appear in Concurrent Providers anywhere.
+    # ONLY physicians (MD or DO) are ever kept — on BOTH the QK line and the QX
+    # line. A CRNA or SRNA must never appear in the Concurrent Providers column of
+    # any line. (keep_type is retained for call-site compatibility, but every
+    # value now yields physicians-only.)
     import re as _re
     def _has_credential(entry, creds):
         # Credential appears as a standalone token bounded by comma/semicolon/space,
@@ -268,14 +270,9 @@ def filter_concurrent_providers_by_type(concurrent_providers_str, keep_type='MD'
         is_crna = _has_credential(entry, ['CRNA'])
         is_srna = _has_credential(entry, ['SRNA'])
         is_md   = _has_credential(entry, ['MD', 'DO'])
-        if keep_type == 'MD':
-            # Physicians only (MD/DO). Never a CRNA or SRNA on the QK line.
-            if is_md and not is_crna and not is_srna:
-                filtered_entries.append(entry)
-        elif keep_type == 'CRNA':
-            # CRNAs ONLY on the QX line — not SRNAs, not MD/DO.
-            if is_crna and not is_md and not is_srna:
-                filtered_entries.append(entry)
+        # Physicians ONLY (MD/DO), regardless of keep_type. Never a CRNA or SRNA.
+        if is_md and not is_crna and not is_srna:
+            filtered_entries.append(entry)
 
     # Join filtered entries back with pipe separator
     return '|'.join(filtered_entries) if filtered_entries else ''
@@ -763,6 +760,15 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 continue
 
             new_row = row.copy()
+
+            # Strip CRNAs (and SRNAs) from Concurrent Providers on the PRIMARY line.
+            # Per coder: only physicians (MD/DO) may ever appear in Concurrent
+            # Providers, anywhere. filter_concurrent_providers_by_type now keeps
+            # physicians only regardless of keep_type, so this scrubs the primary
+            # line at the source; every derived row copies from here.
+            if 'Concurrent Providers' in new_row:
+                new_row['Concurrent Providers'] = filter_concurrent_providers_by_type(
+                    row.get('Concurrent Providers', ''), keep_type='MD')
 
             # Reset M1, M2, M3, M4 for this row
             new_row['M1'] = ''
