@@ -1214,10 +1214,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # Change M1 modifier from QK to QX
                 qk_duplicate_row['M1'] = 'QX'
                 
-                # Filter concurrent providers to keep only CRNA providers for the second line (QX)
+                # Concurrent Providers (physicians) belong on the QK (main) line only.
+                # The QX (CRNA) duplicate line must not carry any Concurrent Providers.
                 if 'Concurrent Providers' in qk_duplicate_row:
-                    concurrent_providers_value = row.get('Concurrent Providers', '')
-                    qk_duplicate_row['Concurrent Providers'] = filter_concurrent_providers_by_type(concurrent_providers_value, keep_type='CRNA')
+                    qk_duplicate_row['Concurrent Providers'] = ''
                 
                 # Add the duplicate row to results
                 result_rows.append(qk_duplicate_row)
