@@ -2175,6 +2175,78 @@ def pdf_pages_to_base64_images(pdf_path, n_pages=1, dpi=200):
         return []
 
 
+def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="google/gemini-3.5-flash", max_workers=6, progress_callback=None, custom_instructions=None):
+    """
+    Predict ASA/anesthesia CPT codes from PDF files using the crosswalk AGENT
+    (cpt_agent.run_agent — vision + crosswalk tool use). Writes the SAME CSV
+    schema as predict_codes_from_pdfs_api so the unified pipeline can consume it
+    interchangeably. Used for groups (e.g. CHA) routed to agent mode.
+    """
+    import glob as _glob
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Import the crosswalk agent module (cpt_agent.py lives in backend/).
+    _backend_dir = Path(__file__).resolve().parent.parent  # .../backend
+    if str(_backend_dir) not in sys.path:
+        sys.path.insert(0, str(_backend_dir))
+    from cpt_agent import run_agent, parse_final
+
+    pdf_files = []
+    for ext in ("*.pdf", "*.PDF"):
+        pdf_files.extend(_glob.glob(os.path.join(pdf_folder, ext)))
+        pdf_files.extend(_glob.glob(os.path.join(pdf_folder, "**", ext), recursive=True))
+    pdf_files = sorted({f for f in pdf_files if "__MACOSX" not in f})
+
+    def _norm(c):
+        c = str(c).strip().upper()
+        return c.zfill(5) if c.isdigit() else c
+
+    def _one(idx, path):
+        fname = os.path.basename(path)
+        pred, expl, err = "", "", None
+        for _ in range(4):
+            try:
+                final, _tr = run_agent(path, model, n_pages=n_pages, verbose=False,
+                                       custom_instructions=custom_instructions)
+                o = parse_final(final) or {}
+                pred = _norm(o.get("predicted_cpt", ""))
+                expl = str(o.get("reasoning", "") or o.get("explanation", ""))[:2000]
+                if pred:
+                    break
+            except Exception as e:
+                err = str(e)
+                time.sleep(2)
+        if not pred:
+            pred = f"ERROR: {(err or 'no prediction')[:50]}"
+        return idx, fname, pred, expl, err
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_one, i, p): i for i, p in enumerate(pdf_files)}
+        completed = 0
+        for fut in as_completed(futures):
+            idx, fname, pred, expl, err = fut.result()
+            results[idx] = {"filename": fname, "prediction": pred, "explanation": expl, "error": err}
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, len(pdf_files), f"Processed {completed}/{len(pdf_files)} PDFs (agent)...")
+
+    filenames = [results[i]["filename"] for i in range(len(pdf_files))]
+    predictions = [results[i]["prediction"] for i in range(len(pdf_files))]
+    explanations = [results[i]["explanation"] for i in range(len(pdf_files))]
+    errors_list = [results[i]["error"] for i in range(len(pdf_files))]
+    df = pd.DataFrame({
+        "Patient Filename": filenames,
+        "ASA Code": predictions,
+        "Procedure Code": predictions,
+        "Code Explanation": explanations,
+        "Model Source": [f"crosswalk_agent:{model}"] * len(filenames),
+        "Error Message": errors_list,
+    })
+    df.to_csv(output_file, index=False)
+    logger.info(f"[agent] Saved {len(df)} CPT predictions to {output_file} using crosswalk agent ({model})")
+    return True
+
+
 def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True):
     """
     Predict ASA codes from PDF files using OpenRouter vision model

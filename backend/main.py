@@ -9649,9 +9649,66 @@ def process_unified_background(
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
-    
+
     job = job_status[job_id]
-    
+
+    # ==================== HARDCODED PER-GROUP CPT ROUTING ====================
+    # CPT prediction is only supported for a fixed set of groups, each pinned to
+    # a specific model + instruction template (and, for CHA, the crosswalk agent).
+    # Any group not listed here has CPT forced OFF so no CPT logic runs on it.
+    #   key -> {model, template_id, use_agent}
+    #   - CHA:      crosswalk agent (cpt_agent.run_agent) with gemini-3.5-flash + CHA template #7
+    #   - ANA-GMCE: vision predict with gemini-3.1-pro + template #225 (ANA-GMCE-CPT-NEW)
+    #   - ANA-SPS:  vision predict with gemini-3.1-pro + template #226 (ANA-SPS-CPT-NEW)
+    CPT_GROUP_ROUTING = {
+        "CHA-HDH":  {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
+        "CHA":      {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
+        "ANA-GMCE": {"model": "google/gemini-3.1-pro-preview", "template_id": 225, "use_agent": False},
+        "ANA-SPS":  {"model": "google/gemini-3.1-pro-preview", "template_id": 226, "use_agent": False},
+    }
+    cpt_use_agent = False
+    _wt_key = (worktracker_group or "").strip().upper()
+    if enable_cpt:
+        route = CPT_GROUP_ROUTING.get(_wt_key)
+        if route is None:
+            logger.info(
+                f"[Unified {job_id}] CPT prediction requested for group "
+                f"'{worktracker_group}' but is only enabled for {sorted(CPT_GROUP_ROUTING)}; "
+                f"disabling CPT for this run."
+            )
+            enable_cpt = False
+        else:
+            # Pin the model, instruction, and agent flag for this group,
+            # overriding whatever was requested by the caller.
+            cpt_vision_model = route["model"]
+            cpt_vision_mode = True  # these groups always use the PDF/vision (or agent) path
+            cpt_use_agent = route["use_agent"]
+            if cpt_use_agent:
+                # The combined CPT+ICD vision call would bypass the agent branch,
+                # so disable it for agent-routed groups (CPT runs via the agent,
+                # ICD still runs on its own vision path).
+                enable_combined_cpt_icd = False
+            try:
+                from db_utils import get_prediction_instruction
+                _tpl = get_prediction_instruction(instruction_id=route["template_id"])
+                if _tpl:
+                    cpt_custom_instructions = _tpl["instructions_text"]
+                    logger.info(
+                        f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                        f"model={cpt_vision_model}, template='{_tpl['name']}' "
+                        f"(#{route['template_id']}), agent={cpt_use_agent}"
+                    )
+                else:
+                    logger.warning(
+                        f"[Unified {job_id}] CPT template #{route['template_id']} for "
+                        f"'{worktracker_group}' not found; using caller-provided instructions."
+                    )
+            except Exception as _e:
+                logger.warning(
+                    f"[Unified {job_id}] Failed to load CPT template #{route['template_id']} "
+                    f"for '{worktracker_group}': {_e}; using caller-provided instructions."
+                )
+
     try:
         job.status = "processing"
         job.message = "Starting unified processing..."
@@ -9947,32 +10004,45 @@ def process_unified_background(
                     sys.path.insert(0, str(general_coding_path))
                     from predict_general import is_gemini_model
                     using_gemini = is_gemini_model(cpt_vision_model)
-                    
+
                     # Use GOOGLE_API_KEY for Gemini models, OPENROUTER_API_KEY for others
                     if using_gemini:
                         api_key = os.environ.get('GOOGLE_API_KEY')
                     else:
                         api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
-                    
+
                     def cpt_progress(completed, total, message):
                         with lock:
                             cpt_completed[0] = completed
                             cpt_total[0] = total
                         update_progress()
-                    
-                    # Use shared image cache if available (optimization)
-                    result = predict_codes_from_pdfs_api(
-                        pdf_folder=str(temp_dir / "input"),
-                        output_file=cpt_csv_path_local,
-                        n_pages=cpt_vision_pages,
-                        model=cpt_vision_model,
-                        api_key=api_key,
-                        max_workers=cpt_max_workers,
-                        progress_callback=cpt_progress,
-                        custom_instructions=cpt_custom_instructions,
-                        include_code_list=cpt_include_code_list,
-                        image_cache=pdf_image_cache if pdf_image_cache else None
-                    )
+
+                    if cpt_use_agent:
+                        # Group routed to crosswalk-agent CPT (e.g. CHA)
+                        from predict_general import predict_codes_from_pdfs_agent
+                        result = predict_codes_from_pdfs_agent(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path_local,
+                            n_pages=cpt_vision_pages,
+                            model=cpt_vision_model,
+                            max_workers=cpt_max_workers,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                        )
+                    else:
+                        # Use shared image cache if available (optimization)
+                        result = predict_codes_from_pdfs_api(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path_local,
+                            n_pages=cpt_vision_pages,
+                            model=cpt_vision_model,
+                            api_key=api_key,
+                            max_workers=cpt_max_workers,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                            include_code_list=cpt_include_code_list,
+                            image_cache=pdf_image_cache if pdf_image_cache else None
+                        )
                     cpt_result[0] = cpt_csv_path_local if result else None
                     if not result:
                         raise Exception("CPT prediction returned False")
@@ -10552,19 +10622,32 @@ def process_unified_background(
                     else:
                         cpt_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
-                    # Use shared image cache (optimization)
-                    result = predict_codes_from_pdfs_api(
-                        pdf_folder=str(temp_dir / "input"),
-                        output_file=cpt_csv_path,
-                        n_pages=cpt_vision_pages,
-                        model=cpt_vision_model,  # Use selected vision model
-                        api_key=cpt_api_key,
-                        max_workers=cpt_max_workers,
-                        progress_callback=cpt_progress,
-                        custom_instructions=cpt_custom_instructions,
-                        include_code_list=cpt_include_code_list,
-                        image_cache=pdf_image_cache
-                    )
+                    if cpt_use_agent:
+                        # Group routed to crosswalk-agent CPT (e.g. CHA)
+                        from predict_general import predict_codes_from_pdfs_agent
+                        result = predict_codes_from_pdfs_agent(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path,
+                            n_pages=cpt_vision_pages,
+                            model=cpt_vision_model,
+                            max_workers=cpt_max_workers,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                        )
+                    else:
+                        # Use shared image cache (optimization)
+                        result = predict_codes_from_pdfs_api(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path,
+                            n_pages=cpt_vision_pages,
+                            model=cpt_vision_model,  # Use selected vision model
+                            api_key=cpt_api_key,
+                            max_workers=cpt_max_workers,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                            include_code_list=cpt_include_code_list,
+                            image_cache=pdf_image_cache
+                        )
                     cpt_result[0] = result
                 except Exception as e:
                     cpt_error[0] = str(e)
@@ -10723,18 +10806,31 @@ def process_unified_background(
                     job.message = f"CPT prediction: {message}"
                 
                 # Run CPT prediction with vision (uses selected model)
-                success = predict_codes_from_pdfs_api(
-                    pdf_folder=str(temp_dir / "input"),
-                    output_file=cpt_csv_path,
-                    n_pages=cpt_vision_pages,
-                    model=cpt_vision_model,  # Use selected vision model
-                    api_key=api_key,
-                    max_workers=cpt_max_workers,
-                    progress_callback=cpt_progress,
-                    custom_instructions=cpt_custom_instructions,
-                    include_code_list=cpt_include_code_list
-                )
-                
+                if cpt_use_agent:
+                    # Group routed to crosswalk-agent CPT (e.g. CHA)
+                    from predict_general import predict_codes_from_pdfs_agent
+                    success = predict_codes_from_pdfs_agent(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=cpt_csv_path,
+                        n_pages=cpt_vision_pages,
+                        model=cpt_vision_model,
+                        max_workers=cpt_max_workers,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions,
+                    )
+                else:
+                    success = predict_codes_from_pdfs_api(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=cpt_csv_path,
+                        n_pages=cpt_vision_pages,
+                        model=cpt_vision_model,  # Use selected vision model
+                        api_key=api_key,
+                        max_workers=cpt_max_workers,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions,
+                        include_code_list=cpt_include_code_list
+                    )
+
                 if success:
                     # Verify file was actually created
                     if not os.path.exists(cpt_csv_path):
