@@ -55,6 +55,8 @@ def load_field_definitions_from_excel(excel_file_path):
                 is_priority = 'high'
             elif priority_value == 'LOW':
                 is_priority = 'low'
+            elif priority_value == 'CHEAP':
+                is_priority = 'cheap'
             else:
                 is_priority = False
                 
@@ -103,6 +105,19 @@ def get_low_priority_fields(excel_file_path):
     """Return list of low-priority field definitions (use cheaper model)."""
     field_definitions = get_field_definitions(excel_file_path)
     return [field for field in field_definitions if field.get('priority') == 'low' and field['name'] not in ['source_file', 'page_number']]
+
+def get_cheap_fields(excel_file_path):
+    """Return list of CHEAP-tier field definitions.
+
+    CHEAP fields are the ones our model-comparison found qwen extracts with
+    >=98% agreement with Gemini (patient identity, colonoscopy boolean flags,
+    always-blank fields, etc.). They are offloaded to a cheaper model
+    (CHEAP_MODEL, default qwen/qwen3.7-flash) in their own extraction call and
+    merged like the other priority tiers. Mark a field CHEAP in the template's
+    priority row to route it here.
+    """
+    field_definitions = get_field_definitions(excel_file_path)
+    return [field for field in field_definitions if field.get('priority') == 'cheap' and field['name'] not in ['source_file', 'page_number']]
 
 def get_normal_fields(excel_file_path):
     """Return list of field definitions that are NOT marked as any priority."""

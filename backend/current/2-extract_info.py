@@ -45,11 +45,18 @@ except Exception as e:
 # Try importing field_definitions
 try:
     print("🚀 [STARTUP] Importing field_definitions...", flush=True)
-    from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_very_high_priority_fields, get_low_priority_fields, get_normal_fields, generate_priority_field_prompt, generate_priority_fields_group_prompt
+    from field_definitions import get_fieldnames, generate_extraction_prompt, get_priority_fields, get_very_high_priority_fields, get_low_priority_fields, get_cheap_fields, get_normal_fields, generate_priority_field_prompt, generate_priority_fields_group_prompt
     print("✅ [STARTUP] field_definitions imported successfully", flush=True)
 except Exception as e:
     print(f"❌ [STARTUP] Failed to import field_definitions: {e}", flush=True)
     sys.exit(1)
+
+# Model used for CHEAP-tier fields — the fields our model comparison proved a
+# cheaper model extracts at >=98% agreement with Gemini (patient identity,
+# colonoscopy boolean flags, always-blank fields). Overridable via env so we
+# never hardcode a provider secret or lock the choice. Mark a field CHEAP in a
+# template's priority row to offload it here.
+CHEAP_MODEL = os.environ.get("CHEAP_EXTRACTION_MODEL", "qwen/qwen3.7-flash")
 
 # Hardcoded priority-field groups: fields listed together in the same tuple
 # are extracted in a single API call when all of them are present as priority fields.
@@ -274,8 +281,48 @@ def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
 # approach this, switch to direct PDF mode preemptively. 25 MB headroom.
 _OPENROUTER_IMAGE_PAYLOAD_BUDGET = 25 * 1024 * 1024  # 25 MB of base64 image data
 
+# ---- concentrate.ai usage-split ----
+# To spread extraction load, every Nth extraction API call is routed to
+# concentrate.ai (an OpenAI-compatible endpoint) instead of OpenRouter. The rest
+# stay on OpenRouter. Requires CONCENTRATE_API_KEY in the environment; if it's
+# missing, ALL calls fall back to OpenRouter (no behavior change).
+import threading as _threading
+CONCENTRATE_EVERY_N = int(os.getenv("CONCENTRATE_EVERY_N", "5"))  # every 5th call
+CONCENTRATE_BASE_URL = os.getenv("CONCENTRATE_BASE_URL", "https://api.concentrate.ai/v1/chat/completions")
+_concentrate_counter = 0
+_concentrate_lock = _threading.Lock()
+# concentrate.ai has a tighter image-size cap than OpenRouter; keep the image
+# payload for concentrate-routed calls under this so it doesn't 400 on size.
+_CONCENTRATE_IMAGE_PAYLOAD_BUDGET = 6 * 1024 * 1024  # 6 MB of base64 image data
 
-def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries=5, field_name_for_log=None):
+# Models NOT available on concentrate.ai — a concentrate-routed call using one of
+# these must fall back to OpenRouter. (Verified against concentrate.ai /models.)
+_CONCENTRATE_UNSUPPORTED = {"gemini-3-pro-preview", "gemini-flash-latest"}
+
+def _concentrate_model_id(model):
+    """Map a code model id to concentrate.ai's bare id (it doesn't use the
+    'google/' prefix). Returns None if the model isn't supported there."""
+    bare = model.split("/", 1)[1] if "/" in model else model
+    if bare in _CONCENTRATE_UNSUPPORTED:
+        return None
+    return bare
+
+def _should_use_concentrate(model):
+    """Thread-safe 1-in-N selector. Returns True on every Nth call iff a
+    concentrate.ai key is configured AND the model is supported there."""
+    if not os.getenv("CONCENTRATE_API_KEY"):
+        return False
+    if CONCENTRATE_EVERY_N <= 0:
+        return False
+    if _concentrate_model_id(model) is None:
+        return False  # model not on concentrate.ai -> keep on OpenRouter
+    global _concentrate_counter
+    with _concentrate_lock:
+        _concentrate_counter += 1
+        return (_concentrate_counter % CONCENTRATE_EVERY_N) == 0
+
+
+def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries=5, field_name_for_log=None, force_provider=None):
     """Extract patient information using OpenRouter API.
 
     Primary path: render PDF pages to PNG images and send via image_url parts.
@@ -285,10 +332,30 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     """
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
 
-    # Get API key
-    api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    # Decide provider for THIS call: every Nth call goes to concentrate.ai
+    # (only if the model is supported there; otherwise stays on OpenRouter).
+    # force_provider overrides the split — used for the OpenRouter fallback when a
+    # concentrate-routed call fails (so no PDF is lost to a concentrate outage).
+    if force_provider == "openrouter":
+        use_concentrate = False
+    elif force_provider == "concentrate":
+        use_concentrate = bool(os.getenv("CONCENTRATE_API_KEY")) and _concentrate_model_id(model) is not None
+    else:
+        use_concentrate = _should_use_concentrate(model)
+    provider_name = "concentrate" if use_concentrate else "openrouter"
+
+    # Get API key for the chosen provider
+    if use_concentrate:
+        api_key = os.getenv("CONCENTRATE_API_KEY")
+        if not api_key:
+            # Shouldn't happen (selector checks the key), but be safe: fall back.
+            use_concentrate = False
+            provider_name = "openrouter"
+            api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    else:
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print(f"    ❌ OpenRouter API key not found for {pdf_filename}{log_suffix}")
+        print(f"    ❌ {provider_name} API key not found for {pdf_filename}{log_suffix}")
         return None
 
     # Convert PDF to images
@@ -297,10 +364,13 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
         return None
 
+    # concentrate.ai has a tighter image-size cap than OpenRouter.
+    _image_budget = _CONCENTRATE_IMAGE_PAYLOAD_BUDGET if use_concentrate else _OPENROUTER_IMAGE_PAYLOAD_BUDGET
+
     # Decide between image route and direct-PDF route based on total image size.
     image_payload_size = sum(len(d) for d in image_data_list)
     using_direct_pdf = False
-    if image_payload_size > _OPENROUTER_IMAGE_PAYLOAD_BUDGET:
+    if image_payload_size > _image_budget:
         print(
             f"    📦 {pdf_filename}{log_suffix}: image payload ~{image_payload_size/1024/1024:.1f} MB "
             f"exceeds OpenRouter image cap; using direct-PDF upload (file_data)."
@@ -314,17 +384,29 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     else:
         messages = _build_image_messages(extraction_prompt, image_data_list)
     
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/medical-data-processor",
-        "X-Title": "Medical Data Processor"
-    }
-    
+    if use_concentrate:
+        url = CONCENTRATE_BASE_URL
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+    else:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/medical-data-processor",
+            "X-Title": "Medical Data Processor"
+        }
+
+    # Resolve the model id for the chosen provider.
+    if use_concentrate:
+        # concentrate.ai uses bare model ids (no 'google/' prefix).
+        openrouter_model = _concentrate_model_id(model)
+    else:
+        openrouter_model = model
     # Ensure DeepSeek model uses correct OpenRouter format
-    openrouter_model = model
-    if "deepseek" in model.lower():
+    if not use_concentrate and "deepseek" in model.lower():
         model_lower = model.lower()
         if "reasoner" in model_lower:
             openrouter_model = "deepseek/deepseek-reasoner"
@@ -342,15 +424,16 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             payload = {
                 "model": openrouter_model,
                 "messages": messages,
-                "usage": {"include": True},
             }
-
-            # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
-            if "gemini-3" in openrouter_model:
-                payload["reasoning"] = {"effort": "high"}
-                if not flex_disabled:
-                    payload["service_tier"] = "flex"
-                    payload["provider"] = {"sort": "throughput"}
+            if not use_concentrate:
+                # OpenRouter-specific: usage accounting + flex tier + provider sort.
+                payload["usage"] = {"include": True}
+                # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
+                if "gemini-3" in openrouter_model:
+                    payload["reasoning"] = {"effort": "high"}
+                    if not flex_disabled:
+                        payload["service_tier"] = "flex"
+                        payload["provider"] = {"sort": "throughput"}
 
             response = requests.post(url, headers=headers, json=payload, timeout=300)
             # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
@@ -415,13 +498,16 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             
             json.loads(cleaned_response)  # Validate JSON
             
-            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with OpenRouter on attempt {attempt + 1}")
-            return response_text, "openrouter"
+            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with {provider_name} on attempt {attempt + 1}")
+            return response_text, provider_name
 
         except json.JSONDecodeError as e:
-            print(f"    ⚠️  JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            print(f"    ⚠️  {provider_name} JSON parsing failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
             if attempt == max_retries - 1:
-                print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix}")
+                print(f"    ❌ Final JSON parsing failure for {pdf_filename}{log_suffix} ({provider_name})")
+                if use_concentrate and force_provider is None:
+                    print(f"    🔁 Falling back to OpenRouter for {pdf_filename}{log_suffix} after concentrate failure")
+                    return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log, force_provider="openrouter")
                 return None, None
         except Exception as e:
             print(f"    ⚠️  OpenRouter API call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)}")
@@ -455,7 +541,10 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                     using_direct_pdf = True
                     # Don't burn a retry attempt — proceed to backoff/retry block.
             if attempt == max_retries - 1:
-                print(f"    ❌ Final OpenRouter API failure for {pdf_filename}{log_suffix}")
+                print(f"    ❌ Final {provider_name} API failure for {pdf_filename}{log_suffix}")
+                if use_concentrate and force_provider is None:
+                    print(f"    🔁 Falling back to OpenRouter for {pdf_filename}{log_suffix} after concentrate failure")
+                    return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log, force_provider="openrouter")
                 return None, None
 
         # Exponential backoff
@@ -812,6 +901,66 @@ def process_single_patient_pdf_task(args):
                     print(f"    ❌ Failed to parse low-priority field '{field_name}' for {pdf_filename}: {str(e)}")
             else:
                 print(f"    ❌ Failed to extract low-priority field '{field_name}' for {pdf_filename}")
+
+    # Extract ALL CHEAP-tier fields in a SINGLE call using the cheap model
+    # (CHEAP_MODEL). These are fields proven to extract at >=98% agreement with
+    # Gemini, so we offload them to a cheaper model. We bundle every cheap field
+    # into ONE prompt (like the high-priority bundling) rather than one call per
+    # field — 1 call/PDF instead of N — which is dramatically faster and cuts
+    # timeout exposure. Any field the cheap model misses falls back to Gemini.
+    cheap_fields = get_cheap_fields(excel_file_path)
+    if cheap_fields:
+        print(f"    💸 Processing {len(cheap_fields)} CHEAP field(s) in 1 call for {pdf_filename} (model: {CHEAP_MODEL})")
+
+        # Model to fall back to for any cheap field the cheap model fails to
+        # return. Defaults to the group's normal/priority Gemini model so a
+        # cheap-call failure never leaves a billing-critical field blank.
+        _cheap_fallback_model = priority_model or model
+
+        def _extract_cheap_group(fields, use_model, tag):
+            """Extract a group of fields in one call; return dict {name: value}
+            for the fields present in the (valid JSON) response, else {}."""
+            group_prompt = generate_priority_fields_group_prompt(
+                fields,
+                provider_mapping=pb_provider_mapping,
+                provider_mapping_has_mednet=pb_has_mednet,
+            )
+            res = extract_info_from_patient_pdf(
+                client, temp_patient_pdf, pdf_filename, group_prompt, use_model,
+                field_name_for_log=f"CHEAP x{len(fields)} [{tag}]"
+            )
+            resp = res[0] if isinstance(res, tuple) else res
+            if not resp:
+                return {}
+            try:
+                cleaned = resp.strip()
+                if cleaned.startswith('```json'):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith('```'):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith('```'):
+                    cleaned = cleaned[:-3]
+                data = json.loads(cleaned.strip())
+            except json.JSONDecodeError:
+                return {}
+            return {f['name']: data[f['name']] for f in fields if isinstance(data, dict) and f['name'] in data}
+
+        # 1) One cheap call for the whole group.
+        got = _extract_cheap_group(cheap_fields, CHEAP_MODEL, "cheap")
+        # 2) Any fields the cheap model didn't return -> one Gemini fallback call
+        #    for just those, so nothing is silently dropped.
+        missing = [f for f in cheap_fields if f['name'] not in got]
+        if missing:
+            print(f"    ↩️  {len(missing)} CHEAP field(s) missing from {CHEAP_MODEL}; falling back to {_cheap_fallback_model} for {pdf_filename}: {[f['name'] for f in missing]}")
+            got.update(_extract_cheap_group(missing, _cheap_fallback_model, "cheap-fallback"))
+
+        for f in cheap_fields:
+            name = f['name']
+            if name in got:
+                merged_data[name] = got[name]
+            else:
+                print(f"    ❌ CHEAP field '{name}' failed on both cheap and fallback for {pdf_filename}")
+        print(f"    ✅ Merged {sum(1 for f in cheap_fields if f['name'] in got)}/{len(cheap_fields)} CHEAP fields for {pdf_filename}")
 
     # Extract each very-high-priority field separately using best model
     if very_high_priority_fields:
