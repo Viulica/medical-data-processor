@@ -1048,9 +1048,13 @@ def process_single_patient_pdf_task(args):
     if 'Surgeon' in merged_data and merged_data['Surgeon']:
         merged_data['Referring'] = merged_data['Surgeon']
 
-    # Add service tier info to output
+    # Add the extraction provider (which API served this row) to the output so
+    # the concentrate.ai vs OpenRouter split is visible in the results, not just
+    # the logs. service_tier here holds the provider name returned by
+    # extract_with_openrouter ("concentrate" or "openrouter"/"openrouter (...)").
     if service_tier:
-        merged_data['service_tier'] = service_tier
+        merged_data['service_tier'] = service_tier          # kept for backward compat
+        merged_data['Extraction Provider'] = service_tier   # explicit, human-readable column
 
     # Convert merged data back to JSON string for compatibility with existing code
     merged_response = json.dumps(merged_data)
