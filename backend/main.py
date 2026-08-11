@@ -9653,13 +9653,15 @@ def process_unified_background(
     job = job_status[job_id]
 
     # ==================== HARDCODED PER-GROUP CPT ROUTING ====================
-    # CPT prediction is only supported for a fixed set of groups, each pinned to
-    # a specific model + instruction template (and, for CHA, the crosswalk agent).
-    # Any group not listed here has CPT forced OFF so no CPT logic runs on it.
+    # A fixed set of groups is pinned to a specific model + instruction template
+    # (and, for CHA, the crosswalk agent). These OVERRIDE the caller's request.
     #   key -> {model, template_id, use_agent}
     #   - CHA:      crosswalk agent (cpt_agent.run_agent) with gemini-3.5-flash + CHA template #7
     #   - ANA-GMCE: vision predict with gemini-3.1-pro + template #225 (ANA-GMCE-CPT-NEW)
     #   - ANA-SPS:  vision predict with gemini-3.1-pro + template #226 (ANA-SPS-CPT-NEW)
+    # IMPORTANT: any group NOT listed here is left UNTOUCHED — it keeps running CPT
+    # exactly as the caller requested (its own model/template). We do NOT disable
+    # CPT for other groups.
     CPT_GROUP_ROUTING = {
         "CHA-HDH":  {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
         "CHA":      {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
@@ -9671,12 +9673,12 @@ def process_unified_background(
     if enable_cpt:
         route = CPT_GROUP_ROUTING.get(_wt_key)
         if route is None:
+            # Group not in the routing table: leave CPT exactly as the caller
+            # configured it (model, template, mode) — no override, no disabling.
             logger.info(
-                f"[Unified {job_id}] CPT prediction requested for group "
-                f"'{worktracker_group}' but is only enabled for {sorted(CPT_GROUP_ROUTING)}; "
-                f"disabling CPT for this run."
+                f"[Unified {job_id}] CPT for group '{worktracker_group}' not in "
+                f"per-group routing table; using caller-provided model/template as-is."
             )
-            enable_cpt = False
         else:
             # Pin the model, instruction, and agent flag for this group,
             # overriding whatever was requested by the caller.
