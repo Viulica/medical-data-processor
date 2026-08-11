@@ -1657,7 +1657,7 @@ def save_unified_result(
     try:
         from datetime import datetime, timedelta
 
-        expires_at = datetime.now() + timedelta(days=7)
+        expires_at = datetime.now() + timedelta(days=365)  # retain results for 1 year
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1822,7 +1822,8 @@ def get_unified_result(job_id: str):
 
 def delete_expired_unified_results():
     """
-    Delete unified results that have expired (older than 3 days).
+    Delete unified results that have expired (expires_at < now; retention is
+    currently 1 year, set at insert time in save_unified_result).
     Also deletes the associated files from Supabase Storage.
 
     Returns:
