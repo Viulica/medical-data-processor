@@ -910,35 +910,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
 
-                    # SPECIAL CASE (UNI-GOLD only): Workers' comp / codes 001 & 054.
-                    # For the UNI-GOLD worktracker group, on workers'-comp-style
-                    # insurance — MedNet code 001 or 054, OR any insurance whose
-                    # company name contains "worker" (workers' comp) — when BOTH a
-                    # CRNA and an MD are on the case:
-                    #   • M1 = QZ  (override the QK/AA that would otherwise apply)
-                    #   • Responsible Provider (rendering) = the CRNA
-                    _wt_group = str(row.get('Worktracker Group', '') or '').strip().upper()
-                    _unigold_workers = False
-                    if _wt_group == 'UNI-GOLD' and has_md and has_crna:
-                        _company_name = str(row.get('Primary Company Name', '') or '').strip().lower()
-                        _is_workers = (
-                            primary_mednet_code in ('001', '054')
-                            or 'worker' in _company_name
-                        )
-                        if _is_workers:
-                            _unigold_workers = True
-                            m1_modifier = 'QZ'
-                            _crna_val = str(row.get('CRNA', '') or '').strip()
-                            if _crna_val:
-                                new_row['Responsible Provider'] = _crna_val
-                            print(f"   Special Case UNI-GOLD workers' comp "
-                                  f"(mednet={primary_mednet_code}, company='{_company_name}'): "
-                                  f"M1=QZ, Responsible Provider set to CRNA '{_crna_val}'")
-
                     # Check if original row has an existing M1 value - if so, use it instead of generated value.
-                    # EXCEPTION: the UNI-GOLD workers'-comp special case above is authoritative (QZ wins).
+                    # (The UNI-GOLD workers'-comp override below runs AFTER this and is authoritative.)
                     original_m1 = row.get('M1', '')
-                    if (not _unigold_workers) and original_m1 and not pd.isna(original_m1) and str(original_m1).strip() != '':
+                    if original_m1 and not pd.isna(original_m1) and str(original_m1).strip() != '':
                         generated_m1 = m1_modifier  # Store the generated value for debug logging
                         m1_modifier = str(original_m1).strip()
                         if primary_mednet_code in ['3136', '003']:
@@ -952,7 +927,30 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if primary_mednet_code in ['3136', '003']:
                         print(f"\n❌ DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
                         print(f"   Code NOT FOUND in modifiers_dict (loaded {len(modifiers_dict)} codes)")
-            
+
+            # SPECIAL CASE (UNI-GOLD only): Workers' comp / MedNet 001 & 054.
+            # Runs REGARDLESS of whether the mednet code is in modifiers_dict, so the
+            # "worker in company name" match also fires for codes not in the table.
+            # For UNI-GOLD, on workers'-comp insurance — MedNet 001/054 OR a company
+            # name containing "worker" — when BOTH a CRNA and an MD are on the case:
+            #   • M1 = QZ  (authoritative — overrides QK/AA and any pre-existing M1)
+            #   • Responsible Provider (rendering) = the CRNA
+            _wt_group = str(row.get('Worktracker Group', '') or '').strip().upper()
+            if _wt_group == 'UNI-GOLD':
+                _ug_md = has_md_column and pd.notna(row.get('MD', '')) and str(row.get('MD', '')).strip() != ''
+                _ug_crna = has_crna_column and pd.notna(row.get('CRNA', '')) and str(row.get('CRNA', '')).strip() != ''
+                if _ug_md and _ug_crna:
+                    _company_name = str(row.get('Primary Company Name', '') or '').strip().lower()
+                    _is_workers = (primary_mednet_code in ('001', '054')) or ('worker' in _company_name)
+                    if _is_workers:
+                        m1_modifier = 'QZ'
+                        _crna_val = str(row.get('CRNA', '') or '').strip()
+                        if _crna_val:
+                            new_row['Responsible Provider'] = _crna_val
+                        print(f"   Special Case UNI-GOLD workers' comp "
+                              f"(mednet={primary_mednet_code}, company='{_company_name}'): "
+                              f"M1=QZ, Responsible Provider set to CRNA '{_crna_val}'")
+
             # Determine GC modifier based on Resident AND medicare modifiers.
             #
             # Base rule: GC is added when a Resident is present, on a Medicare case,
