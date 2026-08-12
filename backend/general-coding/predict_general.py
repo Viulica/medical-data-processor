@@ -2182,6 +2182,7 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     schema as predict_codes_from_pdfs_api so the unified pipeline can consume it
     interchangeably. Used for groups (e.g. CHA) routed to agent mode.
     """
+    import sys
     import glob as _glob
     from concurrent.futures import ThreadPoolExecutor, as_completed
     # Import the crosswalk agent module (cpt_agent.py lives in backend/).
