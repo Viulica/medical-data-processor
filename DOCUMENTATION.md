@@ -7,18 +7,76 @@ worktracker group**. The routing lives in `process_unified_background` in
 `backend/main.py` (a `CPT_GROUP_ROUTING` table near the top of the function).
 It overrides whatever model/instruction/mode the caller requests.
 
-| Group        | Model                       | Instruction template            | Mode            |
-|--------------|-----------------------------|---------------------------------|-----------------|
-| CHA-HDH / CHA| `google/gemini-3.5-flash`   | #7 (CHA)                        | Crosswalk agent |
-| ANA-GMCE     | `google/gemini-3.1-pro-preview` | #225 (ANA-GMCE-CPT-NEW)     | Vision          |
-| ANA-SPS      | `google/gemini-3.1-pro-preview` | #226 (ANA-SPS-CPT-NEW)      | Vision          |
-| any other    | —                           | —                               | **CPT disabled**|
+The table has **two kinds of entries**:
 
-- Groups not in the table have CPT prediction **forced off** regardless of the
-  `enable_cpt` flag, so no CPT logic runs on unsupported groups.
-- For agent-routed groups (CHA), the combined CPT+ICD vision path is disabled
+**1. Template-based routing** — a specific model + a group-specific instruction
+template. Two of these run through the crosswalk agent (CHA), two run plain
+vision predict (ANA-*).
+
+| Group        | Model                           | Template                | Mode            |
+|--------------|---------------------------------|-------------------------|-----------------|
+| CHA-HDH / CHA| `google/gemini-3.5-flash`       | #7 (CHA)                | Crosswalk agent |
+| ANA-GMCE     | `google/gemini-3.1-pro-preview` | #225 (ANA-GMCE-CPT-NEW) | Vision          |
+| ANA-SPS      | `google/gemini-3.1-pro-preview` | #226 (ANA-SPS-CPT-NEW)  | Vision          |
+
+**2. Crosswalk-agent cohort (GENERIC, no template)** — a set of groups pinned to
+the crosswalk agent with its **default/generic** instructions (`template_id =
+None`) on a single shared model `AGENT_GENERIC_MODEL` (`google/gemini-3.7-flash`).
+Each was validated to **beat production CPT accuracy** on the same batches.
+
+| Group    | prod → agent | Group    | prod → agent |
+|----------|--------------|----------|--------------|
+| APO-UTP  | 83% → 97%    | DUN      | 89% → 94%    |
+| APO-UPM  | (APO, +13)   | APO-ORA  | 93% → 100%   |
+| UNI-ROB  | 88% → 97%    | PAC-STE  | 88% → 94%    |
+| IAS-FVO  | 88% → 95%    | EAP-PHS  | 92% → 97%    |
+| KAP-ASC  | 92% → 97%    | PDK      | 91% → 94%    |
+| KAP-CYP  | 92% → 97%    | ANA-ORA  | 89% → 92%    |
+|          |              | EAP-SSC  | 92% → 94%    |
+
+- **Any group NOT in the table is left UNTOUCHED** — CPT runs exactly as the
+  caller configured (its own model/template). CPT is **not** disabled for
+  unlisted groups. (An earlier version incorrectly force-disabled CPT for
+  unlisted groups; that was hotfixed — see commit `5fac9ad`.)
+- `template_id = None` means: use the crosswalk agent's **built-in generic
+  instructions**, and explicitly clear any caller-provided instructions so
+  nothing group-specific leaks in. This exactly matches the validation setup
+  (the agent was measured generic, without each group's own DB template).
+- For agent-routed groups, the combined CPT+ICD vision path is disabled
   (`enable_combined_cpt_icd = False`) so CPT always runs through the agent; ICD
   still runs on its own vision path.
+
+### ⚠️ The complicated part — why this looks inconsistent
+
+The routing mixes THREE distinct configurations, on purpose, because they were
+each validated separately and the "obvious" simplifications were measured to be
+WRONG:
+
+1. **Template groups run WITHOUT the agent's generic prompt; agent-cohort groups
+   run WITHOUT their own template.** These are not interchangeable. Feeding a
+   group's custom template into the agent, or dropping a template group onto the
+   generic agent, is an **untested** config and may regress accuracy.
+2. **The agent does NOT help every group.** It reliably improves groups whose
+   production CPT accuracy sits in roughly the **85–93%** band (crosswalk-fixable
+   errors). It **HURTS** groups already at ~96–100% (it second-guesses correct
+   answers — e.g. UNI-GOLD 100%→94%, IAS-MOR 100%→94%) and does **not rescue**
+   sub-80% groups (their errors are illegible-chart / judgment calls the
+   crosswalk can't fix — e.g. ACW-GVS, EAP-LGS). So routing is **selective and
+   measured per group**, never blanket.
+3. **The UNI family is inconsistent:** UNI-ROB improves with the generic agent,
+   but UNI-GOLD and UNI-RSC regress with it. Those two carry large custom CPT
+   templates (#178, #199) that the generic agent lacks, which is the leading
+   suspect — a template-aware re-test is the open follow-up before routing them.
+4. **Model is group-dependent.** 3.7-flash won on APO; 3.5-flash won on the KAP /
+   IAS-FVO / UNI-ROB / ANA-GAS cohort by small margins. The cohort is currently
+   standardized on **3.7-flash** (via `AGENT_GENERIC_MODEL`) for operational
+   simplicity + its zero-blank behavior; per-group model overrides are possible
+   by replacing `_agent_generic()` with an explicit dict.
+
+**Before adding/moving a group:** measure agent-vs-production on that group's
+recent batches (score predicted CPT against the coder-billed CPT from the Changes
+API `allCharges=true`, excluding 00811↔00812 colonoscopy swaps). Only route it if
+the agent wins by a clear margin (≥ ~+3 pts) on a real sample.
 
 ### How it's wired
 

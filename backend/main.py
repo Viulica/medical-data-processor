@@ -9654,19 +9654,50 @@ def process_unified_background(
 
     # ==================== HARDCODED PER-GROUP CPT ROUTING ====================
     # A fixed set of groups is pinned to a specific model + instruction template
-    # (and, for CHA, the crosswalk agent). These OVERRIDE the caller's request.
+    # (and/or the crosswalk agent). These OVERRIDE the caller's request.
     #   key -> {model, template_id, use_agent}
-    #   - CHA:      crosswalk agent (cpt_agent.run_agent) with gemini-3.5-flash + CHA template #7
-    #   - ANA-GMCE: vision predict with gemini-3.1-pro + template #225 (ANA-GMCE-CPT-NEW)
-    #   - ANA-SPS:  vision predict with gemini-3.1-pro + template #226 (ANA-SPS-CPT-NEW)
+    #     model       : OpenRouter model id used for CPT
+    #     template_id : prediction_instructions row to load as CPT instructions;
+    #                   None => run the crosswalk agent with its DEFAULT (generic)
+    #                   instructions (matches how the agent groups were validated).
+    #     use_agent   : True => CPT runs through the crosswalk agent
+    #                   (cpt_agent.run_agent); False => plain vision predict.
+    #
     # IMPORTANT: any group NOT listed here is left UNTOUCHED — it keeps running CPT
     # exactly as the caller requested (its own model/template). We do NOT disable
     # CPT for other groups.
+    #
+    # AGENT_GENERIC_MODEL: shared model for the crosswalk-agent groups that were
+    # validated with the generic (no-template) agent. Kept as one constant so the
+    # whole cohort can be re-pinned in a single place.
+    AGENT_GENERIC_MODEL = "google/gemini-3.7-flash"
+
+    def _agent_generic():
+        return {"model": AGENT_GENERIC_MODEL, "template_id": None, "use_agent": True}
+
     CPT_GROUP_ROUTING = {
-        "CHA-HDH":  {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
-        "CHA":      {"model": "google/gemini-3.5-flash",     "template_id": 7,   "use_agent": True},
+        # ---- Template-based routing (plain vision predict, group template) ----
+        "CHA-HDH":  {"model": "google/gemini-3.5-flash",       "template_id": 7,   "use_agent": True},
+        "CHA":      {"model": "google/gemini-3.5-flash",       "template_id": 7,   "use_agent": True},
         "ANA-GMCE": {"model": "google/gemini-3.1-pro-preview", "template_id": 225, "use_agent": False},
         "ANA-SPS":  {"model": "google/gemini-3.1-pro-preview", "template_id": 226, "use_agent": False},
+
+        # ---- Crosswalk-agent groups (generic agent, no group template) ----
+        # Each validated to beat production CPT accuracy on gemini-3.7-flash,
+        # scored vs the coder-billed CPT from the Changes API (delta shown).
+        "APO-UTP":  _agent_generic(),   # 83% -> 97%  (+14)
+        "APO-UPM":  _agent_generic(),   # part of APO cohort, +13
+        "UNI-ROB":  _agent_generic(),   # 88% -> 97%  (+9)
+        "IAS-FVO":  _agent_generic(),   # 88% -> 95%  (+7)
+        "KAP-ASC":  _agent_generic(),   # 92% -> 97%  (+5)
+        "KAP-CYP":  _agent_generic(),   # 92% -> 97%  (+5)
+        "DUN":      _agent_generic(),   # 89% -> 94%  (+5)
+        "APO-ORA":  _agent_generic(),   # 93% -> 100% (+7)
+        "PAC-STE":  _agent_generic(),   # 88% -> 94%  (+6)
+        "EAP-PHS":  _agent_generic(),   # 92% -> 97%  (+5)
+        "PDK":      _agent_generic(),   # 91% -> 94%  (+3)
+        "ANA-ORA":  _agent_generic(),   # 89% -> 92%  (+3)
+        "EAP-SSC":  _agent_generic(),   # 92% -> 94%  (+2)
     }
     cpt_use_agent = False
     _wt_key = (worktracker_group or "").strip().upper()
@@ -9690,26 +9721,37 @@ def process_unified_background(
                 # so disable it for agent-routed groups (CPT runs via the agent,
                 # ICD still runs on its own vision path).
                 enable_combined_cpt_icd = False
-            try:
-                from db_utils import get_prediction_instruction
-                _tpl = get_prediction_instruction(instruction_id=route["template_id"])
-                if _tpl:
-                    cpt_custom_instructions = _tpl["instructions_text"]
-                    logger.info(
-                        f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
-                        f"model={cpt_vision_model}, template='{_tpl['name']}' "
-                        f"(#{route['template_id']}), agent={cpt_use_agent}"
-                    )
-                else:
-                    logger.warning(
-                        f"[Unified {job_id}] CPT template #{route['template_id']} for "
-                        f"'{worktracker_group}' not found; using caller-provided instructions."
-                    )
-            except Exception as _e:
-                logger.warning(
-                    f"[Unified {job_id}] Failed to load CPT template #{route['template_id']} "
-                    f"for '{worktracker_group}': {_e}; using caller-provided instructions."
+            if route["template_id"] is None:
+                # No template: run the crosswalk agent with its default/generic
+                # instructions (matches how these groups were validated). Clear any
+                # caller-provided instructions so nothing group-specific leaks in.
+                cpt_custom_instructions = None
+                logger.info(
+                    f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                    f"model={cpt_vision_model}, template=NONE (generic agent), "
+                    f"agent={cpt_use_agent}"
                 )
+            else:
+                try:
+                    from db_utils import get_prediction_instruction
+                    _tpl = get_prediction_instruction(instruction_id=route["template_id"])
+                    if _tpl:
+                        cpt_custom_instructions = _tpl["instructions_text"]
+                        logger.info(
+                            f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                            f"model={cpt_vision_model}, template='{_tpl['name']}' "
+                            f"(#{route['template_id']}), agent={cpt_use_agent}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[Unified {job_id}] CPT template #{route['template_id']} for "
+                            f"'{worktracker_group}' not found; using caller-provided instructions."
+                        )
+                except Exception as _e:
+                    logger.warning(
+                        f"[Unified {job_id}] Failed to load CPT template #{route['template_id']} "
+                        f"for '{worktracker_group}': {_e}; using caller-provided instructions."
+                    )
 
     try:
         job.status = "processing"
