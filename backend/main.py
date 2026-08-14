@@ -9698,6 +9698,7 @@ def process_unified_background(
         "PDK":      _agent_generic(),   # 91% -> 94%  (+3)
         "ANA-ORA":  _agent_generic(),   # 89% -> 92%  (+3)
         "EAP-SSC":  _agent_generic(),   # 92% -> 94%  (+2)
+        "AIP":      _agent_generic(),   # 93% -> 95%  (+2, n=112)
     }
     cpt_use_agent = False
     _wt_key = (worktracker_group or "").strip().upper()
