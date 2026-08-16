@@ -157,7 +157,7 @@ def t_grep_search(pattern, whole_word=False, max_results=25):
     return {"pattern":pattern,"n_matches":int(mask.sum()),
             "results":[_row(r) for _,r in hits.head(max_results).iterrows()]}
 
-SERPER_KEY=os.environ.get("SERPER_API_KEY","5e3d6df8e4bf3b187a80d46b0adff922efdb0862")
+SERPER_KEY=os.environ.get("SERPER_API_KEY","")  # set via env; no hardcoded default
 def t_web_search(query, num=5):
     """Google web search via Serper — works for ANY model (incl. self-hosted vLLM,
     which cannot use OpenRouter's server-side web_search). Returns top results +
@@ -327,7 +327,7 @@ def forced_web_lookup(images, model):
 # update the VLLM_BASE env var when it changes. If the vLLM call fails, the agent
 # falls back to VLLM_FALLBACK_MODEL (gemini-3.7) so CPT never breaks.
 VLLM_BASE=os.environ.get("VLLM_BASE","https://b296-2001-41d0-304-300-00-8823.ngrok-free.app/v1")
-VLLM_KEY=os.environ.get("VLLM_KEY","sk-8pflTBC8CURdh9PVyLepI2ZQBvOc_oYroFm4js3du7I")
+VLLM_KEY=os.environ.get("VLLM_KEY","")  # set via env; no hardcoded default
 VLLM_MODELS={"Qwen/Qwen3.6-35B-A3B-FP8","nvidia/Qwen3.6-35B-A3B-NVFP4","unsloth/Qwen3.8-27B-NVFP4","vllm"}
 VLLM_FALLBACK_MODEL=os.environ.get("VLLM_FALLBACK_MODEL","google/gemini-3.7-flash")
 VLLM_THINKING=os.environ.get("VLLM_THINKING","0")=="1"   # toggle thinking via env
