@@ -87,13 +87,17 @@ def _row(r, with_instruction=True):
         if ins: out["instruction"]=ins[:240]
     return out
 
+# Embeddings: gemini-embedding-2 via OpenRouter (matches the validated harness).
+# The pre-built corpus cache is xwalk_emb_gemini.npz (3072-dim). No OpenAI dependency.
+EMB_MODEL=os.environ.get("XWALK_EMBED_MODEL","google/gemini-embedding-2")
+GEMINI_EMB_CACHE=os.path.join(HERE,"xwalk_emb_gemini.npz")
 def _embed(texts):
     import urllib.request
     out=[]
-    for i in range(0,len(texts),256):
-        body=json.dumps({"model":"text-embedding-3-small","input":texts[i:i+256]}).encode()
-        req=urllib.request.Request("https://api.openai.com/v1/embeddings",data=body,
-            headers={"Authorization":f"Bearer {OAI_KEY}","Content-Type":"application/json"})
+    for i in range(0,len(texts),100):
+        body=json.dumps({"model":EMB_MODEL,"input":texts[i:i+100]}).encode()
+        req=urllib.request.Request("https://openrouter.ai/api/v1/embeddings",data=body,
+            headers={"Authorization":f"Bearer {OR_KEY}","Content-Type":"application/json"})
         r=json.load(urllib.request.urlopen(req,context=_CTX))
         out.extend([d["embedding"] for d in r["data"]])
     return np.array(out,dtype=np.float32)
@@ -102,11 +106,13 @@ def xwalk_emb():
     global _EMB
     if _EMB is None:
         d=xwalk_df()
-        if os.path.exists(EMB_CACHE):
-            z=np.load(EMB_CACHE)
-            if len(z["emb"])==len(d): _EMB=z["emb"]; return _EMB
+        # Prefer the pre-built gemini cache (shipped in repo); fall back to the old one.
+        for cache in (GEMINI_EMB_CACHE, EMB_CACHE):
+            if os.path.exists(cache):
+                z=np.load(cache)
+                if len(z["emb"])==len(d): _EMB=z["emb"]; return _EMB
         e=_embed(d['surg_desc'].tolist()); e=e/(np.linalg.norm(e,axis=1,keepdims=True)+1e-9)
-        np.savez(EMB_CACHE,emb=e); _EMB=e
+        np.savez(GEMINI_EMB_CACHE,emb=e); _EMB=e
     return _EMB
 
 # ---- 3 tools ----
@@ -135,6 +141,51 @@ def t_cpt_lookup(anes_code):
             "coding_notes":notes[:6],
             "examples":[f"{r['surg']}: {_clean(r['surg_desc'])[:80]}" for _,r in sub.head(12).iterrows()]}
 
+def t_grep_search(pattern, whole_word=False, max_results=25):
+    """Regex grep over crosswalk SURGICAL descriptors (like grep -E). Supports
+    alternation (a|b), anchors, char classes. Falls back to literal substring if
+    the pattern is not valid regex."""
+    import re as _re
+    d=xwalk_df(); pat=str(pattern)
+    if whole_word: pat=r"\b(?:%s)\b"%pat
+    try:
+        rx=_re.compile(pat,_re.IGNORECASE)
+        mask=d["surg_desc"].astype(str).apply(lambda s: bool(rx.search(s)))
+    except _re.error:
+        mask=d["sd"].str.contains(pat.lower(),regex=False,na=False)
+    hits=d[mask]
+    return {"pattern":pattern,"n_matches":int(mask.sum()),
+            "results":[_row(r) for _,r in hits.head(max_results).iterrows()]}
+
+SERPER_KEY=os.environ.get("SERPER_API_KEY","5e3d6df8e4bf3b187a80d46b0adff922efdb0862")
+def t_web_search(query, num=5):
+    """Google web search via Serper — works for ANY model (incl. self-hosted vLLM,
+    which cannot use OpenRouter's server-side web_search). Returns top results +
+    answer box for grounding the CPT choice."""
+    try:
+        r=requests.post("https://google.serper.dev/search",
+            headers={"X-API-KEY":SERPER_KEY,"Content-Type":"application/json"},
+            json={"q":query,"num":num},timeout=25)
+        r.raise_for_status(); d=r.json()
+    except Exception as e:
+        return {"query":query,"error":str(e)[:120]}
+    out={"query":query}
+    if d.get("answerBox"):
+        ab=d["answerBox"]; out["answer_box"]=(ab.get("answer") or ab.get("snippet") or "")[:400]
+    if d.get("knowledgeGraph"):
+        out["knowledge_graph"]=(d["knowledgeGraph"].get("description") or "")[:300]
+    out["results"]=[{"title":(o.get("title") or "")[:120],"snippet":(o.get("snippet") or "")[:280],
+                     "link":(o.get("link") or "")[:120]} for o in (d.get("organic") or [])[:num]]
+    return out
+
+# Function-tool specs for the local (vLLM) toolset: real regex grep + Serper web.
+_GREP_TOOL_SPEC={"type":"function","function":{"name":"crosswalk_grep",
+   "description":"GREP the ASA Crosswalk surgical descriptors with a real REGEX (grep -E): alternation 'knee|patella', 'arthroscop(y|ic)', 'excis(e|ion).*(mass|lesion|lipoma)'. Case-insensitive. More powerful than plain keyword match. Returns matching full crosswalk rows + total match count.",
+   "parameters":{"type":"object","properties":{"pattern":{"type":"string"},"whole_word":{"type":"boolean"}},"required":["pattern"]}}}
+_WEB_TOOL_SPEC={"type":"function","function":{"name":"web_search",
+   "description":"Google web search for the standard anesthesia (ASA) CPT code of a documented procedure (e.g. 'anesthesia CPT code for total knee arthroplasty'). Returns top results + answer box. Prefer a code supported by BOTH web AND crosswalk.",
+   "parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}
+
 TOOLS_SPEC=[
  # web search FIRST so the model reaches for it before the crosswalk tools.
  # OpenRouter executes it server-side (no local dispatch) and grounds results back.
@@ -151,8 +202,10 @@ TOOLS_SPEC=[
    "parameters":{"type":"object","properties":{"anes_code":{"type":"string"}},"required":["anes_code"]}}},
 ]
 DISPATCH={"crosswalk_string_search":lambda a:t_string_search(a["terms"]),
+          "crosswalk_grep":lambda a:t_grep_search(a.get("pattern",""),whole_word=a.get("whole_word",False)),
           "crosswalk_embedding_search":lambda a:t_embedding_search(a["query"]),
-          "crosswalk_cpt_lookup":lambda a:t_cpt_lookup(a["anes_code"])}
+          "crosswalk_cpt_lookup":lambda a:t_cpt_lookup(a["anes_code"]),
+          "web_search":lambda a:t_web_search(a.get("query",""),a.get("num",5))}
 
 AGENT_INSTRUCTIONS="""
 
@@ -184,6 +237,22 @@ When a crosswalk row lists alternate_codes, the primary code is NOT automaticall
  3. Pick the ONE code whose descriptor matches THIS case's site/depth/variant — even if that means choosing an alternate over the primary, or a more specific code (e.g. breast 00402, not generic 00400; TURP 00914, not generic 00910; total knee 01402; instrumented spine 00670, not generic lumbar 00630; upper-abdomen 00790 vs lower-abdomen 00840 — by where the surgery actually is).
  4. NEVER default to the generic "not otherwise specified" code when a listed alternate names the specific site/procedure documented.
 Explicitly state the site you read and which code's descriptor matches it before answering.
+
+★★★ GENERAL RULE — DON'T BE SHY: COMPARE COMPETING CANDIDATES ★★★
+Do NOT commit to the first plausible code you find. Before every final answer you MUST
+have looked up the descriptors of AT LEAST TWO candidate codes and explicitly compared
+them. A single body region can map to several different anesthesia codes that differ by
+the TISSUE LAYER / STRUCTURE actually operated on — bone vs. integumentary/soft-tissue
+(skin, subcutaneous, mass, cyst, lesion, node) vs. joint vs. nerve/muscle/tendon/fascia.
+So read the procedure's OBJECT (what structure the surgeon acted on), not just its
+location. Whenever the region could plausibly belong to more than one tissue layer, look
+up a candidate from EACH plausible layer with crosswalk_cpt_lookup, then pick the one
+whose descriptor names the actual structure documented and reject the others. State which
+tissue layer the procedure targets and why the losing candidates were rejected.
+
+★★★ GENERAL DISAMBIGUATION RULES ★★★
+ - EYE (00140 vs 00142 vs 00145): 00140 = eye, not otherwise specified; 00142 = LENS surgery (cataract extraction, IOL, phacoemulsification); 00145 = VITREORETINAL surgery (vitrectomy, retinal detachment, scleral buckle). A cataract/lens case is 00142, NOT the generic 00140.
+ - 01968 is an OB ADD-ON code (cesarean following neuraxial labor analgesia) that is only ever billed alongside a base code — it is NEVER a main-line / primary anesthesia code, so NEVER output 01968 as your answer.
 
 You ALSO have web search. REQUIRED: before giving your final answer, run AT LEAST ONE web search to confirm the standard anesthesia CPT code for the specific procedure in this document (e.g. search "anesthesia CPT code for tympanoplasty" or "what ASA anesthesia code for transurethral resection of prostate"). This is mandatory whenever you are choosing between a generic "not otherwise specified" code and a more specific one, or whenever the crosswalk result is not an obvious exact match. Trust a code you can verify by web search over a crosswalk guess.
 
@@ -253,22 +322,96 @@ def forced_web_lookup(images, model):
     if last: raise last
     return {"text":"", "citations":0}
 
-# self-hosted vLLM (Qwen3.6) via ngrok — OpenAI-compatible
-VLLM_BASE="https://eb54-2001-41d0-304-300-00-8823.ngrok-free.app/v1"
-VLLM_KEY="sk-8pflTBC8CURdh9PVyLepI2ZQBvOc_oYroFm4js3du7I"
-VLLM_MODELS={"Qwen/Qwen3.6-35B-A3B-FP8","nvidia/Qwen3.6-35B-A3B-NVFP4","vllm"}
+# self-hosted vLLM (Qwen3.8-27B) via ngrok — OpenAI-compatible.
+# VLLM_BASE is read from env because the free ngrok URL ROTATES on box restart;
+# update the VLLM_BASE env var when it changes. If the vLLM call fails, the agent
+# falls back to VLLM_FALLBACK_MODEL (gemini-3.7) so CPT never breaks.
+VLLM_BASE=os.environ.get("VLLM_BASE","https://b296-2001-41d0-304-300-00-8823.ngrok-free.app/v1")
+VLLM_KEY=os.environ.get("VLLM_KEY","sk-8pflTBC8CURdh9PVyLepI2ZQBvOc_oYroFm4js3du7I")
+VLLM_MODELS={"Qwen/Qwen3.6-35B-A3B-FP8","nvidia/Qwen3.6-35B-A3B-NVFP4","unsloth/Qwen3.8-27B-NVFP4","vllm"}
+VLLM_FALLBACK_MODEL=os.environ.get("VLLM_FALLBACK_MODEL","google/gemini-3.7-flash")
 VLLM_THINKING=os.environ.get("VLLM_THINKING","0")=="1"   # toggle thinking via env
+# Qwen3-VL processor rejects images larger than ~1250w/~1650h; resize before send.
+VLLM_MAX_W, VLLM_MAX_LONG = 1200, 1536
 _VLLM_SSL=ssl.create_default_context(); _VLLM_SSL.check_hostname=False; _VLLM_SSL.verify_mode=ssl.CERT_NONE
 import urllib.request as _urlreq
 
-def _is_vllm(model): return model in VLLM_MODELS or model.startswith("Qwen/") or model.startswith("nvidia/")
+def _is_vllm(model):
+    return (model in VLLM_MODELS or model.startswith("Qwen/")
+            or model.startswith("nvidia/") or model.startswith("unsloth/"))
 
-# crosswalk function tools only (no openrouter:web_search server tool — vLLM doesn't support it)
-FUNC_TOOLS=[t for t in TOOLS_SPEC if t.get("type")=="function"]
+# vLLM tool set — EXACTLY the validated local-harness set: real regex grep +
+# semantic search + cpt_lookup + Serper web (vLLM can't use OpenRouter's server-side
+# web_search, so we provide Serper as a function tool). Drops the substring
+# crosswalk_string_search in favour of the more powerful crosswalk_grep.
+_base_func_tools=[t for t in TOOLS_SPEC if t.get("type")=="function"
+                  and t["function"]["name"]!="crosswalk_string_search"]
+FUNC_TOOLS=[_GREP_TOOL_SPEC]+_base_func_tools+[_WEB_TOOL_SPEC]
+
+def _resize_msg_images_for_vllm(messages):
+    """Resize any base64 images in the message content to the Qwen3-VL safe
+    envelope (<=1200x1536). Returns a NEW messages list; original untouched so a
+    gemini fallback still sees full-res images."""
+    try:
+        import io as _io, base64 as _b64
+        from PIL import Image as _Img
+    except Exception:
+        return messages
+    out=[]
+    for m in messages:
+        c=m.get("content")
+        if not isinstance(c,list):
+            out.append(m); continue
+        nc=[]
+        for part in c:
+            if isinstance(part,dict) and part.get("type")=="image_url":
+                url=(part.get("image_url") or {}).get("url","")
+                if url.startswith("data:image"):
+                    try:
+                        b64=url.split(",",1)[1]
+                        im=_Img.open(_io.BytesIO(_b64.b64decode(b64)))
+                        w,h=im.size; s=min(1.0,VLLM_MAX_W/w,VLLM_MAX_LONG/max(w,h))
+                        if s<1.0:
+                            im=im.resize((max(1,int(w*s)),max(1,int(h*s))),_Img.LANCZOS)
+                        buf=_io.BytesIO(); im.convert("RGB").save(buf,"JPEG",quality=90)
+                        nurl="data:image/jpeg;base64,"+_b64.b64encode(buf.getvalue()).decode()
+                        nc.append({"type":"image_url","image_url":{"url":nurl}})
+                        continue
+                    except Exception:
+                        pass
+            nc.append(part)
+        out.append({**m,"content":nc})
+    return out
+
+# Per-thread provenance: which model+provider ACTUALLY served the last call(s) in
+# this thread's run_agent invocation. Lets the output record qwen-vllm vs a
+# gemini fallback, rather than just the requested model.
+import threading as _threading
+_PROVENANCE=_threading.local()
+
+def _prov_reset():
+    _PROVENANCE.model=None; _PROVENANCE.provider=None; _PROVENANCE.fell_back=False
+def _prov_set(model, provider, fell_back=False):
+    _PROVENANCE.model=model; _PROVENANCE.provider=provider
+    if fell_back: _PROVENANCE.fell_back=True
+def get_last_provenance():
+    """Return (model, provider, fell_back) actually used by the current thread's run."""
+    return (getattr(_PROVENANCE,"model",None),
+            getattr(_PROVENANCE,"provider",None),
+            getattr(_PROVENANCE,"fell_back",False))
 
 def call_openrouter(messages,model,tool_choice="auto"):
     if _is_vllm(model):
-        return _call_vllm(messages,model,tool_choice)
+        try:
+            r=_call_vllm(_resize_msg_images_for_vllm(messages),model,tool_choice)
+            _prov_set(model, "vllm-ngrok")
+            return r
+        except Exception as e:
+            # vLLM box down / ngrok URL rotated / any failure -> fall back to a
+            # cloud model so CPT never breaks. Uses full-res original messages.
+            print(f"    ⚠️  vLLM call failed ({str(e)[:80]}); falling back to {VLLM_FALLBACK_MODEL}")
+            _prov_set(VLLM_FALLBACK_MODEL, "openrouter", fell_back=True)
+            return call_openrouter(messages, VLLM_FALLBACK_MODEL, tool_choice)
     url="https://openrouter.ai/api/v1/chat/completions"
     headers={"Authorization":f"Bearer {OR_KEY}","Content-Type":"application/json"}
     payload={"model":model,"messages":messages,"tools":TOOLS_SPEC,"tool_choice":tool_choice,"usage":{"include":True}}
@@ -280,7 +423,11 @@ def call_openrouter(messages,model,tool_choice="auto"):
             last=e; time.sleep(min(2**attempt,20)); continue
         if r.status_code in (429,500,502,503,504):
             time.sleep(min(2**attempt,20)); continue
-        r.raise_for_status(); return r.json()
+        r.raise_for_status()
+        # provenance: if we didn't already mark a fallback, record this cloud model
+        if not getattr(_PROVENANCE,"fell_back",False):
+            _prov_set(model, "openrouter")
+        return r.json()
     if last: raise last
     r.raise_for_status()
 
@@ -293,14 +440,15 @@ def _call_vllm(messages,model,tool_choice="auto"):
     payload={"model":actual,"messages":messages,"tools":FUNC_TOOLS,"tool_choice":tool_choice,
              "chat_template_kwargs":{"enable_thinking":VLLM_THINKING}}
     last=None
-    for attempt in range(6):
+    # Fewer retries + shorter timeout so a down box fails over to gemini quickly.
+    for attempt in range(3):
         try:
             req=_urlreq.Request(f"{VLLM_BASE}/chat/completions",
                 data=json.dumps(payload).encode(),headers=headers)
-            r=_urlreq.urlopen(req,timeout=300,context=_VLLM_SSL)
+            r=_urlreq.urlopen(req,timeout=180,context=_VLLM_SSL)
             return json.load(r)
         except Exception as e:
-            last=e; time.sleep(min(2**attempt,15)); continue
+            last=e; time.sleep(min(2**attempt,8)); continue
     raise last
 
 FORCE_CROSSWALK_MANDATE="""
@@ -327,6 +475,7 @@ When the document lists TWO OR MORE distinct surgical procedures done in the sam
 """
 
 def run_agent(pdf_path,model,n_pages=50,max_steps=14,verbose=True,custom_instructions=None,force_web=False,force_crosswalk=False):
+    _prov_reset()
     key=(custom_instructions or "")+("|FCW" if force_crosswalk else "")
     if key not in _SYS_CACHE:
         sp=build_system_prompt(custom_instructions)

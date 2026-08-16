@@ -2204,6 +2204,7 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     def _one(idx, path):
         fname = os.path.basename(path)
         pred, expl, err = "", "", None
+        prov = f"crosswalk_agent:{model}"  # default if provenance unavailable
         for _ in range(4):
             try:
                 final, _tr = run_agent(path, model, n_pages=n_pages, verbose=False,
@@ -2211,6 +2212,15 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
                 o = parse_final(final) or {}
                 pred = _norm(o.get("predicted_cpt", ""))
                 expl = str(o.get("reasoning", "") or o.get("explanation", ""))[:2000]
+                # Record the model+provider that ACTUALLY served this case (qwen via
+                # vLLM/ngrok, or a gemini fallback if the box was unreachable).
+                try:
+                    from cpt_agent import get_last_provenance
+                    _m, _p, _fb = get_last_provenance()
+                    if _m and _p:
+                        prov = f"crosswalk_agent:{_m}|{_p}" + ("|FALLBACK" if _fb else "")
+                except Exception:
+                    pass
                 if pred:
                     break
             except Exception as e:
@@ -2218,15 +2228,15 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
                 time.sleep(2)
         if not pred:
             pred = f"ERROR: {(err or 'no prediction')[:50]}"
-        return idx, fname, pred, expl, err
+        return idx, fname, pred, expl, err, prov
 
     results = {}
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(_one, i, p): i for i, p in enumerate(pdf_files)}
         completed = 0
         for fut in as_completed(futures):
-            idx, fname, pred, expl, err = fut.result()
-            results[idx] = {"filename": fname, "prediction": pred, "explanation": expl, "error": err}
+            idx, fname, pred, expl, err, prov = fut.result()
+            results[idx] = {"filename": fname, "prediction": pred, "explanation": expl, "error": err, "prov": prov}
             completed += 1
             if progress_callback:
                 progress_callback(completed, len(pdf_files), f"Processed {completed}/{len(pdf_files)} PDFs (agent)...")
@@ -2235,12 +2245,14 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     predictions = [results[i]["prediction"] for i in range(len(pdf_files))]
     explanations = [results[i]["explanation"] for i in range(len(pdf_files))]
     errors_list = [results[i]["error"] for i in range(len(pdf_files))]
+    # Per-row provenance: which model+provider actually served each case.
+    model_sources = [results[i]["prov"] for i in range(len(pdf_files))]
     df = pd.DataFrame({
         "Patient Filename": filenames,
         "ASA Code": predictions,
         "Procedure Code": predictions,
         "Code Explanation": explanations,
-        "Model Source": [f"crosswalk_agent:{model}"] * len(filenames),
+        "Model Source": model_sources,
         "Error Message": errors_list,
     })
     df.to_csv(output_file, index=False)

@@ -9675,6 +9675,15 @@ def process_unified_background(
     def _agent_generic():
         return {"model": AGENT_GENERIC_MODEL, "template_id": None, "use_agent": True}
 
+    # Self-hosted qwen3.8-27b served on the local vLLM box via ngrok. Free compute.
+    # The crosswalk agent (cpt_agent.run_agent) routes to this endpoint when the
+    # model id is one of the local vLLM ids (see cpt_agent VLLM_MODELS). Validated
+    # to match/beat gemini-3.7 / production CPT on these groups.
+    QWEN_VLLM_MODEL = "unsloth/Qwen3.8-27B-NVFP4"
+
+    def _qwen_vllm():
+        return {"model": QWEN_VLLM_MODEL, "template_id": None, "use_agent": True}
+
     CPT_GROUP_ROUTING = {
         # ---- Template-based routing (plain vision predict, group template) ----
         "CHA-HDH":  {"model": "google/gemini-3.5-flash",       "template_id": 7,   "use_agent": True},
@@ -9699,11 +9708,50 @@ def process_unified_background(
         "ANA-ORA":  _agent_generic(),   # 89% -> 92%  (+3)
         "EAP-SSC":  _agent_generic(),   # 92% -> 94%  (+2)
         "AIP":      _agent_generic(),   # 93% -> 95%  (+2, n=112)
+
+        # ---- Self-hosted qwen3.8 (local vLLM/ngrok), free compute ----
+        # Individually validated groups that match/beat prod (or 3.7-flash) on qwen3.8.
+        "APO-UPM":  _qwen_vllm(),        # qwen3.8 100% (prod 95%)  [overrides the 3.7 entry above]
     }
+
+    # Family-level qwen3.8 routing: whole provider families moved to the free local
+    # vLLM by keyword/prefix match. Tested siblings match/beat prod; untested siblings
+    # are routed on family similarity (same facility coding patterns). A group is
+    # matched here only if it is NOT already an explicit key above.
+    #   (predicate over the UPPER-cased group name) -> route
+    # Match a family by whole-token prefix (RIV, RIV-...), never as a mere substring,
+    # so e.g. "DERIVATIVE" does NOT match RIV.
+    def _fam(k, tok):  return k == tok or k.startswith(tok + "-")
+    def _is_riv(k):    return _fam(k, "RIV")
+    def _is_inje(k):   return _fam(k, "INJE")
+    def _is_pce(k):    return _fam(k, "PCE")
+    def _is_aps(k):    return _fam(k, "APS")
+    def _is_moline_x(k):
+        # MOLINE-* and the "X"-marker groups (MOLINE-XDN/XSA/XJS/XKI, XQA, X-prefixed)
+        import re as _re
+        return _fam(k, "MOLINE") or k.startswith("X") or bool(_re.search(r"-X[A-Z]", k))
+    CPT_QWEN_FAMILY_PATTERNS = [
+        ("RIV*",       _is_riv,      _qwen_vllm),
+        ("INJE-*",     _is_inje,     _qwen_vllm),
+        ("PCE-*",      _is_pce,      _qwen_vllm),
+        ("APS-*",      _is_aps,      _qwen_vllm),
+        ("MOLINE/X*",  _is_moline_x, _qwen_vllm),
+    ]
+
     cpt_use_agent = False
     _wt_key = (worktracker_group or "").strip().upper()
     if enable_cpt:
         route = CPT_GROUP_ROUTING.get(_wt_key)
+        if route is None:
+            # Not an explicit key — try family (keyword/prefix) patterns.
+            for _label, _pred, _mk in CPT_QWEN_FAMILY_PATTERNS:
+                if _pred(_wt_key):
+                    route = _mk()
+                    logger.info(
+                        f"[Unified {job_id}] CPT for group '{worktracker_group}' matched "
+                        f"family pattern '{_label}' -> qwen3.8 vLLM ({route['model']})."
+                    )
+                    break
         if route is None:
             # Group not in the routing table: leave CPT exactly as the caller
             # configured it (model, template, mode) — no override, no disabling.

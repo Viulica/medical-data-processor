@@ -313,14 +313,20 @@ def build_provider_mapping_footer(provider_mapping_text, has_mednet=True):
     if has_mednet:
         intro = "The standardized list of providers (with their MedNet codes) is:"
         match_options = (
-            "On the PDF where the block is listed there will be either:\n"
-            "- a provider for the block clearly written, OR\n"
-            "- a red number pasted on the PDF — this red number is the MedNet code of the provider that did the block, OR\n"
-            "- if there is neither of the two above, the provider for the block is the same as for the main procedure (which itself will be either clearly written or indicated by a red number elsewhere in the PDF where the main procedure is listed).\n\n"
-            "Whichever of these options is true, output the provider EXACTLY as written in the standardized list above — WITHOUT the \"(MedNet Code: NN)\" suffix. The MedNet code is for mapping only and is NEVER part of the output.\n\n"
+            "HOW TO FIND THE BLOCK PROVIDER — the red MedNet number is the PRIMARY signal:\n"
+            "- On the SAME page where the block is documented, there is a red number pasted on the PDF. "
+            "That red number is the MedNet code of the provider who did THAT block. Read the red number "
+            "that appears on the block's own page and map it to the provider in the standardized list above.\n"
+            "- The block provider is frequently DIFFERENT from the main anesthesia provider. Do NOT assume "
+            "they are the same person. Use the red number on the block page, NOT the main case's provider "
+            "or the main case's red number.\n"
+            "- ONLY if the block page has no red number and no provider written for the block, fall back to "
+            "the main-procedure provider.\n\n"
+            "Output the provider EXACTLY as written in the standardized list above — WITHOUT the "
+            "\"(MedNet Code: NN)\" suffix. The MedNet code is for mapping only and is NEVER part of the output.\n\n"
             "Example — if the list contains:\n"
             "    SUM, DAVID, MD (MedNet Code: 71)\n\n"
-            "then output in the block line:\n"
+            "and the red number on the block page is 71, then output in the block line:\n"
             "    SUM, DAVID, MD\n"
         )
     else:
