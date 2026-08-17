@@ -310,6 +310,9 @@ def _concentrate_model_id(model):
 def _should_use_concentrate(model):
     """Thread-safe 1-in-N selector. Returns True on every Nth call iff a
     concentrate.ai key is configured AND the model is supported there."""
+    # concentrate.ai routing DISABLED — all extraction calls go to OpenRouter.
+    return False
+    # --- disabled below ---
     if not os.getenv("CONCENTRATE_API_KEY"):
         return False
     if CONCENTRATE_EVERY_N <= 0:
@@ -336,12 +339,14 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     # (only if the model is supported there; otherwise stays on OpenRouter).
     # force_provider overrides the split — used for the OpenRouter fallback when a
     # concentrate-routed call fails (so no PDF is lost to a concentrate outage).
-    if force_provider == "openrouter":
-        use_concentrate = False
-    elif force_provider == "concentrate":
-        use_concentrate = bool(os.getenv("CONCENTRATE_API_KEY")) and _concentrate_model_id(model) is not None
-    else:
-        use_concentrate = _should_use_concentrate(model)
+    # concentrate.ai routing DISABLED — force every call to OpenRouter.
+    use_concentrate = False
+    # if force_provider == "openrouter":
+    #     use_concentrate = False
+    # elif force_provider == "concentrate":
+    #     use_concentrate = bool(os.getenv("CONCENTRATE_API_KEY")) and _concentrate_model_id(model) is not None
+    # else:
+    #     use_concentrate = _should_use_concentrate(model)
     provider_name = "concentrate" if use_concentrate else "openrouter"
 
     # Get API key for the chosen provider
