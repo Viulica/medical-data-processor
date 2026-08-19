@@ -824,8 +824,10 @@ Respond with ONLY the JSON object, nothing else."""
     # Log the model being used for debugging
     logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
 
-    # Retry mechanism with exponential backoff
-    max_retries = 5
+    # Retry mechanism with exponential backoff.
+    # +3 headroom so flex retries (2x) + flex->standard fallback don't starve the
+    # standard-tier retry budget under batch load (same fix as ICD path).
+    max_retries = 8
     flex_503_retries = 0
     flex_disabled = False
     for attempt in range(max_retries):
@@ -1608,7 +1610,11 @@ Respond with ONLY the JSON object, nothing else."""
     logger.info(f"OpenRouter API call - URL: {url}, Model: {openrouter_model}, Original model: {model}")
 
     # Retry mechanism with exponential backoff
-    max_retries = 5
+    # Flex tier can 503/overload under load. We try flex up to 2x then fall back to
+    # standard tier. Those flex iterations must NOT starve the standard-tier retries,
+    # so give the budget +3 headroom (2 flex retries + 1 fallback) beyond the 5 real
+    # standard attempts. Root cause of "Max retries reached" on ICD under batch load.
+    max_retries = 8
     flex_503_retries = 0
     flex_disabled = False
     for attempt in range(max_retries):
