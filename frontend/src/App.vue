@@ -1340,8 +1340,8 @@
  v-model="unifiedExtractionModel"
  class="form-select"
  >
- <option value="gemini-3-flash-preview">
- Gemini 3 Flash Preview
+ <option value="google/gemini-3.7-flash">
+ Gemini 3.7 Flash
  </option>
  <option value="google/gemini-3.1-pro-preview">
  Gemini 3.1 Pro Preview
@@ -10301,7 +10301,7 @@ export default {
  isUnifiedPdfDragActive: false,
  // Unified - Extraction settings
  unifiedExtractionPages: 100,
- unifiedExtractionModel: "gemini-3-flash-preview",
+ unifiedExtractionModel: "google/gemini-3.7-flash",
  unifiedRenameMode: "default",
  unifiedExtractionMaxWorkers: 50,
  unifiedWorktrackerGroup: "",
@@ -12924,7 +12924,7 @@ export default {
  this.unifiedSplitDetectionShift = 0;
  // Extraction settings
  this.unifiedExtractionPages = 100;
- this.unifiedExtractionModel = "gemini-3-flash-preview";
+ this.unifiedExtractionModel = "google/gemini-3.7-flash";
  this.unifiedRenameMode = "default";
  this.unifiedExtractionMaxWorkers = 50;
  this.unifiedWorktrackerGroup = "";
