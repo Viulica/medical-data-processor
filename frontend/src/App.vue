@@ -1536,28 +1536,28 @@
  class="model-option-card"
  :class="{
  selected:
- unifiedCptVisionModel === 'gemini-3-flash-preview',
+ unifiedCptVisionModel === 'google/gemini-3.7-flash',
  }"
  >
  <input
  type="radio"
  v-model="unifiedCptVisionModel"
- value="gemini-3-flash-preview"
+ value="google/gemini-3.7-flash"
  class="model-radio"
  />
  <div class="model-content">
  <div class="model-header">
  <div class="model-name">
- <span class="model-title"> Gemini 3 Flash</span>
+ <span class="model-title"> Gemini 3.7 Flash</span>
  <span class="model-badge badge-preview"
- > Preview</span
+ > Flex</span
  >
  </div>
  <div class="model-provider"> Google</div>
  </div>
  <div class="model-features">
  <span class="feature-tag"> Very Fast</span>
- <span class="feature-tag"> Preview Model</span>
+ <span class="feature-tag"> Flex Tier</span>
  </div>
  </div>
  </label>
@@ -1817,28 +1817,28 @@
  class="model-option-card"
  :class="{
  selected:
- unifiedIcdVisionModel === 'gemini-3-flash-preview',
+ unifiedIcdVisionModel === 'google/gemini-3.7-flash',
  }"
  >
  <input
  type="radio"
  v-model="unifiedIcdVisionModel"
- value="gemini-3-flash-preview"
+ value="google/gemini-3.7-flash"
  class="model-radio"
  />
  <div class="model-content">
  <div class="model-header">
  <div class="model-name">
- <span class="model-title"> Gemini 3 Flash</span>
+ <span class="model-title"> Gemini 3.7 Flash</span>
  <span class="model-badge badge-preview"
- > Preview</span
+ > Flex</span
  >
  </div>
  <div class="model-provider"> Google</div>
  </div>
  <div class="model-features">
  <span class="feature-tag"> Very Fast</span>
- <span class="feature-tag"> Preview Model</span>
+ <span class="feature-tag"> Flex Tier</span>
  </div>
  </div>
  </label>
@@ -2821,13 +2821,13 @@
  <label
  class="model-option-card"
  :class="{
- selected: cptVisionModel === 'gemini-3-flash-preview',
+ selected: cptVisionModel === 'google/gemini-3.7-flash',
  }"
  >
  <input
  type="radio"
  v-model="cptVisionModel"
- value="gemini-3-flash-preview"
+ value="google/gemini-3.7-flash"
  class="model-radio"
  />
  <div class="model-content">
@@ -3429,13 +3429,13 @@
  <label
  class="model-option-card"
  :class="{
- selected: icdVisionModel === 'gemini-3-flash-preview',
+ selected: icdVisionModel === 'google/gemini-3.7-flash',
  }"
  >
  <input
  type="radio"
  v-model="icdVisionModel"
- value="gemini-3-flash-preview"
+ value="google/gemini-3.7-flash"
  class="model-radio"
  />
  <div class="model-content">
@@ -10315,7 +10315,7 @@ export default {
  unifiedCptMaxWorkers: 50,
  unifiedCptCustomInstructions: "",
  unifiedCptVisionPages: 49, // For vision mode
- unifiedCptVisionModel: "gemini-3-flash-preview", // Vision model selection
+ unifiedCptVisionModel: "google/gemini-3.7-flash", // Vision model selection
  unifiedCptCustomModel: "", // Custom OpenRouter model input
  unifiedCptIncludeCodeList: true, // Include CPT code descriptions from txt file (default: ON)
  unifiedUseCptTemplate: false, // For non-vision mode template toggle
@@ -10323,7 +10323,7 @@ export default {
  // Unified - ICD settings
  unifiedIcdPages: 49,
  unifiedIcdMaxWorkers: 50,
- unifiedIcdVisionModel: "gemini-3-flash-preview", // Vision model selection
+ unifiedIcdVisionModel: "google/gemini-3.7-flash", // Vision model selection
  unifiedIcdCustomModel: "", // Custom OpenRouter model input
  unifiedIcdCustomInstructions: "",
  unifiedIcdUseCptGuidance: true, // Always on — CPT prediction informs ICD prompt with code + description
@@ -12936,7 +12936,7 @@ export default {
  this.unifiedCptVisionMode = false;
  this.unifiedCptSelectedClient = "uni";
  this.unifiedCptVisionPages = 49;
- this.unifiedCptVisionModel = "gemini-3-flash-preview";
+ this.unifiedCptVisionModel = "google/gemini-3.7-flash";
  this.unifiedCptCustomModel = "";
  this.unifiedCptIncludeCodeList = true;
  this.unifiedCptMaxWorkers = 50;
@@ -12945,7 +12945,7 @@ export default {
  this.unifiedSelectedCptInstructionId = null;
  // ICD settings
  this.unifiedIcdPages = 49;
- this.unifiedIcdVisionModel = "gemini-3-flash-preview";
+ this.unifiedIcdVisionModel = "google/gemini-3.7-flash";
  this.unifiedIcdCustomModel = "";
  this.unifiedIcdMaxWorkers = 50;
  this.unifiedIcdCustomInstructions = "";
