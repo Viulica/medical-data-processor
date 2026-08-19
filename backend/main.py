@@ -11809,8 +11809,8 @@ async def process_unified(
     split_detection_shift: int = Form(default=0, description="Shift detections by N pages (positive = down, negative = up)"),
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
-    extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="google/gemini-3-flash-preview"),
+    extraction_n_pages: int = Form(default=50),
+    extraction_model: str = Form(default="google/gemini-3.7-flash"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
@@ -12131,8 +12131,8 @@ async def process_unified_with_refinement(
     ground_truth_file: UploadFile = File(...),
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
-    extraction_n_pages: int = Form(default=2),
-    extraction_model: str = Form(default="google/gemini-3-flash-preview"),
+    extraction_n_pages: int = Form(default=50),
+    extraction_model: str = Form(default="google/gemini-3.7-flash"),
     extraction_max_workers: int = Form(default=50),
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),

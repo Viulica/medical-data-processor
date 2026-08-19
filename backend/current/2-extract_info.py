@@ -174,15 +174,20 @@ def clean_field_value(value):
 
 
 def extract_first_n_pages_as_pdf(input_pdf_path, n_pages=2):
-    """Extract the first n pages from PDF and return as temporary PDF file."""
+    """Extract the first n pages from PDF and return as temporary PDF file.
+
+    n_pages <= 0 means "all pages" — send the whole document (demographics,
+    insurance, and guarantor info frequently live beyond page 2, so the old
+    2-page cap silently dropped them). Oversized image payloads are handled
+    downstream (direct-PDF fallback for Gemini; per-model size caps)."""
     try:
         reader = PdfReader(input_pdf_path)
         writer = PdfWriter()
-        
+
         total_pages = len(reader.pages)
-        pages_to_extract = min(n_pages, total_pages)
-        
-        print(f"    📄 Extracting first {pages_to_extract} pages from {total_pages} total pages")
+        pages_to_extract = total_pages if n_pages is None or n_pages <= 0 else min(n_pages, total_pages)
+
+        print(f"    📄 Extracting {pages_to_extract} of {total_pages} pages ({'ALL' if pages_to_extract==total_pages else 'first '+str(pages_to_extract)})")
         
         # Add the first n pages
         for page_idx in range(pages_to_extract):
@@ -1498,8 +1503,8 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 50  # Default thread pool size
-    model = "gemini-3-flash-preview"  # Default model for normal fields
-    priority_model = "gemini-3-flash-preview"  # Default model for high-priority fields
+    model = "google/gemini-3.7-flash"  # Default model for normal fields (flex tier applies: 'gemini-3' match)
+    priority_model = "google/gemini-3.7-flash"  # Default model for high-priority fields (flex tier applies)
     low_priority_model = "google/gemini-3.1-flash-lite-preview"  # Default model for low-priority fields
     very_high_priority_model = "gemini-3.1-pro-preview"  # Default model for very-high-priority fields
     worktracker_group = None  # Optional worktracker group

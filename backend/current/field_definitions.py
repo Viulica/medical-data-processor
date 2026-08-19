@@ -179,6 +179,8 @@ Extraction Instructions per Patient Record:
 
     4. If the date of birth of patient and guarantor is the same AND the names are roughly the same, then output "Self" for guarantor relation.
 
+    4b. GUARANTOR = PATIENT WHEN SELF: When the guarantor / responsible party is the patient themselves (relationship "Self", or the form shows no separate guarantor because the patient is the guarantor), the guarantor IS the patient. In that case fill EVERY guarantor field (Guarantor First/Middle/Last Name, Guarantor DOB, Guarantor Address, City, State, ZIP, phone, etc.) with the PATIENT's own corresponding values. Do NOT leave guarantor fields blank just because a separate "Guarantor" line is not printed — copy the patient's information into them. Only leave a guarantor field blank if the patient's corresponding field is also blank.
+
     5. IMPORTANT: if you see any random ID looking numbers in a different color and font then the original pdf (they look copy pasted) then ignore them (do not put them in any of the extracted fields!!!)
 
     6. ALSO IMPORTANT: never DROP leading zeros from any number. Always write all the strings and numbers as they are.
