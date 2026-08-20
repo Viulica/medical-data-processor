@@ -447,7 +447,8 @@ def run_refinement_job(
     refinement_guidance: Optional[str] = None,
     refinement_mode: str = "batch",  # "batch" or "focused"
     batch_size: int = 10,  # Number of errors per batch in batch mode
-    refinement_model: str = "gemini-3-flash-preview"  # Model to use for refinement
+    refinement_model: str = "gemini-3-flash-preview",  # Model to use for refinement
+    disable_flex_tier: bool = False,  # Force extraction to OpenRouter standard tier (no flex)
 ):
     """
     Main refinement job orchestrator.
@@ -552,6 +553,7 @@ def run_refinement_job(
                 extraction_n_pages=extraction_n_pages,
                 extraction_model=extraction_model,
                 extraction_max_workers=extraction_max_workers,
+                disable_flex_tier=disable_flex_tier,
                 worktracker_group=worktracker_group,
                 worktracker_batch=worktracker_batch,
                 scanned_date=scanned_date,

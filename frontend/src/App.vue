@@ -1381,6 +1381,20 @@
  </small>
  </div>
  <div class="setting-group" style="margin-top: 15px">
+ <label class="checkbox-label">
+ <input
+ type="checkbox"
+ v-model="unifiedDisableFlexTier"
+ />
+ Disable flex tier (use standard tier)
+ </label>
+ <small class="help-text">
+ Forces extraction to OpenRouter's standard tier instead of the
+ half-price flex tier. Slower/costlier but avoids flex 503 overloads
+ and quality dips under load.
+ </small>
+ </div>
+ <div class="setting-group" style="margin-top: 15px">
  <label for="unified-worktracker-group"
  > Worktracker Group (Optional)</label
  >
@@ -10304,6 +10318,7 @@ export default {
  unifiedExtractionModel: "google/gemini-3.7-flash",
  unifiedRenameMode: "default",
  unifiedExtractionMaxWorkers: 50,
+ unifiedDisableFlexTier: false,
  unifiedWorktrackerGroup: "",
  unifiedWorktrackerBatch: "",
  unifiedScannedDate: "",
@@ -12385,6 +12400,7 @@ export default {
  "extraction_max_workers",
  this.unifiedExtractionMaxWorkers
  );
+ formData.append("disable_flex_tier", this.unifiedDisableFlexTier);
  formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
  formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
  formData.append("scanned_date", this.unifiedScannedDate || "");

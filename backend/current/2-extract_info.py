@@ -58,6 +58,14 @@ except Exception as e:
 # template's priority row to offload it here.
 CHEAP_MODEL = os.environ.get("CHEAP_EXTRACTION_MODEL", "qwen/qwen3.7-flash")
 
+# Flex-tier kill switch. OpenRouter's `service_tier: "flex"` is half-price but can
+# 503/overload under load and, when it silently degrades, has been observed to hurt
+# extraction quality on borderline fields. Set DISABLE_FLEX_TIER=1 (or true/yes) to
+# force every extraction call to the standard tier. Default: flex ON (current
+# behaviour). Read per-call (not cached) so a subprocess env override always wins.
+def _flex_tier_disabled():
+    return os.environ.get("DISABLE_FLEX_TIER", "").strip().lower() in ("1", "true", "yes", "on")
+
 # Hardcoded priority-field groups: fields listed together in the same tuple
 # are extracted in a single API call when all of them are present as priority fields.
 PRIORITY_FIELD_GROUPS = [
@@ -441,7 +449,9 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
                 if "gemini-3" in openrouter_model:
                     payload["reasoning"] = {"effort": "high"}
-                    if not flex_disabled:
+                    # flex_disabled: set after a runtime 503/overload fallback (below).
+                    # _flex_tier_disabled(): global kill switch via DISABLE_FLEX_TIER env.
+                    if not flex_disabled and not _flex_tier_disabled():
                         payload["service_tier"] = "flex"
                         payload["provider"] = {"sort": "throughput"}
 

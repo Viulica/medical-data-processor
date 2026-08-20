@@ -194,7 +194,7 @@ class ProcessingJob:
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None, disable_flex_tier: bool = False):
     """Background task to process PDFs"""
     import os
     
@@ -228,6 +228,9 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         env['OPENBLAS_NUM_THREADS'] = '12'
         env['OMP_NUM_THREADS'] = '12'
         env['MKL_NUM_THREADS'] = '12'
+        # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
+        if disable_flex_tier:
+            env['DISABLE_FLEX_TIER'] = '1'
         
         # Run the processing script
         script_path = Path(__file__).parent / "current" / "2-extract_info.py"
@@ -9646,6 +9649,9 @@ def process_unified_background(
     icd_use_cpt_guidance: bool = True,
     # PDF rename method: "default" → First_Last_Middle.pdf; "hank_ai" → First Last.pdf
     rename_mode: str = "default",
+    # When True, force extraction to OpenRouter's standard tier (disable the flex
+    # half-price tier). Passed to the extraction subprocess via DISABLE_FLEX_TIER.
+    disable_flex_tier: bool = False,
 ):
     """Unified background task to run extraction + CPT + ICD prediction"""
     import os
@@ -9941,6 +9947,9 @@ def process_unified_background(
                     env['OPENBLAS_NUM_THREADS'] = '12'
                     env['OMP_NUM_THREADS'] = '12'
                     env['MKL_NUM_THREADS'] = '12'
+                    # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
+                    if disable_flex_tier:
+                        env['DISABLE_FLEX_TIER'] = '1'
                     
                     script_path = Path(__file__).parent / "current" / "2-extract_info.py"
                     
@@ -10329,6 +10338,9 @@ def process_unified_background(
                     env['OPENBLAS_NUM_THREADS'] = '12'
                     env['OMP_NUM_THREADS'] = '12'
                     env['MKL_NUM_THREADS'] = '12'
+                    # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
+                    if disable_flex_tier:
+                        env['DISABLE_FLEX_TIER'] = '1'
                     
                     script_path = Path(__file__).parent / "current" / "2-extract_info.py"
                     
@@ -10521,6 +10533,9 @@ def process_unified_background(
             env['OPENBLAS_NUM_THREADS'] = '12'
             env['OMP_NUM_THREADS'] = '12'
             env['MKL_NUM_THREADS'] = '12'
+            # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
+            if disable_flex_tier:
+                env['DISABLE_FLEX_TIER'] = '1'
             
             # Run the extraction script
             script_path = Path(__file__).parent / "current" / "2-extract_info.py"
@@ -11812,6 +11827,7 @@ async def process_unified(
     extraction_n_pages: int = Form(default=50),
     extraction_model: str = Form(default="google/gemini-3.7-flash"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
+    disable_flex_tier: bool = Form(default=False),  # Force extraction to OpenRouter standard tier (no flex)
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     scanned_date: str = Form(default=""),
@@ -12111,6 +12127,7 @@ async def process_unified(
             combined_cpt_icd_model=combined_cpt_icd_model,
             icd_use_cpt_guidance=icd_use_cpt_guidance,
             rename_mode=rename_mode,
+            disable_flex_tier=disable_flex_tier,
         )
 
         logger.info(f"Background unified processing task started for job {job_id}")
@@ -12134,6 +12151,7 @@ async def process_unified_with_refinement(
     extraction_n_pages: int = Form(default=50),
     extraction_model: str = Form(default="google/gemini-3.7-flash"),
     extraction_max_workers: int = Form(default=50),
+    disable_flex_tier: bool = Form(default=False),  # Force extraction to OpenRouter standard tier (no flex)
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     scanned_date: str = Form(default=""),
@@ -12278,6 +12296,7 @@ async def process_unified_with_refinement(
             extraction_n_pages=extraction_n_pages,
             extraction_model=extraction_model,
             extraction_max_workers=extraction_max_workers,
+            disable_flex_tier=disable_flex_tier,
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
             scanned_date=scanned_date,
