@@ -331,8 +331,14 @@ VLLM_KEY=os.environ.get("VLLM_KEY","")  # set via env; no hardcoded default
 VLLM_MODELS={"Qwen/Qwen3.6-35B-A3B-FP8","nvidia/Qwen3.6-35B-A3B-NVFP4","unsloth/Qwen3.8-27B-NVFP4","vllm"}
 VLLM_FALLBACK_MODEL=os.environ.get("VLLM_FALLBACK_MODEL","google/gemini-3.7-flash")
 VLLM_THINKING=os.environ.get("VLLM_THINKING","0")=="1"   # toggle thinking via env
-# Qwen3-VL processor rejects images larger than ~1250w/~1650h; resize before send.
-VLLM_MAX_W, VLLM_MAX_LONG = 1200, 1536
+# Image resolution cap before sending to the vLLM box. The old ~1250x1650 limit
+# was for Qwen3.6; the current Qwen3.8-27B-NVFP4 accepts far larger images (tested
+# clean up to ~3000x4000). Low res was the dominant cause of CPT misreads on
+# handwritten/photographed forms (e.g. mistaking a colonoscopy for combined EGD,
+# or missing a handwritten MIGS on an eye case) — bumping this fixed ~11/19 of the
+# validated production errors. Overridable via env for the next box change.
+VLLM_MAX_W    = int(os.environ.get("VLLM_MAX_W",    "2600"))
+VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "3200"))
 _VLLM_SSL=ssl.create_default_context(); _VLLM_SSL.check_hostname=False; _VLLM_SSL.verify_mode=ssl.CERT_NONE
 import urllib.request as _urlreq
 

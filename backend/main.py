@@ -9777,15 +9777,58 @@ def process_unified_background(
                 # ICD still runs on its own vision path).
                 enable_combined_cpt_icd = False
             if route["template_id"] is None:
-                # No template: run the crosswalk agent with its default/generic
-                # instructions (matches how these groups were validated). Clear any
-                # caller-provided instructions so nothing group-specific leaks in.
-                cpt_custom_instructions = None
-                logger.info(
-                    f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
-                    f"model={cpt_vision_model}, template=NONE (generic agent), "
-                    f"agent={cpt_use_agent}"
+                # No explicit template pinned in the routing table. Precedence for
+                # which CPT instruction the agent runs with:
+                #   1. What the CALLER explicitly selected in the UI (highest — the
+                #      user picking a template must always win).
+                #   2. This group's own CPT prediction instruction, auto-loaded by
+                #      group name (so facility rules like INJE-CLIFW cataract+MIGS→00140
+                #      reach the agent even when the UI didn't pick one).
+                #   3. Generic crosswalk instructions.
+                _caller_selected = bool(
+                    cpt_instruction_template_id
+                    or (cpt_custom_instructions or "").strip()
                 )
+                if _caller_selected:
+                    # Honor the caller's explicit choice — do NOT overwrite it.
+                    logger.info(
+                        f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                        f"model={cpt_vision_model}, using CALLER-selected CPT "
+                        f"instruction (template_id={cpt_instruction_template_id}), "
+                        f"agent={cpt_use_agent}"
+                    )
+                else:
+                    _auto = None
+                    try:
+                        from db_utils import get_prediction_instruction
+                        _auto = get_prediction_instruction(
+                            name=_wt_key, instruction_type="cpt"
+                        )
+                        if not _auto and worktracker_group:
+                            _auto = get_prediction_instruction(
+                                name=worktracker_group, instruction_type="cpt"
+                            )
+                    except Exception as _e:
+                        logger.warning(
+                            f"[Unified {job_id}] CPT auto-instruction lookup failed for "
+                            f"'{worktracker_group}': {_e}"
+                        )
+                        _auto = None
+                    if _auto and (_auto.get("instructions_text") or "").strip():
+                        cpt_custom_instructions = _auto["instructions_text"]
+                        logger.info(
+                            f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                            f"model={cpt_vision_model}, auto-loaded group instruction "
+                            f"'{_auto['name']}' (#{_auto.get('id')}), agent={cpt_use_agent}"
+                        )
+                    else:
+                        # No caller choice and no group instruction: generic agent.
+                        cpt_custom_instructions = None
+                        logger.info(
+                            f"[Unified {job_id}] CPT routing for '{worktracker_group}': "
+                            f"model={cpt_vision_model}, template=NONE (generic agent), "
+                            f"agent={cpt_use_agent}"
+                        )
             else:
                 try:
                     from db_utils import get_prediction_instruction
