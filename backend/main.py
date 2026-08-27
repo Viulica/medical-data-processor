@@ -9793,13 +9793,9 @@ def process_unified_background(
     EXTRACTION_GEMINI = "google/gemini-3.7-flash"
     EXTRACTION_GROUP_ROUTING = {
         # ---- pinned to self-hosted qwen3.8 (ngrok), free compute ----
-        # Validated via the real production pipeline (qvp_real.py) vs prod gemini:
-        # ~98-100% on billing-critical fields. On any per-PDF vLLM failure, extraction
-        # auto-falls back to gemini-3.7-flash, so this is safe.
-        "PCE-WWMG": EXTRACTION_QWEN_VLLM,   # 99% (material, after PhysStatus instr)
-        "GII-ASC":  EXTRACTION_QWEN_VLLM,   # 100%
-        "KAP-CYP":  EXTRACTION_QWEN_VLLM,   # ~97% (qwen follows time-format better than gemini)
-        "TAN-ESC":  EXTRACTION_QWEN_VLLM,   # 98%
+        # Validated groups (PCE-WWMG/GII-ASC/KAP-CYP/TAN-ESC, ~98-100% material) were
+        # pinned here but REMOVED while the ngrok box is unstable — re-add when the box
+        # is reliably serving. Routing infra + per-PDF gemini fallback remain in place.
 
         # ---- pinned to OpenRouter gemini-3.7-flash ----
         # (add groups that need the cloud model here)
