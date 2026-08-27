@@ -9,7 +9,7 @@ Modifier Hierarchy:
    NOTE: GC is NOT added when QK is present (to prevent QK + GC combination)
 3. QS modifier - Monitored Anesthesia Care (when Anesthesia Type = MAC and Medicare Modifiers = YES)
 4. P modifiers (P1-P6) - Physical status modifiers
-5. PT modifier - Added to LAST available position (no gaps) when "Polyps found" = "FOUND" AND "colonoscopy_is_screening" = "TRUE"
+5. PT modifier - Added to LAST available position (no gaps) when "Polyps found" = "FOUND" AND the colonoscopy CPT is 00812 (screening/surveillance)
    - PT modifier REQUIRES Medicare Modifiers = YES for the insurance
    - By default, PT modifier is only added for Medicare insurances (with Medicare Modifiers = YES)
    - If add_pt_for_non_medicare=True, PT modifier can also be added for non-Medicare insurances (but still requires Medicare Modifiers = YES)
@@ -721,8 +721,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         has_physical_status = 'Physical Status' in df.columns
         has_resident_column = 'Resident' in df.columns
         has_polyps_found_column = 'Polyps found' in df.columns
-        has_colonoscopy_screening_column = 'colonoscopy_is_screening' in df.columns
-        
+
         # Check for peripheral_blocks column
         has_peripheral_blocks = 'peripheral_blocks' in df.columns
         
@@ -1022,8 +1021,10 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # If add_pt_for_non_medicare is True, PT modifier can also be added for non-Medicare insurances (but still requires Medicare Modifiers = YES)
             if has_polyps_found_column:
                 polyps_value = str(row.get('Polyps found', '')).strip().upper()
-                colonoscopy_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() if has_colonoscopy_screening_column else ''
-                
+                # NOTE: colonoscopy_is_screening removed as an input — screening AND
+                # surveillance both code to 00812, so CPT==00812 already encodes it.
+                # PT keys purely on Polyps=FOUND + CPT 00812 now.
+
                 # Check if insurance is Medicare (for logging/debugging purposes)
                 is_medicare = False
                 if primary_mednet_code and not insurances_df.empty:
@@ -1036,15 +1037,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 
                 # PT is added when:
                 # 1. Polyps found = "FOUND"
-                # 2. Colonoscopy is screening/surveillance (colonoscopy_is_screening = TRUE OR original AI CPT = 00812)
+                # 2. Colonoscopy is screening/surveillance (original AI CPT = 00812; surveillance also codes to 00812)
                 # PT applies to all payers — procedure converted from screening/surveillance to therapeutic.
                 # We check the PRE-CORRECTOR CPT here: if the AI originally predicted 00812 and the corrector
                 # flipped it to 00811 (Medicare case), the procedure still originated as screening/surveillance
                 # and PT should still be added.
                 should_add_pt = False
                 screening_or_surveillance = (
-                    colonoscopy_screening == 'TRUE'
-                    or pre_corrector_asa_code == '00812'
+                    pre_corrector_asa_code == '00812'
                     or pre_corrector_procedure_code == '00812'
                 )
                 # 00813 (combined upper + lower scope) is excluded — PT not applicable.
@@ -1071,8 +1071,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         procedure_code = str(new_row.get('Procedure Code', '')).strip()
                         print(f"   Medicare colonoscopy correction: 00812 → 00811 (Polyps=FOUND, Medicare=True)")
 
-                elif polyps_value == 'FOUND' or colonoscopy_screening == 'TRUE' or asa_code == '00812':
-                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, Screening={colonoscopy_screening}, CPT={asa_code})")
+                elif polyps_value == 'FOUND' or asa_code == '00812':
+                    print(f"   PT modifier: NOT added (Polyps={polyps_value}, CPT={asa_code})")
 
             # Apply hierarchy: M1 (AA/QK/QZ/QX) > M2 (GC) > M3 (QS) > M4 (P) > PT (goes in LAST position)
             # Place modifiers sequentially without gaps

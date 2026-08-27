@@ -66,6 +66,145 @@ CHEAP_MODEL = os.environ.get("CHEAP_EXTRACTION_MODEL", "qwen/qwen3.7-flash")
 def _flex_tier_disabled():
     return os.environ.get("DISABLE_FLEX_TIER", "").strip().lower() in ("1", "true", "yes", "on")
 
+# ── Self-hosted vLLM (ngrok) extraction route ─────────────────────────────────
+# Mirrors the CPT agent's vLLM wiring so extraction can run on our own
+# Qwen3.8-27B-NVFP4 box instead of OpenRouter/Gemini. Env-gated & off by default:
+# a job only reaches vLLM when its model is one of VLLM_MODELS (or a Qwen/nvidia/
+# unsloth-prefixed id). VLLM_BASE is read from env because the free ngrok URL
+# ROTATES on box restart — update the env var when it changes. On ANY vLLM failure
+# (box down, URL rotated, timeout) we fall back to Gemini via OpenRouter so
+# extraction never breaks. Set VLLM_KEY in the environment (no hardcoded secret).
+VLLM_BASE = os.environ.get("VLLM_BASE", "https://b296-2001-41d0-304-300-00-8823.ngrok-free.app/v1")
+VLLM_KEY = os.environ.get("VLLM_KEY", "")
+VLLM_MODELS = {
+    "Qwen/Qwen3.6-35B-A3B-FP8", "nvidia/Qwen3.6-35B-A3B-NVFP4",
+    "unsloth/Qwen3.8-27B-NVFP4", "vllm",
+}
+VLLM_FALLBACK_MODEL = os.environ.get("VLLM_EXTRACTION_FALLBACK_MODEL", "google/gemini-3.7-flash")
+VLLM_THINKING = os.environ.get("VLLM_THINKING", "0") == "1"
+# Qwen3-VL accepts large images on the NVFP4 box; cap matches the CPT agent.
+VLLM_MAX_W = int(os.environ.get("VLLM_MAX_W", "2600"))
+VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "3200"))
+# Render DPI for the vLLM path. Higher than the 200-DPI OpenRouter default so that
+# cramped handwriting (a diagnosis in a signature margin, handwritten times) is
+# legible. 240 DPI => Letter ~2040x2640, legible but light enough that the single-GPU
+# NVFP4 box stays stable. 300 DPI overloaded the box (OOM/queue-wedge under the
+# pipeline's per-PDF call fan-out); 240 ran clean.
+VLLM_EXTRACT_DPI = int(os.environ.get("VLLM_EXTRACT_DPI", "240"))
+
+# GLOBAL concurrency cap on in-flight vLLM extraction calls. The pipeline fans each
+# PDF into ~8 tier calls (normal + 3 provider + priority + cheap), and the very-high
+# tier fires its calls concurrently — so even a few PDF-workers can burst 20+
+# simultaneous calls at the box, which wedges the single-GPU NVFP4 server (queue
+# backs up, everything 503s / times out, and it can take 10-15 min to drain).
+# This semaphore bounds TOTAL concurrent vLLM calls process-wide (default 3, the
+# box's observed stable ceiling), independent of extraction max_workers. Cloud
+# models (OpenRouter/Gemini) are unaffected — only the vLLM path acquires it.
+import threading as _threading
+_VLLM_MAX_CONCURRENCY = int(os.environ.get("VLLM_MAX_CONCURRENCY", "3"))
+_VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
+
+def is_vllm_model(model_name):
+    """True when the requested extraction model should route to the self-hosted vLLM box."""
+    if not model_name:
+        return False
+    return (model_name in VLLM_MODELS
+            or model_name.startswith("Qwen/")
+            or model_name.startswith("nvidia/")
+            or model_name.startswith("unsloth/"))
+
+def _resize_images_for_vllm(image_data_list):
+    """Downscale rendered PNG pages to the Qwen3-VL envelope (VLLM_MAX_W x VLLM_MAX_LONG),
+    re-encode as JPEG. Returns a list of (mime, base64) tuples. On any failure for a
+    page, keeps the original PNG so extraction still proceeds."""
+    try:
+        import io as _io
+        from PIL import Image as _Img
+    except Exception:
+        return [("image/png", d) for d in image_data_list]
+    out = []
+    for d in image_data_list:
+        try:
+            im = _Img.open(_io.BytesIO(base64.b64decode(d)))
+            w, h = im.size
+            s = min(1.0, VLLM_MAX_W / w, VLLM_MAX_LONG / max(w, h))
+            if s < 1.0:
+                im = im.resize((max(1, int(w * s)), max(1, int(h * s))), _Img.LANCZOS)
+            buf = _io.BytesIO()
+            im.convert("RGB").save(buf, "JPEG", quality=90)
+            out.append(("image/jpeg", base64.b64encode(buf.getvalue()).decode()))
+        except Exception:
+            out.append(("image/png", d))
+    return out
+
+def _build_vllm_messages(extraction_prompt, resized):
+    """Build an OpenAI-compatible messages payload for vLLM from (mime, b64) parts."""
+    content = [{"type": "text", "text": extraction_prompt}]
+    for mime, b64 in resized:
+        content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+    return [{"role": "user", "content": content}]
+
+def extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model,
+                      max_retries=3, field_name_for_log=None):
+    """Extract patient info via the self-hosted vLLM (ngrok) endpoint.
+
+    Returns (response_text, provider_name) on success. On ANY failure (endpoint
+    down, ngrok URL rotated, timeout, bad JSON after retries) returns None so the
+    caller can fall back to the cloud path — extraction never breaks on vLLM.
+    """
+    log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
+    if not VLLM_KEY:
+        print(f"    ⚠️  VLLM_KEY not set; cannot route {pdf_filename}{log_suffix} to vLLM")
+        return None
+
+    image_data_list = pdf_to_images_base64(patient_pdf_path, dpi=VLLM_EXTRACT_DPI)
+    if not image_data_list:
+        print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix} (vLLM)")
+        return None
+
+    messages = _build_vllm_messages(extraction_prompt, _resize_images_for_vllm(image_data_list))
+    url = f"{VLLM_BASE.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {VLLM_KEY}",
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+    }
+    payload_base = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": 4000,
+        "chat_template_kwargs": {"enable_thinking": VLLM_THINKING},
+    }
+    for attempt in range(max_retries):
+        try:
+            # Bound total concurrent vLLM calls process-wide so the pipeline's
+            # per-PDF call fan-out can't flood the single-GPU box.
+            with _VLLM_SEMAPHORE:
+                response = requests.post(url, headers=headers, json=payload_base, timeout=300, verify=False)
+            response.raise_for_status()
+            result = response.json()
+            response_text = (result["choices"][0]["message"].get("content") or "").strip()
+            if not response_text or len(response_text) < 10:
+                raise ValueError(f"Response too short or empty: {response_text!r}")
+            cleaned_response = response_text
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith("```"):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            json.loads(cleaned_response)  # validate JSON shape
+            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with vLLM ({model}) on attempt {attempt + 1}")
+            return response_text, "vllm-ngrok"
+        except Exception as e:
+            print(f"    ⚠️  vLLM call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)[:120]}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt * random.uniform(0.5, 1.5))
+    print(f"    ❌ vLLM extraction exhausted for {pdf_filename}{log_suffix}")
+    return None
+
 # Hardcoded priority-field groups: fields listed together in the same tuple
 # are extracted in a single API call when all of them are present as priority fields.
 PRIORITY_FIELD_GROUPS = [
@@ -96,6 +235,11 @@ import threading
 import re
 import base64
 import requests
+try:
+    import urllib3 as _urllib3
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
 from io import BytesIO
 from PIL import Image
 from pathlib import Path
@@ -231,8 +375,10 @@ def normalize_gemini_model(model_name):
     clean_model = clean_model.replace(' ', '-').lower()
     return clean_model
 
-def pdf_to_images_base64(pdf_path, max_pages=100):
-    """Convert PDF pages to base64 encoded images for OpenRouter"""
+def pdf_to_images_base64(pdf_path, max_pages=100, dpi=200):
+    """Convert PDF pages to base64 encoded images. Default 200 DPI (OpenRouter path).
+    The vLLM path renders higher (see extract_with_vllm) so cramped handwriting —
+    e.g. a diagnosis scrawled in a margin — survives at a legible size."""
     try:
         # Use PyMuPDF (fitz) which is already in requirements
         import fitz  # PyMuPDF
@@ -240,7 +386,7 @@ def pdf_to_images_base64(pdf_path, max_pages=100):
         image_data_list = []
         for page_num in range(min(len(doc), max_pages)):
             page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(200/72, 200/72))  # 200 DPI
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi/72, dpi/72))
             img_data = pix.tobytes("png")
             img_base64 = base64.b64encode(img_data).decode('utf-8')
             image_data_list.append(img_base64)
@@ -590,6 +736,15 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
     
+    # Self-hosted vLLM (ngrok) route — highest priority. On ANY vLLM failure, fall
+    # through to the cloud path below so extraction never breaks on the local box.
+    if is_vllm_model(model):
+        vllm_result = extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
+        if vllm_result is not None:
+            return vllm_result
+        print(f"    🔁 vLLM path failed for {pdf_filename}; falling back to {VLLM_FALLBACK_MODEL}")
+        return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, VLLM_FALLBACK_MODEL, max_retries, field_name_for_log)
+
     # Check if using OpenRouter (explicitly, or Gemini model without GOOGLE_API_KEY)
     if is_openrouter_model(model) and not is_gemini_model(model):
         return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log)
@@ -930,7 +1085,9 @@ def process_single_patient_pdf_task(args):
     # timeout exposure. Any field the cheap model misses falls back to Gemini.
     cheap_fields = get_cheap_fields(excel_file_path)
     if cheap_fields:
-        print(f"    💸 Processing {len(cheap_fields)} CHEAP field(s) in 1 call for {pdf_filename} (model: {CHEAP_MODEL})")
+        _cheap_env = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
+        _cheap_disp = _cheap_env if (_cheap_env and is_vllm_model(_cheap_env)) else CHEAP_MODEL
+        print(f"    💸 Processing {len(cheap_fields)} CHEAP field(s) in 1 call for {pdf_filename} (model: {_cheap_disp})")
 
         # Model to fall back to for any cheap field the cheap model fails to
         # return. Defaults to the group's normal/priority Gemini model so a
@@ -965,8 +1122,12 @@ def process_single_patient_pdf_task(args):
                 return {}
             return {f['name']: data[f['name']] for f in fields if isinstance(data, dict) and f['name'] in data}
 
-        # 1) One cheap call for the whole group.
-        got = _extract_cheap_group(cheap_fields, CHEAP_MODEL, "cheap")
+        # 1) One cheap call for the whole group. When the vLLM override is on,
+        #    route cheap fields to the local box too so ALL extraction is on ngrok.
+        _cheap_effective = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
+        if not (_cheap_effective and is_vllm_model(_cheap_effective)):
+            _cheap_effective = CHEAP_MODEL
+        got = _extract_cheap_group(cheap_fields, _cheap_effective, "cheap")
         # 2) Any fields the cheap model didn't return -> one Gemini fallback call
         #    for just those, so nothing is silently dropped.
         missing = [f for f in cheap_fields if f['name'] not in got]
@@ -1555,7 +1716,19 @@ if __name__ == "__main__":
         extract_providers_from_annotations = sys.argv[11].lower() == "true" if sys.argv[11].strip() else False
     if len(sys.argv) > 12:
         scanned_date = sys.argv[12] if sys.argv[12].strip() else None
-    
+
+    # Global switch: route ALL extraction (every field tier) to the self-hosted
+    # vLLM (ngrok) box. Set EXTRACTION_VLLM_MODEL=unsloth/Qwen3.8-27B-NVFP4 (or any
+    # VLLM model id) to override every model tier at once. Off by default — extraction
+    # stays on Gemini/OpenRouter unless this env var is set. Any vLLM failure per-PDF
+    # falls back to VLLM_FALLBACK_MODEL, so this is safe to flip on.
+    _vllm_override = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
+    if _vllm_override and is_vllm_model(_vllm_override):
+        print(f"🖥️  EXTRACTION_VLLM_MODEL set — routing ALL extraction to vLLM: {_vllm_override}")
+        model = priority_model = low_priority_model = very_high_priority_model = _vllm_override
+    elif _vllm_override:
+        print(f"⚠️  EXTRACTION_VLLM_MODEL='{_vllm_override}' is not a recognized vLLM model id; ignoring.")
+
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
     print(f"   Excel file: {excel_file}")

@@ -194,6 +194,19 @@ class ProcessingJob:
         self.error = None
         self.metadata = {}  # Store additional data like reasoning
 
+def _is_vllm_extraction_model(model_name: str) -> bool:
+    """True when the selected extraction model is a self-hosted vLLM (ngrok) id.
+    Mirrors is_vllm_model() in current/2-extract_info.py. When true, we set
+    EXTRACTION_VLLM_MODEL on the extraction subprocess so EVERY field tier routes
+    to the local box (not just the 'normal' argv model)."""
+    if not model_name:
+        return False
+    m = model_name.strip()
+    return (m in {"Qwen/Qwen3.6-35B-A3B-FP8", "nvidia/Qwen3.6-35B-A3B-NVFP4",
+                  "unsloth/Qwen3.8-27B-NVFP4", "vllm"}
+            or m.startswith("Qwen/") or m.startswith("nvidia/") or m.startswith("unsloth/"))
+
+
 def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None, disable_flex_tier: bool = False):
     """Background task to process PDFs"""
     import os
@@ -1108,75 +1121,6 @@ def predict_cpt_background(job_id: str, csv_path: str, client: str = "uni"):
                 # Return as is for other lengths
                 return numeric_code
         
-        def apply_colonoscopy_correction(row, predicted_code, insurances_df):
-            """
-            Apply colonoscopy-specific correction rules based on procedure type,
-            insurance plan, and polyp findings.
-            
-            Args:
-                row: DataFrame row containing procedure information
-                predicted_code: The AI-predicted CPT code
-                insurances_df: DataFrame containing insurance information
-            
-            Returns:
-                Corrected CPT code or original predicted code if no correction applies
-            """
-            try:
-                # Get the required fields from the row
-                is_colonoscopy = str(row.get('is_colonoscopy', '')).strip().upper() == 'TRUE'
-                colonoscopy_is_screening = str(row.get('colonoscopy_is_screening', '')).strip().upper() == 'TRUE'
-                is_upper_endonoscopy = str(row.get('is_upper_endonoscopy', '')).strip().upper() == 'TRUE'
-                polyps_found = str(row.get('Polyps found', '')).strip().upper() == 'FOUND'
-                primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
-                
-                # Priority rule: if both upper endoscopy and colonoscopy, always return 00813
-                if is_upper_endonoscopy and is_colonoscopy:
-                    logger.info(f"Colonoscopy correction: Both upper endoscopy and colonoscopy detected -> 00813")
-                    return "00813"
-                
-                # Only proceed if it's a colonoscopy
-                if not is_colonoscopy:
-                    return predicted_code
-                
-                # Check if insurance is Medicare
-                is_medicare = False
-                if primary_mednet_code and not insurances_df.empty:
-                    # Find the insurance plan by MedNet Code
-                    insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
-                    if not insurance_match.empty:
-                        insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
-                        if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
-                            is_medicare = True
-                            logger.info(f"Colonoscopy correction: Medicare insurance detected ({insurance_plan})")
-                
-                # Apply correction rules
-                if is_medicare:
-                    # MEDICARE rules
-                    if colonoscopy_is_screening and not polyps_found:
-                        logger.info(f"Colonoscopy correction: Medicare + screening + no polyps -> 00812")
-                        return "00812"
-                    elif colonoscopy_is_screening and polyps_found:
-                        logger.info(f"Colonoscopy correction: Medicare + screening + polyps found -> 00811")
-                        return "00811"
-                    else:  # not screening (polyps don't matter)
-                        logger.info(f"Colonoscopy correction: Medicare + not screening -> 00811")
-                        return "00811"
-                else:
-                    # NOT MEDICARE rules
-                    if colonoscopy_is_screening and not polyps_found:
-                        logger.info(f"Colonoscopy correction: Non-Medicare + screening + no polyps -> 00812")
-                        return "00812"
-                    elif colonoscopy_is_screening and polyps_found:
-                        logger.info(f"Colonoscopy correction: Non-Medicare + screening + polyps found -> 00812")
-                        return "00812"
-                    else:  # not screening (polyps don't matter)
-                        logger.info(f"Colonoscopy correction: Non-Medicare + not screening -> 00811")
-                        return "00811"
-                
-            except Exception as e:
-                logger.warning(f"Colonoscopy correction failed: {str(e)}, returning original prediction")
-                return predicted_code
-
         def get_prediction_and_review(procedure, extracted_description=None, retries=5):
             """Two-stage prediction: 1) Custom model predicts, 2) Gemini Flash reviews"""
             
@@ -1519,11 +1463,9 @@ answer ONLY with the code, nothing else"""
         correction_applied = []
         for idx, row in df.iterrows():
             original_prediction = predictions[idx]
-            # Only apply colonoscopy correction for uni client
-            if client == "uni":
-                corrected_code = apply_colonoscopy_correction(row, original_prediction, insurances_df)
-            else:
-                corrected_code = original_prediction
+            # Colonoscopy correction removed — screening/surveillance CPT selection is
+            # handled by the CPT prediction instructions themselves (surveillance -> 00812).
+            corrected_code = original_prediction
             corrected_predictions.append(corrected_code)
             # Track if correction was applied
             correction_applied.append("Yes" if corrected_code != original_prediction else "No")
@@ -8721,33 +8663,21 @@ async def add_peripheral_blocks_field_to_template(template_id: int):
 @app.post("/api/templates/{template_id}/add-colonoscopy-fields")
 async def add_colonoscopy_fields_to_template(template_id: int):
     """
-    Add colonoscopy-related fields to an existing template.
-    Adds/overrides three fields: is_colonoscopy, colonoscopy_is_screening, and Polyps found.
+    Add colonoscopy-related field to an existing template.
+    Adds/overrides one field: Polyps found. (is_colonoscopy and
+    colonoscopy_is_screening were removed — screening/surveillance is encoded by
+    the CPT itself (00812), so those flags are no longer needed as inputs.)
     """
     try:
         from db_utils import get_template, update_template as update_template_in_db
-        
+
         # Check if template exists
         existing_template = get_template(template_id=template_id)
         if not existing_template:
             raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
-        
+
         # Define the colonoscopy fields
         colonoscopy_fields = [
-            {
-                "name": "is_colonoscopy",
-                "location": "",
-                "priority": False,
-                "description": "in this field please indicate if the procedure was a colonoscopy (TRUE) or anything else (FALSE)",
-                "output_format": ""
-            },
-            {
-                "name": "colonoscopy_is_screening",
-                "location": "",
-                "priority": False,
-                "description": "here indicate if the colonoscopy description includes the word screening, it it was a screening colonoscopy put here TRUE otherwise put FALSE (if it was just standard diagnosit colonoscopy OR it was any other procedure), maybe it doesnt say in the pdf it was screening explicitly but if it says it is the patients first time also then indicate screening with TRUE, SOMETIMES they mention that it was screening in lower pages of the pdf also... check thouroughly",
-                "output_format": ""
-            },
             {
                 "name": "Polyps found",
                 "location": "",
@@ -9851,6 +9781,61 @@ def process_unified_background(
                         f"for '{worktracker_group}': {_e}; using caller-provided instructions."
                     )
 
+    # ==================== HARDCODED PER-GROUP EXTRACTION ROUTING ====================
+    # Route EXTRACTION (not CPT) per worktracker group to a specific model. Groups
+    # listed as a vLLM id run extraction on the self-hosted ngrok box (all field
+    # tiers); groups listed as an OpenRouter id run there. A group NOT listed here
+    # is left UNTOUCHED — it keeps the caller-selected extraction_model. On any vLLM
+    # failure per-PDF, extraction falls back to gemini-3.7-flash automatically
+    # (see current/2-extract_info.py), so vLLM routing is safe to pin.
+    #   key (UPPER-cased group) -> extraction model id
+    EXTRACTION_QWEN_VLLM = "unsloth/Qwen3.8-27B-NVFP4"
+    EXTRACTION_GEMINI = "google/gemini-3.7-flash"
+    EXTRACTION_GROUP_ROUTING = {
+        # ---- pinned to self-hosted qwen3.8 (ngrok), free compute ----
+        # Validated via the real production pipeline (qvp_real.py) vs prod gemini:
+        # ~98-100% on billing-critical fields. On any per-PDF vLLM failure, extraction
+        # auto-falls back to gemini-3.7-flash, so this is safe.
+        "PCE-WWMG": EXTRACTION_QWEN_VLLM,   # 99% (material, after PhysStatus instr)
+        "GII-ASC":  EXTRACTION_QWEN_VLLM,   # 100%
+        "KAP-CYP":  EXTRACTION_QWEN_VLLM,   # ~97% (qwen follows time-format better than gemini)
+        "TAN-ESC":  EXTRACTION_QWEN_VLLM,   # 98%
+
+        # ---- pinned to OpenRouter gemini-3.7-flash ----
+        # (add groups that need the cloud model here)
+    }
+    # Family-level extraction routing (whole provider families by prefix). A group is
+    # matched here only if it is NOT an explicit key above. Same _fam token-prefix
+    # matching as CPT so e.g. "DERIVATIVE" never matches "RIV".
+    def _efam(k, tok):  return k == tok or k.startswith(tok + "-")
+    EXTRACTION_FAMILY_ROUTING = [
+        # ("INJE", EXTRACTION_QWEN_VLLM),
+        # ("PCE",  EXTRACTION_QWEN_VLLM),
+    ]
+    if enable_extraction:
+        _ex_key = (worktracker_group or "").strip().upper()
+        _ex_route = EXTRACTION_GROUP_ROUTING.get(_ex_key)
+        if _ex_route is None:
+            for _tok, _mdl in EXTRACTION_FAMILY_ROUTING:
+                if _efam(_ex_key, _tok):
+                    _ex_route = _mdl
+                    logger.info(
+                        f"[Unified {job_id}] Extraction for group '{worktracker_group}' matched "
+                        f"family '{_tok}*' -> {_mdl}"
+                    )
+                    break
+        if _ex_route:
+            logger.info(
+                f"[Unified {job_id}] Extraction routing: group '{worktracker_group}' -> "
+                f"{_ex_route} (was '{extraction_model}')"
+            )
+            extraction_model = _ex_route
+        else:
+            logger.info(
+                f"[Unified {job_id}] Extraction for group '{worktracker_group}' not in "
+                f"per-group routing; using caller model '{extraction_model}'."
+            )
+
     try:
         job.status = "processing"
         job.message = "Starting unified processing..."
@@ -9993,9 +9978,14 @@ def process_unified_background(
                     # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
                     if disable_flex_tier:
                         env['DISABLE_FLEX_TIER'] = '1'
-                    
+                    # vLLM (ngrok) routing: if the selected extraction model is a self-hosted
+                    # vLLM id, route EVERY field tier to the local box (not just argv model).
+                    if _is_vllm_extraction_model(extraction_model):
+                        env['EXTRACTION_VLLM_MODEL'] = extraction_model.strip()
+                        logger.info(f"[Unified {job_id}] Routing ALL extraction to vLLM: {extraction_model}")
+
                     script_path = Path(__file__).parent / "current" / "2-extract_info.py"
-                    
+
                     if not script_path.exists():
                         raise Exception(f"Extraction script not found: {script_path}")
                     
@@ -10384,9 +10374,13 @@ def process_unified_background(
                     # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
                     if disable_flex_tier:
                         env['DISABLE_FLEX_TIER'] = '1'
-                    
+                    # vLLM (ngrok) routing: route EVERY field tier to the local box when selected.
+                    if _is_vllm_extraction_model(extraction_model):
+                        env['EXTRACTION_VLLM_MODEL'] = extraction_model.strip()
+                        logger.info(f"[Unified {job_id}] Routing ALL extraction to vLLM: {extraction_model}")
+
                     script_path = Path(__file__).parent / "current" / "2-extract_info.py"
-                    
+
                     cmd = [
                         sys.executable,
                         "-u",  # Unbuffered output for real-time logging
@@ -10579,7 +10573,11 @@ def process_unified_background(
             # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
             if disable_flex_tier:
                 env['DISABLE_FLEX_TIER'] = '1'
-            
+            # vLLM (ngrok) routing: route EVERY field tier to the local box when selected.
+            if _is_vllm_extraction_model(extraction_model):
+                env['EXTRACTION_VLLM_MODEL'] = extraction_model.strip()
+                logger.info(f"[Unified {job_id}] Routing ALL extraction to vLLM: {extraction_model}")
+
             # Run the extraction script
             script_path = Path(__file__).parent / "current" / "2-extract_info.py"
             
