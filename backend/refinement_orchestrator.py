@@ -449,6 +449,7 @@ def run_refinement_job(
     batch_size: int = 10,  # Number of errors per batch in batch mode
     refinement_model: str = "gemini-3-flash-preview",  # Model to use for refinement
     disable_flex_tier: bool = False,  # Force extraction to OpenRouter standard tier (no flex)
+    override_dos: str = "",  # Optional DOS override (forces DOS + An Start/Stop date)
 ):
     """
     Main refinement job orchestrator.
@@ -557,6 +558,7 @@ def run_refinement_job(
                 worktracker_group=worktracker_group,
                 worktracker_batch=worktracker_batch,
                 scanned_date=scanned_date,
+                override_dos=override_dos,
                 extract_csn=extract_csn,
                 enable_cpt=False,
                 cpt_vision_mode=False,

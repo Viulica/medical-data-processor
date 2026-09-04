@@ -1243,7 +1243,55 @@ def process_single_patient_pdf_task(args):
     return pdf_filename, merged_response, temp_patient_pdf, order_index
 
 
-def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", very_high_priority_model="gemini-3.1-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False, scanned_date=None):
+def _normalize_override_dos(raw):
+    """Parse a caller-supplied override DOS into canonical MM/DD/YYYY.
+
+    Accepts MM/DD/YYYY, M/D/YY, YYYY-MM-DD, MM-DD-YYYY, etc. Returns None if it
+    can't be parsed (caller then skips the override rather than writing garbage).
+    """
+    if not raw:
+        return None
+    import re as _re
+    s = str(raw).strip()
+    if not s:
+        return None
+    # ISO first: YYYY-MM-DD
+    m = _re.match(r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$', s)
+    if m:
+        yy, mm, dd = m.group(1), int(m.group(2)), int(m.group(3))
+        return f"{mm:02d}/{dd:02d}/{yy}"
+    # US: MM/DD/YYYY or MM-DD-YY (also tolerates a trailing time, which is ignored)
+    m = _re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})', s)
+    if m:
+        mm, dd, yy = int(m.group(1)), int(m.group(2)), m.group(3)
+        if len(yy) == 2:
+            yy = '20' + yy
+        return f"{mm:02d}/{dd:02d}/{yy}"
+    return None
+
+
+def _apply_override_dos_to_datetime(value, dos):
+    """Replace the DATE portion of a datetime-ish value with `dos`, keeping the TIME.
+
+    An Start/An Stop come back like 'MM/DD/YYYY HH:MM:SS AM/PM'. The form's TIME is
+    reliable but its DATE is not, so we swap only the leading date and keep whatever
+    time was read. If no time is present, we return just the DOS.
+    """
+    if value is None:
+        return value
+    import re as _re
+    s = str(value).strip()
+    if not s or s.lower() == 'nan':
+        return value
+    # Strip a leading date token (MM/DD/YYYY, M/D/YY, YYYY-MM-DD, etc.), keep the rest.
+    remainder = _re.sub(r'^\s*\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\s*', '', s).strip()
+    if remainder:
+        return f"{dos} {remainder}"
+    # No time component found — value was date-only (or unparseable date): use DOS.
+    return dos
+
+
+def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for testing FINAL.xlsx", n_pages=2, max_workers=50, model="gemini-flash-latest", priority_model="gemini-flash-latest", low_priority_model="google/gemini-3.1-flash-lite-preview", very_high_priority_model="gemini-3.1-pro-preview", worktracker_group=None, worktracker_batch=None, extract_csn=False, progress_file=None, provider_mapping=None, extract_providers_from_annotations=False, scanned_date=None, override_dos=None):
     """Process all patient PDFs in the input folder, combining first n pages per patient into one CSV."""
     
     print(f"🚀 process_all_patient_pdfs called with progress_file={progress_file}, extract_providers_from_annotations={extract_providers_from_annotations}")
@@ -1603,6 +1651,29 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
                 if 'Scanned Date' not in fieldnames:
                     fieldnames.append('Scanned Date')
 
+            # Override DOS: force the service date onto the DOS field (Charge Date)
+            # and onto the An Start / An Stop DATE portion (times are kept as-read).
+            # Used when the date printed on the form is unreliable (e.g. HAS eye
+            # forms carry multiple conflicting dates); the caller passes the correct
+            # batch/service date and it overrides whatever was extracted.
+            if override_dos:
+                dos = _normalize_override_dos(override_dos)
+                if dos:
+                    dos_date_fields = ['Charge Date', 'DOS', 'Date of Service', 'Date Of Service']
+                    an_time_fields = ['An Start', 'An Stop']
+                    changed = 0
+                    for record in filtered_data:
+                        for fld in dos_date_fields:
+                            if fld in record and str(record.get(fld) or '').strip():
+                                record[fld] = dos
+                                changed += 1
+                        for fld in an_time_fields:
+                            if fld in record:
+                                record[fld] = _apply_override_dos_to_datetime(record.get(fld), dos)
+                    print(f"📅  Override DOS applied: forced {dos} onto DOS + An Start/An Stop dates ({changed} DOS fields rewritten across {len(filtered_data)} records).")
+                else:
+                    print(f"⚠️  Override DOS '{override_dos}' could not be parsed to MM/DD/YYYY; skipping override.")
+
             # Save to both CSV and Excel formats
             extracted_folder = "extracted"
             os.makedirs(extracted_folder, exist_ok=True)
@@ -1684,7 +1755,8 @@ if __name__ == "__main__":
     provider_mapping = None  # Optional provider mapping text
     extract_providers_from_annotations = False  # Extract providers from PDF annotations
     scanned_date = None  # Optional scanned date (RIV only)
-    
+    override_dos = None  # Optional DOS override (forces DOS + An Start/Stop date)
+
     if len(sys.argv) > 1:
         input_folder = sys.argv[1]
     if len(sys.argv) > 2:
@@ -1716,6 +1788,8 @@ if __name__ == "__main__":
         extract_providers_from_annotations = sys.argv[11].lower() == "true" if sys.argv[11].strip() else False
     if len(sys.argv) > 12:
         scanned_date = sys.argv[12] if sys.argv[12].strip() else None
+    if len(sys.argv) > 13:
+        override_dos = sys.argv[13] if sys.argv[13].strip() else None
 
     # Global switch: route ALL extraction (every field tier) to the self-hosted
     # vLLM (ngrok) box. Set EXTRACTION_VLLM_MODEL=unsloth/Qwen3.8-27B-NVFP4 (or any
@@ -1752,6 +1826,8 @@ if __name__ == "__main__":
             print(f"   Provider Mapping: Loaded ({len(provider_mapping)} characters)")
     if scanned_date:
         print(f"   Scanned Date: {scanned_date}")
+    if override_dos:
+        print(f"   Override DOS: {override_dos}")
     print()
-    
-    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, very_high_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations, scanned_date)
+
+    process_all_patient_pdfs(input_folder, excel_file, n_pages, max_workers, model, priority_model, low_priority_model, very_high_priority_model, worktracker_group, worktracker_batch, extract_csn, progress_file, provider_mapping, extract_providers_from_annotations, scanned_date, override_dos)

@@ -207,7 +207,7 @@ def _is_vllm_extraction_model(model_name: str) -> bool:
             or m.startswith("Qwen/") or m.startswith("nvidia/") or m.startswith("unsloth/"))
 
 
-def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None, disable_flex_tier: bool = False):
+def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages: int, excel_filename: str, model: str = "google/gemini-3-flash-preview", worktracker_group: str = None, worktracker_batch: str = None, extract_csn: bool = False, scanned_date: str = None, disable_flex_tier: bool = False, override_dos: str = None):
     """Background task to process PDFs"""
     import os
     
@@ -292,6 +292,9 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
                 cmd.append(scanned_date)
             else:
                 cmd.append("")
+
+            # Add override_dos if provided (forces DOS + An Start/Stop date)
+            cmd.append(override_dos if override_dos else "")
 
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env, bufsize=1)
 
@@ -2027,7 +2030,8 @@ async def upload_files(
     worktracker_group: str = Form(None),  # Optional worktracker group field
     worktracker_batch: str = Form(None),  # Optional worktracker batch field
     extract_csn: str = Form(None),  # Optional extract CSN flag
-    scanned_date: str = Form(None)  # Optional scanned date (RIV only)
+    scanned_date: str = Form(None),  # Optional scanned date (RIV only)
+    override_dos: str = Form(None)  # Optional DOS override (forces DOS + An Start/Stop date)
 ):
     """Upload ZIP file and either Excel instructions file or template ID"""
     
@@ -2119,9 +2123,10 @@ async def upload_files(
             worktracker_group,
             worktracker_batch,
             extract_csn_flag,
-            scanned_date
+            scanned_date,
+            override_dos=override_dos
         )
-        
+
         logger.info(f"Background task started for job {job_id}")
         
         return {"job_id": job_id, "message": "Files uploaded and processing started"}
@@ -9554,6 +9559,7 @@ def process_unified_background(
     extract_csn: bool,
     provider_mapping: Optional[str],
     extract_providers_from_annotations: bool,
+    override_dos: str,
     # CPT params
     enable_cpt: bool,
     cpt_vision_mode: bool,
@@ -10031,6 +10037,9 @@ def process_unified_background(
                     else:
                         cmd.append("")
 
+                    # Add override_dos if provided (forces DOS + An Start/Stop date)
+                    cmd.append(override_dos if override_dos else "")
+
                     logger.info(f"[Unified {job_id}] Extraction command: {' '.join(cmd)}")
                     
                     # Estimate total (rough guess based on number of PDFs)
@@ -10424,6 +10433,9 @@ def process_unified_background(
                     else:
                         cmd.append("")
 
+                    # Add override_dos if provided (forces DOS + An Start/Stop date)
+                    cmd.append(override_dos if override_dos else "")
+
                     # Estimate total
                     # Match extraction script's pattern: search root + recursive, both cases, then deduplicate
                     import glob as glob_module
@@ -10618,6 +10630,9 @@ def process_unified_background(
                     cmd.append(scanned_date)
                 else:
                     cmd.append("")
+
+                # Add override_dos if provided (forces DOS + An Start/Stop date)
+                cmd.append(override_dos if override_dos else "")
 
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir, env=env)
                 stdout, stderr = process.communicate(timeout=1800)
@@ -11868,6 +11883,7 @@ async def process_unified(
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     scanned_date: str = Form(default=""),
+    override_dos: str = Form(default=""),
     extract_csn: bool = Form(default=False),
     # CPT parameters
     enable_cpt: bool = Form(default=True),
@@ -12142,6 +12158,7 @@ async def process_unified(
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
             scanned_date=scanned_date,
+            override_dos=override_dos,
             extract_csn=extract_csn,
             provider_mapping=provider_mapping,
             extract_providers_from_annotations=extract_providers_from_annotations,
@@ -12192,6 +12209,7 @@ async def process_unified_with_refinement(
     worktracker_group: str = Form(default=""),
     worktracker_batch: str = Form(default=""),
     scanned_date: str = Form(default=""),
+    override_dos: str = Form(default=""),
     extract_csn: bool = Form(default=False),
     # CPT parameters
     enable_cpt: bool = Form(default=True),
@@ -12337,6 +12355,7 @@ async def process_unified_with_refinement(
             worktracker_group=worktracker_group,
             worktracker_batch=worktracker_batch,
             scanned_date=scanned_date,
+            override_dos=override_dos,
             extract_csn=extract_csn,
             enable_cpt=enable_cpt,
             cpt_vision_mode=cpt_vision_mode,

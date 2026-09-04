@@ -1433,6 +1433,22 @@
  RIV only — this field is only used for RIV processing
  </small>
  </div>
+ <div class="setting-group" style="margin-top: 15px">
+ <label for="unified-override-dos"
+ >Override DOS (Optional)</label
+ >
+ <input
+ id="unified-override-dos"
+ v-model="unifiedOverrideDos"
+ type="date"
+ class="page-input override-dos-input"
+ />
+ <small class="help-text" style="color: #e67e22;">
+ Forces this date onto the DOS field and the An Start / An Stop
+ date (times are kept). Use when the date on the form is
+ unreliable — leave blank to extract normally.
+ </small>
+ </div>
  </div>
  </div>
 
@@ -10322,6 +10338,7 @@ export default {
  unifiedWorktrackerGroup: "",
  unifiedWorktrackerBatch: "",
  unifiedScannedDate: "",
+ unifiedOverrideDos: "",
  unifiedUseExtractionTemplate: false,
  unifiedSelectedExtractionTemplateId: null,
  // Unified - CPT settings
@@ -12404,6 +12421,7 @@ export default {
  formData.append("worktracker_group", this.unifiedWorktrackerGroup || "");
  formData.append("worktracker_batch", this.unifiedWorktrackerBatch || "");
  formData.append("scanned_date", this.unifiedScannedDate || "");
+ formData.append("override_dos", this.unifiedOverrideDos || "");
  formData.append("extract_csn", "false");
 
  // CPT parameters
@@ -12946,6 +12964,7 @@ export default {
  this.unifiedWorktrackerGroup = "";
  this.unifiedWorktrackerBatch = "";
  this.unifiedScannedDate = "";
+ this.unifiedOverrideDos = "";
  this.unifiedUseExtractionTemplate = false;
  this.unifiedSelectedExtractionTemplateId = null;
  // CPT settings
@@ -18206,6 +18225,23 @@ body {
  outline: none;
  border-color: #3b82f6;
  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Native date input styled to match the shadcn-like inputs */
+.override-dos-input {
+ flex: 1;
+ min-width: 0;
+ color: #1e293b;
+ cursor: pointer;
+ font-variant-numeric: tabular-nums;
+}
+.override-dos-input::-webkit-calendar-picker-indicator {
+ cursor: pointer;
+ opacity: 0.6;
+ transition: opacity 0.2s ease;
+}
+.override-dos-input::-webkit-calendar-picker-indicator:hover {
+ opacity: 1;
 }
 
 .help-text {
