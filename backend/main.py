@@ -11299,10 +11299,12 @@ def process_unified_background(
 
         # ==================== ML CPT Refinement ====================
         # Enabled per-group via CPT_ML_REFINEMENT_GROUPS env var (comma-separated).
-        # Default: "PCE-PMC,PCE-WWMG". Set to "" to disable everywhere.
-        # Only refines 00811/00812 predictions; other codes (00731, 00813, etc.) pass through.
-        # Reject-option thresholds calibrated for ≥98% precision both classes.
-        cpt_ml_groups_env = os.getenv("CPT_ML_REFINEMENT_GROUPS", "PCE-PMC,PCE-WWMG")
+        # DISABLED by default (empty): the 00811/00812 decision is now driven solely
+        # by 'Polyps found' via apply_colonoscopy_correction (Medicare + polyps -> 00811).
+        # The ML refiner consumed ~24 colonoscopy/dx feature fields; those have been
+        # removed from the PCE templates, so the ML path must stay off. Set the env var
+        # to re-enable for a group only if those feature fields are restored.
+        cpt_ml_groups_env = os.getenv("CPT_ML_REFINEMENT_GROUPS", "")
         cpt_ml_groups = {g.strip() for g in cpt_ml_groups_env.split(",") if g.strip()}
         print(f"[Unified {job_id}] CPT-ML hook check: enable_cpt={enable_cpt}, group={worktracker_group!r}, allowed={cpt_ml_groups}, has_cpt_col={'Procedure Code' in base_df.columns}", flush=True)
         if enable_cpt and worktracker_group in cpt_ml_groups and "Procedure Code" in base_df.columns:

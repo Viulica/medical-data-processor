@@ -485,18 +485,34 @@ def apply_colonoscopy_correction(row, asa_code, insurances_df):
         if not polyps_found:
             return asa_code
 
+        # Determine whether the primary payer is Medicare.
+        # Primary path: look up 'Primary Mednet Code' in the insurances table.
+        # Fallback: many templates (e.g. PCE-WWMG) leave 'Primary Mednet Code'
+        # blank but DO populate 'Primary Company Name' with the plan name
+        # ("MEDICARE A B", "HUMANA MEDICARE ADVANTAGE", "UHC MEDICARE ADVANTAGE",
+        # etc.). Without this fallback the mednet gate bailed and every such
+        # colonoscopy stayed 00812, forcing coders to flip 812->811 by hand.
+        is_medicare = False
+
         primary_mednet_code = str(row.get('Primary Mednet Code', '')).strip()
-        if not primary_mednet_code or insurances_df.empty:
-            return asa_code
+        if primary_mednet_code and primary_mednet_code.lower() != 'nan' and not insurances_df.empty:
+            insurance_match = insurances_df[
+                insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code
+            ]
+            if not insurance_match.empty:
+                insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
+                if 'medicare' in insurance_plan.lower():
+                    is_medicare = True
 
-        insurance_match = insurances_df[
-            insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code
-        ]
-        if insurance_match.empty:
-            return asa_code
+        # Fallback to the primary company name when the mednet lookup didn't
+        # resolve to Medicare (empty code, no table match, or non-Medicare plan
+        # name but a Medicare company name).
+        if not is_medicare:
+            primary_company = str(row.get('Primary Company Name', '')).strip()
+            if 'medicare' in primary_company.lower():
+                is_medicare = True
 
-        insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
-        if 'medicare' not in insurance_plan.lower():
+        if not is_medicare:
             return asa_code
 
         print(f"   Colonoscopy correction: Medicare + polyps found -> 00811 (CHANGED)")
@@ -1025,16 +1041,23 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # surveillance both code to 00812, so CPT==00812 already encodes it.
                 # PT keys purely on Polyps=FOUND + CPT 00812 now.
 
-                # Check if insurance is Medicare (for logging/debugging purposes)
+                # Check if insurance is Medicare (drives the 00812 -> 00811 flip below)
                 is_medicare = False
-                if primary_mednet_code and not insurances_df.empty:
+                if primary_mednet_code and str(primary_mednet_code).lower() != 'nan' and not insurances_df.empty:
                     # Find the insurance plan by MedNet Code
                     insurance_match = insurances_df[insurances_df['MedNet Code'].astype(str).str.strip() == primary_mednet_code]
                     if not insurance_match.empty:
                         insurance_plan = str(insurance_match.iloc[0].get('Insurance Plan', '')).strip()
-                        if 'Medicare' in insurance_plan or 'MEDICARE' in insurance_plan or 'medicare' in insurance_plan:
+                        if 'medicare' in insurance_plan.lower():
                             is_medicare = True
-                
+                # Fallback: many templates (e.g. PCE-WWMG) leave 'Primary Mednet Code'
+                # blank but populate 'Primary Company Name' with the plan name
+                # ("MEDICARE A B", "HUMANA MEDICARE ADVANTAGE", etc.).
+                if not is_medicare:
+                    primary_company = str(row.get('Primary Company Name', '')).strip()
+                    if 'medicare' in primary_company.lower():
+                        is_medicare = True
+
                 # PT is added when:
                 # 1. Polyps found = "FOUND"
                 # 2. Colonoscopy is screening/surveillance (original AI CPT = 00812; surveillance also codes to 00812)
