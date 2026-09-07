@@ -9802,8 +9802,8 @@ def process_unified_background(
         "PCE-WWMG": EXTRACTION_QWEN_VLLM,
         "PCE-PMC":  EXTRACTION_QWEN_VLLM,
         "GII-ASC":  EXTRACTION_QWEN_VLLM,
-        "KAP-CYP":  EXTRACTION_QWEN_VLLM,
-        "SIO-PSS":  EXTRACTION_QWEN_VLLM,
+        # "KAP-CYP":  EXTRACTION_QWEN_VLLM,
+        # "SIO-PSS":  EXTRACTION_QWEN_VLLM,
 
         # ---- pinned to OpenRouter gemini-3.7-flash ----
         # (add groups that need the cloud model here)
