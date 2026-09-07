@@ -81,7 +81,7 @@ VLLM_MODELS = {
     "unsloth/Qwen3.8-27B-NVFP4", "vllm",
 }
 VLLM_FALLBACK_MODEL = os.environ.get("VLLM_EXTRACTION_FALLBACK_MODEL", "google/gemini-3.7-flash")
-VLLM_THINKING = os.environ.get("VLLM_THINKING", "0") == "1"
+VLLM_THINKING = True  # Always enable thinking for vLLM extraction
 # Qwen3-VL image caps. Benchmarked at 1800x2800 — stable at concurrency 3-6
 # with 240 DPI, no page stitching, thinking ON. Larger caps (2600x3200) caused
 # 503s under concurrent load on the single-GPU NVFP4 box.
