@@ -82,9 +82,11 @@ VLLM_MODELS = {
 }
 VLLM_FALLBACK_MODEL = os.environ.get("VLLM_EXTRACTION_FALLBACK_MODEL", "google/gemini-3.7-flash")
 VLLM_THINKING = os.environ.get("VLLM_THINKING", "0") == "1"
-# Qwen3-VL accepts large images on the NVFP4 box; cap matches the CPT agent.
-VLLM_MAX_W = int(os.environ.get("VLLM_MAX_W", "2600"))
-VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "3200"))
+# Qwen3-VL image caps. Benchmarked at 1800x2800 — stable at concurrency 3-6
+# with 240 DPI, no page stitching, thinking ON. Larger caps (2600x3200) caused
+# 503s under concurrent load on the single-GPU NVFP4 box.
+VLLM_MAX_W = int(os.environ.get("VLLM_MAX_W", "1800"))
+VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "2800"))
 # Render DPI for the vLLM path. Higher than the 200-DPI OpenRouter default so that
 # cramped handwriting (a diagnosis in a signature margin, handwritten times) is
 # legible. 240 DPI => Letter ~2040x2640, legible but light enough that the single-GPU
@@ -173,7 +175,8 @@ def extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model,
         "model": model,
         "messages": messages,
         "temperature": 0,
-        "max_tokens": 4000,
+        # No max_tokens — thinking + JSON output can be arbitrarily long;
+        # capping it truncates the response and causes extraction failures.
         "chat_template_kwargs": {"enable_thinking": VLLM_THINKING},
     }
     for attempt in range(max_retries):
@@ -181,7 +184,7 @@ def extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model,
             # Bound total concurrent vLLM calls process-wide so the pipeline's
             # per-PDF call fan-out can't flood the single-GPU box.
             with _VLLM_SEMAPHORE:
-                response = requests.post(url, headers=headers, json=payload_base, timeout=300, verify=False)
+                response = requests.post(url, headers=headers, json=payload_base, timeout=450, verify=False)
             response.raise_for_status()
             result = response.json()
             response_text = (result["choices"][0]["message"].get("content") or "").strip()
@@ -200,8 +203,8 @@ def extract_with_vllm(patient_pdf_path, pdf_filename, extraction_prompt, model,
             return response_text, "vllm-ngrok"
         except Exception as e:
             print(f"    ⚠️  vLLM call failed for {pdf_filename}{log_suffix} (attempt {attempt + 1}/{max_retries}): {str(e)[:120]}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt * random.uniform(0.5, 1.5))
+            # Retry immediately — no sleep between attempts. If all fail,
+            # caller falls back to Gemini via OpenRouter.
     print(f"    ❌ vLLM extraction exhausted for {pdf_filename}{log_suffix}")
     return None
 
