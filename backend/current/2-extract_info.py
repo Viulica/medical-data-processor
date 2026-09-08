@@ -103,7 +103,7 @@ VLLM_EXTRACT_DPI = int(os.environ.get("VLLM_EXTRACT_DPI", "240"))
 # box's observed stable ceiling), independent of extraction max_workers. Cloud
 # models (OpenRouter/Gemini) are unaffected — only the vLLM path acquires it.
 import threading as _threading
-_VLLM_MAX_CONCURRENCY = int(os.environ.get("VLLM_MAX_CONCURRENCY", "3"))
+_VLLM_MAX_CONCURRENCY = int(os.environ.get("VLLM_MAX_CONCURRENCY", "5"))
 _VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 
 def is_vllm_model(model_name):
