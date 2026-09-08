@@ -331,6 +331,19 @@ VLLM_KEY=os.environ.get("VLLM_KEY","")  # set via env; no hardcoded default
 VLLM_MODELS={"Qwen/Qwen3.6-35B-A3B-FP8","nvidia/Qwen3.6-35B-A3B-NVFP4","unsloth/Qwen3.8-27B-NVFP4","vllm"}
 VLLM_FALLBACK_MODEL=os.environ.get("VLLM_FALLBACK_MODEL","google/gemini-3.7-flash")
 VLLM_THINKING=os.environ.get("VLLM_THINKING","0")=="1"   # toggle thinking via env
+
+# Bound TOTAL concurrent vLLM calls from the CPT agent, mirroring the extraction
+# side (current/2-extract_info.py). The box is a single GPU: extraction already
+# caps itself at VLLM_MAX_CONCURRENCY, but the CPT agent used to fire with no
+# limit at all (cpt_max_workers defaults to 50, and each run_agent step is another
+# call). When extraction and CPT ran against the box at the same time it was
+# flooded — connections dropped mid-request ("broken pipe" / "connection reset"),
+# every row silently fell back to gemini, and degraded answers got through
+# (PCE-PMC #452 produced codes matching no patient in the batch). Same env var as
+# extraction so the two share one budget rather than each getting their own.
+import threading as _vllm_threading
+_VLLM_MAX_CONCURRENCY=int(os.environ.get("VLLM_MAX_CONCURRENCY","7"))
+_VLLM_SEMAPHORE=_vllm_threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 # Image resolution cap before sending to the vLLM box. The old ~1250x1650 limit
 # was for Qwen3.6; the current Qwen3.8-27B-NVFP4 accepts far larger images (tested
 # clean up to ~3000x4000). Low res was the dominant cause of CPT misreads on
@@ -451,8 +464,11 @@ def _call_vllm(messages,model,tool_choice="auto"):
         try:
             req=_urlreq.Request(f"{VLLM_BASE}/chat/completions",
                 data=json.dumps(payload).encode(),headers=headers)
-            r=_urlreq.urlopen(req,timeout=180,context=_VLLM_SSL)
-            return json.load(r)
+            # Hold a concurrency slot only for the request itself — not for the
+            # backoff sleep below — so a retrying thread doesn't idle on a slot.
+            with _VLLM_SEMAPHORE:
+                r=_urlreq.urlopen(req,timeout=180,context=_VLLM_SSL)
+                return json.load(r)
         except Exception as e:
             last=e; time.sleep(min(2**attempt,8)); continue
     raise last
