@@ -1304,6 +1304,14 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         print(f"❌ Error: Excel file '{excel_file_path}' not found!")
         return
     
+    # When ALL extraction routes to vLLM, cap workers to the vLLM concurrency
+    # limit. Each PDF makes multiple sequential vLLM calls (one per field tier);
+    # with many threads competing for few semaphore slots the server overwhelms.
+    _vllm_env = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
+    if _vllm_env and is_vllm_model(_vllm_env) and max_workers > _VLLM_MAX_CONCURRENCY:
+        print(f"🔧 Capping max_workers {max_workers} → {_VLLM_MAX_CONCURRENCY} (vLLM concurrency limit)")
+        max_workers = _VLLM_MAX_CONCURRENCY
+
     print(f"📋 Using field definitions from: {excel_file_path}")
     print(f"📄 Processing first {n_pages} pages per patient PDF")
     print(f"🧵 Max concurrent threads: {max_workers}")

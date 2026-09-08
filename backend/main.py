@@ -244,7 +244,11 @@ def process_pdfs_background(job_id: str, zip_path: str, excel_path: str, n_pages
         # Flex-tier kill switch: force extraction to OpenRouter standard tier when requested.
         if disable_flex_tier:
             env['DISABLE_FLEX_TIER'] = '1'
-        
+        # vLLM routing: set env var so extraction subprocess routes all tiers to vLLM
+        if _is_vllm_extraction_model(model):
+            env['EXTRACTION_VLLM_MODEL'] = model.strip()
+            logger.info(f"[Legacy {job_id}] Routing ALL extraction to vLLM: {model}")
+
         # Run the processing script
         script_path = Path(__file__).parent / "current" / "2-extract_info.py"
         
