@@ -1086,7 +1086,12 @@ def process_single_patient_pdf_task(args):
     # into ONE prompt (like the high-priority bundling) rather than one call per
     # field — 1 call/PDF instead of N — which is dramatically faster and cuts
     # timeout exposure. Any field the cheap model misses falls back to Gemini.
-    cheap_fields = get_cheap_fields(excel_file_path)
+    #
+    # Skip when vLLM single-call mode is active — all fields (including cheap)
+    # were already merged into the main extraction call.
+    _skip_cheap = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
+    _skip_cheap = bool(_skip_cheap and is_vllm_model(_skip_cheap))
+    cheap_fields = [] if _skip_cheap else get_cheap_fields(excel_file_path)
     if cheap_fields:
         _cheap_env = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
         _cheap_disp = _cheap_env if (_cheap_env and is_vllm_model(_cheap_env)) else CHEAP_MODEL
@@ -1322,6 +1327,26 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     low_priority_fields_list = get_low_priority_fields(excel_file_path)
     normal_fields = get_normal_fields(excel_file_path)
 
+    # When ALL extraction routes to the same vLLM model, skip the multi-tier
+    # split entirely: merge every field into the "normal" set so a single API
+    # call per PDF extracts everything (matching our benchmark behaviour).
+    # The multi-tier split exists to use different-quality cloud models per
+    # tier; with one self-hosted model it just re-sends the same images 8x.
+    if _vllm_env and is_vllm_model(_vllm_env):
+        _merged = list(normal_fields or [])
+        for _extra in (priority_fields, low_priority_fields_list, very_high_priority_fields):
+            if _extra:
+                _merged.extend(_extra)
+        # Also pull in cheap fields so they're part of the single call
+        _cheap = get_cheap_fields(excel_file_path)
+        if _cheap:
+            _merged.extend(_cheap)
+        normal_fields = _merged
+        print(f"🖥️  vLLM single-call mode: merged all {len(normal_fields)} fields into one extraction call")
+        priority_fields = []
+        low_priority_fields_list = []
+        very_high_priority_fields = []
+
     if very_high_priority_fields:
         very_high_field_names = [f['name'] for f in very_high_priority_fields]
         print(f"🔥 Very-high-priority fields (separate API calls): {', '.join(very_high_field_names)}")
@@ -1361,6 +1386,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
 
     extraction_prompt = generate_extraction_prompt(
         excel_file_path,
+        fields_to_include=normal_fields if (_vllm_env and is_vllm_model(_vllm_env)) else None,
         provider_mapping=_pb_provider_mapping,
         provider_mapping_has_mednet=_pb_has_mednet,
     )
