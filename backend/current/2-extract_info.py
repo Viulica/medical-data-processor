@@ -1803,6 +1803,13 @@ if __name__ == "__main__":
     if _vllm_override and is_vllm_model(_vllm_override):
         print(f"🖥️  EXTRACTION_VLLM_MODEL set — routing ALL extraction to vLLM: {_vllm_override}")
         model = priority_model = low_priority_model = very_high_priority_model = _vllm_override
+        # Cap thread pool to vLLM concurrency limit. Each PDF makes multiple
+        # sequential vLLM calls (one per field tier). With 50 threads all competing
+        # for 3 semaphore slots, throughput tanks and the server gets overwhelmed.
+        # Capping workers to the semaphore size keeps the pipeline moving smoothly.
+        if max_workers > _VLLM_MAX_CONCURRENCY:
+            print(f"🔧 Capping max_workers {max_workers} → {_VLLM_MAX_CONCURRENCY} (vLLM concurrency limit)")
+            max_workers = _VLLM_MAX_CONCURRENCY
     elif _vllm_override:
         print(f"⚠️  EXTRACTION_VLLM_MODEL='{_vllm_override}' is not a recognized vLLM model id; ignoring.")
 
