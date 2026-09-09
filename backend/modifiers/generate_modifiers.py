@@ -1066,9 +1066,18 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # flipped it to 00811 (Medicare case), the procedure still originated as screening/surveillance
                 # and PT should still be added.
                 should_add_pt = False
+                # A screening/surveillance colonoscopy that found polyps is PT-eligible.
+                # Two ways we can arrive there:
+                #  (a) the AI predicted 00812 and the corrector flipped it to 00811, or
+                #  (b) the AI predicted 00811 DIRECTLY (it often does when the note
+                #      documents the polypectomy) — previously this missed PT entirely,
+                #      because the gate only looked for a pre-corrector 00812.
+                # Polyps=FOUND on a 00811/00812 colonoscopy is the PT trigger either way.
                 screening_or_surveillance = (
-                    pre_corrector_asa_code == '00812'
-                    or pre_corrector_procedure_code == '00812'
+                    pre_corrector_asa_code in ('00812', '00811')
+                    or pre_corrector_procedure_code in ('00812', '00811')
+                    or asa_code in ('00812', '00811')
+                    or procedure_code in ('00812', '00811')
                 )
                 # 00813 (combined upper + lower scope) is excluded — PT not applicable.
                 is_00813 = (
