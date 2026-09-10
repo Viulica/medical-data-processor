@@ -78,6 +78,7 @@ Emergent Case Row Generation:
 """
 
 import pandas as pd
+import re as _re
 import sys
 from pathlib import Path
 import os
@@ -464,6 +465,23 @@ def calculate_and_limit_anesthesia_time(an_start_str, an_stop_str, max_minutes=4
         return an_stop_str, False
 
 
+# Whole-word abbreviations that mean "medicare" in payer/company names.
+# Deliberately conservative: only unambiguous short forms. "MA" and "ADVANTAGE"
+# are NOT included — "MA" collides with the state abbreviation and plenty of
+# commercial plans are called "... Advantage".
+_MEDICARE_NAME_RE = _re.compile(
+    r'(medicare|\bmdcr\b|\bmcr\b|\bmcare\b|\bmedcare\b|\bmed\s+care\b)',
+    _re.IGNORECASE,
+)
+
+
+def _looks_like_medicare(name):
+    """True when a payer/company name says Medicare, spelled out or abbreviated."""
+    if not name:
+        return False
+    return bool(_MEDICARE_NAME_RE.search(str(name)))
+
+
 def apply_colonoscopy_correction(row, asa_code, insurances_df):
     """
     Flip 00812 -> 00811 only when Medicare AND polyps were found.
@@ -507,9 +525,16 @@ def apply_colonoscopy_correction(row, asa_code, insurances_df):
         # Fallback to the primary company name when the mednet lookup didn't
         # resolve to Medicare (empty code, no table match, or non-Medicare plan
         # name but a Medicare company name).
+        #
+        # Payer names abbreviate "medicare" constantly, so match the common
+        # short forms too — measured over 30 days of results, ~999 rows carry a
+        # Medicare plan whose name never spells the word out: "UHC AARP MCR",
+        # "HUMANA CHOICE PPO (MCARE)", "BCBS WELLMARK MCR ADV", "AETNA MCARE
+        # DUAL SNP", etc. Matched as whole words so "MCRAE" or a member id
+        # containing the letters can't trigger a false positive.
         if not is_medicare:
             primary_company = str(row.get('Primary Company Name', '')).strip()
-            if 'medicare' in primary_company.lower():
+            if _looks_like_medicare(primary_company):
                 is_medicare = True
 
         if not is_medicare:
