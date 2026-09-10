@@ -11389,7 +11389,7 @@ def process_unified_background(
         # ║ Empty CoderVerify  → row is eligible for auto-posting.            ║
         # ║ Non-empty value    → coder must verify before posting.            ║
         # ╚══════════════════════════════════════════════════════════════════╝
-        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE", "TQA-RSC", "OAP-PDP", "ARKMETH", "IAS-MOR", "IAS-FVO", "STA-HLX", "LOV", "APO-UTP", "APO-ORA", "SAY-AVH", "PDK", "PRM", "SAJ-AEC", "TAN-DES", "CHA-SCH", "MAV", "IRE-ASJ", "EAP-CMI", "TQA-CFM", "SIO-STL"}
+        AUTO_POSTING_GROUPS = {"KAP-ASC", "KAP-CYP", "TAN-ESC", "PAC-MHI", "GII-ASC", "INJE-CLIFW", "INJE-CLIK", "INJE-CSCG", "PCE-PMC", "PCE-WWMG", "PCE-CAS", "AHG", "CHA-HDH", "MKI", "WPA", "PRM-WHT", "PRE", "UNI-INTEG", "RIV", "IAS-BHS", "IAS-BMH", "EAP-TIN", "SAY-RSC", "SIO-PSS", "EAP-SCA", "NTA-WGS", "EAP-PSC", "DUN", "APS-AES", "APS-BEI", "APS-BNHC", "APS-EMP", "AIP", "GAP", "PAC-STE", "TQA-RSC", "OAP-PDP", "ARKMETH", "IAS-MOR", "IAS-FVO", "STA-HLX", "LOV", "APO-UTP", "APO-ORA", "SAY-AVH", "PDK", "PRM", "SAJ-AEC", "TAN-DES", "CHA-SCH", "MAV", "IRE-ASJ", "EAP-CMI", "TQA-CFM", "SIO-STL", "ACW-GVS"}
 
         # X-groups: any worktracker_group whose name starts with "X" (case-insensitive)
         # is treated as auto-posting with a fixed HP CPT list (the GI anesthesia codes).
@@ -11480,25 +11480,12 @@ def process_unified_background(
         from ensemble_gate import is_gated_group as _is_gated
         # RIV moves from gated to auto-posting flagging — bypass ensemble gate logic here.
         _gated = _is_gated(worktracker_group) and not (worktracker_group and worktracker_group.upper().startswith("RIV"))
-        # Groups that are NOT auto-posting but whose extraction template still
-        # populates a verify column the sorter needs. Keeping the column here is
-        # deliberately narrower than adding them to AUTO_POSTING_GROUPS: they get
-        # the flag without becoming eligible for automatic posting.
-        #   ACW-GVS: StaffVerify="COSMETIC" on Z41.1 (cosmetic cases must be billed
-        #   prepay to the facility, not to the insurance listed on the order sheet).
-        VERIFY_PASSTHROUGH_GROUPS = {"ACW-GVS"}
-        _verify_passthrough = (worktracker_group or "").strip().upper() in VERIFY_PASSTHROUGH_GROUPS
-        if not _is_auto_posting(worktracker_group) and not _gated and not _verify_passthrough:
+        if not _is_auto_posting(worktracker_group) and not _gated:
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
                 if _c in base_df.columns:
                     base_df = base_df.drop(columns=[_c])
             print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
-        elif _verify_passthrough:
-            for _c in ("StaffVerify", "CoderVerify"):
-                if _c not in base_df.columns:
-                    base_df[_c] = ""
-            print(f"[Unified {job_id}] Verify columns PRESERVED (passthrough, no auto-posting) for group={worktracker_group!r}", flush=True)
         elif _gated:
             print(f"[Unified {job_id}] Verify columns PRESERVED for gated group={worktracker_group!r} (managed by ensemble gate)", flush=True)
         else:
