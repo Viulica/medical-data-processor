@@ -93,6 +93,10 @@ VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "2800"))
 # NVFP4 box stays stable. 300 DPI overloaded the box (OOM/queue-wedge under the
 # pipeline's per-PDF call fan-out); 240 ran clean.
 VLLM_EXTRACT_DPI = int(os.environ.get("VLLM_EXTRACT_DPI", "240"))
+# Render DPI for the OpenRouter/cloud extraction path. 200 loses faint pen strokes
+# (e.g. the handwritten "IV" next to a checked GA box on AHG anesthesia records,
+# which is the only thing distinguishing TIVA from GENERAL). 300 keeps them legible.
+EXTRACT_DPI = int(os.environ.get("EXTRACT_DPI", "300"))
 
 # GLOBAL concurrency cap on in-flight vLLM extraction calls. The pipeline fans each
 # PDF into ~8 tier calls (normal + 3 provider + priority + cheap), and the very-high
@@ -526,7 +530,7 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
         return None
 
     # Convert PDF to images
-    image_data_list = pdf_to_images_base64(patient_pdf_path)
+    image_data_list = pdf_to_images_base64(patient_pdf_path, dpi=EXTRACT_DPI)
     if not image_data_list:
         print(f"    ❌ Failed to convert PDF to images for {pdf_filename}{log_suffix}")
         return None
