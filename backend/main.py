@@ -11480,12 +11480,28 @@ def process_unified_background(
         from ensemble_gate import is_gated_group as _is_gated
         # RIV moves from gated to auto-posting flagging — bypass ensemble gate logic here.
         _gated = _is_gated(worktracker_group) and not (worktracker_group and worktracker_group.upper().startswith("RIV"))
-        if not _is_auto_posting(worktracker_group) and not _gated:
+        # Groups that are NOT auto-posting but whose extraction template populates a
+        # verify column the coder needs. Keeping the column here is deliberately
+        # narrower than adding them to AUTO_POSTING_GROUPS: they get the flag without
+        # their rows becoming eligible for automatic posting.
+        #   ANA-*: CoderVerify="SPLIT" on split cases (two providers each with their own
+        #   time segment). We capture only one An Start/Stop pair, so the second
+        #   provider's time is lost and the case bills short unless a coder opens a
+        #   second account manually.
+        VERIFY_PASSTHROUGH_GROUPS = {"ANA-GMCE", "ANA-GAS", "ANA-SPS", "ANA-ORA", "ANA-CVO"}
+        _verify_passthrough = (worktracker_group or "").strip().upper() in VERIFY_PASSTHROUGH_GROUPS
+        if not _is_auto_posting(worktracker_group) and not _gated and not _verify_passthrough:
             # Drop any verify columns that may have come from extraction so we don't leak them.
             for _c in ("StaffVerify", "CoderVerify"):
                 if _c in base_df.columns:
                     base_df = base_df.drop(columns=[_c])
             print(f"[Unified {job_id}] Verify columns SKIPPED for group={worktracker_group!r} (not in {VERIFY_ENABLED_GROUPS})", flush=True)
+        elif _verify_passthrough:
+            # Preserve exactly what extraction produced; no rule-based tags, no auto-posting.
+            for _c in ("StaffVerify", "CoderVerify"):
+                if _c not in base_df.columns:
+                    base_df[_c] = ""
+            print(f"[Unified {job_id}] Verify columns PRESERVED (passthrough, no auto-posting) for group={worktracker_group!r}", flush=True)
         elif _gated:
             print(f"[Unified {job_id}] Verify columns PRESERVED for gated group={worktracker_group!r} (managed by ensemble gate)", flush=True)
         else:
