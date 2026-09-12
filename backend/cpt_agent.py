@@ -350,8 +350,16 @@ _VLLM_SEMAPHORE=_vllm_threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 # handwritten/photographed forms (e.g. mistaking a colonoscopy for combined EGD,
 # or missing a handwritten MIGS on an eye case) — bumping this fixed ~11/19 of the
 # validated production errors. Overridable via env for the next box change.
-VLLM_MAX_W    = int(os.environ.get("VLLM_MAX_W",    "2600"))
-VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "3200"))
+# Qwen3-VL image envelope for the CPT agent. Matches the extraction path
+# (current/2-extract_info.py) so both pipelines put the same pixel load on the
+# single-GPU box. At 200 DPI a letter page renders ~2200x1700; the old 2600x3200
+# envelope left that untouched (scale=1.0) at ~4770 vision tokens/page, while
+# extraction downscales the same page to ~3190 tokens. Tokens scale with pixels,
+# and the box shares ~946k KV tokens, so the larger envelope cut the number of
+# concurrent 7-page CPT requests from ~42 to ~28 for no accuracy gain that we
+# measured. Override via env if a group needs full-res pages.
+VLLM_MAX_W    = int(os.environ.get("VLLM_MAX_W",    "1800"))
+VLLM_MAX_LONG = int(os.environ.get("VLLM_MAX_LONG", "2800"))
 _VLLM_SSL=ssl.create_default_context(); _VLLM_SSL.check_hostname=False; _VLLM_SSL.verify_mode=ssl.CERT_NONE
 import urllib.request as _urlreq
 
