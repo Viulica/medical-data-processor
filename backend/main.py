@@ -9678,8 +9678,15 @@ def process_unified_background(
         import re as _re
         return _fam(k, "MOLINE") or k.startswith("X") or bool(_re.search(r"-X[A-Z]", k))
     CPT_QWEN_FAMILY_PATTERNS = [
-        ("RIV*",       _is_riv,      _qwen_vllm),
-        ("INJE-*",     _is_inje,     _qwen_vllm),
+        # ---- DISABLED 2026-09-14 ----
+        # RIV* and INJE-* were validated on qwen3.8 and worked; they are parked
+        # here, not deleted. With them off, both families fall through to the
+        # caller's model (gemini-3.7-flash). Uncomment either line to send that
+        # family straight back to the self-hosted box — no other change needed
+        # (the _is_riv / _is_inje predicates above are still defined).
+        # ("RIV*",       _is_riv,      _qwen_vllm),
+        # ("INJE-*",     _is_inje,     _qwen_vllm),
+        # ---- ACTIVE ----
         ("PCE-*",      _is_pce,      _qwen_vllm),
         ("APS-*",      _is_aps,      _qwen_vllm),
         ("MOLINE/X*",  _is_moline_x, _qwen_vllm),
