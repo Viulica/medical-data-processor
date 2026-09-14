@@ -9658,7 +9658,8 @@ def process_unified_background(
 
         # ---- Self-hosted qwen3.8 (local vLLM/ngrok), free compute ----
         # Individually validated groups that match/beat prod (or 3.7-flash) on qwen3.8.
-        "APO-UPM":  _qwen_vllm(),        # qwen3.8 100% (prod 95%)  [overrides the 3.7 entry above]
+        # DISABLED 2026-09-15 with the rest of the qwen routing; uncomment to restore.
+        # "APO-UPM":  _qwen_vllm(),        # qwen3.8 100% (prod 95%)  [overrides the 3.7 entry above]
     }
 
     # Family-level qwen3.8 routing: whole provider families moved to the free local
@@ -9686,10 +9687,10 @@ def process_unified_background(
         # (the _is_riv / _is_inje predicates above are still defined).
         # ("RIV*",       _is_riv,      _qwen_vllm),
         # ("INJE-*",     _is_inje,     _qwen_vllm),
-        # ---- ACTIVE ----
-        ("PCE-*",      _is_pce,      _qwen_vllm),
-        ("APS-*",      _is_aps,      _qwen_vllm),
-        ("MOLINE/X*",  _is_moline_x, _qwen_vllm),
+        # ---- ALSO DISABLED 2026-09-15 (all qwen CPT routing off) ----
+        # ("PCE-*",      _is_pce,      _qwen_vllm),
+        # ("APS-*",      _is_aps,      _qwen_vllm),
+        # ("MOLINE/X*",  _is_moline_x, _qwen_vllm),
     ]
 
     cpt_use_agent = False
@@ -9810,10 +9811,14 @@ def process_unified_background(
     EXTRACTION_QWEN_VLLM = "unsloth/Qwen3.8-27B-NVFP4"
     EXTRACTION_GEMINI = "google/gemini-3.7-flash"
     EXTRACTION_GROUP_ROUTING = {
-        # ---- pinned to self-hosted qwen3.8 (ngrok), free compute ----
-        "PCE-WWMG": EXTRACTION_QWEN_VLLM,
-        "PCE-PMC":  EXTRACTION_QWEN_VLLM,
-        "GII-ASC":  EXTRACTION_QWEN_VLLM,
+        # ---- DISABLED 2026-09-15: ALL extraction off the self-hosted box ----
+        # Every group below was pinned to qwen3.8 (ngrok) for extraction and
+        # worked; parked here, not deleted. With them off, extraction uses the
+        # caller's model (gemini-3.7-flash) for every group. Uncomment a line
+        # to send that group back to the box — no other change needed.
+        # "PCE-WWMG": EXTRACTION_QWEN_VLLM,
+        # "PCE-PMC":  EXTRACTION_QWEN_VLLM,
+        # "GII-ASC":  EXTRACTION_QWEN_VLLM,
         # "KAP-CYP":  EXTRACTION_QWEN_VLLM,
         # "SIO-PSS":  EXTRACTION_QWEN_VLLM,
 
