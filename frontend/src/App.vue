@@ -6692,7 +6692,7 @@
  <label class="toggle-label">
  <span class="toggle-icon"></span>
  <span class="toggle-text"
- > Limit Anesthesia Time to 480 Minutes (01967 only)</span
+ > Limit Anesthesia Time to 480 Minutes (01967 only) — turn ON for all ANA locations</span
  >
  </label>
  <label class="switch">
@@ -6704,7 +6704,7 @@
  {{
  limitAnesthesiaTime
  ? "Anesthesia time limiting is ENABLED. Applies ONLY to rows with ASA Code 01967 (neuraxial labor analgesia) — their 'An Stop' is capped so the time from 'An Start' is at most 480 minutes (8 hours). Every other ASA code is left untouched."
- : "Anesthesia time limiting is DISABLED. Original anesthesia times will be preserved."
+ : "Anesthesia time limiting is DISABLED. Original anesthesia times will be preserved. ⚠️ Turn this ON for ALL ANA locations."
  }}
  </p>
  </div>
