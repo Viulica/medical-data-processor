@@ -2036,6 +2036,14 @@
  >
  <div class="download-format-group">
  <button
+ @click="openReview(unifiedJobId)"
+ class="download-btn review-open-btn"
+ title="Fix providers, anesthesia times and points in one screen before downloading"
+ >
+ <span class="btn-icon"></span>
+ Review &amp; Finalize
+ </button>
+ <button
  @click="downloadUnifiedResults('csv')"
  class="download-btn"
  >
@@ -2178,6 +2186,14 @@
  </td>
  <td>
  <div class="action-buttons">
+ <button
+ v-if="result.supabase_path"
+ @click="openReview(result.job_id)"
+ class="btn-icon-small review-open-btn"
+ :title="result.reviewed_at ? `Reviewed ${formatDate(result.reviewed_at)} (${result.review_edit_count} edits)` : 'Review providers / times / points before download'"
+ >
+ {{ result.reviewed_at ? '✓ Review' : 'Review' }}
+ </button>
  <button
  v-if="result.supabase_path"
  @click="downloadUnifiedResult(result.job_id)"
@@ -10059,6 +10075,120 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
  </main>
 
+ <!-- Sorter review: fix providers / anesthesia times / points in one screen before download -->
+ <div v-if="reviewJobId" class="review-overlay">
+ <div class="review-panel" :class="{ 'with-pdf': reviewPdfUrl }">
+ <div class="review-header">
+ <div>
+ <h2>Review &amp; Finalize</h2>
+ <p class="review-sub" v-if="reviewData">
+ <span>{{ reviewData.group || '—' }} · batch {{ reviewData.batch || '—' }} · {{ reviewData.row_count }} rows · {{ reviewData.template_name || 'no template' }}</span>
+ <span class="badge" :class="reviewData.provider_mode === 'annotation' ? 'badge-blue' : 'badge-green'">
+ {{ reviewData.provider_mode === 'annotation' ? 'Providers: MedNet codes (scanned copy)' : 'Providers: AI-read names (EMR)' }}
+ </span>
+ <span v-if="reviewData.roster_source === 'results'" class="badge badge-warn" title="The template has no provider list; the pick-list is built from names the extraction produced">no roster in template</span>
+ <span v-if="reviewData.reviewed_at" class="badge badge-purple">reviewed {{ formatDate(reviewData.reviewed_at) }} · {{ reviewData.review_edit_count }} edits</span>
+ </p>
+ </div>
+ <div class="review-actions">
+ <label class="review-toggle"><input type="checkbox" v-model="reviewOnlyFlagged" /> Only rows needing review ({{ reviewFlaggedCount }})</label>
+ <input v-model="reviewFilter" class="review-filter" placeholder="Filter patient / provider / file…" />
+ <button class="download-btn" :disabled="!reviewDirtyCount || reviewSaving" @click="saveReview()">
+ {{ reviewSaving ? 'Saving…' : `Save ${reviewDirtyCount} change${reviewDirtyCount === 1 ? '' : 's'}` }}
+ </button>
+ <button class="download-btn download-btn-alt" :disabled="reviewSaving" @click="finalizeReview('csv')">Finalize &amp; Download CSV</button>
+ <button class="download-btn download-btn-alt" :disabled="reviewSaving" @click="finalizeReview('xlsx')">XLSX</button>
+ <button class="reset-btn" @click="closeReview()">Close</button>
+ </div>
+ </div>
+
+ <div v-if="reviewLoading" class="empty-state"><p>Loading rows…</p></div>
+ <div v-else-if="reviewData" class="review-body">
+ <div class="review-table-wrap">
+ <p v-if="reviewData.roster_has_mednet" class="review-hint">
+ MedNet column: type the code(s) the way you would paste them on the PDF — <code>7</code>, <code>7/1</code> or <code>1/SRNA</code> — and press Enter. First code becomes Responsible Provider; MD / CRNA fill by title. Or pick names directly in the cells.
+ </p>
+ <table class="results-table review-table">
+ <thead>
+ <tr>
+ <th>#</th>
+ <th>Patient</th>
+ <th v-if="reviewData.roster_has_mednet">MedNet</th>
+ <th v-for="f in reviewData.editable_fields" :key="f">{{ f }}</th>
+ <th v-if="reviewData.provider_mode === 'annotation'">Provider source</th>
+ <th>Flags</th>
+ <th>PDF</th>
+ </tr>
+ </thead>
+ <tbody>
+ <tr
+ v-for="row in reviewVisibleRows"
+ :key="row._row"
+ :class="{ 'review-flagged': row._needs_review.length > 0, 'review-active': reviewPdfRow === row._row }"
+ >
+ <td>{{ row._row + 1 }}</td>
+ <td class="review-patient">
+ <strong>{{ reviewPatientName(row) }}</strong>
+ <div class="review-file">{{ row.source_file }}</div>
+ </td>
+ <td v-if="reviewData.roster_has_mednet">
+ <input
+ class="review-input review-mednet"
+ v-model="reviewMednet[row._row]"
+ placeholder="7/1"
+ title="MedNet code(s): 7, 7/1, 1/SRNA — Enter to apply. Sets Responsible / MD / CRNA for this row."
+ @keyup.enter="applyMednet(row)"
+ @blur="applyMednet(row)"
+ />
+ </td>
+ <td
+ v-for="f in reviewData.editable_fields"
+ :key="f"
+ :class="{ 'review-dirty': reviewIsDirty(row._row, f), 'review-offroster': reviewIsOffRoster(row, f) }"
+ >
+ <input
+ v-if="isProviderField(f)"
+ class="review-input"
+ :list="rosterListId(f)"
+ :value="reviewValue(row, f)"
+ :title="reviewIsOffRoster(row, f) ? 'Not in this group\'s provider list' : ''"
+ @change="setReviewValue(row._row, f, $event.target.value)"
+ />
+ <input
+ v-else
+ class="review-input"
+ :class="{ 'review-num': f === 'Points' }"
+ :value="reviewValue(row, f)"
+ @change="setReviewValue(row._row, f, $event.target.value)"
+ />
+ </td>
+ <td v-if="reviewData.provider_mode === 'annotation'">
+ <span class="badge" :class="providerSourceIsAnnotation(row) ? 'badge-green' : 'badge-warn'">{{ row['Provider Source'] || 'ai' }}</span>
+ </td>
+ <td>
+ <span v-for="r in row._needs_review" :key="r" class="badge badge-warn review-flag">{{ r }}</span>
+ </td>
+ <td>
+ <button class="btn-icon-small" :disabled="!row.source_file" @click="openReviewPdf(row)">PDF</button>
+ </td>
+ </tr>
+ </tbody>
+ </table>
+ <datalist v-for="role in ['Responsible Provider', 'MD', 'CRNA']" :key="role" :id="rosterListId(role)">
+ <option v-for="p in rosterOptionsFor(role)" :key="p.name" :value="p.name">{{ p.code ? 'MedNet ' + p.code : '' }}</option>
+ </datalist>
+ </div>
+ <div v-if="reviewPdfUrl" class="review-pdf">
+ <div class="review-pdf-bar">
+ <span>{{ reviewPdfName }}</span>
+ <button class="btn-icon-small" @click="reviewPdfUrl = null; reviewPdfRow = null">✕</button>
+ </div>
+ <iframe :src="reviewPdfUrl" title="Patient PDF"></iframe>
+ </div>
+ </div>
+ </div>
+ </div>
+
  <footer class="footer">
  <div class="footer-content">
  <p>
@@ -10371,6 +10501,18 @@ export default {
  cleaningUpResults: false,
  resultsSearchGroup: "",
  resultsSearchBatch: "",
+ // Sorter review (post-extraction, pre-download)
+ reviewJobId: null,
+ reviewData: null,
+ reviewLoading: false,
+ reviewSaving: false,
+ reviewEdits: {}, // "row|field" -> new value (unsaved)
+ reviewMednet: {}, // row -> MedNet code(s) typed by the sorter
+ reviewFilter: "",
+ reviewOnlyFlagged: false,
+ reviewPdfUrl: null,
+ reviewPdfRow: null,
+ reviewPdfName: "",
  // AI Refinement functionality
  refinementZipFile: null,
  refinementExcelFile: null,
@@ -10801,6 +10943,22 @@ export default {
  return false;
  },
 
+ reviewDirtyCount() {
+ return Object.keys(this.reviewEdits).length;
+ },
+ reviewFlaggedCount() {
+ return (this.reviewData?.rows || []).filter((r) => r._needs_review.length > 0).length;
+ },
+ reviewVisibleRows() {
+ let rows = this.reviewData?.rows || [];
+ if (this.reviewOnlyFlagged) rows = rows.filter((r) => r._needs_review.length > 0);
+ const q = this.reviewFilter.trim().toLowerCase();
+ if (q) {
+ const cols = ["Patient Last Name", "Patient First Name", "Responsible Provider", "MD", "CRNA", "source_file"];
+ rows = rows.filter((r) => cols.some((c) => String(r[c] || "").toLowerCase().includes(q)));
+ }
+ return rows;
+ },
  totalUnifiedResultsPages() {
  if (this.unifiedResultsTotal === 0 || this.unifiedResultsPageSize === 0) {
  return 1;
@@ -13010,6 +13168,162 @@ export default {
  } finally {
  this.loadingUnifiedResults = false;
  }
+ },
+
+
+ // ===== Sorter review: providers / times / points before download =====
+ async openReview(jobId) {
+ if (!jobId) return;
+ this.reviewJobId = jobId;
+ this.reviewData = null;
+ this.reviewEdits = {};
+ this.reviewMednet = {};
+ this.reviewPdfUrl = null;
+ this.reviewPdfRow = null;
+ this.reviewFilter = "";
+ this.reviewOnlyFlagged = false;
+ this.reviewLoading = true;
+ try {
+ const r = await axios.get(`${this.getBackendUrl()}/api/unified-results/${jobId}/review`);
+ this.reviewData = r.data;
+ } catch (e) {
+ this.toast.error(`Failed to load review: ${e.response?.data?.detail || e.message}`);
+ this.reviewJobId = null;
+ } finally {
+ this.reviewLoading = false;
+ }
+ },
+ closeReview() {
+ if (this.reviewDirtyCount && !confirm(`Discard ${this.reviewDirtyCount} unsaved change(s)?`)) return;
+ this.reviewJobId = null;
+ this.reviewData = null;
+ this.reviewEdits = {};
+ this.reviewPdfUrl = null;
+ this.reviewPdfRow = null;
+ },
+ reviewKey(rowIdx, field) {
+ return `${rowIdx}|${field}`;
+ },
+ reviewValue(row, field) {
+ const k = this.reviewKey(row._row, field);
+ return k in this.reviewEdits ? this.reviewEdits[k] : row[field] ?? "";
+ },
+ setReviewValue(rowIdx, field, value) {
+ const row = this.reviewData.rows[rowIdx];
+ const k = this.reviewKey(rowIdx, field);
+ const v = String(value ?? "").trim();
+ if (v === String(row[field] ?? "").trim()) delete this.reviewEdits[k];
+ else this.reviewEdits[k] = v;
+ },
+ reviewIsDirty(rowIdx, field) {
+ return this.reviewKey(rowIdx, field) in this.reviewEdits;
+ },
+ isProviderField(field) {
+ return ["Responsible Provider", "MD", "CRNA"].includes(field);
+ },
+ rosterListId(field) {
+ return "review-roster-" + field.replace(/\s+/g, "-");
+ },
+ rosterOptionsFor(role) {
+ const r = this.reviewData?.roster || [];
+ if (role === "MD") return r.filter((p) => p.title === "MD" || !p.title);
+ if (role === "CRNA") return r.filter((p) => p.title === "CRNA" || !p.title);
+ return r;
+ },
+ reviewIsOffRoster(row, field) {
+ if (!this.isProviderField(field)) return false;
+ const v = String(this.reviewValue(row, field)).trim().toUpperCase();
+ const r = this.reviewData?.roster || [];
+ if (!v || !r.length) return false;
+ return !r.some((p) => p.name.toUpperCase() === v);
+ },
+ providerSourceIsAnnotation(row) {
+ return String(row["Provider Source"] || "").toLowerCase().startsWith("annotation");
+ },
+ reviewPatientName(row) {
+ const parts = [row["Patient Last Name"], row["Patient First Name"]].filter((x) => x && String(x).trim());
+ if (parts.length) return parts.join(", ");
+ return String(row.source_file || `Row ${row._row + 1}`).replace(/\.pdf$/i, "");
+ },
+ applyMednet(row) {
+ // Same grammar as the red-number pipeline (provider_annotation_utils.match_providers_from_annotations):
+ // "7" -> one provider; "7/1" -> two, the FIRST is Responsible; a trailing "/SRNA" flags SRNA.
+ // The sorter's entry is authoritative for this row: all three provider cells are set (blank if not given).
+ let text = String(this.reviewMednet[row._row] || "").trim();
+ if (!text) return;
+ const byCode = {};
+ (this.reviewData.roster || []).forEach((p) => {
+ if (p.code) byCode[String(p.code).toUpperCase()] = p;
+ });
+ let hasSrna = false;
+ if (/\/\s*SRNA\s*$/i.test(text)) {
+ hasSrna = true;
+ text = text.replace(/\s*\/\s*SRNA\s*$/i, "").trim();
+ }
+ const codes = text.split("/").map((c) => c.trim().toUpperCase()).filter(Boolean);
+ if (!codes.length || codes.length > 2) {
+ this.toast.warning(`Can't read "${text}" — use 7, 7/1 or 1/SRNA`);
+ return;
+ }
+ const found = codes.map((c) => byCode[c]);
+ const missing = codes.filter((c, i) => !found[i]);
+ if (missing.length === codes.length) {
+ this.toast.error(`MedNet code not in this group's list: ${missing.join(", ")}`);
+ return;
+ }
+ let responsible = null, md = null, crna = null;
+ found.forEach((p) => {
+ if (!p) return;
+ if (p.title === "MD") md = md || p.name;
+ else if (p.title === "CRNA") crna = crna || p.name;
+ if (!responsible) responsible = p.name;
+ });
+ const ef = this.reviewData.editable_fields;
+ if (ef.includes("Responsible Provider")) this.setReviewValue(row._row, "Responsible Provider", responsible || "");
+ if (ef.includes("MD")) this.setReviewValue(row._row, "MD", md || "");
+ if (ef.includes("CRNA")) this.setReviewValue(row._row, "CRNA", crna || "");
+ if ("SRNA" in row) this.setReviewValue(row._row, "SRNA", hasSrna ? "SRNA, SRNA, SRNA" : "");
+ if (missing.length) this.toast.warning(`Code ${missing.join(", ")} not in list — applied the rest`);
+ },
+ async saveReview(silent = false) {
+ const edits = Object.entries(this.reviewEdits).map(([k, value]) => {
+ const i = k.indexOf("|");
+ return { row: Number(k.slice(0, i)), field: k.slice(i + 1), value };
+ });
+ if (!edits.length) return true;
+ this.reviewSaving = true;
+ try {
+ const r = await axios.put(`${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/review`, { edits });
+ edits.forEach((e) => {
+ const row = this.reviewData.rows[e.row];
+ if (row) row[e.field] = e.value;
+ });
+ this.reviewEdits = {};
+ if (r.data.reviewed_at) {
+ this.reviewData.reviewed_at = r.data.reviewed_at;
+ this.reviewData.review_edit_count = r.data.review_edit_count;
+ }
+ if (!silent) this.toast.success(`Saved ${r.data.applied} change(s)`);
+ return true;
+ } catch (e) {
+ this.toast.error(`Save failed: ${e.response?.data?.detail || e.message}`);
+ return false;
+ } finally {
+ this.reviewSaving = false;
+ }
+ },
+ async finalizeReview(format) {
+ const ok = await this.saveReview(true);
+ if (!ok) return;
+ window.location.href = `${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/export?format=${format}`;
+ this.toast.success(`${format.toUpperCase()} download started`);
+ if (this.activeTab === "unified-results") this.loadUnifiedResults(this.unifiedResultsPage);
+ },
+ openReviewPdf(row) {
+ if (!row.source_file) return;
+ this.reviewPdfRow = row._row;
+ this.reviewPdfName = row.source_file;
+ this.reviewPdfUrl = `${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/pdf/${encodeURIComponent(row.source_file)}#toolbar=1`;
  },
 
  async downloadUnifiedResult(jobId) {
@@ -21156,4 +21470,35 @@ input:checked + .slider:hover {
  font-style: italic;
 }
 
+
+/* ===== Sorter review overlay ===== */
+.review-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 1000; display: flex; justify-content: center; padding: 1rem; }
+.review-panel { background: #f8fafc; border-radius: 12px; width: 100%; max-width: 1900px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); }
+.review-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1rem 1.25rem; background: white; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap; }
+.review-header h2 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.review-sub { margin: 0; font-size: 0.85rem; color: #475569; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.review-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.review-toggle { font-size: 0.85rem; color: #334155; display: flex; gap: 0.35rem; align-items: center; }
+.review-filter { padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; min-width: 210px; }
+.review-hint { margin: 0 0 0.75rem; font-size: 0.8rem; color: #475569; }
+.review-hint code { background: #e2e8f0; padding: 0 0.3rem; border-radius: 3px; }
+.review-body { display: flex; flex: 1; min-height: 0; }
+.review-table-wrap { flex: 1; overflow: auto; padding: 1rem; min-width: 0; }
+.review-panel.with-pdf .review-table-wrap { flex: 0 0 55%; }
+.review-pdf { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #e5e7eb; background: white; min-width: 0; }
+.review-pdf-bar { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; font-size: 0.8rem; color: #334155; border-bottom: 1px solid #e5e7eb; }
+.review-pdf iframe { flex: 1; border: 0; width: 100%; }
+.review-table th, .review-table td { padding: 0.45rem 0.5rem; font-size: 0.8rem; white-space: nowrap; }
+.review-table thead th { position: sticky; top: 0; z-index: 1; }
+.review-patient .review-file { font-size: 0.7rem; color: #64748b; font-weight: 400; }
+.review-input { width: 100%; min-width: 150px; padding: 0.35rem 0.45rem; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.8rem; background: white; }
+.review-input.review-mednet { min-width: 70px; width: 84px; font-family: monospace; }
+.review-input.review-num { min-width: 60px; width: 72px; }
+td.review-dirty .review-input { border-color: #2563eb; background: #eff6ff; }
+td.review-offroster .review-input { border-color: #f59e0b; background: #fffbeb; }
+tr.review-flagged td { background: #fffdf2; }
+tr.review-active td { background: #eef2ff; }
+.badge-warn { background: #fef3c7; color: #92400e; }
+.review-flag { margin-right: 0.25rem; text-transform: none; }
+.review-open-btn { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important; color: white !important; }
 </style>

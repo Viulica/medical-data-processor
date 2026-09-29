@@ -1209,6 +1209,19 @@ def process_single_patient_pdf_task(args):
 
             ann = extract_annotations_data(pdf_file_path, provider_mapping)
 
+            # Record WHERE the provider columns came from so the review screen (and the
+            # coder opening the CSV) can tell a red-number match from an AI guess.
+            #   annotation                      -> red MedNet code(s) matched the roster
+            #   ai (unmatched annotation: 99)   -> a code was pasted but is not in provider_mapping
+            #   ai (no annotation)              -> nothing pasted on the PDF, AI value kept
+            _prov_texts = [t for t in (ann.get('annotation_texts') or []) if '-' not in t]
+            if ann['responsible'] or ann['md'] or ann['crna']:
+                merged_data['Provider Source'] = 'annotation'
+            elif _prov_texts:
+                merged_data['Provider Source'] = f"ai (unmatched annotation: {', '.join(_prov_texts)})"
+            else:
+                merged_data['Provider Source'] = 'ai (no annotation)'
+
             # Providers
             if ann['responsible']:
                 merged_data['Responsible Provider'] = ann['responsible']
@@ -1235,6 +1248,7 @@ def process_single_patient_pdf_task(args):
                 print(f"    ✅ Set Tertiary Mednet Code from annotation: {ann['tertiary_mednet']}")
 
         except Exception as e:
+            merged_data['Provider Source'] = 'ai (annotation error)'
             print(f"    ⚠️  Failed to extract annotations for {pdf_filename}: {e}")
     
     # Copy Surgeon to Referring (they are the same field)
@@ -1433,6 +1447,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         provider_fields = [
             'Responsible Provider', 'MD', 'CRNA', 'SRNA',
             'Primary Mednet Code', 'Secondary Mednet Code', 'Tertiary Mednet Code',
+            'Provider Source',  # annotation vs ai — see the annotation block in process_single_pdf
         ]
         for field in provider_fields:
             if field not in fieldnames:

@@ -304,6 +304,21 @@ def init_database():
         END IF;
     END $$;
 
+    -- Migration: sorter review stage (template + provider mode + edit log)
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'unified_results' AND column_name = 'review_edits'
+        ) THEN
+            ALTER TABLE unified_results ADD COLUMN template_id INTEGER;
+            ALTER TABLE unified_results ADD COLUMN provider_mode VARCHAR(20);
+            ALTER TABLE unified_results ADD COLUMN source_file_map JSONB;
+            ALTER TABLE unified_results ADD COLUMN review_edits JSONB;
+            ALTER TABLE unified_results ADD COLUMN reviewed_at TIMESTAMP;
+        END IF;
+    END $$;
+
     CREATE INDEX IF NOT EXISTS idx_unified_results_job_id ON unified_results(job_id);
     CREATE INDEX IF NOT EXISTS idx_unified_results_created_at ON unified_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_unified_results_expires_at ON unified_results(expires_at);
@@ -1646,7 +1661,10 @@ def save_unified_result(
     worktracker_group: Optional[str] = None,
     worktracker_batch: Optional[str] = None,
     scanned_date: Optional[str] = None,
-    status: str = "completed"
+    status: str = "completed",
+    template_id: Optional[int] = None,
+    provider_mode: Optional[str] = None,
+    source_file_map: Optional[dict] = None,
 ):
     """
     Save unified processing result metadata to database.
@@ -1667,11 +1685,15 @@ def save_unified_result(
                         file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                         extraction_model, cpt_vision_model, icd_vision_model,
                         worktracker_group, worktracker_batch, scanned_date,
-                        status, expires_at
+                        status, expires_at,
+                        template_id, provider_mode, source_file_map
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id)
                     DO UPDATE SET
+                        template_id = EXCLUDED.template_id,
+                        provider_mode = EXCLUDED.provider_mode,
+                        source_file_map = EXCLUDED.source_file_map,
                         filename = EXCLUDED.filename,
                         supabase_path = EXCLUDED.supabase_path,
                         input_zip_supabase_path = EXCLUDED.input_zip_supabase_path,
@@ -1694,13 +1716,50 @@ def save_unified_result(
                     file_size_bytes, row_count, enabled_extraction, enabled_cpt, enabled_icd,
                     extraction_model, cpt_vision_model, icd_vision_model,
                     worktracker_group or None, worktracker_batch or None, scanned_date or None,
-                    status, expires_at
+                    status, expires_at,
+                    template_id, provider_mode,
+                    json.dumps(source_file_map) if source_file_map else None,
                 ))
                 result = cur.fetchone()
                 return result['id'] if result else None
     except Exception as e:
         logger.error(f"Failed to save unified result for job {job_id}: {e}")
         return None
+
+
+def record_unified_review_edits(job_id: str, edits: list, file_size_bytes: Optional[int] = None):
+    """Append sorter edits to unified_results.review_edits and stamp reviewed_at.
+
+    `edits` is a list of {row, field, old, new, at} dicts. The log is append-only so a
+    later look at the batch shows exactly what the sorter changed after extraction.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    UPDATE unified_results
+                    SET review_edits = COALESCE(review_edits, '[]'::jsonb) || %s::jsonb,
+                        reviewed_at = CURRENT_TIMESTAMP,
+                        file_size_bytes = COALESCE(%s, file_size_bytes)
+                    WHERE job_id = %s
+                    RETURNING reviewed_at, jsonb_array_length(review_edits) AS n
+                """, (json.dumps(edits), file_size_bytes, job_id))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to record review edits for job {job_id}: {e}")
+        return None
+
+
+def download_from_supabase(path: str) -> bytes:
+    """Fetch an object from the results bucket (service key, no signed URL round-trip)."""
+    import httpx
+    url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
+    headers = {'Authorization': f'Bearer {SUPABASE_KEY}'}
+    with httpx.Client(timeout=120) as client:
+        r = client.get(url, headers=headers)
+        r.raise_for_status()
+        return r.content
 
 
 # ========== Base Prompts CRUD ==========
@@ -1771,7 +1830,9 @@ def get_all_unified_results(page: int = 1, page_size: int = 50, search_group: Op
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            worktracker_group, worktracker_batch, scanned_date,
-                           created_at, expires_at, status
+                           created_at, expires_at, status,
+                           template_id, provider_mode, reviewed_at,
+                           COALESCE(jsonb_array_length(review_edits), 0) AS review_edit_count
                     FROM unified_results
                     {where_clause}
                     ORDER BY created_at DESC
@@ -1809,7 +1870,8 @@ def get_unified_result(job_id: str):
                            file_size_bytes, row_count, enabled_extraction, enabled_cpt,
                            enabled_icd, extraction_model, cpt_vision_model, icd_vision_model,
                            worktracker_group, worktracker_batch, scanned_date,
-                           created_at, expires_at, status
+                           created_at, expires_at, status,
+                           template_id, provider_mode, source_file_map, review_edits, reviewed_at
                     FROM unified_results
                     WHERE job_id = %s
                 """, (job_id,))

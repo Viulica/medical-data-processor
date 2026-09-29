@@ -306,11 +306,13 @@ def extract_annotations_data(
     result = {
         'responsible': None, 'md': None, 'crna': None, 'has_srna': False,
         'primary_mednet': None, 'secondary_mednet': None, 'tertiary_mednet': None,
+        'annotation_texts': [],
     }
 
     annotation_texts = extract_annotations_from_pdf(pdf_path)
     if not annotation_texts:
         return result
+    result['annotation_texts'] = list(annotation_texts)
 
     # Insurance codes (annotations containing '-')
     primary, secondary, tertiary = parse_insurance_codes(annotation_texts)

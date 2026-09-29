@@ -9590,6 +9590,7 @@ def process_unified_background(
     icd_use_cpt_guidance: bool = True,
     # PDF rename method: "default" → First_Last_Middle.pdf; "hank_ai" → First Last.pdf
     rename_mode: str = "default",
+    template_id: Optional[int] = None,
     # When True, force extraction to OpenRouter's standard tier (disable the flex
     # half-price tier). Passed to the extraction subprocess via DISABLE_FLEX_TIER.
     disable_flex_tier: bool = False,
@@ -9598,6 +9599,11 @@ def process_unified_background(
     import os
 
     job = job_status[job_id]
+    # The review stage needs these after the temp dir is gone: the input ZIP for the
+    # side-by-side PDF viewer and the template for the provider roster.
+    job.metadata['input_zip_path'] = zip_path
+    job.metadata['template_id'] = template_id
+    job.metadata['provider_mode'] = 'annotation' if extract_providers_from_annotations else 'ai'
 
     # ==================== HARDCODED PER-GROUP CPT ROUTING ====================
     # A fixed set of groups is pinned to a specific model + instruction template
@@ -11781,6 +11787,8 @@ def process_unified_background(
                         base_df['source_file'] = base_df['source_file'].apply(
                             lambda x: filename_mapping.get(str(x).strip(), x) if pd.notna(x) else x
                         )
+                        # Review screen needs the reverse map (renamed -> name inside the input ZIP)
+                        job.metadata['source_file_map'] = {v: k for k, v in filename_mapping.items()}
                         logger.info(f"[Unified {job_id}] Updated source_file column with {len(filename_mapping)} renamed filenames")
 
                     # Create ZIP from renamed PDFs
@@ -11868,7 +11876,10 @@ def process_unified_background(
                 worktracker_group=worktracker_group,
                 worktracker_batch=worktracker_batch,
                 scanned_date=scanned_date,
-                status="completed"
+                status="completed",
+                template_id=template_id,
+                provider_mode=('annotation' if extract_providers_from_annotations else 'ai'),
+                source_file_map=job.metadata.get('source_file_map'),
             )
             logger.info(f"[Unified {job_id}] Saved result metadata to database")
         except Exception as e:
@@ -12219,6 +12230,7 @@ async def process_unified(
             icd_use_cpt_guidance=icd_use_cpt_guidance,
             rename_mode=rename_mode,
             disable_flex_tier=disable_flex_tier,
+            template_id=template_id,
         )
 
         logger.info(f"Background unified processing task started for job {job_id}")
@@ -12657,6 +12669,138 @@ async def cleanup_expired_unified_results():
     except Exception as e:
         logger.error(f"Failed to cleanup expired results: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to cleanup: {str(e)}")
+
+
+import re
+from pydantic import BaseModel
+from fastapi.responses import Response
+
+# ========== Sorter Review (post-extraction, pre-download) ==========
+
+def _review_context(job_id: str):
+    """(job or None, db_record or None, template or None) for a unified job."""
+    from db_utils import get_unified_result, get_template
+    job = job_status.get(job_id)
+    record = get_unified_result(job_id)
+    template_id = None
+    if job is not None and isinstance(job.metadata, dict):
+        template_id = job.metadata.get('template_id')
+    if not template_id and record:
+        template_id = record.get('template_id')
+    template = get_template(template_id=template_id) if template_id else None
+    if job is None and record is None:
+        raise HTTPException(status_code=404, detail=f"Result not found for job {job_id}")
+    return job, record, template
+
+
+@app.get("/api/unified-results/{job_id}/review")
+async def get_unified_review(job_id: str):
+    """Rows + provider roster + provider mode for the sorter review screen."""
+    from review_utils import load_result_df, build_review_payload
+    try:
+        job, record, template = _review_context(job_id)
+        if job is not None and job.status not in ("completed",) and record is None:
+            raise HTTPException(status_code=400, detail="Job not completed yet")
+        df, file_source = load_result_df(job_id, job=job, db_record=record)
+        return build_review_payload(job_id, df, template, record, file_source)
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[Review {job_id}] Failed to build review payload: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load review: {str(e)}")
+
+
+class ReviewEdit(BaseModel):
+    row: int
+    field: str
+    value: Optional[str] = None
+
+
+class ReviewEditsBody(BaseModel):
+    edits: List[ReviewEdit]
+
+
+@app.put("/api/unified-results/{job_id}/review")
+async def put_unified_review(job_id: str, body: ReviewEditsBody):
+    """Apply sorter edits to the result file, re-upload it, and log what changed."""
+    from review_utils import load_result_df, save_result_df, apply_edits
+    from db_utils import record_unified_review_edits
+    try:
+        job, record, _ = _review_context(job_id)
+        df, _src = load_result_df(job_id, job=job, db_record=record)
+        df, change_log = apply_edits(df, [e.dict() for e in body.edits])
+        if not change_log:
+            return {"applied": 0, "message": "No changes"}
+        supabase_path, size = save_result_df(job_id, df, job=job, db_record=record)
+        stamp = record_unified_review_edits(job_id, change_log, size) if record else None
+        logger.info(f"[Review {job_id}] Applied {len(change_log)} edit(s) — "
+                    + "; ".join(f"r{c['row']} {c['field']}: {c['old']!r}->{c['new']!r}" for c in change_log[:20]))
+        return {
+            "applied": len(change_log),
+            "changes": change_log,
+            "supabase_path": supabase_path,
+            "reviewed_at": stamp['reviewed_at'].isoformat() if stamp and stamp.get('reviewed_at') else None,
+            "review_edit_count": stamp['n'] if stamp else None,
+        }
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[Review {job_id}] Failed to apply edits: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to apply edits: {str(e)}")
+
+
+@app.get("/api/unified-results/{job_id}/export")
+async def export_unified_review(job_id: str, format: str = "csv"):
+    """Serve the (reviewed) result as CSV or XLSX. Unlike /download/{job_id} this never
+    schedules cleanup, so the sorter can download, keep editing, and download again."""
+    from review_utils import load_result_df
+    try:
+        job, record, _ = _review_context(job_id)
+        df, _src = load_result_df(job_id, job=job, db_record=record)
+        stem = (record or {}).get('filename') or f"unified_result_{job_id}"
+        stem = re.sub(r'\.(csv|xlsx)$', '', str(stem), flags=re.IGNORECASE)
+        if format.lower() == "xlsx":
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False, engine='openpyxl')
+            return Response(
+                content=buf.getvalue(),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'},
+            )
+        return Response(
+            content=df.to_csv(index=False),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'},
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[Review {job_id}] Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@app.get("/api/unified-results/{job_id}/pdf/{source_file:path}")
+async def get_unified_review_pdf(job_id: str, source_file: str):
+    """One patient's PDF from the job's input ZIP, for the review screen viewer."""
+    from review_utils import get_input_pdf_bytes
+    try:
+        job, record, _ = _review_context(job_id)
+        data = get_input_pdf_bytes(job_id, source_file, job=job, db_record=record)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"PDF {source_file!r} not found in the input ZIP for this job")
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{os.path.basename(source_file)}"'})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Review {job_id}] PDF fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF fetch failed: {str(e)}")
 
 
 # ========== Base Prompts API ==========
