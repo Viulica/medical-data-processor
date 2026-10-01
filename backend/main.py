@@ -12693,16 +12693,26 @@ def _review_context(job_id: str):
     return job, record, template
 
 
+def _review_profile(profile: str) -> str:
+    from review_utils import PROFILES
+    if profile not in PROFILES:
+        raise HTTPException(status_code=400, detail=f"Unknown review profile {profile!r}")
+    return profile
+
+
 @app.get("/api/unified-results/{job_id}/review")
-async def get_unified_review(job_id: str):
-    """Rows + provider roster + provider mode for the sorter review screen."""
+async def get_unified_review(job_id: str, profile: str = "unified"):
+    """Rows (+ provider roster for the unified profile) for the sorter review screen.
+    profile=unified -> Extract+CPT+ICD output; profile=insurance -> Insurance Code
+    Prediction output (Sorting tab)."""
     from review_utils import load_result_df, build_review_payload
     try:
+        profile = _review_profile(profile)
         job, record, template = _review_context(job_id)
         if job is not None and job.status not in ("completed",) and record is None:
             raise HTTPException(status_code=400, detail="Job not completed yet")
         df, file_source = load_result_df(job_id, job=job, db_record=record)
-        return build_review_payload(job_id, df, template, record, file_source)
+        return build_review_payload(job_id, df, template, record, file_source, profile=profile)
     except HTTPException:
         raise
     except FileNotFoundError as e:
@@ -12723,14 +12733,15 @@ class ReviewEditsBody(BaseModel):
 
 
 @app.put("/api/unified-results/{job_id}/review")
-async def put_unified_review(job_id: str, body: ReviewEditsBody):
+async def put_unified_review(job_id: str, body: ReviewEditsBody, profile: str = "unified"):
     """Apply sorter edits to the result file, re-upload it, and log what changed."""
     from review_utils import load_result_df, save_result_df, apply_edits
     from db_utils import record_unified_review_edits
     try:
+        profile = _review_profile(profile)
         job, record, _ = _review_context(job_id)
         df, _src = load_result_df(job_id, job=job, db_record=record)
-        df, change_log = apply_edits(df, [e.dict() for e in body.edits])
+        df, change_log = apply_edits(df, [e.dict() for e in body.edits], profile=profile)
         if not change_log:
             return {"applied": 0, "message": "No changes"}
         supabase_path, size = save_result_df(job_id, df, job=job, db_record=record)
@@ -12754,14 +12765,14 @@ async def put_unified_review(job_id: str, body: ReviewEditsBody):
 
 
 @app.get("/api/unified-results/{job_id}/export")
-async def export_unified_review(job_id: str, format: str = "csv"):
+async def export_unified_review(job_id: str, format: str = "csv", profile: str = "unified"):
     """Serve the (reviewed) result as CSV or XLSX. Unlike /download/{job_id} this never
     schedules cleanup, so the sorter can download, keep editing, and download again."""
     from review_utils import load_result_df
     try:
         job, record, _ = _review_context(job_id)
         df, _src = load_result_df(job_id, job=job, db_record=record)
-        stem = (record or {}).get('filename') or f"unified_result_{job_id}"
+        stem = (record or {}).get('filename') or (f"insurance_codes_{job_id}" if profile == "insurance" else f"unified_result_{job_id}")
         stem = re.sub(r'\.(csv|xlsx)$', '', str(stem), flags=re.IGNORECASE)
         if format.lower() == "xlsx":
             buf = io.BytesIO()
@@ -12783,6 +12794,15 @@ async def export_unified_review(job_id: str, format: str = "csv"):
     except Exception as e:
         logger.error(f"[Review {job_id}] Export failed: {e}")
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@app.get("/api/insurance-lookup")
+async def insurance_lookup(q: str = "", codes: str = "", limit: int = 25):
+    """Search the master MedNet insurance list (sorting/mednet.csv) by name or code,
+    and/or resolve exact codes to names. Used by the review screen's insurance cells."""
+    from review_utils import search_insurance
+    code_list = [c for c in codes.split(",") if c.strip()] if codes else None
+    return search_insurance(q=q, codes=code_list, limit=max(1, min(limit, 100)))
 
 
 @app.get("/api/unified-results/{job_id}/pdf/{source_file:path}")

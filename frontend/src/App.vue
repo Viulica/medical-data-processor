@@ -7300,6 +7300,14 @@
  >
  <div class="download-format-group">
  <button
+ @click="openReview(insuranceJobId, 'insurance')"
+ class="download-btn review-open-btn"
+ title="Check the predicted MedNet codes against payer name / address and fix them before downloading"
+ >
+ <span class="btn-icon"></span>
+ Review &amp; Finalize
+ </button>
+ <button
  @click="downloadInsuranceResults('csv')"
  class="download-btn"
  >
@@ -10082,11 +10090,17 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <div>
  <h2>Review &amp; Finalize</h2>
  <p class="review-sub" v-if="reviewData">
- <span>{{ reviewData.group || '—' }} · batch {{ reviewData.batch || '—' }} · {{ reviewData.row_count }} rows · {{ reviewData.template_name || 'no template' }}</span>
- <span class="badge" :class="reviewData.provider_mode === 'annotation' ? 'badge-blue' : 'badge-green'">
+ <span v-if="reviewData.profile === 'insurance'">Insurance code prediction · {{ reviewData.row_count }} rows</span>
+ <span v-else>{{ reviewData.group || '—' }} · batch {{ reviewData.batch || '—' }} · {{ reviewData.row_count }} rows · {{ reviewData.template_name || 'no template' }}</span>
+ <span v-if="reviewData.profile !== 'insurance'" class="badge" :class="reviewData.provider_mode === 'annotation' ? 'badge-blue' : 'badge-green'">
  {{ reviewData.provider_mode === 'annotation' ? 'Providers: MedNet codes (scanned copy)' : 'Providers: AI-read names (EMR)' }}
  </span>
  <span v-if="reviewData.roster_source === 'results'" class="badge badge-warn" title="The template has no provider list; the pick-list is built from names the extraction produced">no roster in template</span>
+ <span
+ v-if="reviewData.roster_conflict"
+ class="badge badge-warn"
+ :title="`This template keeps two provider lists that disagree. Active: ${reviewData.roster_conflict.active === 'mapping' ? 'MedNet mapping' : 'field text'}. ${reviewData.roster_conflict.field_only} name(s) only in field text, ${reviewData.roster_conflict.mapping_only} only in the mapping. Off-list names are marked in the dropdown.`"
+ >two provider lists disagree ({{ reviewData.roster_conflict.field_only + reviewData.roster_conflict.mapping_only }})</span>
  <span v-if="reviewData.reviewed_at" class="badge badge-purple">reviewed {{ formatDate(reviewData.reviewed_at) }} · {{ reviewData.review_edit_count }} edits</span>
  </p>
  </div>
@@ -10105,6 +10119,9 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <div v-if="reviewLoading" class="empty-state"><p>Loading rows…</p></div>
  <div v-else-if="reviewData" class="review-body">
  <div class="review-table-wrap">
+ <p v-if="reviewData.insurance_code_fields && reviewData.insurance_code_fields.length" class="review-hint">
+ Insurance cells: type a MedNet code or part of the payer name (e.g. <code>aetna</code>) and pick from the list — the code is written to the CSV, the name shows underneath.
+ </p>
  <p v-if="reviewData.roster_has_mednet" class="review-hint">
  MedNet column: type the code(s) the way you would paste them on the PDF — <code>7</code>, <code>7/1</code> or <code>1/SRNA</code> — and press Enter. First code becomes Responsible Provider; MD / CRNA fill by title. Or pick names directly in the cells.
  </p>
@@ -10117,7 +10134,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <th v-for="f in reviewData.editable_fields" :key="f">{{ f }}</th>
  <th v-if="reviewData.provider_mode === 'annotation'">Provider source</th>
  <th>Flags</th>
- <th>PDF</th>
+ <th v-if="reviewData.profile !== 'insurance'">PDF</th>
  </tr>
  </thead>
  <tbody>
@@ -10146,18 +10163,63 @@ Johnson, Robert, MD (MedNet Code: 1)"
  :key="f"
  :class="{ 'review-dirty': reviewIsDirty(row._row, f), 'review-offroster': reviewIsOffRoster(row, f) }"
  >
+ <template v-if="isProviderField(f)">
+ <v-select
+ v-if="reviewEditing === reviewKey(row._row, f)"
+ ref="reviewSel"
+ class="review-select"
+ :options="providerOptionsFor(f)"
+ label="name"
+ :reduce="(o) => o.name"
+ :model-value="reviewValue(row, f)"
+ :filter-by="providerFilter"
+ taggable
+ :push-tags="false"
+ :create-option="(n) => ({ name: n, code: null, title: '', sources: ['typed'], in_use: false })"
+ append-to-body
+ :clearable="true"
+ placeholder="Search name or MedNet code…"
+ @update:model-value="(v) => setReviewValue(row._row, f, v || '')"
+ @close="stopProviderEdit"
+ @search:blur="stopProviderEdit"
+ >
+ <template #option="o">
+ <span class="review-opt">{{ o.name }}</span>
+ <span class="review-opt-meta">
+ <span v-if="o.code">MedNet {{ o.code }}</span>
+ <span v-if="o.in_use === false" class="review-opt-warn">{{ o.sources && o.sources[0] === 'results' ? 'AI value, not in list' : 'not in active list' }}</span>
+ </span>
+ </template>
+ <template #no-options>No match — keep typing and press Enter to use the typed name</template>
+ </v-select>
+ <div
+ v-else
+ class="review-cell-text"
+ :class="{ 'review-empty': !reviewValue(row, f) }"
+ tabindex="0"
+ :title="reviewIsOffRoster(row, f) ? 'Not in this group\'s active provider list — click to pick' : 'Click to pick'"
+ @click="startProviderEdit(row, f)"
+ @keydown.enter.prevent="startProviderEdit(row, f)"
+ >{{ reviewValue(row, f) || '— pick —' }}</div>
+ </template>
+ <template v-else-if="isInsuranceField(f)">
  <input
- v-if="isProviderField(f)"
- class="review-input"
- :list="rosterListId(f)"
+ class="review-input review-ins"
+ list="review-insurance-list"
  :value="reviewValue(row, f)"
- :title="reviewIsOffRoster(row, f) ? 'Not in this group\'s provider list' : ''"
- @change="setReviewValue(row._row, f, $event.target.value)"
+ placeholder="code or name…"
+ title="Type a MedNet code or part of the insurance name, then pick from the list"
+ @input="searchInsurance($event.target.value)"
+ @change="setInsuranceValue(row._row, f, $event.target.value)"
  />
+ <div class="review-file" :class="{ 'review-unknown': reviewValue(row, f) && !insuranceName(reviewValue(row, f)) }">
+ {{ reviewValue(row, f) ? (insuranceName(reviewValue(row, f)) || 'unknown code') : '' }}
+ </div>
+ </template>
  <input
  v-else
  class="review-input"
- :class="{ 'review-num': f === 'Points' }"
+ :class="{ 'review-num': f === 'Points', 'review-notes': f === 'Notes' || f.includes('Company') }"
  :value="reviewValue(row, f)"
  @change="setReviewValue(row._row, f, $event.target.value)"
  />
@@ -10168,14 +10230,14 @@ Johnson, Robert, MD (MedNet Code: 1)"
  <td>
  <span v-for="r in row._needs_review" :key="r" class="badge badge-warn review-flag">{{ r }}</span>
  </td>
- <td>
+ <td v-if="reviewData.profile !== 'insurance'">
  <button class="btn-icon-small" :disabled="!row.source_file" @click="openReviewPdf(row)">PDF</button>
  </td>
  </tr>
  </tbody>
  </table>
- <datalist v-for="role in ['Responsible Provider', 'MD', 'CRNA']" :key="role" :id="rosterListId(role)">
- <option v-for="p in rosterOptionsFor(role)" :key="p.name" :value="p.name">{{ p.code ? 'MedNet ' + p.code : '' }}</option>
+ <datalist id="review-insurance-list">
+ <option v-for="m in reviewInsuranceMatches" :key="m.code" :value="m.code">{{ m.name }}{{ m.plan ? ' · ' + m.plan : '' }}</option>
  </datalist>
  </div>
  <div v-if="reviewPdfUrl" class="review-pdf">
@@ -10202,6 +10264,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
 
 <script>
 import axios from "axios";
+import vSelect from "vue-select";
 import { useToast } from "vue-toastification";
 import SearchableSelect from "./components/SearchableSelect.vue";
 import draggable from "vuedraggable";
@@ -10223,6 +10286,7 @@ export default {
  name: "App",
  components: {
  SearchableSelect,
+ vSelect,
  draggable
  },
  setup() {
@@ -10513,6 +10577,11 @@ export default {
  reviewPdfUrl: null,
  reviewPdfRow: null,
  reviewPdfName: "",
+ reviewInsuranceMatches: [], // live results for the insurance datalist
+ reviewInsuranceNames: {}, // MedNet code -> payer name (for display under the cell)
+ reviewInsuranceTimer: null,
+ reviewEditing: null, // "row|field" of the provider cell currently open as a dropdown
+ reviewProfile: "unified", // 'unified' (Extract+CPT+ICD) or 'insurance' (Sorting tab prediction)
  // AI Refinement functionality
  refinementZipFile: null,
  refinementExcelFile: null,
@@ -10954,7 +11023,7 @@ export default {
  if (this.reviewOnlyFlagged) rows = rows.filter((r) => r._needs_review.length > 0);
  const q = this.reviewFilter.trim().toLowerCase();
  if (q) {
- const cols = ["Patient Last Name", "Patient First Name", "Responsible Provider", "MD", "CRNA", "source_file"];
+ const cols = ["Patient Last Name", "Patient First Name", "Responsible Provider", "MD", "CRNA", "Surgeon", "Primary Company Name", "Secondary Company Name", "source_file"];
  rows = rows.filter((r) => cols.some((c) => String(r[c] || "").toLowerCase().includes(q)));
  }
  return rows;
@@ -13172,9 +13241,10 @@ export default {
 
 
  // ===== Sorter review: providers / times / points before download =====
- async openReview(jobId) {
+ async openReview(jobId, profile = "unified") {
  if (!jobId) return;
  this.reviewJobId = jobId;
+ this.reviewProfile = profile;
  this.reviewData = null;
  this.reviewEdits = {};
  this.reviewMednet = {};
@@ -13184,8 +13254,10 @@ export default {
  this.reviewOnlyFlagged = false;
  this.reviewLoading = true;
  try {
- const r = await axios.get(`${this.getBackendUrl()}/api/unified-results/${jobId}/review`);
+ const r = await axios.get(`${this.getBackendUrl()}/api/unified-results/${jobId}/review`, { params: { profile } });
  this.reviewData = r.data;
+ this.reviewInsuranceNames = { ...(r.data.insurance_names || {}) };
+ this.reviewInsuranceMatches = [];
  } catch (e) {
  this.toast.error(`Failed to load review: ${e.response?.data?.detail || e.message}`);
  this.reviewJobId = null;
@@ -13219,7 +13291,33 @@ export default {
  return this.reviewKey(rowIdx, field) in this.reviewEdits;
  },
  isProviderField(field) {
- return ["Responsible Provider", "MD", "CRNA"].includes(field);
+ return ["Responsible Provider", "MD", "CRNA", "Surgeon"].includes(field);
+ },
+ providerOptionsFor(field) {
+ if (field === "Surgeon") return this.reviewData?.surgeon_roster || [];
+ const r = this.reviewData?.roster || [];
+ if (field === "Responsible Provider") return r;
+ return r.filter((p) => !p.roles || !p.roles.length || p.roles.includes(field));
+ },
+ providerFilter(option, label, search) {
+ // Match anywhere in the name (any word order) or on the MedNet code.
+ const q = String(search || "").trim().toUpperCase();
+ if (!q) return true;
+ const hay = String(label || "").toUpperCase();
+ if (option.code && String(option.code).toUpperCase() === q) return true;
+ return q.split(/\s+/).every((t) => hay.includes(t));
+ },
+ startProviderEdit(row, field) {
+ this.reviewEditing = this.reviewKey(row._row, field);
+ this.$nextTick(() => {
+ let sel = this.$refs.reviewSel;
+ if (Array.isArray(sel)) sel = sel[0];
+ if (sel && sel.searchEl) sel.searchEl.focus();
+ });
+ },
+ stopProviderEdit() {
+ // Let the selection event land first, then unmount the dropdown.
+ setTimeout(() => { this.reviewEditing = null; }, 120);
  },
  rosterListId(field) {
  return "review-roster-" + field.replace(/\s+/g, "-");
@@ -13232,10 +13330,48 @@ export default {
  },
  reviewIsOffRoster(row, field) {
  if (!this.isProviderField(field)) return false;
- const v = String(this.reviewValue(row, field)).trim().toUpperCase();
- const r = this.reviewData?.roster || [];
+ const v = String(this.reviewValue(row, field)).trim().replace(/\s+/g, " ").toUpperCase();
+ const r = this.providerOptionsFor(field).filter((p) => p.in_use !== false);
  if (!v || !r.length) return false;
- return !r.some((p) => p.name.toUpperCase() === v);
+ return !r.some((p) => p.name.replace(/\s+/g, " ").toUpperCase() === v);
+ },
+ isInsuranceField(field) {
+ return (this.reviewData?.insurance_code_fields || []).includes(field);
+ },
+ insuranceName(code) {
+ return this.reviewInsuranceNames[String(code ?? "").trim()] || "";
+ },
+ searchInsurance(text) {
+ const q = String(text ?? "").trim();
+ clearTimeout(this.reviewInsuranceTimer);
+ if (q.length < 2) return;
+ this.reviewInsuranceTimer = setTimeout(async () => {
+ try {
+ const r = await axios.get(`${this.getBackendUrl()}/api/insurance-lookup`, { params: { q, limit: 25 } });
+ this.reviewInsuranceMatches = r.data.matches || [];
+ this.reviewInsuranceMatches.forEach((m) => { this.reviewInsuranceNames[m.code] = m.name; });
+ } catch (e) {
+ console.error("insurance lookup failed", e);
+ }
+ }, 180);
+ },
+ async setInsuranceValue(rowIdx, field, value) {
+ // Accept a code directly, or a payer name typed in full: resolve to its single best match.
+ let v = String(value ?? "").trim();
+ if (v && !this.insuranceName(v)) {
+ try {
+ const r = await axios.get(`${this.getBackendUrl()}/api/insurance-lookup`, { params: { q: v, limit: 5 } });
+ const exact = (r.data.matches || []).find((m) => m.code.toUpperCase() === v.toUpperCase());
+ const only = !exact && (r.data.matches || []).length === 1 ? r.data.matches[0] : null;
+ const pick = exact || only;
+ if (pick) { this.reviewInsuranceNames[pick.code] = pick.name; v = pick.code; }
+ else if ((r.data.matches || []).length > 1) this.toast.warning(`"${v}" matches several payers — pick one from the list`);
+ else this.toast.warning(`"${v}" is not in the MedNet list — saved as typed`);
+ } catch (e) {
+ console.error("insurance resolve failed", e);
+ }
+ }
+ this.setReviewValue(rowIdx, field, v);
  },
  providerSourceIsAnnotation(row) {
  return String(row["Provider Source"] || "").toLowerCase().startsWith("annotation");
@@ -13293,7 +13429,7 @@ export default {
  if (!edits.length) return true;
  this.reviewSaving = true;
  try {
- const r = await axios.put(`${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/review`, { edits });
+ const r = await axios.put(`${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/review`, { edits }, { params: { profile: this.reviewProfile } });
  edits.forEach((e) => {
  const row = this.reviewData.rows[e.row];
  if (row) row[e.field] = e.value;
@@ -13315,7 +13451,7 @@ export default {
  async finalizeReview(format) {
  const ok = await this.saveReview(true);
  if (!ok) return;
- window.location.href = `${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/export?format=${format}`;
+ window.location.href = `${this.getBackendUrl()}/api/unified-results/${this.reviewJobId}/export?format=${format}&profile=${this.reviewProfile}`;
  this.toast.success(`${format.toUpperCase()} download started`);
  if (this.activeTab === "unified-results") this.loadUnifiedResults(this.unifiedResultsPage);
  },
@@ -21494,6 +21630,21 @@ input:checked + .slider:hover {
 .review-input { width: 100%; min-width: 150px; padding: 0.35rem 0.45rem; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.8rem; background: white; }
 .review-input.review-mednet { min-width: 70px; width: 84px; font-family: monospace; }
 .review-input.review-num { min-width: 60px; width: 72px; }
+.review-input.review-ins { min-width: 120px; width: 130px; font-family: monospace; }
+.review-cell-text { min-width: 170px; max-width: 260px; padding: 0.35rem 0.45rem; border: 1px solid #cbd5e1; border-radius: 5px; background: white; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-cell-text:hover, .review-cell-text:focus { border-color: #3b82f6; outline: none; }
+.review-cell-text.review-empty { color: #94a3b8; font-style: italic; }
+td.review-dirty .review-cell-text { border-color: #2563eb; background: #eff6ff; }
+td.review-offroster .review-cell-text { border-color: #f59e0b; background: #fffbeb; }
+.review-select { min-width: 260px; font-size: 0.8rem; }
+.review-select .vs__dropdown-toggle { padding: 0 0 2px; border: 1px solid #2563eb; border-radius: 5px; background: white; }
+.review-select .vs__search { font-size: 0.8rem; margin: 2px 0 0; }
+.vs__dropdown-menu { z-index: 3000 !important; font-size: 0.8rem; }
+.review-opt { font-weight: 500; }
+.review-opt-meta { margin-left: 0.5rem; font-size: 0.7rem; color: #64748b; }
+.review-opt-warn { color: #b45309; margin-left: 0.35rem; }
+.review-input.review-notes { min-width: 260px; }
+.review-file.review-unknown { color: #b45309; }
 td.review-dirty .review-input { border-color: #2563eb; background: #eff6ff; }
 td.review-offroster .review-input { border-color: #f59e0b; background: #fffbeb; }
 tr.review-flagged td { background: #fffdf2; }
