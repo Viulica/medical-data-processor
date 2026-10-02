@@ -9815,7 +9815,7 @@ def process_unified_background(
     # (see current/2-extract_info.py), so vLLM routing is safe to pin.
     #   key (UPPER-cased group) -> extraction model id
     EXTRACTION_QWEN_VLLM = "unsloth/Qwen3.8-27B-NVFP4"
-    EXTRACTION_GEMINI = "google/gemini-3.7-flash"
+    EXTRACTION_GEMINI = "google/gemini-3.8-flash"
     EXTRACTION_GROUP_ROUTING = {
         # ---- DISABLED 2026-09-15: ALL extraction off the self-hosted box ----
         # Every group below was pinned to qwen3.8 (ngrok) for extraction and
@@ -11925,7 +11925,7 @@ async def process_unified(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=50),
-    extraction_model: str = Form(default="google/gemini-3.7-flash"),
+    extraction_model: str = Form(default="google/gemini-3.8-flash"),
     extraction_max_workers: int = Form(default=50),  # Configurable extraction parallelism
     disable_flex_tier: bool = Form(default=False),  # Force extraction to OpenRouter standard tier (no flex)
     worktracker_group: str = Form(default=""),
@@ -12252,7 +12252,7 @@ async def process_unified_with_refinement(
     # Extraction parameters
     enable_extraction: bool = Form(default=True),
     extraction_n_pages: int = Form(default=50),
-    extraction_model: str = Form(default="google/gemini-3.7-flash"),
+    extraction_model: str = Form(default="google/gemini-3.8-flash"),
     extraction_max_workers: int = Form(default=50),
     disable_flex_tier: bool = Form(default=False),  # Force extraction to OpenRouter standard tier (no flex)
     worktracker_group: str = Form(default=""),

@@ -1340,6 +1340,9 @@
  v-model="unifiedExtractionModel"
  class="form-select"
  >
+ <option value="google/gemini-3.8-flash">
+ Gemini 3.8 Flash
+ </option>
  <option value="google/gemini-3.7-flash">
  Gemini 3.7 Flash
  </option>
@@ -10525,7 +10528,7 @@ export default {
  isUnifiedPdfDragActive: false,
  // Unified - Extraction settings
  unifiedExtractionPages: 100,
- unifiedExtractionModel: "google/gemini-3.7-flash",
+ unifiedExtractionModel: "google/gemini-3.8-flash",
  unifiedRenameMode: "default",
  unifiedExtractionMaxWorkers: 50,
  unifiedDisableFlexTier: false,
@@ -13185,7 +13188,7 @@ export default {
  this.unifiedSplitDetectionShift = 0;
  // Extraction settings
  this.unifiedExtractionPages = 100;
- this.unifiedExtractionModel = "google/gemini-3.7-flash";
+ this.unifiedExtractionModel = "google/gemini-3.8-flash";
  this.unifiedRenameMode = "default";
  this.unifiedExtractionMaxWorkers = 50;
  this.unifiedWorktrackerGroup = "";

@@ -447,16 +447,22 @@ def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
 # approach this, switch to direct PDF mode preemptively. 25 MB headroom.
 _OPENROUTER_IMAGE_PAYLOAD_BUDGET = 25 * 1024 * 1024  # 25 MB of base64 image data
 
-# ---- concentrate.ai usage-split ----
-# To spread extraction load, every Nth extraction API call is routed to
-# concentrate.ai (an OpenAI-compatible endpoint) instead of OpenRouter. The rest
-# stay on OpenRouter. Requires CONCENTRATE_API_KEY in the environment; if it's
-# missing, ALL calls fall back to OpenRouter (no behavior change).
+# ---- concentrate.ai routing ----
+# Gemini extraction calls go to concentrate.ai (an OpenAI-compatible endpoint)
+# instead of OpenRouter. CONCENTRATE_EVERY_N controls the share: 1 = every call
+# (default), N = every Nth call with the rest on OpenRouter, 0 = off.
+# Requires CONCENTRATE_API_KEY in the environment; if it's missing, ALL calls go to
+# OpenRouter (no behavior change). A concentrate-routed call that exhausts its
+# retries falls back to OpenRouter with the same model, so no PDF is lost to an outage.
 import threading as _threading
-CONCENTRATE_EVERY_N = int(os.getenv("CONCENTRATE_EVERY_N", "5"))  # every 5th call
+CONCENTRATE_EVERY_N = int(os.getenv("CONCENTRATE_EVERY_N", "1"))  # 1 = all calls
 CONCENTRATE_BASE_URL = os.getenv("CONCENTRATE_BASE_URL", "https://api.concentrate.ai/v1/chat/completions")
 _concentrate_counter = 0
 _concentrate_lock = _threading.Lock()
+# Circuit breaker: set to a reason string when concentrate.ai rejects us for an account
+# problem (out of credit, bad key). From then on this process routes everything to
+# OpenRouter instead of paying a failed round trip — and 5 retries — on every call.
+_concentrate_state = {"tripped": None}
 # concentrate.ai has a tighter image-size cap than OpenRouter; keep the image
 # payload for concentrate-routed calls under this so it doesn't 400 on size.
 _CONCENTRATE_IMAGE_PAYLOAD_BUDGET = 6 * 1024 * 1024  # 6 MB of base64 image data
@@ -471,15 +477,18 @@ def _concentrate_model_id(model):
     bare = model.split("/", 1)[1] if "/" in model else model
     if bare in _CONCENTRATE_UNSUPPORTED:
         return None
+    # Only Gemini is routed there. Other families use different ids on concentrate.ai
+    # (e.g. OpenRouter 'deepseek-v4.1-flash' is 'deepseek-v4-1-flash') and stay on OpenRouter.
+    if not bare.lower().startswith("gemini"):
+        return None
     return bare
 
 def _should_use_concentrate(model):
     """Thread-safe 1-in-N selector. Returns True on every Nth call iff a
     concentrate.ai key is configured AND the model is supported there."""
-    # concentrate.ai routing DISABLED — all extraction calls go to OpenRouter.
-    return False
-    # --- disabled below ---
     if not os.getenv("CONCENTRATE_API_KEY"):
+        return False
+    if _concentrate_state["tripped"]:
         return False
     if CONCENTRATE_EVERY_N <= 0:
         return False
@@ -501,18 +510,16 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
     """
     log_suffix = f" - {field_name_for_log}" if field_name_for_log else ""
 
-    # Decide provider for THIS call: every Nth call goes to concentrate.ai
-    # (only if the model is supported there; otherwise stays on OpenRouter).
-    # force_provider overrides the split — used for the OpenRouter fallback when a
+    # Decide provider for THIS call: concentrate.ai when a key is configured and the
+    # model is served there (see _should_use_concentrate); otherwise OpenRouter.
+    # force_provider overrides the selector — used for the OpenRouter fallback when a
     # concentrate-routed call fails (so no PDF is lost to a concentrate outage).
-    # concentrate.ai routing DISABLED — force every call to OpenRouter.
-    use_concentrate = False
-    # if force_provider == "openrouter":
-    #     use_concentrate = False
-    # elif force_provider == "concentrate":
-    #     use_concentrate = bool(os.getenv("CONCENTRATE_API_KEY")) and _concentrate_model_id(model) is not None
-    # else:
-    #     use_concentrate = _should_use_concentrate(model)
+    if force_provider == "openrouter":
+        use_concentrate = False
+    elif force_provider == "concentrate":
+        use_concentrate = bool(os.getenv("CONCENTRATE_API_KEY")) and _concentrate_model_id(model) is not None
+    else:
+        use_concentrate = _should_use_concentrate(model)
     provider_name = "concentrate" if use_concentrate else "openrouter"
 
     # Get API key for the chosen provider
@@ -596,6 +603,12 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 "model": openrouter_model,
                 "messages": messages,
             }
+            if use_concentrate:
+                # Same reasoning effort as the OpenRouter path so accuracy is comparable.
+                # Never send service_tier=flex here: concentrate.ai accepts it but a
+                # trivial call then takes ~4 minutes.
+                if "gemini-3" in openrouter_model:
+                    payload["reasoning"] = {"effort": "high"}
             if not use_concentrate:
                 # OpenRouter-specific: usage accounting + flex tier + provider sort.
                 payload["usage"] = {"include": True}
@@ -607,8 +620,19 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                     if not flex_disabled and not _flex_tier_disabled():
                         payload["service_tier"] = "flex"
                         payload["provider"] = {"sort": "throughput"}
+                elif openrouter_model.startswith(("qwen/", "deepseek/")):
+                    # Qwen 3.x / DeepSeek V4 hybrid-thinking models reason by default, which
+                    # turns a ~1-minute extraction call into several minutes of thinking
+                    # tokens. Default OFF; EXTRACTION_REASONING_EFFORT=low|medium|high to experiment.
+                    _effort = os.environ.get("EXTRACTION_REASONING_EFFORT", "").strip().lower()
+                    payload["reasoning"] = {"effort": _effort} if _effort in ("low", "medium", "high") else {"enabled": False}
 
-            response = requests.post(url, headers=headers, json=payload, timeout=300)
+            # Env-tunable: slower vision models (e.g. qwen3.8-flash on multi-page payloads) can
+            # take >300s for the big normal-tier call. Keep it a single value — urllib3 applies
+            # the CONNECT timeout to the request upload, so a short connect timeout makes
+            # multi-MB image uploads fail with "write operation timed out".
+            _req_timeout = int(os.environ.get("OPENROUTER_READ_TIMEOUT", "300"))
+            response = requests.post(url, headers=headers, json=payload, timeout=_req_timeout)
             # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
             if response.status_code == 503 and payload.get("service_tier") == "flex":
                 if flex_503_retries < 2:
@@ -699,6 +723,16 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             # returns 400 with a size-related message when the upstream provider
             # rejects an oversized inline image before the gateway 413 fires).
             status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+            # concentrate.ai account problems (402 insufficient credits, 401/403 bad key) don't
+            # fix themselves on retry: hand this call to OpenRouter now and stop routing
+            # there for the rest of this run.
+            if use_concentrate and status_code in (401, 402, 403):
+                if not _concentrate_state["tripped"]:
+                    _concentrate_state["tripped"] = f"HTTP {status_code}"
+                    print(f"    ⛔ concentrate.ai returned {status_code} (account/credit problem) — routing the rest of this run to OpenRouter")
+                if force_provider is None:
+                    return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log, force_provider="openrouter")
+                return None, None
             size_keywords = ("payload too large", "cannot exceed 30mb", "request entity", "too large", "exceeds", "size limit")
             is_size_error = (
                 status_code == 413
@@ -1801,8 +1835,8 @@ if __name__ == "__main__":
     excel_file = "WPA for testing FINAL.xlsx"  # Default Excel file
     n_pages = 2  # Default number of pages to extract per patient
     max_workers = 50  # Default thread pool size
-    model = "google/gemini-3.7-flash"  # Default model for normal fields (flex tier applies: 'gemini-3' match)
-    priority_model = "google/gemini-3.7-flash"  # Default model for high-priority fields (flex tier applies)
+    model = "google/gemini-3.8-flash"  # Default model for normal fields (routed to concentrate.ai when a key is set)
+    priority_model = "google/gemini-3.8-flash"  # Default model for high-priority fields (same routing)
     low_priority_model = "google/gemini-3.1-flash-lite-preview"  # Default model for low-priority fields
     very_high_priority_model = "gemini-3.1-pro-preview"  # Default model for very-high-priority fields
     worktracker_group = None  # Optional worktracker group
@@ -1852,6 +1886,14 @@ if __name__ == "__main__":
     # VLLM model id) to override every model tier at once. Off by default — extraction
     # stays on Gemini/OpenRouter unless this env var is set. Any vLLM failure per-PDF
     # falls back to VLLM_FALLBACK_MODEL, so this is safe to flip on.
+    # EXTRACTION_ALL_TIERS_MODEL=<openrouter id> routes EVERY tier (normal, high, very-high,
+    # low) to one OpenRouter model, e.g. qwen/qwen3.8-flash. Without it only the normal
+    # tier follows the argv model and the priority tiers stay on their gemini defaults.
+    _all_tiers = os.environ.get("EXTRACTION_ALL_TIERS_MODEL", "").strip()
+    if _all_tiers and not is_vllm_model(_all_tiers):
+        print(f"🌐 EXTRACTION_ALL_TIERS_MODEL set — routing ALL extraction tiers to: {_all_tiers}")
+        model = priority_model = low_priority_model = very_high_priority_model = _all_tiers
+
     _vllm_override = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
     if _vllm_override and is_vllm_model(_vllm_override):
         print(f"🖥️  EXTRACTION_VLLM_MODEL set — routing ALL extraction to vLLM: {_vllm_override}")
