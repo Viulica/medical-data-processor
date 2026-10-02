@@ -2031,7 +2031,7 @@ async def upload_files(
     excel_file: UploadFile = File(None),
     template_id: int = Form(None),
     n_pages: int = Form(..., ge=1, le=50),  # Validate page count between 1-50
-    model: str = Form(default="gemini-2.5-flash"),  # Model parameter with default
+    model: str = Form(default="google/gemini-3.8-flash"),  # Standard mode extraction model
     worktracker_group: str = Form(None),  # Optional worktracker group field
     worktracker_batch: str = Form(None),  # Optional worktracker batch field
     extract_csn: str = Form(None),  # Optional extract CSN flag

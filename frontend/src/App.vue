@@ -515,8 +515,8 @@
  >
  </label>
  <p class="template-hint" style="margin-top: 10px">
- When enabled, uses OpenRouter API with model:
- <code> gemini-3-pro-preview</code>
+ Extraction model:
+ <code> gemini-3.8-flash</code>
  </p>
  </div>
  </div>
@@ -12183,8 +12183,8 @@ export default {
  formData.append("excel_file", this.excelFile);
  formData.append("n_pages", this.pageCount);
 
- // Standard mode always uses gemini-3.1-pro-preview (Gemini API with OpenRouter fallback)
- const model = "gemini-3.1-pro-preview";
+ // Standard mode always uses Gemini 3.8 Flash (concentrate.ai when keyed, else OpenRouter)
+ const model = "google/gemini-3.8-flash";
  formData.append("model", model);
 
  // Add worktracker fields if provided
@@ -12218,7 +12218,7 @@ export default {
  this.jobId = response.data.job_id;
  const providerText = this.useOpenRouterStandard
  ? "OpenRouter"
- : "Gemini 3 Pro";
+ : "Gemini 3.8 Flash";
  this.toast.success(
  `Standard processing started with ${providerText}! Check the status section below.`
  );
