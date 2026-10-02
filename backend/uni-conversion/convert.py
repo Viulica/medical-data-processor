@@ -10,9 +10,6 @@ import sys
 from pathlib import Path
 import os
 import json
-import google.genai as genai
-from google.genai import types
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path to import export_utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -180,201 +177,6 @@ def extract_icd_codes(text):
                 codes.append(code)
     
     return codes
-
-
-def process_icd_reordering_task(args):
-    """
-    Process a single ICD reordering task (for threading).
-    
-    Args:
-        args: Tuple of (row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded)
-    
-    Returns:
-        Tuple of (row_idx, reordered_codes, success_flag, final_prompt, final_response)
-    """
-    row_idx, icd_codes, procedure, post_op_diagnosis, post_op_coded = args
-
-    # Initialize client for this thread (uses GOOGLE_API_KEY env var)
-    try:
-        api_key_value = os.getenv("GOOGLE_API_KEY")
-        if not api_key_value:
-            print(f"    ⚠️  Row {row_idx}: GOOGLE_API_KEY not set in environment")
-            return (row_idx, icd_codes, False, "", "")
-        client = genai.Client(api_key=api_key_value)
-    except Exception as e:
-        print(f"    ⚠️  Row {row_idx}: Could not initialize AI client: {str(e)}")
-        return (row_idx, icd_codes, False, "", "")
-
-    # Reorder codes
-    reordered_codes, success_flag, final_prompt, final_response = reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client)
-    return (row_idx, reordered_codes, success_flag, final_prompt, final_response)
-
-
-def reorder_icd_codes_with_ai(icd_codes, procedure, post_op_diagnosis, post_op_coded, client=None):
-    """
-    Use Gemini AI to reorder ICD codes by relevance to the procedure.
-    The primary diagnosis (reason for procedure) should come first.
-    
-    Args:
-        icd_codes: List of ICD codes (up to 4)
-        procedure: Procedure description string
-        post_op_diagnosis: POST-OP DIAGNOSIS string (supplementary)
-        post_op_coded: Post-op Diagnosis - Coded string (supplementary)
-        client: Google AI client (optional, will create if not provided)
-    
-    Returns:
-        Tuple of (reordered_codes, success_flag, final_prompt, final_response) where:
-        - reordered_codes: List of reordered ICD codes
-        - success_flag: Boolean indicating if AI reordering was successful
-        - final_prompt: The exact prompt sent to the AI
-        - final_response: The exact response received from the AI
-    """
-    # If no codes or only one code, no need to reorder
-    if not icd_codes or len(icd_codes) <= 1:
-        return (icd_codes, True, "", "")  # Success = True since no reordering needed
-    
-    # Initialize Google AI client if not provided
-    if client is None:
-        try:
-            api_key_value = os.getenv("GOOGLE_API_KEY")
-            if not api_key_value:
-                print("    ⚠️  GOOGLE_API_KEY not set in environment")
-                return (icd_codes, False, "", "")
-            client = genai.Client(api_key=api_key_value)
-        except Exception as e:
-            print(f"    ⚠️  Could not initialize AI client: {str(e)}")
-            return (icd_codes, False, "", "")  # Return original order if AI fails
-    
-    # Prepare the prompt
-    prompt = f"""
-You are a medical coding expert tasked with ordering ICD diagnosis codes by relevance to a surgical procedure.
-
-PROCEDURE:
-{procedure if procedure and not pd.isna(procedure) else "Not specified"}
-
-SUPPLEMENTARY INFORMATION:
-Post-op Diagnosis: {post_op_diagnosis if post_op_diagnosis and not pd.isna(post_op_diagnosis) else "Not specified"}
-Post-op Diagnosis - Coded: {post_op_coded if post_op_coded and not pd.isna(post_op_coded) else "Not specified"}
-
-ICD CODES TO ORDER:
-{', '.join(icd_codes)}
-
-TASK:
-Reorder these ICD codes by relevance to the procedure, where:
-1. ICD1 should be the PRIMARY diagnosis (the main reason for the procedure)
-2. ICD2 is often also related to the procedure itself (but mostly not)
-3. ICD3 and ICD4 should be ordered by decreasing relevance to the procedure
-
-Consider:
-- Which diagnosis is the primary reason the procedure was performed?
-- Which diagnoses are directly related to the surgical intervention?
-- Which diagnoses are secondary or comorbid conditions?
-
-RESPONSE FORMAT:
-Return ONLY a JSON object with this exact structure:
-{{
-    "ordered_codes": ["ICD1", "ICD2", "ICD3", "ICD4"],
-    "reasoning": "Brief explanation of why you ordered the codes this way, focusing on why the primary diagnosis was chosen."
-}}
-
-Where:
-- "ordered_codes" contains all {len(icd_codes)} codes in order of relevance (most relevant first)
-- "reasoning" explains your decision-making process (1-3 sentences)
-
-CRITICAL RULES:
-1. Return ONLY valid JSON, no markdown formatting, no code blocks, no other text
-2. Include ALL {len(icd_codes)} codes in "ordered_codes"
-3. Use the EXACT code strings provided above (preserve case and format)
-4. Your entire response must be parseable as JSON
-"""
-    
-    # Retry logic - attempt up to 5 times
-    max_retries = 5
-    for attempt in range(max_retries):
-        raw_response_text = ""  # Initialize to handle early exceptions
-        try:
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=prompt)],
-                )
-            ]
-
-            tools = [
-                types.Tool(googleSearch=types.GoogleSearch(
-                )),
-            ]
-            
-            generate_content_config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.3,  # Lower temperature for more consistent output
-                tools=tools,
-                thinking_config=types.ThinkingConfig(thinking_budget=-1),
-                # Force standard tier (not flex) and cap the request at 2 minutes
-                # so a hung call doesn't block a worker indefinitely.
-                http_options=types.HttpOptions(
-                    extra_body={"serviceTier": "standard"},
-                    timeout=120_000,
-                ),
-            )
-
-            # Get AI response
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=contents,
-                config=generate_content_config,
-            )
-            
-            # Capture the RAW response exactly as returned by the model
-            raw_response_text = response.text
-            
-            # Now clean the response for parsing
-            response_text = response.text.strip()
-            
-            # Clean the response by removing any markdown code block formatting
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]  # Remove ```json
-            if response_text.startswith('```'):
-                response_text = response_text[3:]   # Remove ```
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]  # Remove trailing ```
-            response_text = response_text.strip()
-            
-            # Parse the JSON response
-            ai_decision = json.loads(response_text)
-            ordered_codes = ai_decision.get('ordered_codes', icd_codes)
-            reasoning = ai_decision.get('reasoning', 'No reasoning provided')
-            
-            # Normalize codes for comparison (case-insensitive, strip whitespace)
-            original_codes_normalized = [c.strip().upper() for c in icd_codes]
-            ordered_codes_normalized = [c.strip().upper() for c in ordered_codes]
-            
-            # Validate that all original codes are present (case-insensitive comparison)
-            if len(ordered_codes) == len(icd_codes) and set(ordered_codes_normalized) == set(original_codes_normalized):
-                # Return the RAW response exactly as received from the model for logging
-                return (ordered_codes, True, prompt, raw_response_text)  # Success!
-            else:
-                if attempt < max_retries - 1:
-                    print(f"    ⚠️  AI returned invalid code list (attempt {attempt + 1}/{max_retries})")
-                    print(f"        Expected: {icd_codes}")
-                    print(f"        Received: {ordered_codes}")
-                    continue
-                else:
-                    print(f"    ⚠️  AI returned invalid code list after {max_retries} attempts, using original order")
-                    print(f"        Expected: {icd_codes}")
-                    print(f"        Received: {ordered_codes}")
-                    return (icd_codes, False, prompt, raw_response_text)
-                
-        except Exception as e:
-            if attempt < max_retries - 1:
-                print(f"    ⚠️  AI reordering failed (attempt {attempt + 1}/{max_retries}): {str(e)}, retrying...")
-                continue
-            else:
-                print(f"    ⚠️  AI reordering failed after {max_retries} attempts: {str(e)}")
-                return (icd_codes, False, prompt, raw_response_text)  # Return original order and any captured response
-    
-    # This should never be reached, but just in case
-    return (icd_codes, False, prompt, "")
 
 
 def extract_mednet_code(value):
@@ -989,19 +791,6 @@ def convert_data(input_file, output_file=None, client="uni"):
         # Load mednet mapping for the specified client
         mednet_mapping = load_mednet_mapping(client=client)
         
-        # Initialize AI client for ICD code reordering (uses GOOGLE_API_KEY env var,
-        # same as the unified processing pipeline).
-        ai_client = None
-        try:
-            api_key_value = os.getenv("GOOGLE_API_KEY")
-            if not api_key_value:
-                print("Warning: GOOGLE_API_KEY not set in environment. ICD codes will not be reordered.")
-            else:
-                ai_client = genai.Client(api_key=api_key_value)
-                print("AI client initialized for ICD code reordering (gemini-3-flash-preview)")
-        except Exception as e:
-            print(f"Warning: Could not initialize AI client: {e}. ICD codes will not be reordered.")
-        
         # Read the file (CSV or Excel) with dtype=str to preserve leading zeros in codes
         df = None
         last_error = None
@@ -1044,33 +833,39 @@ def convert_data(input_file, output_file=None, client="uni"):
         # Create new dataframe with mapped headers
         result_data = []
         
-        # PHASE 1: Extract ICD codes for all rows and prepare for parallel AI reordering
+        # PHASE 1: Extract ICD codes for all rows
         print("\n🔍 Phase 1: Extracting ICD codes from all rows...")
-        icd_extraction_data = []  # Store (row_idx, unique_codes, procedure, post_op_diag, post_op_coded)
+        icd_extraction_data = []  # per row: unique_codes plus where each code came from
         
         for row_idx in range(len(df)):
-            # Extract ICD codes from both POST-OP DIAGNOSIS columns
+            # ICD1-ICD4 come ONLY from the AI's existing ICD1-ICD4 columns, in the AI's order.
             icd_codes = []
-            
-            # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
-            post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
-            post_op_diag_value = ''
             codes_from_post_op_diag = []
-            if post_op_diag_col:
-                post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
-                codes_from_post_op_diag = extract_icd_codes(post_op_diag_value)
-                icd_codes.extend(codes_from_post_op_diag)
-            
-            # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
-            post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
-            post_op_coded_value = ''
             codes_from_post_op_coded = []
-            if post_op_coded_col:
-                post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
-                codes_from_post_op_coded = extract_icd_codes(post_op_coded_value)
-                icd_codes.extend(codes_from_post_op_coded)
-            
-            # PRIORITY 3: Add any existing ICD1-ICD4 codes last (as fallback)
+
+            # ---- DISABLED 2026-10-02: EMR diagnosis columns are no longer a code source ----
+            # These pulled bracketed codes (e.g. "[Z86.0100]") out of the EMR export and put
+            # them AHEAD of the AI's ICD1, which displaced the correct primary diagnosis
+            # (acct 2609290168: AI gave Z12.11, K63.5; the EMR's Z86.0100 landed first).
+            # Kept, not deleted — uncomment to bring the EMR codes back.
+            #
+            # # PRIORITY 1: Get POST-OP DIAGNOSIS column codes first
+            # post_op_diag_col = find_header(df, "POST-OP DIAGNOSIS")
+            # post_op_diag_value = ''
+            # if post_op_diag_col:
+            #     post_op_diag_value = df.iloc[row_idx].get(post_op_diag_col, '')
+            #     codes_from_post_op_diag = extract_icd_codes(post_op_diag_value)
+            #     icd_codes.extend(codes_from_post_op_diag)
+            #
+            # # PRIORITY 2: Get Post-op Diagnosis - Coded column codes
+            # post_op_coded_col = find_header(df, "Post-op Diagnosis - Coded")
+            # post_op_coded_value = ''
+            # if post_op_coded_col:
+            #     post_op_coded_value = df.iloc[row_idx].get(post_op_coded_col, '')
+            #     codes_from_post_op_coded = extract_icd_codes(post_op_coded_value)
+            #     icd_codes.extend(codes_from_post_op_coded)
+
+            # The AI's ICD1-ICD4, in order
             codes_from_existing_icd = []
             for i in range(4):
                 icd_field = f"ICD{i+1}"
@@ -1089,16 +884,9 @@ def convert_data(input_file, output_file=None, client="uni"):
                     unique_codes.append(code)
                     seen.add(code)
             
-            # Get procedure value for AI reordering
-            procedure_value = df.iloc[row_idx].get('Procedure', '')
-            
-            # Store for AI reordering with detailed logging
             icd_extraction_data.append({
                 'row_idx': row_idx,
                 'unique_codes': unique_codes,
-                'procedure': procedure_value,
-                'post_op_diag': post_op_diag_value,
-                'post_op_coded': post_op_coded_value,
                 'codes_from_post_op_diag': codes_from_post_op_diag,
                 'codes_from_post_op_coded': codes_from_post_op_coded,
                 'codes_from_existing_icd': codes_from_existing_icd
@@ -1106,69 +894,8 @@ def convert_data(input_file, output_file=None, client="uni"):
         
         print(f"✓ Extracted ICD codes from {len(icd_extraction_data)} rows")
         
-        # PHASE 2: Parallel AI reordering of ICD codes
-        icd_reordered_map = {}  # Map row_idx -> reordered_codes
-        icd_success_map = {}    # Map row_idx -> success_flag
-        icd_prompt_map = {}     # Map row_idx -> final_prompt
-        icd_response_map = {}   # Map row_idx -> final_response
-        
-        if ai_client is not None:
-            # Prepare tasks for rows that need reordering (2+ codes)
-            reordering_tasks = []
-            for data in icd_extraction_data:
-                if len(data['unique_codes']) >= 2:
-                    reordering_tasks.append((
-                        data['row_idx'],
-                        data['unique_codes'],
-                        data['procedure'],
-                        data['post_op_diag'],
-                        data['post_op_coded']
-                    ))
-            
-            if reordering_tasks:
-                print(f"\n🤖 Phase 2: AI reordering {len(reordering_tasks)} rows with 2+ ICD codes (10 workers)...")
-                
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    # Submit all tasks
-                    future_to_row = {executor.submit(process_icd_reordering_task, task): task[0] for task in reordering_tasks}
-                    
-                    completed = 0
-                    total = len(future_to_row)
-                    successful_reorders = 0
-                    
-                    # Collect results as they complete
-                    for future in as_completed(future_to_row):
-                        completed += 1
-                        row_idx = future_to_row[future]
-                        
-                        try:
-                            result_row_idx, reordered_codes, success_flag, final_prompt, final_response = future.result()
-                            icd_reordered_map[result_row_idx] = reordered_codes
-                            icd_success_map[result_row_idx] = success_flag
-                            icd_prompt_map[result_row_idx] = final_prompt
-                            icd_response_map[result_row_idx] = final_response
-                            
-                            if success_flag:
-                                successful_reorders += 1
-                            
-                            # Progress update every 10%
-                            if completed % max(1, total // 10) == 0:
-                                progress = (completed / total) * 100
-                                print(f"    📊 Progress: {completed}/{total} ({progress:.1f}%) - {successful_reorders} successful")
-                        except Exception as e:
-                            print(f"    ⚠️  Row {row_idx}: Exception during AI reordering: {str(e)}")
-                            icd_success_map[row_idx] = False
-                            icd_prompt_map[row_idx] = ""
-                            icd_response_map[row_idx] = ""
-                
-                print(f"✓ AI reordering complete for {len(icd_reordered_map)} rows ({successful_reorders} successful)")
-            else:
-                print("\n⏭️  Phase 2: No rows with 2+ ICD codes, skipping AI reordering")
-        else:
-            print("\n⏭️  Phase 2: AI client not available, skipping ICD reordering")
-        
-        # PHASE 3: Process each data row with regular conversion + apply reordered ICD codes
-        print(f"\n📝 Phase 3: Processing {len(df)} rows with field mapping...")
+        # PHASE 2: Process each data row with regular conversion + fill ICD1-ICD4
+        print(f"\n📝 Phase 2: Processing {len(df)} rows with field mapping...")
         
         for row_idx in range(len(df)):
             new_row = {}
@@ -1541,25 +1268,8 @@ def convert_data(input_file, output_file=None, client="uni"):
             elif "Concurrent Providers" not in new_row:
                 new_row["Concurrent Providers"] = ""
             
-            # Get ICD codes: Priority 1 = Reordered codes (Phase 2), Priority 2 = Original extracted codes
-            if row_idx in icd_reordered_map:
-                unique_codes = icd_reordered_map[row_idx]
-                ai_reorder_success = icd_success_map.get(row_idx, False)
-                reorder_prompt = icd_prompt_map.get(row_idx, "")
-                reorder_response = icd_response_map.get(row_idx, "")
-            else:
-                unique_codes = icd_extraction_data[row_idx]['unique_codes']
-                # If no AI processing attempted (less than 2 codes), mark as successful
-                ai_reorder_success = True if len(unique_codes) <= 1 else False
-                reorder_prompt = ""
-                reorder_response = ""
-
-            # Add ICD AI Reordering Success column
-            new_row["ICD AI Reordering Success"] = "Yes" if ai_reorder_success else "No"
-
-            # Add logging columns for AI reordering interaction
-            new_row["ICD AI Reordering Prompt"] = reorder_prompt
-            new_row["ICD AI Reordering Response"] = reorder_response
+            # ICD codes are the AI's ICD1-ICD4, in the AI's order (see Phase 1).
+            unique_codes = icd_extraction_data[row_idx]['unique_codes']
 
             # Add detailed ICD extraction logging columns
             extraction_data = icd_extraction_data[row_idx]
