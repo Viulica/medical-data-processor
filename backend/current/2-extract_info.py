@@ -604,11 +604,14 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 "messages": messages,
             }
             if use_concentrate:
-                # Same reasoning effort as the OpenRouter path so accuracy is comparable.
-                # Never send service_tier=flex here: concentrate.ai accepts it but a
-                # trivial call then takes ~4 minutes.
+                # Same reasoning effort + flex tier as the OpenRouter path. concentrate.ai
+                # bills Gemini flex at half the default rate (same prices as OpenRouter).
+                # Unlike OpenRouter it never downgrades a tier it can't serve — the request
+                # fails — so the flex -> standard fallback below is what keeps calls alive.
                 if "gemini-3" in openrouter_model:
                     payload["reasoning"] = {"effort": "high"}
+                    if not flex_disabled and not _flex_tier_disabled():
+                        payload["service_tier"] = "flex"
             if not use_concentrate:
                 # OpenRouter-specific: usage accounting + flex tier + provider sort.
                 payload["usage"] = {"include": True}
@@ -632,17 +635,23 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             # the CONNECT timeout to the request upload, so a short connect timeout makes
             # multi-MB image uploads fail with "write operation timed out".
             _req_timeout = int(os.environ.get("OPENROUTER_READ_TIMEOUT", "300"))
+            if use_concentrate and payload.get("service_tier") == "flex":
+                # concentrate.ai flex requests can sit in a queue for minutes before any
+                # output; give them room, then fall back to standard on timeout (see except).
+                _req_timeout = max(_req_timeout, int(os.environ.get("CONCENTRATE_FLEX_TIMEOUT", "600")))
             response = requests.post(url, headers=headers, json=payload, timeout=_req_timeout)
-            # On flex tier 503 (capacity exhausted), retry twice on flex, then fall back to standard tier
-            if response.status_code == 503 and payload.get("service_tier") == "flex":
+            # On flex-tier capacity errors, retry twice on flex, then fall back to standard tier.
+            # OpenRouter signals this with 503; concentrate.ai may also answer 429.
+            _flex_capacity_codes = (429, 503) if use_concentrate else (503,)
+            if response.status_code in _flex_capacity_codes and payload.get("service_tier") == "flex":
                 if flex_503_retries < 2:
                     flex_503_retries += 1
                     wait_time = 2 ** flex_503_retries
-                    print(f"    ⚠️  OpenRouter 503 on flex tier for {pdf_filename}{log_suffix}; flex retry {flex_503_retries}/2 in {wait_time}s")
+                    print(f"    ⚠️  {provider_name} {response.status_code} on flex tier for {pdf_filename}{log_suffix}; flex retry {flex_503_retries}/2 in {wait_time}s")
                     time.sleep(wait_time)
                     continue
                 else:
-                    print(f"    ⚠️  OpenRouter 503 on flex tier for {pdf_filename}{log_suffix} after 2 retries; falling back to standard tier")
+                    print(f"    ⚠️  {provider_name} {response.status_code} on flex tier for {pdf_filename}{log_suffix} after 2 retries; falling back to standard tier")
                     flex_disabled = True
                     continue
             response.raise_for_status()
@@ -664,11 +673,11 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                         if flex_503_retries < 2:
                             flex_503_retries += 1
                             wait_time = 2 ** flex_503_retries
-                            print(f"    ⚠️  OpenRouter 200+error-body on flex tier for {pdf_filename}{log_suffix} (code={err_code}); flex retry {flex_503_retries}/2 in {wait_time}s")
+                            print(f"    ⚠️  {provider_name} 200+error-body on flex tier for {pdf_filename}{log_suffix} (code={err_code}); flex retry {flex_503_retries}/2 in {wait_time}s")
                             time.sleep(wait_time)
                             continue
                         else:
-                            print(f"    ⚠️  OpenRouter 200+error-body on flex tier for {pdf_filename}{log_suffix} after 2 retries; falling back to standard tier")
+                            print(f"    ⚠️  {provider_name} 200+error-body on flex tier for {pdf_filename}{log_suffix} after 2 retries; falling back to standard tier")
                             flex_disabled = True
                             continue
                     if attempt < max_retries - 1:
@@ -695,6 +704,11 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             
             json.loads(cleaned_response)  # Validate JSON
             
+            if use_concentrate:
+                # concentrate.ai reports the tier it billed at; surface it in the output's
+                # 'Extraction Provider' column so flex vs standard is visible per row.
+                _billed = result.get("service_tier") or payload.get("service_tier") or "default"
+                provider_name = f"concentrate ({_billed})"
             print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with {provider_name} on attempt {attempt + 1}")
             return response_text, provider_name
 
@@ -733,6 +747,21 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 if force_provider is None:
                     return extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, model, max_retries, field_name_for_log, force_provider="openrouter")
                 return None, None
+            # concentrate.ai flex: a queue timeout, or a tier the provider can't serve (the
+            # request fails rather than downgrading), is not worth repeating on flex — drop
+            # to the standard tier for the rest of this call's attempts.
+            if use_concentrate and not flex_disabled and attempt < max_retries - 1:
+                try:
+                    _sent_flex = payload.get("service_tier") == "flex"
+                except NameError:
+                    _sent_flex = False
+                _is_timeout = isinstance(e, requests.exceptions.Timeout) or "timed out" in str(e).lower()
+                _tier_rejected = status_code in (400, 404, 422) and "tier" in body_preview_lc
+                if _sent_flex and (_is_timeout or _tier_rejected):
+                    why = "timed out in the flex queue" if _is_timeout else f"flex tier rejected ({status_code})"
+                    print(f"    ⚠️  concentrate {why} for {pdf_filename}{log_suffix}; falling back to standard tier")
+                    flex_disabled = True
+                    continue
             size_keywords = ("payload too large", "cannot exceed 30mb", "request entity", "too large", "exceeds", "size limit")
             is_size_error = (
                 status_code == 413
