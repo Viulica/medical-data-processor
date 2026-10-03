@@ -604,20 +604,23 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 "messages": messages,
             }
             if use_concentrate:
-                # Same reasoning effort + flex tier as the OpenRouter path. concentrate.ai
-                # bills Gemini flex at half the default rate (same prices as OpenRouter).
-                # Unlike OpenRouter it never downgrades a tier it can't serve — the request
-                # fails — so the flex -> standard fallback below is what keeps calls alive.
+                # Same flex tier as the OpenRouter path. concentrate.ai bills Gemini flex at
+                # half the default rate (same prices as OpenRouter). Unlike OpenRouter it never
+                # downgrades a tier it can't serve — the request fails — so the flex -> standard
+                # fallback below is what keeps calls alive.
+                # No reasoning effort is sent: the model's own default (see the OpenRouter
+                # branch below for why).
                 if "gemini-3" in openrouter_model:
-                    payload["reasoning"] = {"effort": "high"}
                     if not flex_disabled and not _flex_tier_disabled():
                         payload["service_tier"] = "flex"
             if not use_concentrate:
                 # OpenRouter-specific: usage accounting + flex tier + provider sort.
                 payload["usage"] = {"include": True}
-                # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
+                # Flex tier for Gemini 3 models via OpenRouter (half-price).
+                # No reasoning effort is sent — the model's default applies. Forcing "high"
+                # tripled reasoning tokens (70% of extraction cost) with no accuracy gain:
+                # 18 charts / 4 groups matched prod output equally with and without it.
                 if "gemini-3" in openrouter_model:
-                    payload["reasoning"] = {"effort": "high"}
                     # flex_disabled: set after a runtime 503/overload fallback (below).
                     # _flex_tier_disabled(): global kill switch via DISABLE_FLEX_TIER env.
                     if not flex_disabled and not _flex_tier_disabled():

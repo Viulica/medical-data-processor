@@ -1596,9 +1596,9 @@ Respond with ONLY the JSON object, nothing else."""
         "usage": {"include": True},
     }
 
-    # Enable reasoning + flex tier for Gemini 3 models via OpenRouter (half-price)
+    # Flex tier for Gemini 3 models via OpenRouter (half-price). No reasoning effort is
+    # sent: the model's default reasons far less than "high" with the same accuracy.
     if "gemini-3" in openrouter_model:
-        payload["reasoning"] = {"effort": "high"}
         payload["service_tier"] = "flex"
         payload["provider"] = {"sort": "throughput"}
 
@@ -1780,7 +1780,6 @@ Respond with ONLY the JSON object, nothing else."""
                 logger.warning(f"ICD image payload too large (status={status_code}); falling back to raw PDF transport")
                 extra = {}
                 if "gemini-3" in openrouter_model:
-                    extra["reasoning"] = {"effort": "high"}
                     extra["service_tier"] = "flex"
                     extra["provider"] = {"sort": "throughput"}
                 pdf_response, pdf_err = _openrouter_pdf_fallback(
