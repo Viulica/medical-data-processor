@@ -406,15 +406,25 @@ def pdf_to_images_base64(pdf_path, max_pages=100, dpi=200):
         print(f"    ⚠️  Failed to convert PDF to images: {str(e)}")
         return []
 
+def _image_cache_enabled():
+    """EXTRACTION_IMAGE_CACHE=0 restores the old [prompt][images] layout with no cache marker."""
+    return os.environ.get("EXTRACTION_IMAGE_CACHE", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 def _build_image_messages(extraction_prompt, image_data_list):
-    """Build OpenRouter messages payload with PDF-rendered images."""
-    content = [{"type": "text", "text": extraction_prompt}]
-    for img_data in image_data_list:
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_data}"}
-        })
-    return [{"role": "user", "content": content}]
+    """Build OpenRouter messages payload with PDF-rendered images.
+
+    Images go FIRST, with a cache marker on the last one, and the prompt text last.
+    Every call for the same chart (main call, then each priority call) therefore starts
+    with identical bytes, so after the first call the page images are read from the
+    provider's prompt cache (~0.1x input price) instead of being billed in full again.
+    """
+    images = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{d}"}} for d in image_data_list]
+    if not _image_cache_enabled():
+        return [{"role": "user", "content": [{"type": "text", "text": extraction_prompt}] + images}]
+    if images:
+        images[-1]["cache_control"] = {"type": "ephemeral"}
+    return [{"role": "user", "content": images + [{"type": "text", "text": extraction_prompt}]}]
 
 
 def _build_pdf_file_messages(extraction_prompt, patient_pdf_path, pdf_filename):
@@ -576,6 +586,12 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
             "HTTP-Referer": "https://github.com/medical-data-processor",
             "X-Title": "Medical Data Processor"
         }
+        if _image_cache_enabled():
+            # One session per chart (its temp PDF is unique and shared by all of the
+            # chart's calls) keeps them on the same upstream provider, so later calls
+            # find the cached page images written by the first one.
+            import hashlib as _hashlib
+            headers["x-session-id"] = "mdp-" + _hashlib.sha1(str(patient_pdf_path).encode()).hexdigest()[:24]
 
     # Resolve the model id for the chosen provider.
     if use_concentrate:
@@ -712,7 +728,10 @@ def extract_with_openrouter(patient_pdf_path, pdf_filename, extraction_prompt, m
                 # 'Extraction Provider' column so flex vs standard is visible per row.
                 _billed = result.get("service_tier") or payload.get("service_tier") or "default"
                 provider_name = f"concentrate ({_billed})"
-            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with {provider_name} on attempt {attempt + 1}")
+            _u = result.get("usage") or {}
+            _cached = (_u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+            print(f"    ✅ Successfully processed {pdf_filename}{log_suffix} with {provider_name} on attempt {attempt + 1}"
+                  f" (prompt {_u.get('prompt_tokens', '?')}, cached {_cached})")
             return response_text, provider_name
 
         except json.JSONDecodeError as e:
