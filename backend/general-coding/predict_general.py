@@ -2265,51 +2265,32 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     return True
 
 
-def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=None, custom_instructions=None,
-                                   fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6):
+def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progress_callback=None):
     """
-    Predict main-line anesthesia CPT codes with the Claude CPT service (backend/claude_cpt/server.py):
+    Send charts to the Claude coding service (backend/claude_cpt/server.py, enabled by CLAUDE_CPT_URL):
     one Claude Code session per batch that fans the charts out to Sonnet subagents.
-    Enabled by the CLAUDE_CPT_URL env var. Charts the service does not return a code for
-    (or the whole batch, if the service fails) fall back to the Gemini crosswalk agent.
-    Writes the SAME CSV schema as predict_codes_from_pdfs_agent.
+    pdf_files: {unique archive name: Path}. guidance: {archive name: per-chart prompt addendum}.
+    Returns {archive name: result dict} for the charts the service coded (empty on any failure).
     """
     import io
-    import shutil
-    import tempfile
     import zipfile as _zip
 
     base_url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/")
     headers = {"X-Token": os.environ.get("CLAUDE_CPT_TOKEN", "")}
-    folder = Path(pdf_folder)
-    pdf_files = sorted({p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf" and "__MACOSX" not in str(p)},
-                       key=lambda p: p.name)
-    if not pdf_files:
-        logger.error(f"[claude-cpt] No PDF files found in {pdf_folder}")
-        return False
-
-    # Same rules text Gemini gets: code list + base CPT prompt + the group's custom instructions.
-    rules = ("You are a medical anesthesia CPT coder. Predict the most relevant anesthesia CPT code for "
-             "anesthesia billing for the procedure documented in each chart.\n\n"
-             f"Here is the reference list of valid anesthesia CPT codes:\n\n{load_cpt_codes()}\n\n"
-             f"{load_base_prompt('base_cpt_prompt') or ''}\n")
-    if custom_instructions and custom_instructions.strip():
-        rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}\n"
-
-    # Unique archive names so charts in different subfolders can't collide.
-    arcnames = {f"{i:04d}__{p.name}": p for i, p in enumerate(pdf_files)}
+    key = "code" if task == "cpt" else "ICD1"
     results = {}
     try:
         buf = io.BytesIO()
         with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
-            for arc, p in arcnames.items():
+            for arc, p in pdf_files.items():
                 z.write(p, arc)
         r = requests.post(f"{base_url}/v1/jobs", headers=headers, timeout=300,
                           files={"file": ("charts.zip", buf.getvalue(), "application/zip")},
-                          data={"rules": rules, "label": folder.name})
+                          data={"rules": rules, "task": task, "label": label,
+                                "guidance": json.dumps(guidance or {})})
         r.raise_for_status()
         job_id = r.json()["job_id"]
-        logger.info(f"[claude-cpt] Submitted {len(pdf_files)} charts as job {job_id}")
+        logger.info(f"[claude-{task}] Submitted {len(pdf_files)} charts as job {job_id}")
         deadline = time.time() + int(os.environ.get("CLAUDE_CPT_WAIT", "3600"))
         while time.time() < deadline:
             time.sleep(10)
@@ -2318,15 +2299,50 @@ def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=No
                 progress_callback(0, len(pdf_files), f"Claude coding {len(pdf_files)} charts ({j.get('status')})...")
             if j.get("status") in ("done", "partial"):
                 for row in j.get("results", []):
-                    if row.get("code"):
+                    if str(row.get(key, "")).strip():
                         results[row["filename"]] = row
-                logger.info(f"[claude-cpt] Job {job_id} {j['status']}: {len(results)}/{len(pdf_files)} coded, "
+                logger.info(f"[claude-{task}] Job {job_id} {j['status']}: {len(results)}/{len(pdf_files)} coded, "
                             f"cost ${j.get('cost_usd')}, {j.get('duration_s')}s")
                 break
         else:
-            logger.error(f"[claude-cpt] Job {job_id} timed out")
+            logger.error(f"[claude-{task}] Job {job_id} timed out")
     except Exception as e:
-        logger.error(f"[claude-cpt] Service call failed: {e}")
+        logger.error(f"[claude-{task}] Service call failed: {e}")
+    return results
+
+
+def _claude_pdf_files(pdf_folder):
+    folder = Path(pdf_folder)
+    pdfs = sorted({p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf" and "__MACOSX" not in str(p)},
+                  key=lambda p: p.name)
+    # Unique archive names so charts in different subfolders can't collide.
+    return {f"{i:04d}__{p.name}": p for i, p in enumerate(pdfs)}
+
+
+def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=None, custom_instructions=None,
+                                   fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6):
+    """
+    Main-line anesthesia CPT with the Claude coding service. The subagents get EXACTLY the prompt the Gemini
+    one-shot CPT call gets (_get_cpt_prompt with the code list + the same custom instructions), plus the
+    crosswalk tools. Charts without a Claude code fall back to the Gemini crosswalk agent.
+    Writes the SAME CSV schema as predict_codes_from_pdfs_agent.
+    """
+    import shutil
+    import tempfile
+
+    arcnames = _claude_pdf_files(pdf_folder)
+    if not arcnames:
+        logger.error(f"[claude-cpt] No PDF files found in {pdf_folder}")
+        return False
+    rules = _get_cpt_prompt(load_cpt_codes(), True)
+    results = {}
+    if rules:
+        if custom_instructions and custom_instructions.strip():
+            rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+        results = _claude_service_run(arcnames, "cpt", rules, label=Path(pdf_folder).name,
+                                      progress_callback=progress_callback)
+    else:
+        logger.error("[claude-cpt] base_cpt_prompt not in the database; using the Gemini agent for every chart")
 
     # Fallback: Gemini crosswalk agent for every chart Claude did not code.
     missing = [arc for arc in arcnames if arc not in results]
@@ -2362,9 +2378,92 @@ def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=No
             rows.append({"Patient Filename": p.name, "ASA Code": "ERROR: no CPT prediction", "Procedure Code": "ERROR: no CPT prediction",
                          "Code Explanation": "", "Model Source": "claude_cpt", "Error Message": "Claude and fallback returned no code"})
     if progress_callback:
-        progress_callback(len(pdf_files), len(pdf_files), f"Processed {len(pdf_files)}/{len(pdf_files)} PDFs (Claude)")
+        progress_callback(len(arcnames), len(arcnames), f"Processed {len(arcnames)}/{len(arcnames)} PDFs (Claude)")
     pd.DataFrame(rows).to_csv(output_file, index=False)
     logger.info(f"[claude-cpt] Saved {len(rows)} CPT predictions to {output_file} "
+                f"({len(results)} Claude, {len(fallback)} fallback)")
+    return True
+
+
+def predict_icd_codes_from_pdfs_claude(pdf_folder, output_file, n_pages=1, model="google/gemini-3.7-flash", api_key=None,
+                                       max_workers=6, progress_callback=None, custom_instructions=None,
+                                       image_cache=None, cpt_lookup=None):
+    """
+    ICD1-ICD4 with the Claude coding service. The subagents get EXACTLY the prompt the Gemini one-shot ICD call
+    gets: _get_icd_prompt() + the same ADDITIONAL CUSTOM INSTRUCTIONS + the same per-chart predicted-CPT guidance
+    block (_build_cpt_guidance_block), plus the ICD-10 Codes connector to verify every code.
+    Charts without a Claude ICD1 fall back to the normal Gemini ICD call (model / n_pages are used only for it).
+    Drop-in replacement: same signature and SAME CSV schema as predict_icd_codes_from_pdfs_api.
+    """
+    import shutil
+    import tempfile
+
+    arcnames = _claude_pdf_files(pdf_folder)
+    if not arcnames:
+        logger.error(f"[claude-icd] No PDF files found in {pdf_folder}")
+        return False
+    rules = _get_icd_prompt()
+    results = {}
+    if rules:
+        if custom_instructions and custom_instructions.strip():
+            rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
+        guidance = {}
+        for arc, p in arcnames.items():
+            cpt = cpt_lookup.get(p.name) if cpt_lookup else None
+            block = _build_cpt_guidance_block(cpt) if cpt else ""
+            if block:
+                guidance[arc] = block
+        results = _claude_service_run(arcnames, "icd", rules, guidance=guidance, label=Path(pdf_folder).name,
+                                      progress_callback=progress_callback)
+    else:
+        logger.error("[claude-icd] base_icd_prompt not in the database; using Gemini for every chart")
+
+    # Fallback: the normal Gemini ICD call for every chart Claude did not code.
+    missing = [arc for arc in arcnames if arc not in results]
+    fallback = {}
+    if missing:
+        logger.warning(f"[claude-icd] {len(missing)} chart(s) without a Claude ICD; falling back to {model}")
+        tmp = Path(tempfile.mkdtemp(prefix="claude_icd_fb_"))
+        try:
+            fb_lookup = {}
+            for arc in missing:
+                shutil.copy(arcnames[arc], tmp / arc)
+                if cpt_lookup and arcnames[arc].name in cpt_lookup:
+                    fb_lookup[arc] = cpt_lookup[arcnames[arc].name]
+            fb_csv = tmp / "fallback.csv"
+            if predict_icd_codes_from_pdfs_api(str(tmp), str(fb_csv), n_pages=n_pages, model=model,
+                                               api_key=api_key, max_workers=max_workers,
+                                               custom_instructions=custom_instructions, cpt_lookup=fb_lookup or None):
+                for _, fr in pd.read_csv(fb_csv, dtype=str).fillna("").iterrows():
+                    fallback[fr["Patient Filename"]] = fr
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    cols = ["ICD1", "ICD1 Reasoning", "ICD2", "ICD2 Reasoning", "ICD3", "ICD3 Reasoning", "ICD4", "ICD4 Reasoning"]
+    rows = []
+    for arc, p in arcnames.items():
+        row = {"Patient Filename": p.name}
+        if arc in results:
+            r = results[arc]
+            for i in range(1, 5):
+                row[f"ICD{i}"] = str(r.get(f"ICD{i}", "") or "").strip()
+                row[f"ICD{i} Reasoning"] = str(r.get(f"ICD{i}_Reasoning", "") or "").strip()
+            row.update({"Model Source": f"claude_icd:sonnet [{r.get('confidence', '')}]", "Tokens Used": 0,
+                        "Cost (USD)": 0.0, "Error Message": ""})
+        elif arc in fallback:
+            fr = fallback[arc]
+            row.update({c: fr.get(c, "") for c in cols})
+            row.update({"Model Source": f"{fr.get('Model Source', '')}|CLAUDE_FALLBACK", "Tokens Used": fr.get("Tokens Used", 0),
+                        "Cost (USD)": fr.get("Cost (USD)", 0.0), "Error Message": fr.get("Error Message", "")})
+        else:
+            row.update({c: "" for c in cols})
+            row.update({"ICD1": "ERROR", "Model Source": "claude_icd", "Tokens Used": 0, "Cost (USD)": 0.0,
+                        "Error Message": "Claude and fallback returned no ICD"})
+        rows.append(row)
+    if progress_callback:
+        progress_callback(len(arcnames), len(arcnames), f"Processed {len(arcnames)}/{len(arcnames)} PDFs (Claude ICD)")
+    pd.DataFrame(rows).to_csv(output_file, index=False)
+    logger.info(f"[claude-icd] Saved {len(rows)} ICD predictions to {output_file} "
                 f"({len(results)} Claude, {len(fallback)} fallback)")
     return True
 

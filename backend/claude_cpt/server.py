@@ -1,6 +1,7 @@
-"""Claude CPT service: one Claude Code session per batch that fans charts out to Sonnet subagents.
+"""Claude coding service: one Claude Code session per batch that fans charts out to Sonnet subagents.
 
-POST /v1/jobs          multipart: file=<zip of PDFs>, rules=<CPT rules text, same as Gemini gets>, label=<optional>
+POST /v1/jobs          multipart: file=<zip of PDFs>, rules=<the exact prompt the Gemini one-shot call gets>,
+                       task=cpt|icd, guidance=<optional JSON {pdf filename: per-chart prompt addendum}>, label=<optional>
 GET  /v1/jobs/{id}     status, and per-file results once done
 GET  /health
 
@@ -28,18 +29,31 @@ MODEL = os.environ.get("CLAUDE_CPT_MODEL", "sonnet")
 CHARTS_PER_AGENT = int(os.environ.get("CLAUDE_CPT_CHARTS_PER_AGENT", "6"))
 JOB_TIMEOUT = int(os.environ.get("CLAUDE_CPT_JOB_TIMEOUT", "2400"))
 MAX_JOBS = threading.Semaphore(int(os.environ.get("CLAUDE_CPT_MAX_JOBS", "3")))
-TOOL_FILES = ("xwalk.py", "pdftext.py", "playbook.md", "2025 crosswalk.xlsx")
-ALLOWED_TOOLS = "Agent Read Write Bash(python3 xwalk.py:*) Bash(python3 pdftext.py:*)"
+CROSSWALK = HERE / "2025 crosswalk.xlsx" if (HERE / "2025 crosswalk.xlsx").exists() else HERE.parent / "2025 crosswalk.xlsx"
+TASKS = {
+    "cpt": {"files": ("xwalk.py", "pdftext.py", "playbook.md"),
+            "tools": "Agent Read Write Bash(python3 xwalk.py:*) Bash(python3 pdftext.py:*)"},
+    # mcp__claude_ai_ICD-10_Codes = the claude.ai ICD-10 Codes connector on this account (all of its tools).
+    "icd": {"files": ("pdftext.py", "playbook_icd.md"),
+            "tools": "Agent Read Write Bash(python3 pdftext.py:*) mcp__claude_ai_ICD-10_Codes"},
+}
 
 app = FastAPI()
 _jobs = {}
 _lock = threading.Lock()
 
-SUBAGENT_PROMPT = """You are an expert anesthesia medical coder. For each chart listed in {batch}, assign the single main-line anesthesia CPT code (5-digit ASA code). Do not code block, line or add-on services (64xxx nerve blocks, 36xxx lines, 01968) as the main line.
+SUBAGENT_PROMPTS = {
+    "cpt": """You are an expert anesthesia medical coder. For each chart listed in {batch}, assign the single main-line anesthesia CPT code (5-digit ASA code). Do not code block, line or add-on services (64xxx nerve blocks, 36xxx lines, 01968) as the main line.
 
-Work only inside the current folder. Read fully first: rules.md (the production CPT rules; critical rules always win) and playbook.md (how to work and the crosswalk tools). Then code each chart following the playbook: read it with `python3 pdftext.py <pdf>`, view pages with no text layer using the Read tool, search the crosswalk, and verify your code plus at least one competing candidate with `python3 xwalk.py lookup`.
+Work only inside the current folder. Read fully first: rules.md (the EXACT prompt the production one-shot model gets: follow every rule in it; only its output format is replaced by the one below) and playbook.md (how to work and the crosswalk tools). Then code each chart following the playbook: read it with `python3 pdftext.py <pdf>`, view pages with no text layer using the Read tool, search the crosswalk, and verify your code plus at least one competing candidate with `python3 xwalk.py lookup`.
 
-Write a JSON array to {out}, one object per chart: {{"case_id":"...","code":"5-digit code","confidence":"high|medium|low","procedure":"procedure performed, briefly","reasoning":"codes compared, why losers were rejected, crosswalk row relied on"}}. Write nothing else. Reply with one line confirming the file is written."""
+Write a JSON array to {out}, one object per chart: {{"case_id":"...","code":"5-digit code","confidence":"high|medium|low","procedure":"procedure performed, briefly","reasoning":"codes compared, why losers were rejected, crosswalk row relied on"}}. Write nothing else. Reply with one line confirming the file is written.""",
+    "icd": """You are an expert anesthesia medical coder. For each chart listed in {batch}, assign the ICD-10-CM diagnosis codes ICD1 (primary) to ICD4.
+
+Work only inside the current folder. Read fully first: rules.md (the EXACT prompt the production one-shot model gets: follow every rule in it; only its output format is replaced by the one below) and playbook_icd.md (how to work and the ICD-10 tools). If a chart's line names a guidance file, read it: it is the per-chart addendum the production model gets for that chart and is part of the prompt. Then code each chart following the playbook: read it with `python3 pdftext.py <pdf>`, view pages with no text layer using the Read tool, and verify EVERY code with the ICD-10 Codes connector (validate_code with as_of = the date of service when it is documented).
+
+Write a JSON array to {out}, one object per chart: {{"case_id":"...","ICD1":"code","ICD1_Reasoning":"1-2 sentences","ICD2":"code or empty","ICD2_Reasoning":"","ICD3":"code or empty","ICD3_Reasoning":"","ICD4":"code or empty","ICD4_Reasoning":"","confidence":"high|medium|low"}}. Codes in dotted form (e.g. K63.5). Write nothing else. Reply with one line confirming the file is written.""",
+}
 
 ORCHESTRATOR_PROMPT = """You coordinate CPT coding for a batch of charts. The folder has {n} batch files: {batches}.
 For EACH batch file, launch one subagent with the Agent tool (model: sonnet, run them in parallel, all in a single message). Give each subagent exactly the prompt in subagent_prompt.txt with {{batch}} replaced by its batch file name and {{out}} replaced by result_<N>.json (same N as the batch file).
@@ -51,11 +65,11 @@ def _check(token):
         raise HTTPException(status_code=401, detail="bad token")
 
 
-def _run_claude(prompt, cwd, timeout):
+def _run_claude(prompt, cwd, timeout, tools):
     """One headless Claude Code run; returns (parsed json output or {}, error string)."""
     try:
         p = subprocess.run([CLAUDE_BIN, "-p", prompt, "--model", MODEL, "--output-format", "json",
-                            "--allowedTools", ALLOWED_TOOLS],
+                            "--allowedTools", tools],
                            cwd=cwd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return {}, "timeout"
@@ -85,8 +99,9 @@ def _process(job_id):
         job["started"] = time.time()
         batches = sorted(job_dir.glob("batch_*.txt"), key=lambda p: int(re.search(r"\d+", p.name).group()))
         cost = 0.0
+        tools = TASKS[job["task"]]["tools"]
         orch, err = _run_claude(ORCHESTRATOR_PROMPT.format(n=len(batches), batches=", ".join(b.name for b in batches)),
-                                job_dir, JOB_TIMEOUT)
+                                job_dir, JOB_TIMEOUT, tools)
         cost += float(orch.get("total_cost_usd") or 0)
         job["orchestrator_error"] = err
 
@@ -97,7 +112,7 @@ def _process(job_id):
 
             def one(b):
                 out = b.name.replace("batch_", "result_").replace(".txt", ".json")
-                return _run_claude(tpl.replace("{batch}", b.name).replace("{out}", out), job_dir, JOB_TIMEOUT // 2)
+                return _run_claude(tpl.replace("{batch}", b.name).replace("{out}", out), job_dir, JOB_TIMEOUT // 2, tools)
 
             with ThreadPoolExecutor(max_workers=len(missing)) as ex:
                 for res, _ in ex.map(one, missing):
@@ -106,15 +121,12 @@ def _process(job_id):
 
         res = _read_results(job_dir)
         manifest = json.loads((job_dir / "manifest.json").read_text())
-        job["results"] = [{"filename": m["filename"], "case_id": cid,
-                           "code": str(res.get(cid, {}).get("code", "")).strip(),
-                           "confidence": res.get(cid, {}).get("confidence", ""),
-                           "procedure": res.get(cid, {}).get("procedure", ""),
-                           "reasoning": res.get(cid, {}).get("reasoning", "")}
-                          for cid, m in manifest.items()]
+        key = "code" if job["task"] == "cpt" else "ICD1"
+        job["results"] = [dict({k: v for k, v in res.get(cid, {}).items() if k != "case_id"},
+                               filename=m["filename"], case_id=cid) for cid, m in manifest.items()]
         job["cost_usd"] = round(cost, 4)
         job["duration_s"] = round(time.time() - job["started"])
-        job["status"] = "done" if all(r["code"] for r in job["results"]) else "partial"
+        job["status"] = "done" if all(str(r.get(key, "")).strip() for r in job["results"]) else "partial"
         (job_dir / "job.json").write_text(json.dumps({k: v for k, v in job.items() if k != "dir"}, indent=1))
 
 
@@ -125,8 +137,11 @@ def health():
 
 @app.post("/v1/jobs")
 async def create_job(file: UploadFile = File(...), rules: str = Form(...), label: str = Form(""),
-                     x_token: str = Header("")):
+                     task: str = Form("cpt"), guidance: str = Form(""), x_token: str = Header("")):
     _check(x_token)
+    if task not in TASKS:
+        raise HTTPException(status_code=400, detail=f"unknown task {task}")
+    per_chart = json.loads(guidance) if guidance.strip() else {}
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     (job_dir / "pdfs").mkdir(parents=True)
@@ -144,17 +159,26 @@ async def create_job(file: UploadFile = File(...), rules: str = Form(...), label
     if not manifest:
         shutil.rmtree(job_dir)
         raise HTTPException(status_code=400, detail="zip has no PDFs")
-    for t in TOOL_FILES:
+    for t in TASKS[task]["files"]:
         shutil.copy(HERE / t, job_dir / t)
+    if task == "cpt":
+        shutil.copy(CROSSWALK, job_dir / "2025 crosswalk.xlsx")
     (job_dir / "rules.md").write_text(rules)
-    (job_dir / "subagent_prompt.txt").write_text(SUBAGENT_PROMPT)
+    (job_dir / "subagent_prompt.txt").write_text(SUBAGENT_PROMPTS[task])
+    for cid, m in manifest.items():
+        text = per_chart.get(m["filename"], "")
+        if text.strip():
+            (job_dir / "guidance").mkdir(exist_ok=True)
+            (job_dir / "guidance" / f"{cid}.md").write_text(text)
+            m["guidance"] = f"guidance/{cid}.md"
     (job_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
     ids = list(manifest)
     for b, start in enumerate(range(0, len(ids), CHARTS_PER_AGENT), 1):
-        lines = [f"- {cid}: pdfs/{cid}.pdf" for cid in ids[start:start + CHARTS_PER_AGENT]]
+        lines = [f"- {cid}: pdfs/{cid}.pdf" + (f" (guidance: {manifest[cid]['guidance']})" if manifest[cid].get("guidance") else "")
+                 for cid in ids[start:start + CHARTS_PER_AGENT]]
         (job_dir / f"batch_{b}.txt").write_text("\n".join(lines) + "\n")
     with _lock:
-        _jobs[job_id] = {"id": job_id, "label": label, "status": "queued", "n_charts": len(ids),
+        _jobs[job_id] = {"id": job_id, "label": label, "task": task, "status": "queued", "n_charts": len(ids),
                          "created": time.time(), "dir": str(job_dir)}
     threading.Thread(target=_process, args=(job_id,), daemon=True).start()
     return {"job_id": job_id, "n_charts": len(ids)}

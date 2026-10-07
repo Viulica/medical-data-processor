@@ -9813,6 +9813,12 @@ def process_unified_background(
     if cpt_use_claude:
         enable_combined_cpt_icd = False  # the combined CPT+ICD call would bypass the Claude path
         logger.info(f"[Unified {job_id}] CPT for '{worktracker_group}' -> Claude CPT service")
+    # Same for ICD (CLAUDE_ICD=0 turns only ICD back to Gemini). The Claude subagents get the exact Gemini ICD
+    # prompt + custom instructions + per-chart CPT guidance, plus the ICD-10 Codes connector.
+    icd_use_claude = bool(enable_icd and os.environ.get("CLAUDE_CPT_URL") and os.environ.get("CLAUDE_ICD", "1") != "0")
+    if icd_use_claude:
+        enable_combined_cpt_icd = False
+        logger.info(f"[Unified {job_id}] ICD for '{worktracker_group}' -> Claude coding service")
 
     # ==================== HARDCODED PER-GROUP EXTRACTION ROUTING ====================
     # Route EXTRACTION (not CPT) per worktracker group to a specific model. Groups
@@ -9937,7 +9943,7 @@ def process_unified_background(
             # Import prediction functions
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, pdf_pages_to_base64_images
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, predict_icd_codes_from_pdfs_claude, pdf_pages_to_base64_images
             
             # OPTIMIZATION: Pre-extract and cache PDF images to share between CPT and ICD
             # This avoids extracting the same PDFs twice when both use vision mode
@@ -10258,7 +10264,7 @@ def process_unified_background(
                     
                     # Note: No image cache here since extraction+ICD parallel doesn't share with CPT
                     # cpt_lookup is populated by the main thread after CPT completes (serial mode only)
-                    result = predict_icd_codes_from_pdfs_api(
+                    result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path_local,
                         n_pages=icd_n_pages,
@@ -10383,7 +10389,7 @@ def process_unified_background(
             # Import ICD prediction function
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_icd_codes_from_pdfs_api
+            from predict_general import predict_icd_codes_from_pdfs_api, predict_icd_codes_from_pdfs_claude
             
             # Thread-safe progress tracking
             import threading
@@ -10549,7 +10555,7 @@ def process_unified_background(
                             icd_total[0] = total
                         update_progress()
                     
-                    result = predict_icd_codes_from_pdfs_api(
+                    result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path_local,
                         n_pages=icd_n_pages,
@@ -10730,7 +10736,7 @@ def process_unified_background(
             # Import prediction functions
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, pdf_pages_to_base64_images
+            from predict_general import predict_codes_from_pdfs_api, predict_icd_codes_from_pdfs_api, predict_icd_codes_from_pdfs_claude, pdf_pages_to_base64_images
             
             # OPTIMIZATION: Pre-extract and cache PDF images to share between CPT and ICD
             pdf_image_cache = {}  # filename -> list of base64 images
@@ -10872,7 +10878,7 @@ def process_unified_background(
                         icd_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
                     # Use shared image cache (optimization)
-                    result = predict_icd_codes_from_pdfs_api(
+                    result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path,
                         n_pages=icd_n_pages,
@@ -11166,7 +11172,7 @@ def process_unified_background(
             # Import prediction function
             general_coding_path = Path(__file__).parent / "general-coding"
             sys.path.insert(0, str(general_coding_path))
-            from predict_general import predict_icd_codes_from_pdfs_api
+            from predict_general import predict_icd_codes_from_pdfs_api, predict_icd_codes_from_pdfs_claude
             
             # Create output path with .csv extension
             icd_csv_path = str(temp_dir / "icd_predictions.csv")
@@ -11189,7 +11195,7 @@ def process_unified_background(
                 job.message = f"ICD prediction: {message}"
             
             # Run ICD prediction (uses selected vision model)
-            success = predict_icd_codes_from_pdfs_api(
+            success = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
                 pdf_folder=str(temp_dir / "input"),
                 output_file=icd_csv_path,
                 n_pages=icd_n_pages,
