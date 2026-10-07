@@ -2265,6 +2265,110 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     return True
 
 
+def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=None, custom_instructions=None,
+                                   fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6):
+    """
+    Predict main-line anesthesia CPT codes with the Claude CPT service (backend/claude_cpt/server.py):
+    one Claude Code session per batch that fans the charts out to Sonnet subagents.
+    Enabled by the CLAUDE_CPT_URL env var. Charts the service does not return a code for
+    (or the whole batch, if the service fails) fall back to the Gemini crosswalk agent.
+    Writes the SAME CSV schema as predict_codes_from_pdfs_agent.
+    """
+    import io
+    import shutil
+    import tempfile
+    import zipfile as _zip
+
+    base_url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/")
+    headers = {"X-Token": os.environ.get("CLAUDE_CPT_TOKEN", "")}
+    folder = Path(pdf_folder)
+    pdf_files = sorted({p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf" and "__MACOSX" not in str(p)},
+                       key=lambda p: p.name)
+    if not pdf_files:
+        logger.error(f"[claude-cpt] No PDF files found in {pdf_folder}")
+        return False
+
+    # Same rules text Gemini gets: code list + base CPT prompt + the group's custom instructions.
+    rules = ("You are a medical anesthesia CPT coder. Predict the most relevant anesthesia CPT code for "
+             "anesthesia billing for the procedure documented in each chart.\n\n"
+             f"Here is the reference list of valid anesthesia CPT codes:\n\n{load_cpt_codes()}\n\n"
+             f"{load_base_prompt('base_cpt_prompt') or ''}\n")
+    if custom_instructions and custom_instructions.strip():
+        rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}\n"
+
+    # Unique archive names so charts in different subfolders can't collide.
+    arcnames = {f"{i:04d}__{p.name}": p for i, p in enumerate(pdf_files)}
+    results = {}
+    try:
+        buf = io.BytesIO()
+        with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
+            for arc, p in arcnames.items():
+                z.write(p, arc)
+        r = requests.post(f"{base_url}/v1/jobs", headers=headers, timeout=300,
+                          files={"file": ("charts.zip", buf.getvalue(), "application/zip")},
+                          data={"rules": rules, "label": folder.name})
+        r.raise_for_status()
+        job_id = r.json()["job_id"]
+        logger.info(f"[claude-cpt] Submitted {len(pdf_files)} charts as job {job_id}")
+        deadline = time.time() + int(os.environ.get("CLAUDE_CPT_WAIT", "3600"))
+        while time.time() < deadline:
+            time.sleep(10)
+            j = requests.get(f"{base_url}/v1/jobs/{job_id}", headers=headers, timeout=60).json()
+            if progress_callback:
+                progress_callback(0, len(pdf_files), f"Claude coding {len(pdf_files)} charts ({j.get('status')})...")
+            if j.get("status") in ("done", "partial"):
+                for row in j.get("results", []):
+                    if row.get("code"):
+                        results[row["filename"]] = row
+                logger.info(f"[claude-cpt] Job {job_id} {j['status']}: {len(results)}/{len(pdf_files)} coded, "
+                            f"cost ${j.get('cost_usd')}, {j.get('duration_s')}s")
+                break
+        else:
+            logger.error(f"[claude-cpt] Job {job_id} timed out")
+    except Exception as e:
+        logger.error(f"[claude-cpt] Service call failed: {e}")
+
+    # Fallback: Gemini crosswalk agent for every chart Claude did not code.
+    missing = [arc for arc in arcnames if arc not in results]
+    fallback = {}
+    if missing:
+        logger.warning(f"[claude-cpt] {len(missing)} chart(s) without a Claude code; falling back to {fallback_model} agent")
+        tmp = Path(tempfile.mkdtemp(prefix="claude_cpt_fb_"))
+        try:
+            for arc in missing:
+                shutil.copy(arcnames[arc], tmp / arc)
+            fb_csv = tmp / "fallback.csv"
+            if predict_codes_from_pdfs_agent(str(tmp), str(fb_csv), n_pages=fallback_pages, model=fallback_model,
+                                             max_workers=max_workers, custom_instructions=custom_instructions):
+                for _, fr in pd.read_csv(fb_csv, dtype=str).fillna("").iterrows():
+                    fallback[fr["Patient Filename"]] = fr
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    rows = []
+    for arc, p in arcnames.items():
+        if arc in results:
+            r = results[arc]
+            code = str(r["code"]).strip().zfill(5) if str(r["code"]).strip().isdigit() else str(r["code"]).strip()
+            rows.append({"Patient Filename": p.name, "ASA Code": code, "Procedure Code": code,
+                         "Code Explanation": f"[{r.get('confidence', '')}] {r.get('procedure', '')}: {r.get('reasoning', '')}"[:2000],
+                         "Model Source": "claude_cpt:sonnet", "Error Message": ""})
+        elif arc in fallback:
+            fr = fallback[arc]
+            rows.append({"Patient Filename": p.name, "ASA Code": fr["ASA Code"], "Procedure Code": fr["Procedure Code"],
+                         "Code Explanation": fr["Code Explanation"], "Model Source": f"{fr['Model Source']}|CLAUDE_FALLBACK",
+                         "Error Message": fr["Error Message"]})
+        else:
+            rows.append({"Patient Filename": p.name, "ASA Code": "ERROR: no CPT prediction", "Procedure Code": "ERROR: no CPT prediction",
+                         "Code Explanation": "", "Model Source": "claude_cpt", "Error Message": "Claude and fallback returned no code"})
+    if progress_callback:
+        progress_callback(len(pdf_files), len(pdf_files), f"Processed {len(pdf_files)}/{len(pdf_files)} PDFs (Claude)")
+    pd.DataFrame(rows).to_csv(output_file, index=False)
+    logger.info(f"[claude-cpt] Saved {len(rows)} CPT predictions to {output_file} "
+                f"({len(results)} Claude, {len(fallback)} fallback)")
+    return True
+
+
 def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True):
     """
     Predict ASA codes from PDF files using OpenRouter vision model

@@ -9806,6 +9806,14 @@ def process_unified_background(
                         f"for '{worktracker_group}': {_e}; using caller-provided instructions."
                     )
 
+    # Claude CPT (self-hosted VPS only): when CLAUDE_CPT_URL is set, every CPT batch is coded by
+    # the Claude CPT service (one Claude Code session + Sonnet subagents), with the same rules and
+    # group instructions Gemini would get. Unset on Railway, so Railway keeps the routing above.
+    cpt_use_claude = bool(enable_cpt and os.environ.get("CLAUDE_CPT_URL"))
+    if cpt_use_claude:
+        enable_combined_cpt_icd = False  # the combined CPT+ICD call would bypass the Claude path
+        logger.info(f"[Unified {job_id}] CPT for '{worktracker_group}' -> Claude CPT service")
+
     # ==================== HARDCODED PER-GROUP EXTRACTION ROUTING ====================
     # Route EXTRACTION (not CPT) per worktracker group to a specific model. Groups
     # listed as a vLLM id run extraction on the self-hosted ngrok box (all field
@@ -10182,7 +10190,15 @@ def process_unified_background(
                             cpt_total[0] = total
                         update_progress()
 
-                    if cpt_use_agent:
+                    if cpt_use_claude:
+                        from predict_general import predict_codes_from_pdfs_claude
+                        result = predict_codes_from_pdfs_claude(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path_local,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                        )
+                    elif cpt_use_agent:
                         # Group routed to crosswalk-agent CPT (e.g. CHA)
                         from predict_general import predict_codes_from_pdfs_agent
                         result = predict_codes_from_pdfs_agent(
@@ -10807,7 +10823,15 @@ def process_unified_background(
                     else:
                         cpt_api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
                     
-                    if cpt_use_agent:
+                    if cpt_use_claude:
+                        from predict_general import predict_codes_from_pdfs_claude
+                        result = predict_codes_from_pdfs_claude(
+                            pdf_folder=str(temp_dir / "input"),
+                            output_file=cpt_csv_path,
+                            progress_callback=cpt_progress,
+                            custom_instructions=cpt_custom_instructions,
+                        )
+                    elif cpt_use_agent:
                         # Group routed to crosswalk-agent CPT (e.g. CHA)
                         from predict_general import predict_codes_from_pdfs_agent
                         result = predict_codes_from_pdfs_agent(
@@ -10991,7 +11015,15 @@ def process_unified_background(
                     job.message = f"CPT prediction: {message}"
                 
                 # Run CPT prediction with vision (uses selected model)
-                if cpt_use_agent:
+                if cpt_use_claude:
+                    from predict_general import predict_codes_from_pdfs_claude
+                    success = predict_codes_from_pdfs_claude(
+                        pdf_folder=str(temp_dir / "input"),
+                        output_file=cpt_csv_path,
+                        progress_callback=cpt_progress,
+                        custom_instructions=cpt_custom_instructions,
+                    )
+                elif cpt_use_agent:
                     # Group routed to crosswalk-agent CPT (e.g. CHA)
                     from predict_general import predict_codes_from_pdfs_agent
                     success = predict_codes_from_pdfs_agent(
