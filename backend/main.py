@@ -9547,24 +9547,7 @@ def _rotate_dun_last_pages(input_dir, logger_) -> int:
     return rotated_count
 
 
-def process_unified_background(*args, **kwargs):
-    """FAST MODE (disable_flex_tier) turns off the flex tier for the whole job: the extraction
-    subprocess gets DISABLE_FLEX_TIER=1, and CPT/ICD (in this process) skip flex while the job runs."""
-    fast = bool(kwargs.get("disable_flex_tier"))
-    if fast:
-        _gc = str(Path(__file__).parent / "general-coding")
-        if _gc not in sys.path:
-            sys.path.insert(0, _gc)
-        import predict_general
-        predict_general.fast_mode_begin()
-    try:
-        return _process_unified_background_impl(*args, **kwargs)
-    finally:
-        if fast:
-            predict_general.fast_mode_end()
-
-
-def _process_unified_background_impl(
+def process_unified_background(
     job_id: str,
     zip_path: str,
     input_zip_supabase_path: Optional[str],
@@ -10216,6 +10199,7 @@ def _process_unified_background_impl(
                     if cpt_use_claude:
                         from predict_general import predict_codes_from_pdfs_claude
                         result = predict_codes_from_pdfs_claude(
+                            fast_mode=disable_flex_tier,
                             pdf_folder=str(temp_dir / "input"),
                             output_file=cpt_csv_path_local,
                             progress_callback=cpt_progress,
@@ -10236,6 +10220,7 @@ def _process_unified_background_impl(
                     else:
                         # Use shared image cache if available (optimization)
                         result = predict_codes_from_pdfs_api(
+                            fast_mode=disable_flex_tier,
                             pdf_folder=str(temp_dir / "input"),
                             output_file=cpt_csv_path_local,
                             n_pages=cpt_vision_pages,
@@ -10282,6 +10267,7 @@ def _process_unified_background_impl(
                     # Note: No image cache here since extraction+ICD parallel doesn't share with CPT
                     # cpt_lookup is populated by the main thread after CPT completes (serial mode only)
                     result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
+                        fast_mode=disable_flex_tier,
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path_local,
                         n_pages=icd_n_pages,
@@ -10573,6 +10559,7 @@ def _process_unified_background_impl(
                         update_progress()
                     
                     result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
+                        fast_mode=disable_flex_tier,
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path_local,
                         n_pages=icd_n_pages,
@@ -10849,6 +10836,7 @@ def _process_unified_background_impl(
                     if cpt_use_claude:
                         from predict_general import predict_codes_from_pdfs_claude
                         result = predict_codes_from_pdfs_claude(
+                            fast_mode=disable_flex_tier,
                             pdf_folder=str(temp_dir / "input"),
                             output_file=cpt_csv_path,
                             progress_callback=cpt_progress,
@@ -10869,6 +10857,7 @@ def _process_unified_background_impl(
                     else:
                         # Use shared image cache (optimization)
                         result = predict_codes_from_pdfs_api(
+                            fast_mode=disable_flex_tier,
                             pdf_folder=str(temp_dir / "input"),
                             output_file=cpt_csv_path,
                             n_pages=cpt_vision_pages,
@@ -10896,6 +10885,7 @@ def _process_unified_background_impl(
                     
                     # Use shared image cache (optimization)
                     result = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
+                        fast_mode=disable_flex_tier,
                         pdf_folder=str(temp_dir / "input"),
                         output_file=icd_csv_path,
                         n_pages=icd_n_pages,
@@ -10967,6 +10957,7 @@ def _process_unified_background_impl(
                 job.message = f'Combined CPT+ICD: {message}'
 
             success = predict_cpt_and_icd_from_pdfs_api(
+                fast_mode=disable_flex_tier,
                 pdf_folder=str(temp_dir / 'input'),
                 output_file=combined_csv_path,
                 n_pages=max(cpt_vision_pages, icd_n_pages),
@@ -11041,6 +11032,7 @@ def _process_unified_background_impl(
                 if cpt_use_claude:
                     from predict_general import predict_codes_from_pdfs_claude
                     success = predict_codes_from_pdfs_claude(
+                        fast_mode=disable_flex_tier,
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path,
                         progress_callback=cpt_progress,
@@ -11060,6 +11052,7 @@ def _process_unified_background_impl(
                     )
                 else:
                     success = predict_codes_from_pdfs_api(
+                        fast_mode=disable_flex_tier,
                         pdf_folder=str(temp_dir / "input"),
                         output_file=cpt_csv_path,
                         n_pages=cpt_vision_pages,
@@ -11213,6 +11206,7 @@ def _process_unified_background_impl(
             
             # Run ICD prediction (uses selected vision model)
             success = (predict_icd_codes_from_pdfs_claude if icd_use_claude else predict_icd_codes_from_pdfs_api)(
+                fast_mode=disable_flex_tier,
                 pdf_folder=str(temp_dir / "input"),
                 output_file=icd_csv_path,
                 n_pages=icd_n_pages,

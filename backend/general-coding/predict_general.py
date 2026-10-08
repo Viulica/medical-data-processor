@@ -35,31 +35,22 @@ ICD_CODE_CORRECTIONS = {
 
 import threading as _threading
 
-# FAST MODE: while any job runs with fast mode on, CPT/ICD calls skip the half-price flex tier and use
-# the standard tier. The extraction subprocess gets the same switch via the DISABLE_FLEX_TIER env var.
-# CPT/ICD run in this process, so this is a process-wide counter: other jobs that overlap a fast job
-# also run on the standard tier (faster, full price) until it finishes.
-_FAST_MODE_JOBS = 0
-_FAST_MODE_LOCK = _threading.Lock()
+# FAST MODE: a job with fast mode on skips the half-price flex tier for CPT/ICD and uses the standard
+# tier. Each batch function receives fast_mode and records it in the worker thread before coding a
+# chart, so only that job is affected. The extraction subprocess gets the same switch through the
+# DISABLE_FLEX_TIER env var, which also works here as a global kill switch.
+_FAST_LOCAL = _threading.local()
 
 
-def fast_mode_begin():
-    global _FAST_MODE_JOBS
-    with _FAST_MODE_LOCK:
-        _FAST_MODE_JOBS += 1
-
-
-def fast_mode_end():
-    global _FAST_MODE_JOBS
-    with _FAST_MODE_LOCK:
-        _FAST_MODE_JOBS = max(0, _FAST_MODE_JOBS - 1)
+def _set_fast_mode(on):
+    _FAST_LOCAL.on = bool(on)
 
 
 def _flex_allowed():
-    """False while a FAST MODE job is running or DISABLE_FLEX_TIER is set."""
+    """False when this thread is coding a FAST MODE job, or DISABLE_FLEX_TIER is set."""
     if os.environ.get("DISABLE_FLEX_TIER", "").strip().lower() in ("1", "true", "yes", "on"):
         return False
-    return _FAST_MODE_JOBS == 0
+    return not getattr(_FAST_LOCAL, "on", False)
 
 
 def correct_icd_codes(result_dict):
@@ -2353,7 +2344,8 @@ def _claude_pdf_files(pdf_folder):
 
 
 def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=None, custom_instructions=None,
-                                   fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6):
+                                   fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6,
+                                   fast_mode=False):
     """
     Main-line anesthesia CPT with the Claude coding service. The subagents get EXACTLY the prompt the Gemini
     one-shot CPT call gets (_get_cpt_prompt with the code list + the same custom instructions), plus the
@@ -2420,7 +2412,7 @@ def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=No
 
 def predict_icd_codes_from_pdfs_claude(pdf_folder, output_file, n_pages=1, model="google/gemini-3.7-flash", api_key=None,
                                        max_workers=6, progress_callback=None, custom_instructions=None,
-                                       image_cache=None, cpt_lookup=None):
+                                       image_cache=None, cpt_lookup=None, fast_mode=False):
     """
     ICD1-ICD4 with the Claude coding service. The subagents get EXACTLY the prompt the Gemini one-shot ICD call
     gets: _get_icd_prompt() + the same ADDITIONAL CUSTOM INSTRUCTIONS + the same per-chart predicted-CPT guidance
@@ -2466,7 +2458,8 @@ def predict_icd_codes_from_pdfs_claude(pdf_folder, output_file, n_pages=1, model
             fb_csv = tmp / "fallback.csv"
             if predict_icd_codes_from_pdfs_api(str(tmp), str(fb_csv), n_pages=n_pages, model=model,
                                                api_key=api_key, max_workers=max_workers,
-                                               custom_instructions=custom_instructions, cpt_lookup=fb_lookup or None):
+                                               custom_instructions=custom_instructions, cpt_lookup=fb_lookup or None,
+                                               fast_mode=fast_mode):
                 for _, fr in pd.read_csv(fb_csv, dtype=str).fillna("").iterrows():
                     fallback[fr["Patient Filename"]] = fr
         finally:
@@ -2501,7 +2494,7 @@ def predict_icd_codes_from_pdfs_claude(pdf_folder, output_file, n_pages=1, model
     return True
 
 
-def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True):
+def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, include_code_list=True, image_cache=None, web_search=True, fast_mode=False):
     """
     Predict ASA codes from PDF files using OpenRouter vision model
 
@@ -2572,6 +2565,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
 
         # Process each PDF
         def process_pdf(idx, pdf_path):
+            _set_fast_mode(fast_mode)  # FAST MODE is per job: set it in this worker thread
             filename = pdf_path.name
 
             try:
@@ -2677,7 +2671,7 @@ def predict_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="opena
         return False
 
 
-def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None, cpt_lookup=None):
+def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="openai/gpt-5.2:online", api_key=None, max_workers=3, progress_callback=None, custom_instructions=None, image_cache=None, cpt_lookup=None, fast_mode=False):
     """
     Predict ICD codes from PDF files using OpenRouter vision model
 
@@ -2743,6 +2737,7 @@ def predict_icd_codes_from_pdfs_api(pdf_folder, output_file, n_pages=1, model="o
         
         # Process each PDF
         def process_pdf(idx, pdf_path):
+            _set_fast_mode(fast_mode)  # FAST MODE is per job: set it in this worker thread
             filename = pdf_path.name
             
             try:
@@ -3330,6 +3325,7 @@ def predict_cpt_and_icd_from_pdfs_api(
     icd_custom_instructions=None,
     include_code_list=True,
     image_cache=None,
+    fast_mode=False,
 ):
     """
     Predict both CPT and ICD codes from PDFs in a single AI call per PDF.
@@ -3365,6 +3361,7 @@ def predict_cpt_and_icd_from_pdfs_api(
             progress_callback(0, len(pdf_files), "Starting combined CPT+ICD predictions...")
 
         def process_pdf(idx, pdf_path):
+            _set_fast_mode(fast_mode)  # FAST MODE is per job: set it in this worker thread
             filename = pdf_path.name
             try:
                 if image_cache and filename in image_cache:
