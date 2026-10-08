@@ -12735,7 +12735,7 @@ export default {
  },
 
  async pollUnifiedJobStatus() {
- const maxAttempts = 600; // 30 minutes with 3-second intervals
+ const maxAttempts = 2400; // 2 hours with 3-second intervals (big batches can run past 30 min)
  let attempts = 0;
 
  const checkStatus = async () =>{
