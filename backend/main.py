@@ -9547,7 +9547,24 @@ def _rotate_dun_last_pages(input_dir, logger_) -> int:
     return rotated_count
 
 
-def process_unified_background(
+def process_unified_background(*args, **kwargs):
+    """FAST MODE (disable_flex_tier) turns off the flex tier for the whole job: the extraction
+    subprocess gets DISABLE_FLEX_TIER=1, and CPT/ICD (in this process) skip flex while the job runs."""
+    fast = bool(kwargs.get("disable_flex_tier"))
+    if fast:
+        _gc = str(Path(__file__).parent / "general-coding")
+        if _gc not in sys.path:
+            sys.path.insert(0, _gc)
+        import predict_general
+        predict_general.fast_mode_begin()
+    try:
+        return _process_unified_background_impl(*args, **kwargs)
+    finally:
+        if fast:
+            predict_general.fast_mode_end()
+
+
+def _process_unified_background_impl(
     job_id: str,
     zip_path: str,
     input_zip_supabase_path: Optional[str],

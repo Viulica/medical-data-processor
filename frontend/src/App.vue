@@ -1389,12 +1389,12 @@
  type="checkbox"
  v-model="unifiedDisableFlexTier"
  />
- Disable flex tier (use standard tier)
+ FAST MODE
  </label>
  <small class="help-text">
- Forces extraction to OpenRouter's standard tier instead of the
- half-price flex tier. Slower/costlier but avoids flex 503 overloads
- and quality dips under load.
+ Skips the half-price flex tier everywhere (extraction, CPT and ICD) and
+ uses the standard tier: no waiting in the flex queue, at full price.
+ Does not change the Claude coders.
  </small>
  </div>
  <div class="setting-group" style="margin-top: 15px">

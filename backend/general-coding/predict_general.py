@@ -33,6 +33,35 @@ ICD_CODE_CORRECTIONS = {
     "Z86.010": "Z86.0100",
 }
 
+import threading as _threading
+
+# FAST MODE: while any job runs with fast mode on, CPT/ICD calls skip the half-price flex tier and use
+# the standard tier. The extraction subprocess gets the same switch via the DISABLE_FLEX_TIER env var.
+# CPT/ICD run in this process, so this is a process-wide counter: other jobs that overlap a fast job
+# also run on the standard tier (faster, full price) until it finishes.
+_FAST_MODE_JOBS = 0
+_FAST_MODE_LOCK = _threading.Lock()
+
+
+def fast_mode_begin():
+    global _FAST_MODE_JOBS
+    with _FAST_MODE_LOCK:
+        _FAST_MODE_JOBS += 1
+
+
+def fast_mode_end():
+    global _FAST_MODE_JOBS
+    with _FAST_MODE_LOCK:
+        _FAST_MODE_JOBS = max(0, _FAST_MODE_JOBS - 1)
+
+
+def _flex_allowed():
+    """False while a FAST MODE job is running or DISABLE_FLEX_TIER is set."""
+    if os.environ.get("DISABLE_FLEX_TIER", "").strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return _FAST_MODE_JOBS == 0
+
+
 def correct_icd_codes(result_dict):
     """Apply hard corrections to ICD code predictions."""
     for key in ("ICD1", "ICD2", "ICD3", "ICD4"):
@@ -229,7 +258,7 @@ Respond with ONLY the JSON object, nothing else."""
             types.Tool(googleSearch=types.GoogleSearch()),
         ]
 
-    use_flex = True  # Start with flex tier (50% cheaper)
+    use_flex = _flex_allowed()  # Start with flex tier (50% cheaper)
     FLEX_TIMEOUT = 600  # 10 minutes
 
     # Retry mechanism with exponential backoff
@@ -813,8 +842,9 @@ Respond with ONLY the JSON object, nothing else."""
     # Gemini 3 models via OpenRouter: no reasoning, flex tier for cost savings
     if "gemini-3" in openrouter_model:
         payload["provider"] = {"sort": "throughput"}
-        # NOTE: serviceTier=flex is set on Gemini 3 to halve the price
-        payload["service_tier"] = "flex"
+        # NOTE: serviceTier=flex is set on Gemini 3 to halve the price (skipped in FAST MODE)
+        if _flex_allowed():
+            payload["service_tier"] = "flex"
 
     # Enable web search if requested (for CPT code validation)
     if web_search:
@@ -975,7 +1005,8 @@ Respond with ONLY the JSON object, nothing else."""
                 extra = {}
                 if "gemini-3" in openrouter_model:
                     extra["provider"] = {"sort": "throughput"}
-                    extra["service_tier"] = "flex"
+                    if _flex_allowed():
+                        extra["service_tier"] = "flex"
                 plugins = [{"id": "web"}] if web_search else None
                 pdf_response, pdf_err = _openrouter_pdf_fallback(
                     prompt, pdf_bytes, pdf_filename, openrouter_model, api_key_value,
@@ -1238,7 +1269,7 @@ Respond with ONLY the JSON object, nothing else."""
         types.Tool(googleSearch=types.GoogleSearch()),
     ]
     
-    use_flex = True  # Start with flex tier (50% cheaper)
+    use_flex = _flex_allowed()  # Start with flex tier (50% cheaper)
     FLEX_TIMEOUT = 600  # 10 minutes
 
     # Retry mechanism with exponential backoff
@@ -1599,7 +1630,8 @@ Respond with ONLY the JSON object, nothing else."""
     # Flex tier for Gemini 3 models via OpenRouter (half-price). No reasoning effort is
     # sent: the model's default reasons far less than "high" with the same accuracy.
     if "gemini-3" in openrouter_model:
-        payload["service_tier"] = "flex"
+        if _flex_allowed():
+            payload["service_tier"] = "flex"
         payload["provider"] = {"sort": "throughput"}
 
     # Enable web search for ICD code validation
@@ -1780,7 +1812,8 @@ Respond with ONLY the JSON object, nothing else."""
                 logger.warning(f"ICD image payload too large (status={status_code}); falling back to raw PDF transport")
                 extra = {}
                 if "gemini-3" in openrouter_model:
-                    extra["service_tier"] = "flex"
+                    if _flex_allowed():
+                        extra["service_tier"] = "flex"
                     extra["provider"] = {"sort": "throughput"}
                 pdf_response, pdf_err = _openrouter_pdf_fallback(
                     prompt, pdf_bytes, pdf_filename, openrouter_model, api_key_value,
@@ -3037,7 +3070,7 @@ Respond with ONLY the JSON object, nothing else."""
         thinking_config = types.ThinkingConfig(thinking_budget=-1)
 
     tools = [types.Tool(googleSearch=types.GoogleSearch())]
-    use_flex = True
+    use_flex = _flex_allowed()
     FLEX_TIMEOUT = 600
 
     max_retries = 5
