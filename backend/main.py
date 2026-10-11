@@ -10204,6 +10204,10 @@ def process_unified_background(
                             output_file=cpt_csv_path_local,
                             progress_callback=cpt_progress,
                             custom_instructions=cpt_custom_instructions,
+                            # Serial mode: ICD starts after CPT, so code both in one pass.
+                            with_icd=icd_use_claude and icd_use_cpt_guidance and enable_icd,
+                            icd_custom_instructions=icd_custom_instructions,
+                            icd_cpt_guidance=True,
                         )
                     elif cpt_use_agent:
                         # Group routed to crosswalk-agent CPT (e.g. CHA)
@@ -11037,6 +11041,11 @@ def process_unified_background(
                         output_file=cpt_csv_path,
                         progress_callback=cpt_progress,
                         custom_instructions=cpt_custom_instructions,
+                        # Step 3 (ICD) runs after this, so code both in one pass; this path's ICD
+                        # step has no predicted-CPT guidance, so neither does the one-pass job.
+                        with_icd=icd_use_claude and enable_icd and not icd_csv_path,
+                        icd_custom_instructions=icd_custom_instructions,
+                        icd_cpt_guidance=False,
                     )
                 elif cpt_use_agent:
                     # Group routed to crosswalk-agent CPT (e.g. CHA)

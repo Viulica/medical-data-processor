@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Crosswalk CLI for the Claude CPT coders (official 2025 ASA Crosswalk).
 
-  python3 xwalk.py search <term> [<term> ...]   rows whose surgical descriptor contains ALL terms
-  python3 xwalk.py lookup <anesthesia code>      descriptor, coding notes, example procedures
-  python3 xwalk.py surg <surgical CPT>           exact surgical CPT -> anesthesia mapping
+  python3 xwalk.py search <term> [<term> ...] [-- <term> ...]   rows whose surgical descriptor contains ALL terms;
+                                                               separate several searches with --
+  python3 xwalk.py lookup <anesthesia code> [<code> ...]        descriptor, coding notes, example procedures
+  python3 xwalk.py surg <surgical CPT> [<CPT> ...]              exact surgical CPT -> anesthesia mapping
 """
 import json
 import os
@@ -65,26 +66,41 @@ def main(argv):
     dm = anes_desc_map(d)
     cmd, args = argv[1], argv[2:]
     if cmd == "search":
-        m = pd.Series(True, index=d.index)
-        for t in args:
-            m &= d['sd'].str.contains(t.lower(), regex=False, na=False)
-        hits = d[m]
-        res = {"terms": args, "n_matches": int(m.sum()), "rows": [row(r, dm) for _, r in hits.head(25).iterrows()]}
+        queries, cur = [], []
+        for a in args + ["--"]:
+            if a == "--":
+                if cur:
+                    queries.append(cur)
+                cur = []
+            else:
+                cur.append(a)
+        res = []
+        for terms in queries:
+            m = pd.Series(True, index=d.index)
+            for t in terms:
+                m &= d['sd'].str.contains(t.lower(), regex=False, na=False)
+            res.append({"terms": terms, "n_matches": int(m.sum()), "rows": [row(r, dm) for _, r in d[m].head(25).iterrows()]})
     elif cmd == "lookup":
-        code = args[0].zfill(5)
-        sub = d[d['anes'] == code]
-        notes = []
-        for _, r in sub.iterrows():
-            for col in ('comment', 'instruction'):
-                v = _clean(r.get(col))
-                if v and v[:300] not in notes:
-                    notes.append(v[:300])
-        res = {"anes": code, "found": not sub.empty, "anes_desc": dm.get(code, ""),
-               "num_surgical_procedures": len(sub), "coding_notes": notes[:8],
-               "examples": [f"{r['surg']}: {_clean(r['surg_desc'])[:90]}" for _, r in sub.head(15).iterrows()]}
+        res = []
+        for a in args:
+            code = a.zfill(5)
+            sub = d[d['anes'] == code]
+            notes = []
+            for _, r in sub.iterrows():
+                for col in ('comment', 'instruction'):
+                    v = _clean(r.get(col))
+                    if v and v[:300] not in notes:
+                        notes.append(v[:300])
+            res.append({"anes": code, "found": not sub.empty, "anes_desc": dm.get(code, ""),
+                        "num_surgical_procedures": len(sub), "coding_notes": notes[:8],
+                        "examples": [f"{r['surg']}: {_clean(r['surg_desc'])[:90]}" for _, r in sub.head(15).iterrows()]})
     else:
-        sub = d[d['surg'] == args[0].strip()]
-        res = {"surg": args[0], "found": not sub.empty, "rows": [row(r, dm) for _, r in sub.iterrows()]}
+        res = []
+        for a in args:
+            sub = d[d['surg'] == a.strip()]
+            res.append({"surg": a, "found": not sub.empty, "rows": [row(r, dm) for _, r in sub.iterrows()]})
+    if len(res) == 1:
+        res = res[0]
     print(json.dumps(res, indent=1))
     return 0
 

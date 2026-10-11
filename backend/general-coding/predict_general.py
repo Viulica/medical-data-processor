@@ -2289,11 +2289,12 @@ def predict_codes_from_pdfs_agent(pdf_folder, output_file, n_pages=8, model="goo
     return True
 
 
-def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progress_callback=None):
+def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progress_callback=None, extra=None):
     """
     Send charts to the Claude coding service (backend/claude_cpt/server.py, enabled by CLAUDE_CPT_URL):
-    one Claude Code session per batch that fans the charts out to Sonnet subagents.
+    one Claude Code session per batch of charts.
     pdf_files: {unique archive name: Path}. guidance: {archive name: per-chart prompt addendum}.
+    extra: more form fields (task cpticd: rules_icd, cpt_guidance).
     Returns {archive name: result dict} for the charts the service coded (empty on any failure).
     """
     import io
@@ -2301,7 +2302,7 @@ def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progres
 
     base_url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/")
     headers = {"X-Token": os.environ.get("CLAUDE_CPT_TOKEN", "")}
-    key = "code" if task == "cpt" else "ICD1"
+    key = "ICD1" if task == "icd" else "code"
     results = {}
     try:
         buf = io.BytesIO()
@@ -2311,7 +2312,7 @@ def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progres
         r = requests.post(f"{base_url}/v1/jobs", headers=headers, timeout=300,
                           files={"file": ("charts.zip", buf.getvalue(), "application/zip")},
                           data={"rules": rules, "task": task, "label": label,
-                                "guidance": json.dumps(guidance or {})})
+                                "guidance": json.dumps(guidance or {}), **(extra or {})})
         r.raise_for_status()
         job_id = r.json()["job_id"]
         logger.info(f"[claude-{task}] Submitted {len(pdf_files)} charts as job {job_id}")
@@ -2335,6 +2336,12 @@ def _claude_service_run(pdf_files, task, rules, guidance=None, label="", progres
     return results
 
 
+# ICD results from a one-pass CPT+ICD Claude job, keyed by the resolved PDF folder. The CPT step fills it and
+# the ICD step for the same folder uses it instead of sending the charts to Claude a second time.
+_CLAUDE_ICD_FROM_CPT = {}
+_CLAUDE_ICD_LOCK = _threading.Lock()
+
+
 def _claude_pdf_files(pdf_folder):
     folder = Path(pdf_folder)
     pdfs = sorted({p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf" and "__MACOSX" not in str(p)},
@@ -2345,12 +2352,17 @@ def _claude_pdf_files(pdf_folder):
 
 def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=None, custom_instructions=None,
                                    fallback_model="google/gemini-3.7-flash", fallback_pages=8, max_workers=6,
-                                   fast_mode=False):
+                                   fast_mode=False, with_icd=False, icd_custom_instructions=None, icd_cpt_guidance=True):
     """
-    Main-line anesthesia CPT with the Claude coding service. The subagents get EXACTLY the prompt the Gemini
+    Main-line anesthesia CPT with the Claude coding service. The sessions get EXACTLY the prompt the Gemini
     one-shot CPT call gets (_get_cpt_prompt with the code list + the same custom instructions), plus the
     crosswalk tools. Charts without a Claude code fall back to the Gemini crosswalk agent.
     Writes the SAME CSV schema as predict_codes_from_pdfs_agent.
+
+    with_icd: code ICD in the same pass (each chart is read once), with EXACTLY the ICD prompt
+    predict_icd_codes_from_pdfs_claude would send (+ icd_custom_instructions, + the predicted-CPT block when
+    icd_cpt_guidance). The ICD results are kept for the next predict_icd_codes_from_pdfs_claude call on this
+    folder, so ICD must run AFTER this call returns.
     """
     import shutil
     import tempfile
@@ -2364,8 +2376,19 @@ def predict_codes_from_pdfs_claude(pdf_folder, output_file, progress_callback=No
     if rules:
         if custom_instructions and custom_instructions.strip():
             rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
-        results = _claude_service_run(arcnames, "cpt", rules, label=Path(pdf_folder).name,
-                                      progress_callback=progress_callback)
+        icd_rules = _get_icd_prompt() if with_icd else None
+        if icd_rules:
+            if icd_custom_instructions and icd_custom_instructions.strip():
+                icd_rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{icd_custom_instructions.strip()}"
+            results = _claude_service_run(arcnames, "cpticd", rules, label=Path(pdf_folder).name,
+                                          progress_callback=progress_callback,
+                                          extra={"rules_icd": icd_rules, "cpt_guidance": "1" if icd_cpt_guidance else "0"})
+            with _CLAUDE_ICD_LOCK:
+                _CLAUDE_ICD_FROM_CPT[str(Path(pdf_folder).resolve())] = {
+                    arc: r for arc, r in results.items() if str(r.get("ICD1", "")).strip()}
+        else:
+            results = _claude_service_run(arcnames, "cpt", rules, label=Path(pdf_folder).name,
+                                          progress_callback=progress_callback)
     else:
         logger.error("[claude-cpt] base_cpt_prompt not in the database; using the Gemini agent for every chart")
 
@@ -2429,7 +2452,13 @@ def predict_icd_codes_from_pdfs_claude(pdf_folder, output_file, n_pages=1, model
         return False
     rules = _get_icd_prompt()
     results = {}
-    if rules:
+    with _CLAUDE_ICD_LOCK:
+        from_cpt = _CLAUDE_ICD_FROM_CPT.pop(str(Path(pdf_folder).resolve()), None)
+    if from_cpt is not None:
+        # Already coded in the one-pass CPT+ICD job; only the charts it missed fall back below.
+        results = {arc: r for arc, r in from_cpt.items() if arc in arcnames}
+        logger.info(f"[claude-icd] Using {len(results)}/{len(arcnames)} ICD results from the one-pass CPT+ICD job")
+    elif rules:
         if custom_instructions and custom_instructions.strip():
             rules += f"\n\nADDITIONAL CUSTOM INSTRUCTIONS:\n{custom_instructions.strip()}"
         guidance = {}

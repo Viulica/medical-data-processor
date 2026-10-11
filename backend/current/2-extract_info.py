@@ -110,6 +110,166 @@ import threading as _threading
 _VLLM_MAX_CONCURRENCY = int(os.environ.get("VLLM_MAX_CONCURRENCY", "7"))
 _VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 
+# ── Claude extraction route (self-hosted server only) ─────────────────────────
+# CLAUDE_EXTRACT=1 (with CLAUDE_CPT_URL set) reads every field tier with Claude on the Claude coding
+# service's subscription: POST /v1/complete, one call per tier as today, with the exact prompt Gemini
+# gets plus the page images. Normal, high, low and cheap tiers use Haiku; very-high uses Sonnet.
+# Haiku also rates how legible An Start / An Stop are, and times it is unsure of are re-read by Sonnet
+# from zoomed-in quarter-page tiles. Any failed Claude call falls back to the model the tier used before.
+CLAUDE_EXTRACT_DPI = int(os.environ.get("CLAUDE_EXTRACT_DPI", "150"))
+TIME_FIELDS = ("An Start", "An Stop")
+TIME_TILE_PAGES = int(os.environ.get("CLAUDE_TIME_TILE_PAGES", "6"))
+_CLAUDE_FALLBACK = {}  # "claude:<model>:<tier>" -> model that tier used before
+# Claude calls in flight from this process. The service has its own cap; waiting here instead of in its queue
+# keeps a large job's calls from timing out while they wait.
+_CLAUDE_SEMAPHORE = _threading.BoundedSemaphore(int(os.environ.get("CLAUDE_EXTRACT_CONCURRENCY", "8")))
+TIME_NOTE = ('\n\nIn the same JSON object also add the key "_time_legibility" with one entry per time field above '
+             '(An Start / An Stop): {"An Start": "clear|ambiguous|illegible|not_found", "An Stop": "..."}. '
+             '"clear" means you are certain of every digit (typed times are always clear); "ambiguous" means at least '
+             'one handwritten digit could plausibly be read another way; "illegible" means you cannot read it; '
+             '"not_found" means the time is not on the record. Be honest: it is better to flag a hard value than to guess. '
+             'Also add the key "_time_page": the number of the page the times are written on (1 = the first image).')
+TILE_NOTE = ("\n\nThe images are ZOOMED-IN quarter-page views, labelled with their page and position. Read handwritten "
+             "digits carefully, one character at a time.")
+
+
+def claude_extract_enabled():
+    return bool(os.environ.get("CLAUDE_CPT_URL")) and os.environ.get("CLAUDE_EXTRACT", "0").strip() == "1"
+
+
+def _jpeg_b64(pix):
+    return base64.b64encode(pix.tobytes("jpeg", jpg_quality=80)).decode()
+
+
+def _parse_json_object(text):
+    """The JSON object in a model reply (code fences and stray text around it tolerated), or None."""
+    if not text:
+        return None
+    t = text.strip()
+    try:
+        d = json.loads(t[t.find("{"):t.rfind("}") + 1])
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def extract_with_claude(patient_pdf_path, pdf_filename, extraction_prompt, which, field_name_for_log=None, tiles=None):
+    """One Claude call (which = haiku|sonnet) through the Claude coding service. Returns the JSON reply text,
+    or None on failure. tiles: 0-based page numbers sent as 300-DPI quarter pages instead of whole pages."""
+    import fitz
+    import requests
+    label = f" [{field_name_for_log}]" if field_name_for_log else ""
+    if not tiles and any(f"=== {f} ===" in extraction_prompt for f in TIME_FIELDS):
+        extraction_prompt += TIME_NOTE
+    content = []
+    try:
+        doc = fitz.open(patient_pdf_path)
+        for i, page in enumerate(doc):
+            if tiles is not None:
+                if i not in tiles:
+                    continue
+                r = page.rect
+                for y0, x0 in ((0, 0), (0, 1), (1, 0), (1, 1)):
+                    clip = fitz.Rect(r.x0 + x0 * r.width / 2, r.y0 + y0 * r.height / 2,
+                                     r.x0 + (x0 + 1) * r.width / 2, r.y0 + (y0 + 1) * r.height / 2)
+                    content.append({"type": "text", "text": f"page {i + 1}, {'top' if y0 == 0 else 'bottom'}-"
+                                                            f"{'left' if x0 == 0 else 'right'} quarter"})
+                    content.append({"type": "image", "data": _jpeg_b64(page.get_pixmap(dpi=300, clip=clip))})
+            elif i < 100:
+                content.append({"type": "image", "data": _jpeg_b64(page.get_pixmap(dpi=CLAUDE_EXTRACT_DPI))})
+        doc.close()
+    except Exception as e:
+        print(f"    ❌ Claude{label}: could not render {pdf_filename}: {e}")
+        return None
+    content.append({"type": "text", "text": "Extract the fields from these pages as instructed. Reply with the JSON object only."})
+    url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/") + "/v1/complete"
+    body = {"model": which, "system": extraction_prompt + (TILE_NOTE if tiles is not None else ""), "content": content}
+    for attempt in (1, 2):
+        try:
+            with _CLAUDE_SEMAPHORE:
+                r = requests.post(url, json=body, headers={"X-Token": os.environ.get("CLAUDE_CPT_TOKEN", "")},
+                                  timeout=900)
+            if r.status_code == 200:
+                text = r.json().get("text", "")
+                if _parse_json_object(text) is not None:
+                    return text[text.find("{"):text.rfind("}") + 1]
+                print(f"    ⚠️  Claude {which}{label}: reply for {pdf_filename} is not JSON (try {attempt})")
+            else:
+                print(f"    ⚠️  Claude {which}{label}: HTTP {r.status_code} for {pdf_filename}: {r.text[:200]} (try {attempt})")
+        except Exception as e:
+            print(f"    ⚠️  Claude {which}{label}: {pdf_filename}: {e} (try {attempt})")
+    return None
+
+
+def _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, flags, excel_file_path):
+    """Sonnet re-reads, from zoomed tiles, the An Start / An Stop values Haiku rated ambiguous or illegible or left
+    empty. A value that is in the PDF's text layer is typed, so it is kept whatever Haiku rated it."""
+    import fitz
+    import re as _re
+    try:
+        with fitz.open(temp_patient_pdf) as doc:
+            text_layer = " ".join(p.get_text() for p in doc)
+    except Exception:
+        text_layer = ""
+
+    def typed(v):
+        m = _re.search(r"(?<![\d/])(\d{1,2}):(\d{2})", str(v or ""))
+        return bool(m) and _re.search(rf"(?<!\d)0?{int(m.group(1))}:{m.group(2)}(?!\d)", text_layer) is not None
+
+    unsure = [f for f in TIME_FIELDS if f in flags and not typed(merged_data.get(f)) and (
+        str(flags.get(f, "")).strip().lower() in ("ambiguous", "illegible") or not str(merged_data.get(f) or "").strip())]
+    if not unsure:
+        return
+    from field_definitions import get_field_definitions
+    defs = [f for f in get_field_definitions(excel_file_path) if f['name'] in unsure]
+    if not defs:
+        return
+    print(f"    🔎 Haiku unsure of {unsure} ({', '.join(str(flags.get(f)) for f in unsure)}) for {pdf_filename}; Sonnet re-reads them")
+    try:
+        page = int(flags.get("_time_page")) - 1
+    except (TypeError, ValueError):
+        page = -1
+    pages = [page] if page >= 0 else list(range(TIME_TILE_PAGES))
+    text = extract_with_claude(temp_patient_pdf, pdf_filename, generate_priority_fields_group_prompt(defs), "sonnet",
+                               field_name_for_log="time recheck", tiles=pages)
+    data = _parse_json_object(text) or {}
+    for f in unsure:
+        others = [merged_data.get(o) for o in TIME_FIELDS if o != f]
+        value = _put_time(data.get(f), [merged_data.get(f)] + others)
+        if value:
+            print(f"    ✅ Time '{f}' for {pdf_filename}: Haiku {merged_data.get(f)!r} -> Sonnet {data.get(f)!r} -> {value!r}")
+            merged_data[f] = value
+
+
+_TIME_RE = r"(?<![\d/])(\d{1,2}):(\d{2})(?::(\d{2}))?(\s*[AaPp][Mm])?"
+
+
+def _put_time(read, templates):
+    """Sonnet's reading of a time, written in the format (and with the date) of the first template value that
+    has a time; Sonnet reads from zoomed tiles that often do not show the date. read alone if no template fits."""
+    import re as _re
+    m = _re.search(_TIME_RE, str(read or ""))
+    if not m:
+        return None
+    h, mi, ap = int(m.group(1)), m.group(2), (m.group(4) or "").strip().upper()
+    if ap == "PM" and h < 12:
+        h += 12
+    if ap == "AM" and h == 12:
+        h = 0
+    for t in templates:
+        t = str(t or "")
+        tm = _re.search(_TIME_RE, t)
+        if not tm:
+            continue
+        if tm.group(4):
+            hh = f"{(h % 12) or 12}"
+            new = f"{hh.zfill(len(tm.group(1)))}:{mi}" + (":00" if tm.group(3) else "") + \
+                  ("PM" if h >= 12 else "AM").join(_re.split(r"[AaPp][Mm]", tm.group(4)))
+        else:
+            new = f"{str(h).zfill(len(tm.group(1)))}:{mi}" + (":00" if tm.group(3) else "")
+        return t[:tm.start()] + new + t[tm.end():]
+    return str(read).strip()
+
 def is_vllm_model(model_name):
     """True when the requested extraction model should route to the self-hosted vLLM box."""
     if not model_name:
@@ -828,6 +988,14 @@ def extract_info_from_patient_pdf(client, patient_pdf_path, pdf_filename, extrac
         field_name_for_log: Optional field name to include in log messages (for priority field extraction)
     """
     
+    if model.startswith("claude:"):
+        which = model.split(":")[1]
+        text = extract_with_claude(patient_pdf_path, pdf_filename, extraction_prompt, which, field_name_for_log)
+        if text is not None:
+            return text, f"claude-{which}"
+        model = _CLAUDE_FALLBACK.get(model) or "google/gemini-3.8-flash"
+        print(f"    🔁 Claude path failed for {pdf_filename}; falling back to {model}")
+
     # Self-hosted vLLM (ngrok) route — highest priority. On ANY vLLM failure, fall
     # through to the cloud path below so extraction never breaks on the local box.
     if is_vllm_model(model):
@@ -1077,6 +1245,11 @@ def process_single_patient_pdf_task(args):
     except json.JSONDecodeError as e:
         print(f"    ❌ Failed to parse normal fields response for {pdf_filename}: {str(e)}")
         return pdf_filename, None, temp_patient_pdf, order_index
+    # Claude extraction: Haiku's legibility ratings of An Start / An Stop, from whichever call read them.
+    time_flags = merged_data.pop("_time_legibility", None)
+    time_flags = dict(time_flags) if isinstance(time_flags, dict) else {}
+    if merged_data.get("_time_page") is not None:
+        time_flags["_time_page"] = merged_data.pop("_time_page")
     
     # Extract priority fields (some grouped into a single call) and merge into the result
     if priority_fields:
@@ -1114,6 +1287,10 @@ def process_single_patient_pdf_task(args):
                     cleaned_priority = cleaned_priority.strip()
 
                     priority_data = json.loads(cleaned_priority)
+                    if isinstance(priority_data.get("_time_legibility"), dict):
+                        time_flags.update(priority_data["_time_legibility"])
+                        if priority_data.get("_time_page") is not None:
+                            time_flags["_time_page"] = priority_data["_time_page"]
 
                     for field_name in group_names:
                         if field_name in priority_data:
@@ -1223,7 +1400,7 @@ def process_single_patient_pdf_task(args):
         #    route cheap fields to the local box too so ALL extraction is on ngrok.
         _cheap_effective = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
         if not (_cheap_effective and is_vllm_model(_cheap_effective)):
-            _cheap_effective = CHEAP_MODEL
+            _cheap_effective = "claude:haiku:cheap" if claude_extract_enabled() else CHEAP_MODEL
         got = _extract_cheap_group(cheap_fields, _cheap_effective, "cheap")
         # 2) Any fields the cheap model didn't return -> one Gemini fallback call
         #    for just those, so nothing is silently dropped.
@@ -1281,6 +1458,9 @@ def process_single_patient_pdf_task(args):
                     print(f"    ❌ Failed to parse very-high-priority field '{field_name}' for {pdf_filename}: {str(e)}")
             else:
                 print(f"    ❌ Failed to extract very-high-priority field '{field_name}' for {pdf_filename}")
+
+    if time_flags and claude_extract_enabled():
+        _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, time_flags, excel_file_path)
 
     # Extract providers and/or insurance from PDF annotations if enabled
     if extract_providers_from_annotations:
@@ -1958,6 +2138,15 @@ if __name__ == "__main__":
             max_workers = _VLLM_MAX_CONCURRENCY
     elif _vllm_override:
         print(f"⚠️  EXTRACTION_VLLM_MODEL='{_vllm_override}' is not a recognized vLLM model id; ignoring.")
+
+    if claude_extract_enabled() and not (_vllm_override and is_vllm_model(_vllm_override)):
+        print(f"🟣 CLAUDE_EXTRACT=1 — every tier on Claude (Haiku; very-high on Sonnet); "
+              f"failed calls fall back to the models below")
+        _CLAUDE_FALLBACK.update({"claude:haiku:normal": model, "claude:haiku:priority": priority_model,
+                                 "claude:haiku:low": low_priority_model, "claude:haiku:cheap": CHEAP_MODEL,
+                                 "claude:sonnet:very_high": very_high_priority_model})
+        model, priority_model = "claude:haiku:normal", "claude:haiku:priority"
+        low_priority_model, very_high_priority_model = "claude:haiku:low", "claude:sonnet:very_high"
 
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")

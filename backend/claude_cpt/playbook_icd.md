@@ -5,19 +5,21 @@ group-specific rules, the predicted-CPT guidance) comes from rules.md and the ch
 playbook only adds HOW to read the chart and how to verify codes; it never overrides rules.md.
 
 ## Tools
-- `python3 pdftext.py <pdf>`: the chart's text, page by page. Pages marked NO TEXT LAYER (or garbled) must be
-  viewed with the Read tool (pages parameter). The production model sees the pages as images, so do not skip them.
-- ICD-10 Codes connector (tools named mcp__claude_ai_ICD-10_Codes__*):
-  - `search_codes`: find a code by description (or by code prefix)
-  - `lookup_code`: confirm the description and billability of a code
-  - `validate_code`: confirm the code is valid and billable; pass as_of = the date of service when the chart shows it
-  - `get_hierarchy` / `get_category`: find the specific billable child of a header code
+- Chart text: already extracted for your whole batch in the batch's `_text.md` file, page by page. Pages marked
+  NO TEXT LAYER (or whose text is garbled) must be viewed from the chart's PDF with the Read tool (pages parameter).
+  The production model sees the pages as images, so do not skip them. `python3 pdftext.py <pdf>` is only a
+  fallback if a chart's text is missing.
+- ICD-10-CM codes (official CMS code files, FY2026 and FY2027):
+  - `python3 icd10.py check --dos <MM/DD/YYYY> <code> [<code> ...]`: is each code valid and billable on the date of
+    service, its description, and for a non-billable header its billable codes. Check all of a chart's codes in one call.
+  - `python3 icd10.py search <term> [<term> ...] [-- <term> ...]`: billable codes whose description contains ALL the
+    terms; separate several searches with `--` to run them in one call.
 
 ## Method, per chart
 1. Read the whole chart. Find what rules.md tells you to look for (pre-op / post-op diagnosis, indication,
    findings, comorbidities, etc.).
 2. Choose ICD1-ICD4 exactly as rules.md (and the guidance file, if the chart has one) instructs.
-3. Verify EVERY code with the connector before writing it. If a code is not valid or not billable on the date
+3. Verify EVERY code with `icd10.py check` before writing it. If a code is not valid or not billable on the date
    of service, replace it with the documented, valid, billable code (never a guess the chart does not support).
 4. Write 1-2 sentences of reasoning per code, saying where in the chart it comes from.
 

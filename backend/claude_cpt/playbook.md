@@ -3,10 +3,12 @@
 Same method as the production crosswalk agent (cpt_agent.py), with the crosswalk tools exposed as a CLI.
 
 ## Tools (run with Bash from the job folder)
-- `python3 xwalk.py search <term> [<term> ...]`: crosswalk rows whose surgical descriptor contains ALL terms (anesthesia code, base units, alternates with descriptors, ASA comments/instructions)
-- `python3 xwalk.py lookup <anesthesia code>`: the code's descriptor, ASA coding notes, example surgical procedures
-- `python3 xwalk.py surg <surgical CPT>`: exact surgical CPT -> anesthesia mapping (use any surgical CPT printed in the chart)
-- `python3 pdftext.py <pdf>`: the chart's text, page by page. Pages marked NO TEXT LAYER (or garbled) must be viewed with the Read tool (pages parameter).
+- Chart text: already extracted for your whole batch in the batch's `_text.md` file, page by page. Pages marked
+  NO TEXT LAYER (or whose text is garbled) must be viewed from the chart's PDF with the Read tool (pages parameter).
+  `python3 pdftext.py <pdf>` is only a fallback if a chart's text is missing.
+- `python3 xwalk.py search <term> [<term> ...] [-- <term> ...]`: crosswalk rows whose surgical descriptor contains ALL terms (anesthesia code, base units, alternates with descriptors, ASA comments/instructions). Separate several searches with `--` to run them in one call.
+- `python3 xwalk.py lookup <code> [<code> ...]`: each anesthesia code's descriptor, ASA coding notes, example surgical procedures. Look up all the candidates you are comparing in ONE call.
+- `python3 xwalk.py surg <surgical CPT> [<surgical CPT> ...]`: exact surgical CPT -> anesthesia mapping (use every surgical CPT printed in the chart, in one call)
 
 ## Precedence (most important first)
 1. The CRITICAL CODING RULES in rules.md ALWAYS win. Do not let the crosswalk override an explicit rule.
@@ -16,8 +18,8 @@ Same method as the production crosswalk agent (cpt_agent.py), with the crosswalk
 ## Mandatory crosswalk protocol
 Never answer from memory. For every chart:
 1. Read the procedure actually PERFORMED (op note, procedure note, anesthesia record), not just what was scheduled. Note site, approach (open/laparoscopic/percutaneous/endoscopic), depth, variant, and obstetric context (labor epidural vs cesarean vs vaginal delivery).
-2. Search the crosswalk for the performed procedure (`search`, or `surg` with a printed surgical CPT).
-3. Verify the final code AND at least one competing candidate with `lookup`.
+2. Search the crosswalk for the performed procedure (`search`, or `surg` with the printed surgical CPTs).
+3. Verify the final code AND at least one competing candidate with `lookup` (one call for all of them).
 4. Cite the crosswalk row you relied on.
 
 ## Alternate selection
