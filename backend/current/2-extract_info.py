@@ -116,10 +116,14 @@ _VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 # gets plus the page images. Normal, high, low and cheap tiers use Haiku; very-high uses Sonnet.
 # Haiku also rates how legible An Start / An Stop are, and times it is unsure of are re-read by Sonnet
 # from zoomed-in quarter-page tiles. Any failed Claude call falls back to the model the tier used before.
+# Worktracker groups whose name contains UNI read every tier, and re-read unsure times, with Opus at high effort.
 CLAUDE_EXTRACT_DPI = int(os.environ.get("CLAUDE_EXTRACT_DPI", "150"))
 TIME_FIELDS = ("An Start", "An Stop")
 TIME_TILE_PAGES = int(os.environ.get("CLAUDE_TIME_TILE_PAGES", "6"))
 _CLAUDE_FALLBACK = {}  # "claude:<model>:<tier>" -> model that tier used before
+_CLAUDE_RECHECK_MODEL = "sonnet"  # re-reads the times Haiku is unsure of
+CLAUDE_EFFORT = {"opus": "high"}
+_CLAUDE_CHEAP = "claude:haiku:cheap"  # model for the cheap tier  # --effort per Claude model; models not listed use Claude Code's default
 # Claude calls in flight from this process. The service has its own cap; waiting here instead of in its queue
 # keeps a large job's calls from timing out while they wait.
 _CLAUDE_SEMAPHORE = _threading.BoundedSemaphore(int(os.environ.get("CLAUDE_EXTRACT_CONCURRENCY", "8")))
@@ -183,7 +187,8 @@ def extract_with_claude(patient_pdf_path, pdf_filename, extraction_prompt, which
         return None
     content.append({"type": "text", "text": "Extract the fields from these pages as instructed. Reply with the JSON object only."})
     url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/") + "/v1/complete"
-    body = {"model": which, "system": extraction_prompt + (TILE_NOTE if tiles is not None else ""), "content": content}
+    body = {"model": which, "system": extraction_prompt + (TILE_NOTE if tiles is not None else ""), "content": content,
+            "effort": CLAUDE_EFFORT.get(which, "")}
     for attempt in (1, 2):
         try:
             with _CLAUDE_SEMAPHORE:
@@ -224,20 +229,21 @@ def _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, flags, ex
     defs = [f for f in get_field_definitions(excel_file_path) if f['name'] in unsure]
     if not defs:
         return
-    print(f"    🔎 Haiku unsure of {unsure} ({', '.join(str(flags.get(f)) for f in unsure)}) for {pdf_filename}; Sonnet re-reads them")
+    print(f"    🔎 Unsure of {unsure} ({', '.join(str(flags.get(f)) for f in unsure)}) for {pdf_filename}; "
+          f"{_CLAUDE_RECHECK_MODEL} re-reads them")
     try:
         page = int(flags.get("_time_page")) - 1
     except (TypeError, ValueError):
         page = -1
     pages = [page] if page >= 0 else list(range(TIME_TILE_PAGES))
-    text = extract_with_claude(temp_patient_pdf, pdf_filename, generate_priority_fields_group_prompt(defs), "sonnet",
-                               field_name_for_log="time recheck", tiles=pages)
+    text = extract_with_claude(temp_patient_pdf, pdf_filename, generate_priority_fields_group_prompt(defs),
+                               _CLAUDE_RECHECK_MODEL, field_name_for_log="time recheck", tiles=pages)
     data = _parse_json_object(text) or {}
     for f in unsure:
         others = [merged_data.get(o) for o in TIME_FIELDS if o != f]
         value = _put_time(data.get(f), [merged_data.get(f)] + others)
         if value:
-            print(f"    ✅ Time '{f}' for {pdf_filename}: Haiku {merged_data.get(f)!r} -> Sonnet {data.get(f)!r} -> {value!r}")
+            print(f"    ✅ Time '{f}' for {pdf_filename}: {merged_data.get(f)!r} -> {_CLAUDE_RECHECK_MODEL} {data.get(f)!r} -> {value!r}")
             merged_data[f] = value
 
 
@@ -1400,7 +1406,7 @@ def process_single_patient_pdf_task(args):
         #    route cheap fields to the local box too so ALL extraction is on ngrok.
         _cheap_effective = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
         if not (_cheap_effective and is_vllm_model(_cheap_effective)):
-            _cheap_effective = "claude:haiku:cheap" if claude_extract_enabled() else CHEAP_MODEL
+            _cheap_effective = _CLAUDE_CHEAP if claude_extract_enabled() else CHEAP_MODEL
         got = _extract_cheap_group(cheap_fields, _cheap_effective, "cheap")
         # 2) Any fields the cheap model didn't return -> one Gemini fallback call
         #    for just those, so nothing is silently dropped.
@@ -2142,11 +2148,17 @@ if __name__ == "__main__":
     if claude_extract_enabled() and not (_vllm_override and is_vllm_model(_vllm_override)):
         print(f"🟣 CLAUDE_EXTRACT=1 — every tier on Claude (Haiku; very-high on Sonnet); "
               f"failed calls fall back to the models below")
-        _CLAUDE_FALLBACK.update({"claude:haiku:normal": model, "claude:haiku:priority": priority_model,
-                                 "claude:haiku:low": low_priority_model, "claude:haiku:cheap": CHEAP_MODEL,
-                                 "claude:sonnet:very_high": very_high_priority_model})
-        model, priority_model = "claude:haiku:normal", "claude:haiku:priority"
-        low_priority_model, very_high_priority_model = "claude:haiku:low", "claude:sonnet:very_high"
+        # UNI groups (UNI-ROB, UNI-RSC, UNI-GOLD...): every tier and the time re-reads on Opus, high effort.
+        uni = "UNI" in (worktracker_group or "").upper()
+        base, strong = ("opus", "opus") if uni else ("haiku", "sonnet")
+        if uni:
+            print(f"🟣 Group '{worktracker_group}' contains UNI — every tier on Opus (effort {CLAUDE_EFFORT['opus']})")
+        _CLAUDE_FALLBACK.update({f"claude:{base}:normal": model, f"claude:{base}:priority": priority_model,
+                                 f"claude:{base}:low": low_priority_model, f"claude:{base}:cheap": CHEAP_MODEL,
+                                 f"claude:{strong}:very_high": very_high_priority_model})
+        model, priority_model = f"claude:{base}:normal", f"claude:{base}:priority"
+        low_priority_model, very_high_priority_model = f"claude:{base}:low", f"claude:{strong}:very_high"
+        _CLAUDE_CHEAP, _CLAUDE_RECHECK_MODEL = f"claude:{base}:cheap", strong
 
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")

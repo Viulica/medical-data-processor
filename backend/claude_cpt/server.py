@@ -7,7 +7,8 @@ POST /v1/jobs          multipart: file=<zip of PDFs>, rules=<the exact prompt th
                        predicted-CPT block to the ICD prompt, as the serial CPT->ICD mode does>, label=<optional>
                        cpticd codes CPT and ICD in one pass, so every chart is read once.
 GET  /v1/jobs/{id}     status, and per-file results once done
-POST /v1/complete      JSON {model: haiku|sonnet|<model id>, system, content: [{"type":"text","text":...} |
+POST /v1/complete      JSON {model: haiku|sonnet|opus|<model id>, effort: optional low|medium|high|..., system,
+                       content: [{"type":"text","text":...} |
                        {"type":"image","data":<base64 jpeg>}]}: one headless one-turn Claude call without tools
                        (chart field extraction); returns {text, cost_usd, usage}.
 GET  /health
@@ -42,6 +43,7 @@ TOKEN = os.environ.get("CLAUDE_CPT_TOKEN", "")
 MODEL = os.environ.get("CLAUDE_CPT_MODEL", "sonnet")
 HAIKU = os.environ.get("CLAUDE_CPT_HAIKU_MODEL", "claude-haiku-5-5")
 SONNET = os.environ.get("CLAUDE_CPT_SONNET_MODEL", "claude-sonnet-5-5")
+OPUS = os.environ.get("CLAUDE_CPT_OPUS_MODEL", "claude-opus-5-5")
 ROUTE = os.environ.get("CLAUDE_CPT_ROUTE", "1") != "0"
 # CPT codes Haiku codes as well as Sonnet (colonoscopy/EGD, cataract, labor epidural): those charts keep Haiku's
 # CPT and ICD. Tested on 252 charts: same CPT accuracy as all-Sonnet, ICD1 179 vs 180, ~35% less usage.
@@ -54,7 +56,7 @@ SESSIONS = threading.Semaphore(int(os.environ.get("CLAUDE_CPT_MAX_SESSIONS", "12
 WARMUP_S = float(os.environ.get("CLAUDE_CPT_WARMUP_S", "12"))
 # One-turn extraction calls running at once (each is a short claude process).
 COMPLETE_SESSIONS = int(os.environ.get("CLAUDE_COMPLETE_MAX_SESSIONS", "10"))
-COMPLETE_TIMEOUT = int(os.environ.get("CLAUDE_COMPLETE_TIMEOUT", "240"))
+COMPLETE_TIMEOUT = int(os.environ.get("CLAUDE_COMPLETE_TIMEOUT", "420"))
 COMPLETE_DIR = JOBS_DIR.parent / "complete"
 CROSSWALK = HERE / "2025 crosswalk.xlsx" if (HERE / "2025 crosswalk.xlsx").exists() else HERE.parent / "2025 crosswalk.xlsx"
 ICD_FILES = ("icd10.py", "icd10cm_fy26_fy27.tsv.gz")
@@ -372,7 +374,10 @@ async def complete(body: dict = Body(...), x_token: str = Header("")):
     API call. Async so that waiting calls never hold the worker threads the job endpoints need."""
     global _complete_sem
     _check(x_token)
-    model = {"haiku": HAIKU, "sonnet": SONNET}.get(body.get("model", "haiku"), body.get("model"))
+    model = {"haiku": HAIKU, "sonnet": SONNET, "opus": OPUS}.get(body.get("model", "haiku"), body.get("model"))
+    effort = str(body.get("effort") or "").strip()
+    if effort and not re.fullmatch(r"[a-z]+", effort):
+        raise HTTPException(status_code=400, detail="bad effort")
     content = []
     for blk in body.get("content") or []:
         if blk.get("type") == "image":
@@ -396,7 +401,7 @@ async def complete(body: dict = Body(...), x_token: str = Header("")):
             CLAUDE_BIN, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--model", model, "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--disable-slash-commands", "--no-session-persistence", "--system-prompt-file", str(sys_file),
-            cwd=str(COMPLETE_DIR), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            *(["--effort", effort] if effort else []), cwd=str(COMPLETE_DIR), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(proc.communicate(msg.encode()), COMPLETE_TIMEOUT)
