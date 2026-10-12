@@ -116,14 +116,18 @@ _VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 # gets plus the page images. Normal, high, low and cheap tiers use Haiku; very-high uses Sonnet.
 # Haiku also rates how legible An Start / An Stop are, and times it is unsure of are re-read by Sonnet
 # from zoomed-in quarter-page tiles. Any failed Claude call falls back to the model the tier used before.
+# peripheral_blocks always gets its own call on Sonnet, whatever its tier (Haiku missed every block on 4 of 55
+# block charts in a 75-chart test; Sonnet matched production on 73/75, like Opus at half the cost).
 # Worktracker groups whose name contains UNI read every tier, and re-read unsure times, with Opus at high effort.
 CLAUDE_EXTRACT_DPI = int(os.environ.get("CLAUDE_EXTRACT_DPI", "150"))
 TIME_FIELDS = ("An Start", "An Stop")
 TIME_TILE_PAGES = int(os.environ.get("CLAUDE_TIME_TILE_PAGES", "6"))
 _CLAUDE_FALLBACK = {}  # "claude:<model>:<tier>" -> model that tier used before
 _CLAUDE_RECHECK_MODEL = "sonnet"  # re-reads the times Haiku is unsure of
-CLAUDE_EFFORT = {"opus": "high"}
-_CLAUDE_CHEAP = "claude:haiku:cheap"  # model for the cheap tier  # --effort per Claude model; models not listed use Claude Code's default
+CLAUDE_EFFORT = {"opus": "high"}  # --effort per Claude model; models not listed use Claude Code's default
+_CLAUDE_CHEAP = "claude:haiku:cheap"  # model for the cheap tier
+CLAUDE_OWN_CALL_FIELDS = ("peripheral_blocks",)  # always read in their own call by _CLAUDE_OWN_CALL_MODEL
+_CLAUDE_OWN_CALL_MODEL = "claude:sonnet:blocks"
 # Claude calls in flight from this process. The service has its own cap; waiting here instead of in its queue
 # keeps a large job's calls from timing out while they wait.
 _CLAUDE_SEMAPHORE = _threading.BoundedSemaphore(int(os.environ.get("CLAUDE_EXTRACT_CONCURRENCY", "8")))
@@ -1275,8 +1279,11 @@ def process_single_patient_pdf_task(args):
                 provider_mapping_has_mednet=pb_has_mednet,
             )
 
+            group_model = priority_model
+            if claude_extract_enabled() and any(n in CLAUDE_OWN_CALL_FIELDS for n in group_names):
+                group_model = _CLAUDE_OWN_CALL_MODEL
             priority_result = extract_info_from_patient_pdf(
-                client, temp_patient_pdf, pdf_filename, priority_prompt, priority_model,
+                client, temp_patient_pdf, pdf_filename, priority_prompt, group_model,
                 field_name_for_log=log_label
             )
             priority_response = priority_result[0] if isinstance(priority_result, tuple) else priority_result
@@ -1364,6 +1371,8 @@ def process_single_patient_pdf_task(args):
     _skip_cheap = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
     _skip_cheap = bool(_skip_cheap and is_vllm_model(_skip_cheap))
     cheap_fields = [] if _skip_cheap else get_cheap_fields(excel_file_path)
+    if claude_extract_enabled():  # these were moved to their own priority call
+        cheap_fields = [f for f in cheap_fields if f['name'] not in CLAUDE_OWN_CALL_FIELDS]
     if cheap_fields:
         _cheap_env = os.environ.get("EXTRACTION_VLLM_MODEL", "").strip()
         _cheap_disp = _cheap_env if (_cheap_env and is_vllm_model(_cheap_env)) else CHEAP_MODEL
@@ -1636,6 +1645,18 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
         low_priority_fields_list = []
         very_high_priority_fields = []
 
+    # Claude extraction: peripheral_blocks is read in its own call on a stronger model whatever its tier, so a
+    # normal / low / cheap peripheral_blocks moves to the priority calls (very-high already uses the strong model).
+    _claude_split = claude_extract_enabled() and not (_vllm_env and is_vllm_model(_vllm_env))
+    if _claude_split:
+        _own = [f for f in (normal_fields or []) + (low_priority_fields_list or []) + (get_cheap_fields(excel_file_path) or [])
+                if f['name'] in CLAUDE_OWN_CALL_FIELDS]
+        if _own:
+            normal_fields = [f for f in normal_fields or [] if f['name'] not in CLAUDE_OWN_CALL_FIELDS]
+            low_priority_fields_list = [f for f in low_priority_fields_list or [] if f['name'] not in CLAUDE_OWN_CALL_FIELDS]
+            priority_fields = list(priority_fields or []) + _own
+            print(f"🟣 {', '.join(f['name'] for f in _own)} moved to its own call on {_CLAUDE_OWN_CALL_MODEL}")
+
     if very_high_priority_fields:
         very_high_field_names = [f['name'] for f in very_high_priority_fields]
         print(f"🔥 Very-high-priority fields (separate API calls): {', '.join(very_high_field_names)}")
@@ -1675,7 +1696,7 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
 
     extraction_prompt = generate_extraction_prompt(
         excel_file_path,
-        fields_to_include=normal_fields if (_vllm_env and is_vllm_model(_vllm_env)) else None,
+        fields_to_include=normal_fields if ((_vllm_env and is_vllm_model(_vllm_env)) or _claude_split) else None,
         provider_mapping=_pb_provider_mapping,
         provider_mapping_has_mednet=_pb_has_mednet,
     )
@@ -2146,7 +2167,7 @@ if __name__ == "__main__":
         print(f"⚠️  EXTRACTION_VLLM_MODEL='{_vllm_override}' is not a recognized vLLM model id; ignoring.")
 
     if claude_extract_enabled() and not (_vllm_override and is_vllm_model(_vllm_override)):
-        print(f"🟣 CLAUDE_EXTRACT=1 — every tier on Claude (Haiku; very-high on Sonnet); "
+        print(f"🟣 CLAUDE_EXTRACT=1 — every tier on Claude (Haiku; very-high and peripheral_blocks on Sonnet); "
               f"failed calls fall back to the models below")
         # UNI groups (UNI-ROB, UNI-RSC, UNI-GOLD...): every tier and the time re-reads on Opus, high effort.
         uni = "UNI" in (worktracker_group or "").upper()
@@ -2155,10 +2176,12 @@ if __name__ == "__main__":
             print(f"🟣 Group '{worktracker_group}' contains UNI — every tier on Opus (effort {CLAUDE_EFFORT['opus']})")
         _CLAUDE_FALLBACK.update({f"claude:{base}:normal": model, f"claude:{base}:priority": priority_model,
                                  f"claude:{base}:low": low_priority_model, f"claude:{base}:cheap": CHEAP_MODEL,
-                                 f"claude:{strong}:very_high": very_high_priority_model})
+                                 f"claude:{strong}:very_high": very_high_priority_model,
+                                 f"claude:{strong}:blocks": priority_model})
         model, priority_model = f"claude:{base}:normal", f"claude:{base}:priority"
         low_priority_model, very_high_priority_model = f"claude:{base}:low", f"claude:{strong}:very_high"
         _CLAUDE_CHEAP, _CLAUDE_RECHECK_MODEL = f"claude:{base}:cheap", strong
+        _CLAUDE_OWN_CALL_MODEL = f"claude:{strong}:blocks"
 
     print(f"🔧 Configuration:")
     print(f"   Input folder: {input_folder}")
