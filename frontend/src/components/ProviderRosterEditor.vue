@@ -48,7 +48,7 @@ Johnson, Robert, MD (MedNet Code: 1)"
       <div v-else class="roster-table-wrap">
         <table class="roster-table">
           <thead>
-            <tr><th class="c-code">MedNet code</th><th>Last name</th><th>First name</th><th class="c-cred">Role</th><th class="c-del"></th></tr>
+            <tr><th class="c-code">MedNet code</th><th>Last name</th><th>First name</th><th class="c-mi">Middle</th><th class="c-cred">Role</th><th class="c-del"></th></tr>
           </thead>
           <tbody>
             <tr v-for="row in visibleRows" :key="row.id" :class="{ 'row-new': row.isNew }">
@@ -62,7 +62,8 @@ Johnson, Robert, MD (MedNet Code: 1)"
                        aria-label="Last name" @input="onEdit" />
                 <span v-if="issues[row.id] && issues[row.id].last" class="cell-err">{{ issues[row.id].last }}</span>
               </td>
-              <td><input v-model="row.first" class="cell" aria-label="First name and middle initial" @input="onEdit" /></td>
+              <td><input v-model="row.first" class="cell" aria-label="First name" @input="onEdit" /></td>
+              <td class="c-mi"><input v-model="row.middle" class="cell" aria-label="Middle name or initial" @input="onEdit" /></td>
               <td class="c-cred">
                 <select v-model="row.cred" class="cell" aria-label="Role" @change="onEdit">
                   <option v-for="c in CREDS" :key="c" :value="c">{{ c }}</option>
@@ -119,15 +120,21 @@ function parse(text) {
     const parts = line.slice(0, m.index).split(',').map((p) => p.trim()).filter(Boolean);
     let cred = section || 'CRNA';
     if (parts.length > 1 && /^(CRNA|MD|DO|SRNA|CAA|RESIDENT)$/i.test(parts[parts.length - 1])) cred = parts.pop().toUpperCase();
+    // First word is the first name, the rest is the middle name or initial: "ESTELA M", "AMANDA MARIE".
+    // The saved text joins them back exactly as before.
+    const given = parts.slice(1).join(' ').replace(/\s+/g, ' ').toUpperCase().split(' ').filter(Boolean);
+    const middle = given.splice(1).join(' ');
     rows.push({ id: ++uid, code: m[1].toUpperCase(), last: (parts[0] || '').toUpperCase(),
-                first: parts.slice(1).join(' ').replace(/\s+/g, ' ').toUpperCase(), cred, section: section || cred });
+                first: given.join(' '), middle, cred, section: section || cred });
   }
   return { rows, extras };
 }
 
 function serialize(rows, extras) {
-  const line = (r) => `${r.last.trim()}, ${r.first.trim()}${r.first.trim() ? ', ' : ''}${r.cred} (MedNet Code: ${r.code.trim()})`
-    .replace(/^, /, '');
+  const line = (r) => {
+    const given = [r.first, r.middle].map((x) => (x || '').trim()).filter(Boolean).join(' ');
+    return `${r.last.trim()}, ${given}${given ? ', ' : ''}${r.cred} (MedNet Code: ${r.code.trim()})`.replace(/^, /, '');
+  };
   const groups = [['CRNA', 'Billable CRNA providers:'], ['MD', 'Billable MD providers:']];
   const out = [];
   const loose = extras.filter((x) => !x.section).map((x) => x.text);
@@ -174,7 +181,7 @@ export default {
     visibleRows() {
       const q = this.query.trim().toUpperCase();
       if (!q) return this.rows;
-      return this.rows.filter((r) => `${r.code} ${r.last} ${r.first}`.toUpperCase().includes(q));
+      return this.rows.filter((r) => `${r.code} ${r.last} ${r.first} ${r.middle}`.toUpperCase().includes(q));
     },
   },
   watch: {
@@ -192,7 +199,7 @@ export default {
     onEdit() { this.emit(serialize(this.rows, this.extras)); },
     addRow() {
       this.query = '';
-      this.rows.unshift({ id: ++uid, code: '', last: '', first: '', cred: 'CRNA', section: 'CRNA', isNew: true });
+      this.rows.unshift({ id: ++uid, code: '', last: '', first: '', middle: '', cred: 'CRNA', section: 'CRNA', isNew: true });
       this.$nextTick(() => { const el = this.$el.querySelector('tbody input'); if (el) el.focus(); });
     },
     removeRow(row) { this.rows = this.rows.filter((r) => r !== row); this.onEdit(); },
@@ -234,6 +241,7 @@ export default {
 .row-new td { background: #f0fdf4; }
 .c-code { width: 92px; }
 .c-cred { width: 78px; }
+.c-mi { width: 120px; }
 .c-del { width: 28px; text-align: center; }
 .cell { width: 100%; padding: 5px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; font-size: 13px; color: #0f172a; }
 .cell:hover { border-color: #e2e8f0; }
