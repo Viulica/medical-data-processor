@@ -8421,23 +8421,8 @@
  </p>
  </div>
  <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
- <label> Provider Mapping (from Provider Mapping tool)</label>
- <textarea
- v-model="currentTemplate.provider_mapping"
- class="form-textarea"
- rows="8"
- placeholder="Paste output from Provider Mapping tool here...
-Example:
-Billable CRNA providers:
-Smith, John, CRNA (MedNet Code: 7)
-Doe, Jane M, CRNA (MedNet Code: 12)
-
-Billable MD providers:
-Johnson, Robert, MD (MedNet Code: 1)"
- ></textarea>
- <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
- Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
- </p>
+ <label> Providers (MedNet codes)</label>
+ <ProviderRosterEditor v-model="currentTemplate.provider_mapping" />
  </div>
  <div class="form-group">
  <label> Excel File *</label>
@@ -8517,23 +8502,8 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </p>
  </div>
  <div class="form-group" v-if="currentTemplate.extract_providers_from_annotations">
- <label> Provider Mapping (from Provider Mapping tool)</label>
- <textarea
- v-model="currentTemplate.provider_mapping"
- class="form-textarea"
- rows="8"
- placeholder="Paste output from Provider Mapping tool here...
-Example:
-Billable CRNA providers:
-Smith, John, CRNA (MedNet Code: 7)
-Doe, Jane M, CRNA (MedNet Code: 12)
-
-Billable MD providers:
-Johnson, Robert, MD (MedNet Code: 1)"
- ></textarea>
- <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
- Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
- </p>
+ <label> Providers (MedNet codes)</label>
+ <ProviderRosterEditor v-model="currentTemplate.provider_mapping" />
  </div>
  <div class="form-group">
  <label> Replace Excel File (Optional)</label>
@@ -8615,23 +8585,8 @@ Johnson, Robert, MD (MedNet Code: 1)"
  </div>
 
  <div class="form-group" v-if="viewingTemplate.extract_providers_from_annotations">
- <label> Provider Mapping (from Provider Mapping tool)</label>
- <textarea
- v-model="viewingTemplate.provider_mapping"
- class="form-textarea"
- rows="8"
- placeholder="Paste output from Provider Mapping tool here...
-Example:
-Billable CRNA providers:
-Smith, John, CRNA (MedNet Code: 7)
-Doe, Jane M, CRNA (MedNet Code: 12)
-
-Billable MD providers:
-Johnson, Robert, MD (MedNet Code: 1)"
- ></textarea>
- <p style="font-size: 0.85em; color: #666; margin-top: 4px;">
- Use the Provider Mapping tool to generate this list from your Excel file, then paste it here.
- </p>
+ <label> Providers (MedNet codes)</label>
+ <ProviderRosterEditor v-model="viewingTemplate.provider_mapping" />
  </div>
 
  <div class="template-detail-section">
@@ -10270,6 +10225,7 @@ import axios from "axios";
 import vSelect from "vue-select";
 import { useToast } from "vue-toastification";
 import SearchableSelect from "./components/SearchableSelect.vue";
+import ProviderRosterEditor from "./components/ProviderRosterEditor.vue";
 import draggable from "vuedraggable";
 
 // Helper function to properly join URL parts without double slashes
@@ -10289,6 +10245,7 @@ export default {
  name: "App",
  components: {
  SearchableSelect,
+ ProviderRosterEditor,
  vSelect,
  draggable
  },
