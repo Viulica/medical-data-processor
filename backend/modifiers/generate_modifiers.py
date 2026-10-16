@@ -548,6 +548,44 @@ def apply_colonoscopy_correction(row, asa_code, insurances_df):
         return asa_code
 
 
+# ---------------------------------------------------------------------------
+# ANA-GAS (GenGastro) payer rules, reverse-engineered from coder corrections
+# (Aug-Oct 2026, 811 accounts):
+#   * GA: appended (LAST slot) whenever ANY coverage (primary/secondary/
+#     tertiary) is a Blue Cross / Blue Shield plan (BCBS, Wellmark,
+#     MedicareBlue, Anthem, Highmark, CareFirst, ...). 279/283 billed GA
+#     accounts match; independent of CPT / ICD / Medicare.
+#   * PT: also when the AI already coded 00811 (Medicare screening that
+#     became therapeutic) with Polyps found = FOUND and a screening ICD1.
+#   * Max 4 modifiers: when PT + GA overflow, QS is dropped
+#     (AA P# PT GA), as 3 of the 4 GAS coders do.
+# ---------------------------------------------------------------------------
+GAS_GROUPS = {'ANA-GAS'}
+_GAS_BLUE_RE = _re.compile(
+    r'BCBS|BLUE\s*CROSS|BLUECROSS|BLUE\s*SHIELD|BLUESHIELD|WELLMARK|ANTHEM|'
+    r'HIGHMARK|MEDICAREBLUE|\bBC/?BS\b|CAREFIRST|PREMERA|REGENCE|EXCELLUS|HORIZON',
+    _re.IGNORECASE,
+)
+_GAS_SCREENING_ICD1_RE = _re.compile(r'^(Z12\.1|Z80\.0|Z86\.010|Z83\.71)', _re.IGNORECASE)
+
+
+def _is_gas_row(row):
+    return str(row.get('Worktracker Group', '') or '').strip().upper() in GAS_GROUPS
+
+
+def gas_requires_ga(row):
+    """ANA-GAS: GA when any coverage on the account is a Blue Cross/Blue Shield plan."""
+    if not _is_gas_row(row):
+        return False
+    for prefix in ('Primary', 'Secondary', 'Tertiary'):
+        name = row.get(f'{prefix} Company Name', '')
+        if name is None or (not isinstance(name, str) and pd.isna(name)):
+            continue
+        if _GAS_BLUE_RE.search(str(name)):
+            return True
+    return False
+
+
 def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     """
     Determine the modifier to apply based on provider presence and rules.
@@ -806,7 +844,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # Providers, anywhere. filter_concurrent_providers_by_type now keeps
             # physicians only regardless of keep_type, so this scrubs the primary
             # line at the source; every derived row copies from here.
-            if 'Concurrent Providers' in new_row:
+            # Exception: ANA-GMCE never bills medical direction (AA/QZ only), so a CRNA
+            # on a split case is her own billed time segment and must stay in the list
+            # (coders re-entered CRNA->MD handoffs by hand when we stripped them).
+            _wt_group = str(row.get('Worktracker Group', '') or '').strip().upper()
+            if 'Concurrent Providers' in new_row and not _wt_group.startswith('ANA-GMCE'):
                 new_row['Concurrent Providers'] = filter_concurrent_providers_by_type(
                     row.get('Concurrent Providers', ''), keep_type='MD')
 
@@ -1104,6 +1146,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 )
                 if polyps_value == 'FOUND' and screening_or_surveillance and not is_00813:
                     should_add_pt = True
+                # ANA-GAS: the AI often codes the Medicare screening-turned-therapeutic
+                # case straight to 00811; coders still add PT there when ICD1 is a
+                # screening/surveillance Z-code.
+                if (not should_add_pt and _is_gas_row(row) and polyps_value == 'FOUND'
+                        and '00811' in (pre_corrector_asa_code, pre_corrector_procedure_code)
+                        and _GAS_SCREENING_ICD1_RE.match(str(row.get('ICD1', '') or '').strip())):
+                    should_add_pt = True
                 
                 if should_add_pt:
                     pt_modifier = 'PT'
@@ -1140,6 +1189,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             # Add PT modifier to the end of the list (it goes in the last position)
             if pt_modifier:
                 modifiers_list.append(pt_modifier)
+
+            # ANA-GAS: GA (BCBS on any coverage) goes LAST, after PT. Only 4 slots,
+            # so on overflow drop QS (coders bill AA P# PT GA).
+            if gas_requires_ga(row):
+                modifiers_list.append('GA')
+                if len(modifiers_list) > 4 and 'QS' in modifiers_list:
+                    modifiers_list.remove('QS')
             
             # Place modifiers sequentially in M1, M2, M3, M4 without gaps
             # PT will automatically be in the last position since it's added last
@@ -1186,8 +1242,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 # M2 can be empty or PT (if PT modifier is also present)
                 only_p_modifier = (
                     is_p_modifier(m1_value) and  # M1 has P modifier (no AA/QK/QZ/QX)
-                    not m3_value and  # M3 empty (no GC, no QS)
-                    (not m2_value or m2_value == 'PT')  # M2 empty or PT (no GC modifier)
+                    m3_value in ('', 'GA') and  # M3 empty (no GC, no QS); trailing GA ok
+                    m2_value in ('', 'PT', 'GA')  # M2 empty, PT or GA (no GC modifier)
                 )
                 
                 # Check if both MD and CRNA are filled
@@ -1420,6 +1476,13 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             '64488',           # TAP
                             '62322', '62323',  # Neuraxial/Spinal (New)
                         ]
+                        # ANA (Anesthesia & Analgesia): coders also put G89.18 / SURGERY on
+                        # paravertebral/ESP (64461-64463), unilateral + catheter TAP
+                        # (64486/64487/64489) and cervical/thoracic neuraxial (62320/62321).
+                        if str(row.get('Worktracker Group', '') or '').strip().upper().startswith('ANA-'):
+                            peripheral_nerve_blocks = peripheral_nerve_blocks + [
+                                '64461', '64462', '64463', '64486', '64487', '64489', '62320', '62321',
+                            ]
                         
                         # Create a duplicate row for each block
                         for block_idx, block in enumerate(blocks):
@@ -1506,6 +1569,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 # TEE diagnoses). The DX field is ONLY honored for 93312. If no DX
                                 # was provided, fall back to the original row's ICDs (already in block_row).
                                 dx_codes = block.get('dx') or []
+                                if not dx_codes and str(row.get('Worktracker Group', '') or '').strip().upper().startswith('ANA-'):
+                                    # ANA coders bill the intraop TEE line as Z01.89 + the case's
+                                    # primary diagnosis when no valve finding is documented.
+                                    _primary_icd1 = str(row.get('ICD1', '') or '').strip()
+                                    dx_codes = ['Z01.89'] + ([_primary_icd1] if _primary_icd1 and _primary_icd1.upper() != 'NAN' else [])
                                 if dx_codes:
                                     for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                         if icd_col in block_row:
@@ -1547,6 +1615,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             elif cpt_code == '76937':
                                 # Ultrasound guidance: DIAGNOSTIC RADIOLOGY
                                 block_row['Type Of Service'] = 'DIAGNOSTIC RADIOLOGY'
+                            elif str(row.get('Worktracker Group', '') or '').strip().upper().startswith('ANA-'):
+                                # ANA billing: these second lines are SURGERY (76942 radiology);
+                                # without this they inherited the primary row's TOS (blank on GMCE-EMR).
+                                if cpt_code in ('36556', '93503', '93312', '93313', '31500', '64479', '64483',
+                                                '62320', '62321', '62322', '62323', '62324', '62325', '62326', '62327'):
+                                    block_row['Type Of Service'] = 'SURGERY'
+                                elif cpt_code == '76942':
+                                    block_row['Type Of Service'] = 'DIAGNOSTIC RADIOLOGY'
                             
                             # Clear Concurrent Providers
                             if 'Concurrent Providers' in block_row:
