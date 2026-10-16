@@ -9501,6 +9501,53 @@ def _ocr_detect_dun_last_page_rotation(page) -> int:
     return best_rot
 
 
+def _drop_duplicate_epic_printouts(input_dir, worktracker_group, logger_) -> int:
+    """ANA-GMCE EMR batches repeat the same Epic anesthesia record 2-4 times (re-prints of the
+    same "Billing and Compliance Report"); the splitter turns each copy into its own PDF and every
+    copy became its own charge row (~13% extra rows, Oct 2026).
+
+    Keep ONE PDF per (Anesthesia Record ID, CSN): the copy with the most text (the latest, most
+    complete printout). PDFs without an Anesthesia Record ID are untouched. Returns PDFs removed.
+    """
+    import re as _re_dup
+    import fitz as _fitz
+    from pathlib import Path as _Path
+
+    if not (worktracker_group or "").strip().upper().startswith("ANA-GMCE"):
+        return 0
+    groups = {}
+    for pdf_path in sorted(set(_Path(input_dir).rglob("*.pdf")) | set(_Path(input_dir).rglob("*.PDF"))):
+        try:
+            doc = _fitz.open(str(pdf_path))
+            first = doc[0].get_text() if len(doc) else ""
+            total = sum(len(pg.get_text()) for pg in doc)
+            doc.close()
+        except Exception:
+            continue
+        rec = _re_dup.search(r"Anesthesia Record ID\s*:?\s*(\d{6,})", first)
+        if not rec:
+            continue
+        csn = _re_dup.search(r"\(CSN:\s*(\d+)\)", first)
+        key = (rec.group(1), csn.group(1) if csn else "")
+        groups.setdefault(key, []).append((total, str(pdf_path)))
+    removed = 0
+    for key, copies in groups.items():
+        if len(copies) < 2:
+            continue
+        copies.sort(key=lambda c: (c[0], c[1]), reverse=True)
+        keep = copies[0][1]
+        for _, path in copies[1:]:
+            try:
+                _Path(path).unlink()
+                removed += 1
+                if logger_:
+                    logger_.info(f"[Dedupe printouts] removed {_Path(path).name} (same Anesthesia Record {key[0]} as {_Path(keep).name})")
+            except Exception as e:
+                if logger_:
+                    logger_.warning(f"[Dedupe printouts] could not remove {path}: {e}")
+    return removed
+
+
 def _rotate_dun_last_pages(input_dir, logger_) -> int:
     """Walk PDFs in input_dir; for each, OCR-rotate the LAST page if needed.
 
@@ -9806,6 +9853,24 @@ def process_unified_background(
                         f"for '{worktracker_group}': {_e}; using caller-provided instructions."
                     )
 
+    # ICD instruction routing by group (Oct 2026): ANA locations have their own comorbidity
+    # conventions (comorbidities regardless of ASA, etc.), stored as ICD instruction templates named
+    # after the group. Pinned: overrides whatever the caller picked, like the CPT routing above.
+    ICD_PINNED_GROUPS = {"ANA-GMCE", "ANA-SPS", "ANA-GAS"}
+    _icd_key = _wt_key
+    for _sfx in ("-2", "-TEST"):
+        if _icd_key.endswith(_sfx):
+            _icd_key = _icd_key[: -len(_sfx)]
+    if enable_icd and _icd_key in ICD_PINNED_GROUPS:
+        try:
+            from db_utils import get_prediction_instruction
+            _icd_tpl = get_prediction_instruction(name=_icd_key, instruction_type="icd")
+            if _icd_tpl and (_icd_tpl.get("instructions_text") or "").strip():
+                icd_custom_instructions = _icd_tpl["instructions_text"]
+                logger.info(f"[Unified {job_id}] ICD routing for '{worktracker_group}': template '{_icd_tpl['name']}' (#{_icd_tpl['id']})")
+        except Exception as _e:
+            logger.warning(f"[Unified {job_id}] ICD routing lookup failed for '{worktracker_group}': {_e}")
+
     # Claude CPT (self-hosted VPS only): when CLAUDE_CPT_URL is set, every CPT batch is coded by
     # the Claude CPT service (one Claude Code session + Sonnet subagents), with the same rules and
     # group instructions Gemini would get. Unset on Railway, so Railway keeps the routing above.
@@ -9922,6 +9987,7 @@ def process_unified_background(
             # Unzip files once
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir / "input")
+                _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
 
             # DUN auto-rotate: DUN charge sheets are phone-photographed and often
             # sideways. Use Tesseract OCR on the last page of each PDF to decide
@@ -10375,6 +10441,7 @@ def process_unified_background(
             # Unzip files once
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir / "input")
+                _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
 
             # DUN auto-rotate: DUN charge sheets are phone-photographed and often
             # sideways. Use Tesseract OCR on the last page of each PDF to decide
@@ -10621,6 +10688,7 @@ def process_unified_background(
             # Unzip files
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir / "input")
+                _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
             
             # Copy Excel file to temp directory
             excel_dest = temp_dir / "instructions" / excel_filename
@@ -10740,6 +10808,7 @@ def process_unified_background(
             if not (temp_dir / "input").exists():
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir / "input")
+                    _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
             
             # Import prediction functions
             general_coding_path = Path(__file__).parent / "general-coding"
@@ -11009,6 +11078,7 @@ def process_unified_background(
                 if not (temp_dir / "input").exists():
                     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                         zip_ref.extractall(temp_dir / "input")
+                        _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
                 
                 # Import prediction function
                 general_coding_path = Path(__file__).parent / "general-coding"
@@ -11187,6 +11257,7 @@ def process_unified_background(
             if not (temp_dir / "input").exists():
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir / "input")
+                    _drop_duplicate_epic_printouts(temp_dir / "input", worktracker_group, logger)
             
             # Import prediction function
             general_coding_path = Path(__file__).parent / "general-coding"
