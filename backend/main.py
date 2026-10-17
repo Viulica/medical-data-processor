@@ -11561,6 +11561,7 @@ def process_unified_background(
             if g in AUTO_POSTING_GROUPS: return True
             if g.upper().startswith("RIV-") and "RIV" in AUTO_POSTING_GROUPS: return True
             if _is_x_group(g): return True
+            if "BAP" in g.upper(): return True  # BAP family (BAP, BAP-TEST, ...) shares the BAP HP list
             return False
 
         # Groups that use an EXCLUSION list (flag CPT for review if it's in the set
@@ -11714,7 +11715,8 @@ def process_unified_background(
                     if _is_x_group(worktracker_group):
                         hp_set = X_GROUP_HP_CODES
                     else:
-                        hp_set = get_hp_cpt_codes_for_group(worktracker_group)
+                        hp_set = get_hp_cpt_codes_for_group(
+                            "BAP" if "BAP" in (worktracker_group or "").upper() else worktracker_group)
                     if hp_set and cpt_col:
                         rule_tags = [
                             "" if _norm_cell(c) in hp_set else "CPT"
