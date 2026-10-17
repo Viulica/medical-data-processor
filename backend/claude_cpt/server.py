@@ -10,7 +10,8 @@ GET  /v1/jobs/{id}     status, and per-file results once done
 POST /v1/complete      JSON {model: haiku|sonnet|opus|<model id>, effort: optional low|medium|high|..., system,
                        content: [{"type":"text","text":...} |
                        {"type":"image","data":<base64 jpeg>}]}: one headless one-turn Claude call without tools
-                       (chart field extraction); returns {text, cost_usd, usage}.
+                       (chart field extraction); returns {text, cost_usd, usage}. With zoom=true and pdf=<base64 chart
+                       PDF> the call may also crop page regions at high resolution (zoom_tool.py) before answering.
 GET  /health
 
 Routing (CLAUDE_CPT_ROUTE, on by default): jobs with a CPT code are coded by Haiku first; a chart keeps Haiku's
@@ -20,6 +21,7 @@ the main model (CLAUDE_CPT_MODEL).
 Every request needs header X-Token = $CLAUDE_CPT_TOKEN.
 """
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -58,6 +60,19 @@ WARMUP_S = float(os.environ.get("CLAUDE_CPT_WARMUP_S", "12"))
 COMPLETE_SESSIONS = int(os.environ.get("CLAUDE_COMPLETE_MAX_SESSIONS", "10"))
 COMPLETE_TIMEOUT = int(os.environ.get("CLAUDE_COMPLETE_TIMEOUT", "420"))
 COMPLETE_DIR = JOBS_DIR.parent / "complete"
+# Zoomed extraction calls (body zoom=true + the chart pdf): turns allowed for cropping before the answer.
+ZOOM_MAX_TURNS = int(os.environ.get("CLAUDE_ZOOM_MAX_TURNS", "25"))
+ZOOM_NOTE = (
+    "\n\nZOOM TOOL: the page images above are page 1, 2, 3 ... of the chart in order, shown at whole-page size, where "
+    "handwriting and small print are easy to misread. You can look closer: run\n"
+    "  python3 zoom.py PAGE X0 Y0 X1 Y1\n"
+    "(PAGE = page number; X0 Y0 X1 Y1 = the region as fractions 0-1 of the page width/height, origin top-left; e.g. "
+    "python3 zoom.py 1 0.5 0 1 0.25 = top-right quarter of page 1), then Read the zoom_N.png file it prints.\n"
+    "Before answering, zoom on the handwritten values you extract (dates, times, numbers, codes, names, ticked boxes) "
+    "unless they are clearly typed and legible; zoom on a whole box first, then tighter on each number you are not "
+    "certain of, and tighter still on a single unclear character. Cross-check related values (e.g. times against total "
+    "minutes) and zoom again where they disagree. Run only zoom.py commands. When done, reply with the JSON object only."
+)
 CROSSWALK = HERE / "2025 crosswalk.xlsx" if (HERE / "2025 crosswalk.xlsx").exists() else HERE.parent / "2025 crosswalk.xlsx"
 ICD_FILES = ("icd10.py", "icd10cm_fy26_fy27.tsv.gz")
 TASKS = {
@@ -389,25 +404,42 @@ async def complete(body: dict = Body(...), x_token: str = Header("")):
         raise HTTPException(status_code=400, detail="empty content")
     # The system prompt is the same for every chart of a template: a stable file keeps it in the prompt cache.
     system = body.get("system") or "You extract data from medical documents. Reply with JSON only."
+    # Zoom: with the chart PDF attached, the call may crop any page region at high resolution (zoom.py) and
+    # Read the crop, as many times as it needs, before answering. Without a PDF it stays one turn without tools.
+    zoom_pdf = body.get("pdf") if body.get("zoom") else None
+    if zoom_pdf:
+        system += ZOOM_NOTE
     COMPLETE_DIR.mkdir(parents=True, exist_ok=True)
     sys_file = COMPLETE_DIR / f"sys_{hashlib.sha1(system.encode()).hexdigest()[:16]}.md"
     if not sys_file.exists():
         sys_file.write_text(system)
     msg = json.dumps({"type": "user", "message": {"role": "user", "content": content}}) + "\n"
+    work_dir, tool_args = COMPLETE_DIR, ["--tools", ""]
+    if zoom_pdf:
+        work_dir = COMPLETE_DIR / f"zoom_{uuid.uuid4().hex}"
+        work_dir.mkdir()
+        (work_dir / "chart.pdf").write_bytes(base64.b64decode(zoom_pdf))
+        shutil.copy(HERE / "zoom_tool.py", work_dir / "zoom.py")
+        tool_args = ["--tools", "Read,Bash", "--allowedTools", "Read", "Bash(python3 zoom.py:*)",
+                     "--max-turns", str(ZOOM_MAX_TURNS)]
     if _complete_sem is None:
         _complete_sem = asyncio.Semaphore(COMPLETE_SESSIONS)
-    async with _complete_sem:
-        proc = await asyncio.create_subprocess_exec(
-            CLAUDE_BIN, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--model", model, "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-            "--disable-slash-commands", "--no-session-persistence", "--system-prompt-file", str(sys_file),
-            *(["--effort", effort] if effort else []), cwd=str(COMPLETE_DIR), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
-        try:
-            out, err = await asyncio.wait_for(proc.communicate(msg.encode()), COMPLETE_TIMEOUT)
-        except asyncio.TimeoutError:
-            proc.kill()
-            raise HTTPException(status_code=504, detail="timeout")
+    try:
+        async with _complete_sem:
+            proc = await asyncio.create_subprocess_exec(
+                CLAUDE_BIN, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--model", model, *tool_args, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                "--disable-slash-commands", "--no-session-persistence", "--system-prompt-file", str(sys_file),
+                *(["--effort", effort] if effort else []), cwd=str(work_dir), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            try:
+                out, err = await asyncio.wait_for(proc.communicate(msg.encode()), COMPLETE_TIMEOUT)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise HTTPException(status_code=504, detail="timeout")
+    finally:
+        if zoom_pdf:
+            shutil.rmtree(work_dir, ignore_errors=True)
     result = None
     for line in out.decode(errors="replace").splitlines():
         try:
@@ -424,6 +456,7 @@ async def complete(body: dict = Body(...), x_token: str = Header("")):
         with open(COMPLETE_DIR / "usage.jsonl", "a") as f:
             f.write(json.dumps({"t": round(time.time()), "model": model, "cost": result.get("total_cost_usd"),
                                 "images": sum(b["type"] == "image" for b in content),
+                                "zoom": bool(zoom_pdf), "turns": result.get("num_turns"),
                                 **{k: u.get(k, 0) for k in ("inputTokens", "outputTokens", "cacheReadInputTokens",
                                                             "cacheCreationInputTokens")}}) + "\n")
     except OSError:

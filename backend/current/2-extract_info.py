@@ -121,6 +121,10 @@ _VLLM_SEMAPHORE = _threading.BoundedSemaphore(_VLLM_MAX_CONCURRENCY)
 # Worktracker groups whose name contains UNI read every tier, and re-read unsure times, with Opus at high effort.
 CLAUDE_EXTRACT_DPI = int(os.environ.get("CLAUDE_EXTRACT_DPI", "150"))
 TIME_FIELDS = ("An Start", "An Stop")
+# Every Claude extraction call (all tiers) gets the chart PDF and a zoom tool: it can crop any page region at
+# high resolution and re-read it before answering. A 32-chart BAP time test: 53/64 times right with zoom vs 47/64
+# without, none of the right ones broken, at about twice the cost. CLAUDE_EXTRACT_ZOOM=0 turns it off.
+CLAUDE_EXTRACT_ZOOM = os.environ.get("CLAUDE_EXTRACT_ZOOM", "1").strip() != "0"
 TIME_TILE_PAGES = int(os.environ.get("CLAUDE_TIME_TILE_PAGES", "6"))
 _CLAUDE_FALLBACK = {}  # "claude:<model>:<tier>" -> model that tier used before
 _CLAUDE_RECHECK_MODEL = "sonnet"  # re-reads the times Haiku is unsure of
@@ -193,6 +197,12 @@ def extract_with_claude(patient_pdf_path, pdf_filename, extraction_prompt, which
     url = os.environ.get("CLAUDE_CPT_URL", "").rstrip("/") + "/v1/complete"
     body = {"model": which, "system": extraction_prompt + (TILE_NOTE if tiles is not None else ""), "content": content,
             "effort": CLAUDE_EFFORT.get(which, "")}
+    if CLAUDE_EXTRACT_ZOOM and tiles is None:
+        try:
+            with open(patient_pdf_path, "rb") as f:
+                body.update(zoom=True, pdf=base64.b64encode(f.read()).decode())
+        except OSError as e:
+            print(f"    ⚠️  Claude{label}: zoom off for {pdf_filename} (could not read the PDF: {e})")
     for attempt in (1, 2):
         try:
             with _CLAUDE_SEMAPHORE:
