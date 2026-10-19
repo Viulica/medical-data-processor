@@ -1033,6 +1033,16 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                               f"(mednet={primary_mednet_code}, company='{_company_name}'): "
                               f"M1=QZ, Responsible Provider set to CRNA '{_crna_val}'")
 
+            # SPECIAL CASE (SAG groups): QZ = CRNA without medical direction, so the CRNA is
+            # the rendering provider. When both an MD and a CRNA are on the case and M1 ends
+            # up QZ, Responsible Provider (rendering) = the CRNA, not the MD.
+            if _wt_group.startswith('SAG') and str(m1_modifier).strip().upper() == 'QZ':
+                _sag_md = has_md_column and pd.notna(row.get('MD', '')) and str(row.get('MD', '')).strip() != ''
+                _sag_crna = str(row.get('CRNA', '') or '').strip() if has_crna_column and pd.notna(row.get('CRNA', '')) else ''
+                if _sag_md and _sag_crna:
+                    new_row['Responsible Provider'] = _sag_crna
+                    print(f"   Special Case SAG: M1=QZ with MD and CRNA - Responsible Provider set to CRNA '{_sag_crna}'")
+
             # Determine GC modifier based on Resident AND medicare modifiers.
             #
             # Base rule: GC is added when a Resident is present, on a Medicare case,
