@@ -71,7 +71,9 @@ ZOOM_NOTE = (
     "Before answering, zoom on the handwritten values you extract (dates, times, numbers, codes, names, ticked boxes) "
     "unless they are clearly typed and legible; zoom on a whole box first, then tighter on each number you are not "
     "certain of, and tighter still on a single unclear character. Cross-check related values (e.g. times against total "
-    "minutes) and zoom again where they disagree. Run only zoom.py commands. When done, reply with the JSON object only."
+    "minutes) and zoom again where they disagree. If a page or region is scanned sideways or upside down, add a rotation "
+    "(clockwise degrees: 90, 180 or 270) as a 6th argument so the crop comes out upright, e.g. python3 zoom.py 2 0.6 0.7 1 1 90. "
+    "Run only zoom.py commands. When done, reply with the JSON object only."
 )
 CROSSWALK = HERE / "2025 crosswalk.xlsx" if (HERE / "2025 crosswalk.xlsx").exists() else HERE.parent / "2025 crosswalk.xlsx"
 ICD_FILES = ("icd10.py", "icd10cm_fy26_fy27.tsv.gz")

@@ -9652,6 +9652,17 @@ def process_unified_background(
     job.metadata['template_id'] = template_id
     job.metadata['provider_mode'] = 'annotation' if extract_providers_from_annotations else 'ai'
 
+    # Straighten sideways scans once, before extraction / CPT / ICD read the ZIP (AUTO_ORIENT_GROUPS).
+    try:
+        import auto_orient
+        if auto_orient.enabled_for(worktracker_group):
+            job.message = "Straightening rotated pages..."
+            n_pdfs, n_rot = auto_orient.orient_zip(zip_path)
+            job.metadata['auto_orient'] = {'pdfs': n_pdfs, 'pages_rotated': n_rot}
+            logger.info(f"[Unified {job_id}] Auto-orient: {n_rot} page(s) rotated in {n_pdfs} PDF(s)")
+    except Exception as e:
+        logger.warning(f"[Unified {job_id}] Auto-orient skipped: {e}")
+
     # ==================== HARDCODED PER-GROUP CPT ROUTING ====================
     # A fixed set of groups is pinned to a specific model + instruction template
     # (and/or the crosswalk agent). These OVERRIDE the caller's request.
