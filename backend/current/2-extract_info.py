@@ -1486,6 +1486,9 @@ def process_single_patient_pdf_task(args):
 
     if time_flags and claude_extract_enabled():
         _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, time_flags, excel_file_path)
+    # The page the times are on, so the DOS & Times review opens the PDF there. Only BAP output keeps the column.
+    if str(time_flags.get("_time_page", "")).strip().isdigit():
+        merged_data['Time Page'] = str(int(time_flags["_time_page"]))
 
     # Extract providers and/or insurance from PDF annotations if enabled
     if extract_providers_from_annotations:
@@ -1743,6 +1746,10 @@ def process_all_patient_pdfs(input_folder="input", excel_file_path="WPA for test
     if 'service_tier' not in fieldnames:
         fieldnames.append('service_tier')
     
+    # BAP: keep the page the times were read from for the DOS & Times review screen
+    if worktracker_group and str(worktracker_group).upper().startswith('BAP') and 'Time Page' not in fieldnames:
+        fieldnames.append('Time Page')
+
     # Add provider fields to fieldnames if extract_providers_from_annotations is enabled
     # This ensures they appear in the CSV output even if not in the template
     if extract_providers_from_annotations:

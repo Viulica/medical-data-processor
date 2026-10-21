@@ -2047,6 +2047,14 @@
  Review &amp; Finalize
  </button>
  <button
+ v-if="isTimesReviewGroup(unifiedWorktrackerGroup)"
+ @click="timesReviewJobId = unifiedJobId"
+ class="download-btn review-open-btn"
+ title="Check date of service and anesthesia times chart by chart, PDF beside the values"
+ >
+ Review DOS &amp; Times
+ </button>
+ <button
  @click="downloadUnifiedResults('csv')"
  class="download-btn"
  >
@@ -2196,6 +2204,14 @@
  :title="result.reviewed_at ? `Reviewed ${formatDate(result.reviewed_at)} (${result.review_edit_count} edits)` : 'Review providers / times / points before download'"
  >
  {{ result.reviewed_at ? '✓ Review' : 'Review' }}
+ </button>
+ <button
+ v-if="result.supabase_path && isTimesReviewGroup(result.worktracker_group)"
+ @click="timesReviewJobId = result.job_id"
+ class="btn-icon-small review-open-btn"
+ title="Check date of service and anesthesia times chart by chart, PDF beside the values"
+ >
+ DOS &amp; Times
  </button>
  <button
  v-if="result.supabase_path"
@@ -10209,6 +10225,13 @@
  </div>
  </div>
 
+ <TimesReview
+ v-if="timesReviewJobId"
+ :job-id="timesReviewJobId"
+ :backend-url="getBackendUrl()"
+ @close="timesReviewJobId = null"
+ />
+
  <footer class="footer">
  <div class="footer-content">
  <p>
@@ -10226,6 +10249,7 @@ import vSelect from "vue-select";
 import { useToast } from "vue-toastification";
 import SearchableSelect from "./components/SearchableSelect.vue";
 import ProviderRosterEditor from "./components/ProviderRosterEditor.vue";
+import TimesReview from "./components/TimesReview.vue";
 import draggable from "vuedraggable";
 
 // Helper function to properly join URL parts without double slashes
@@ -10246,6 +10270,7 @@ export default {
  components: {
  SearchableSelect,
  ProviderRosterEditor,
+ TimesReview,
  vSelect,
  draggable
  },
@@ -10542,6 +10567,7 @@ export default {
  reviewInsuranceTimer: null,
  reviewEditing: null, // "row|field" of the provider cell currently open as a dropdown
  reviewProfile: "unified", // 'unified' (Extract+CPT+ICD) or 'insurance' (Sorting tab prediction)
+ timesReviewJobId: null, // DOS & Times review (BAP only for now)
  // AI Refinement functionality
  refinementZipFile: null,
  refinementExcelFile: null,
@@ -13201,6 +13227,9 @@ export default {
 
 
  // ===== Sorter review: providers / times / points before download =====
+ isTimesReviewGroup(group) {
+ return String(group || "").toUpperCase().startsWith("BAP");
+ },
  async openReview(jobId, profile = "unified") {
  if (!jobId) return;
  this.reviewJobId = jobId;

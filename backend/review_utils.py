@@ -51,11 +51,17 @@ INSURANCE_EDITABLE_FIELDS = [
     for col in ('Mednet Code', 'Company Name', 'Company Address 1', 'Sub ID')
 ]
 
+# The DOS & Times review (BAP for now): one chart at a time, PDF beside the date of service
+# and anesthesia start / stop. The UI edits times as 24-hour HH:MM and writes each value
+# back in the format the row already uses.
+TIMES_EDITABLE_FIELDS = ['Charge Date', 'An Start', 'An Stop']
+
 # Which fields a review screen may change. 'unified' = the Extract+CPT+ICD output,
-# 'insurance' = the output of the Insurance Code Prediction job.
+# 'insurance' = the output of the Insurance Code Prediction job, 'times' = DOS & Times.
 PROFILES = {
     'unified': EDITABLE_FIELDS,
     'insurance': INSURANCE_EDITABLE_FIELDS,
+    'times': TIMES_EDITABLE_FIELDS,
 }
 PROVIDER_FIELDS = ['Responsible Provider', 'MD', 'CRNA']
 
@@ -310,6 +316,8 @@ def build_review_payload(job_id: str, df: pd.DataFrame, template: Optional[dict]
                          db_record: Optional[dict], file_source: str, profile: str = 'unified') -> dict:
     if profile == 'insurance':
         return _build_insurance_payload(job_id, df, db_record, file_source)
+    if profile == 'times':
+        return _build_times_payload(job_id, df, template, db_record, file_source)
     r = build_roster(template)
     roster, has_mednet, provider_mode = r['providers'], r['has_mednet'], r['provider_mode']
     surgeons = r['surgeons']
@@ -483,6 +491,92 @@ def _build_insurance_payload(job_id: str, df: pd.DataFrame, db_record: Optional[
         'source_file_map': {},
         'reviewed_at': None,
         'review_edit_count': 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# DOS & Times review
+# ---------------------------------------------------------------------------
+
+_DT_RE = re.compile(r'(\d{1,2})/(\d{1,2})/(\d{4})?\s*(?:(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?)?')
+
+
+def _parse_dt(value) -> Tuple[Optional[datetime], bool]:
+    """(datetime or None, has_time) from '10/19/2026 09:37' / '9/30/2026 9:22:00 AM' / '10/19/2026'."""
+    m = _DT_RE.search(str(value or ''))
+    if not m or not m.group(3):
+        return None, False
+    mo, d, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    h, mi, has_time = 0, 0, m.group(4) is not None
+    if has_time:
+        h, mi = int(m.group(4)), int(m.group(5))
+        ap = (m.group(6) or '').upper()
+        if ap == 'PM' and h < 12:
+            h += 12
+        if ap == 'AM' and h == 12:
+            h = 0
+    try:
+        return datetime(y, mo, d, h, mi), has_time
+    except ValueError:
+        return None, False
+
+
+def _times_needs_review(rec: dict) -> List[str]:
+    reasons = []
+    dos, _ = _parse_dt(rec.get('Charge Date'))
+    start, s_has = _parse_dt(rec.get('An Start'))
+    stop, e_has = _parse_dt(rec.get('An Stop'))
+    if not s_has or not e_has:
+        reasons.append('missing-time')
+    if not dos:
+        reasons.append('no-dos')
+    if dos and start and start.date() != dos.date():
+        reasons.append('start-date-not-dos')
+    if s_has and e_has:
+        minutes = (stop - start).total_seconds() / 60
+        if minutes <= 0:
+            reasons.append('stop-before-start')
+        elif minutes > 8 * 60:
+            reasons.append('over-8h')
+        elif minutes < 10:
+            reasons.append('under-10min')
+    return reasons
+
+
+def _build_times_payload(job_id: str, df: pd.DataFrame, template: Optional[dict],
+                         db_record: Optional[dict], file_source: str) -> dict:
+    columns = list(df.columns)
+    context = [f for f in ('Patient Last Name', 'Patient First Name', 'Patient DOB', 'Case #',
+                           'Location', 'ASA Code', 'Responsible Provider', 'Time Page', 'source_file')
+               if f in columns]
+    rows = []
+    for i, rec in enumerate(df.to_dict(orient='records')):
+        row = {'_row': i}
+        row.update({k: rec.get(k, '') for k in set(context) | set(TIMES_EDITABLE_FIELDS)})
+        row['_needs_review'] = _times_needs_review(rec)
+        row['_off_roster'] = []
+        rows.append(row)
+    return {
+        'job_id': job_id,
+        'profile': 'times',
+        'insurance_code_fields': [],
+        'insurance_names': {},
+        'group': (db_record or {}).get('worktracker_group'),
+        'batch': (db_record or {}).get('worktracker_batch'),
+        'template_id': (template or {}).get('id'),
+        'template_name': (template or {}).get('name'),
+        'provider_mode': 'ai', 'roster': [], 'surgeon_roster': [], 'roster_has_mednet': False,
+        'roster_source': 'none', 'roster_sources': {}, 'roster_conflict': None,
+        'editable_fields': [f for f in TIMES_EDITABLE_FIELDS if f in columns],
+        'context_fields': context,
+        'columns': columns,
+        'rows': rows,
+        'row_count': len(rows),
+        'file_source': file_source,
+        'has_input_zip': bool((db_record or {}).get('input_zip_supabase_path')),
+        'source_file_map': {},
+        'reviewed_at': (db_record or {}).get('reviewed_at').isoformat() if (db_record or {}).get('reviewed_at') else None,
+        'review_edit_count': len((db_record or {}).get('review_edits') or []),
     }
 
 
