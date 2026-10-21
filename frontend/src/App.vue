@@ -10567,7 +10567,7 @@ export default {
  reviewInsuranceTimer: null,
  reviewEditing: null, // "row|field" of the provider cell currently open as a dropdown
  reviewProfile: "unified", // 'unified' (Extract+CPT+ICD) or 'insurance' (Sorting tab prediction)
- timesReviewJobId: null, // DOS & Times review (BAP only for now)
+ timesReviewJobId: null, // DOS & Times review
  // AI Refinement functionality
  refinementZipFile: null,
  refinementExcelFile: null,
@@ -13227,8 +13227,8 @@ export default {
 
 
  // ===== Sorter review: providers / times / points before download =====
- isTimesReviewGroup(group) {
- return String(group || "").toUpperCase().startsWith("BAP");
+ isTimesReviewGroup() {
+ return true; // DOS & Times review is on for every group
  },
  async openReview(jobId, profile = "unified") {
  if (!jobId) return;
