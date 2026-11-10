@@ -4135,7 +4135,7 @@ def merge_by_csn_background(job_id: str, csv_path_1: str, csv_path_2: str):
         job.error = str(e)
         job.message = f"Merge failed: {str(e)}"
 
-def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, turn_off_bcbs_medicare_modifiers: bool = True, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False, enable_colonoscopy_correction: bool = True):
+def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_direction: bool = False, generate_qk_duplicate: bool = False, limit_anesthesia_time: bool = False, peripheral_blocks_mode: str = "other", add_pt_for_non_medicare: bool = False, change_responsible_provider_to_md_if_p_only: bool = False, enable_colonoscopy_correction: bool = True):
     """Background task to generate medical modifiers using the modifiers script
     
     Args:
@@ -4144,7 +4144,6 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
-        turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
@@ -4155,10 +4154,9 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         job.status = "processing"
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
-        bcbs_msg = ' + BCBS Modifiers OFF' if turn_off_bcbs_medicare_modifiers else ''
         blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
         pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
-        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}{pt_non_medicare_msg}..."
+        job.message = f"Starting modifiers generation{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{blocks_mode_msg}{pt_non_medicare_msg}..."
         job.progress = 10
         
         # Import the modifiers generation function
@@ -4176,7 +4174,7 @@ def generate_modifiers_background(job_id: str, csv_path: str, turn_off_medical_d
         output_file_csv = result_base.with_suffix('.csv')
         
         # Run the modifiers generation with medical direction override parameter, QK duplicate parameter, time limiting parameter, BCBS modifiers parameter, peripheral blocks mode, PT for non-Medicare parameter, and change Responsible Provider to MD if P only parameter
-        result = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
+        result = generate_modifiers(csv_path, str(output_file_csv), turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
         success, dropped_local = result if isinstance(result, tuple) else (result, [])
 
         if not success:
@@ -7419,7 +7417,6 @@ async def generate_modifiers_route(
     turn_off_medical_direction: bool = Form(False),
     generate_qk_duplicate: bool = Form(False),
     limit_anesthesia_time: bool = Form(False),
-    turn_off_bcbs_medicare_modifiers: bool = Form(True),
     peripheral_blocks_mode: str = Form("other"),
     add_pt_for_non_medicare: bool = Form(False),
     change_responsible_provider_to_md_if_p_only: bool = Form(False),
@@ -7432,7 +7429,6 @@ async def generate_modifiers_route(
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
-        turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation - "UNI" (only General) or "other" (not MAC)
         add_pt_for_non_medicare: If True, add PT modifier for non-Medicare insurances when polyps found and screening colonoscopy
         change_responsible_provider_to_md_if_p_only: If True, change Responsible Provider to MD when only P modifier is used and both MD and CRNA are present
@@ -7440,7 +7436,7 @@ async def generate_modifiers_route(
     """
     
     try:
-        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}, turn_off_bcbs_medicare_modifiers: {turn_off_bcbs_medicare_modifiers}, peripheral_blocks_mode: {peripheral_blocks_mode}, add_pt_for_non_medicare: {add_pt_for_non_medicare}, change_responsible_provider_to_md_if_p_only: {change_responsible_provider_to_md_if_p_only}")
+        logger.info(f"Received modifiers generation request - file: {csv_file.filename}, turn_off_medical_direction: {turn_off_medical_direction}, generate_qk_duplicate: {generate_qk_duplicate}, limit_anesthesia_time: {limit_anesthesia_time}, peripheral_blocks_mode: {peripheral_blocks_mode}, add_pt_for_non_medicare: {add_pt_for_non_medicare}, change_responsible_provider_to_md_if_p_only: {change_responsible_provider_to_md_if_p_only}")
         
         # Validate file type
         if not csv_file.filename.endswith(('.csv', '.xlsx', '.xls')):
@@ -7471,17 +7467,16 @@ async def generate_modifiers_route(
         logger.info(f"CSV ready - path: {csv_path}")
         
         # Start background processing
-        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, turn_off_bcbs_medicare_modifiers, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
+        background_tasks.add_task(generate_modifiers_background, job_id, csv_path, turn_off_medical_direction, generate_qk_duplicate, limit_anesthesia_time, peripheral_blocks_mode, add_pt_for_non_medicare, change_responsible_provider_to_md_if_p_only, enable_colonoscopy_correction)
         
         logger.info(f"Background modifiers generation task started for job {job_id}")
         
         qk_msg = ' + QK Duplicates' if generate_qk_duplicate else ''
         time_limit_msg = ' + Time Limited' if limit_anesthesia_time else ''
-        bcbs_msg = ' + BCBS Modifiers OFF' if turn_off_bcbs_medicare_modifiers else ''
         blocks_mode_msg = f' (Blocks: {peripheral_blocks_mode})' if peripheral_blocks_mode else ''
         pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
         pt_non_medicare_msg = ' + PT for Non-Medicare' if add_pt_for_non_medicare else ''
-        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{bcbs_msg}{blocks_mode_msg}{pt_non_medicare_msg}"}
+        return {"job_id": job_id, "message": f"File uploaded and modifiers generation started{' (Medical Direction OFF)' if turn_off_medical_direction else ''}{qk_msg}{time_limit_msg}{blocks_mode_msg}{pt_non_medicare_msg}"}
         
     except Exception as e:
         logger.error(f"Modifiers generation upload error: {str(e)}")

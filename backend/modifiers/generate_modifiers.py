@@ -21,14 +21,8 @@ Medical Direction Override:
   by treating all cases as if medical direction is disabled.
 
 Special Cases:
-- Mednet Code 003 (Blue Cross): 
-  * If turn_off_bcbs_medicare_modifiers is True: Only generate P modifiers (set Medicare Modifiers = NO and Medical Direction = NO)
-  * If turn_off_bcbs_medicare_modifiers is False:
-    - If BOTH MD and CRNA are present: Artificially set Medicare Modifiers = YES and Medical Direction = YES
-      (unless turn_off_medical_direction is True, then Medical Direction stays NO)
-    - If NOT both MD and CRNA: Artificially set Medicare Modifiers = NO and Medical Direction = NO
-  This allows normal modifier generation (including GC) when both providers are present and BCBS modifiers are enabled,
-  but limits to only P modifier when BCBS modifiers are turned off or when providers are not both present.
+- Mednet Code 003 (Blue Cross): no special handling. It follows its modifiers_config row like any
+  other insurance (Medicare modifiers YES, medical direction YES).
 
 Peripheral Blocks Row Generation:
 - Mode selection via peripheral_blocks_mode parameter:
@@ -655,7 +649,7 @@ def determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction):
     return ''
 
 
-def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, turn_off_bcbs_medicare_modifiers=True, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False, enable_colonoscopy_correction=True):
+def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=False, generate_qk_duplicate=False, limit_anesthesia_time=False, peripheral_blocks_mode="other", add_pt_for_non_medicare=False, change_responsible_provider_to_md_if_p_only=False, enable_colonoscopy_correction=True):
     """
     Main function to generate modifiers for medical billing.
     Reads input CSV, processes each row, and generates appropriate modifiers.
@@ -666,7 +660,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
         turn_off_medical_direction: If True, override all medical direction YES to NO
         generate_qk_duplicate: If True, generate duplicate line when QK modifier is applied with CRNA as Responsible Provider
         limit_anesthesia_time: If True, limit anesthesia time to maximum 480 minutes based on An Start and An Stop columns
-        turn_off_bcbs_medicare_modifiers: If True, for MedNet Code 003 (BCBS), only generate P modifiers (no M1/GC/QS)
         peripheral_blocks_mode: Mode for peripheral block generation
             - "UNI": Generate blocks ONLY when Anesthesia Type is "General" or "Neuraxial Block"
             - "other": Generate blocks when Anesthesia Type is NOT "MAC" (default)
@@ -685,11 +678,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print(f"\n✅ Code 3136 loaded from DB: medicare_modifiers={modifiers_dict['3136'][0]}, medical_direction={modifiers_dict['3136'][1]}")
         else:
             print(f"\n⚠️  Code 3136 NOT found in modifiers_dict")
-        
-        if '003' in modifiers_dict:
-            print(f"✅ Code 003 loaded from DB: medicare_modifiers={modifiers_dict['003'][0]}, medical_direction={modifiers_dict['003'][1]}\n")
-        else:
-            print(f"⚠️  Code 003 NOT found in modifiers_dict\n")
         
         # Log medical direction override mode
         if turn_off_medical_direction:
@@ -711,14 +699,6 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
             print("⏱️  ANESTHESIA TIME LIMITING ENABLED ⏱️")
             print("Anesthesia time will be limited to maximum 480 minutes (8 hours)")
             print("Time limiting will ONLY apply to rows where ASA Code = 01967")
-            print("=" * 80)
-        
-        # Log BCBS Medicare modifiers mode
-        if turn_off_bcbs_medicare_modifiers:
-            print("=" * 80)
-            print("🔵 BCBS MEDICARE MODIFIERS TURNED OFF 🔵")
-            print("For MedNet Code 003 (Blue Cross), ONLY P modifiers will be generated")
-            print("No M1, GC, or QS modifiers will be generated for code 003")
             print("=" * 80)
         
         # Log peripheral blocks mode
@@ -923,14 +903,14 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     enable_qs = modifiers_tuple[2] if len(modifiers_tuple) > 2 else True  # Default to True if not set
                     
                     # DEBUG LOGGING for specific codes
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"\n🔍 DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
                         print(f"   From DB: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}, enable_qs={enable_qs}")
                     
                     # Override medical direction if turn_off_medical_direction is enabled
                     if turn_off_medical_direction:
                         medical_direction = False
-                        if primary_mednet_code in ['3136', '003']:
+                        if primary_mednet_code == '3136':
                             print(f"   Override: medical_direction={medical_direction} (turn_off_medical_direction=True)")
                     
                     # Check if MD and CRNA have values
@@ -945,49 +925,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             has_crna = True
                     
                     # DEBUG LOGGING for provider values
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"   Providers: has_md={has_md}, has_crna={has_crna}")
                         if has_md:
                             print(f"   MD value: '{row.get('MD', '')}'")
                         if has_crna:
                             print(f"   CRNA value: '{row.get('CRNA', '')}'")
-                    
-                    # SPECIAL CASE: Mednet code 003 (Blue Cross)
-                    # Override modifiers settings based on MD and CRNA presence
-                    # Note: If turn_off_medical_direction is True, we don't allow medical_direction to be set to True
-                    # Note: If turn_off_bcbs_medicare_modifiers is True, only generate P modifiers (set both to NO)
-                    if primary_mednet_code == '003':
-                        _003_one_third = str(row.get('crna_met_one_third', '')).strip().upper()
-                        if turn_off_bcbs_medicare_modifiers:
-                            # BCBS Medicare modifiers turned off: only generate P modifiers
-                            medicare_modifiers = False
-                            medical_direction = False
-                            print(f"   Special Case 003: BCBS Medicare Modifiers OFF - Only P modifiers will be generated")
-                        elif has_crna and _003_one_third == 'NO':
-                            # HARDCODED (BCBS): CRNA on the case and EXPLICITLY confirmed
-                            # under 1/3 of the time (crna_met_one_third == 'NO') →
-                            # generate ONLY the P modifier, nothing else (no QK/QX/AA/GC).
-                            # NOTE: only an explicit 'NO' triggers this. If the field is
-                            # absent / blank / 'YES' / anything else, fall through to the
-                            # normal medical-direction path below (backward compatible —
-                            # data without the field still gets medical direction).
-                            medicare_modifiers = False
-                            medical_direction = False
-                            print(f"   Special Case 003: CRNA present, 1/3 confirmed NO "
-                                  f"(crna_met_one_third='{_003_one_third}') - Only P modifier")
-                        elif has_md and has_crna:
-                            # Both MD and CRNA present: artificially set both to YES
-                            medicare_modifiers = True
-                            # Only set medical_direction to True if turn_off_medical_direction is False
-                            if not turn_off_medical_direction:
-                                medical_direction = True
-                        else:
-                            # NOT both present: artificially set both to NO
-                            medicare_modifiers = False
-                            medical_direction = False
-                        
-                        if not turn_off_bcbs_medicare_modifiers:
-                            print(f"   Special Case 003: medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}")
                     
                     # Determine M1 modifier (AA/QK/QZ)
                     m1_modifier = determine_modifier(has_md, has_crna, medicare_modifiers, medical_direction)
@@ -998,15 +941,15 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     if original_m1 and not pd.isna(original_m1) and str(original_m1).strip() != '':
                         generated_m1 = m1_modifier  # Store the generated value for debug logging
                         m1_modifier = str(original_m1).strip()
-                        if primary_mednet_code in ['3136', '003']:
+                        if primary_mednet_code == '3136':
                             print(f"   M1 modifier overridden with original value: '{m1_modifier}' (was generated: '{generated_m1}')")
                     
                     # DEBUG LOGGING for M1 modifier
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"   M1 modifier determined: '{m1_modifier}'")
                 else:
                     # Code not found in modifiers_dict
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"\n❌ DEBUG Row {idx + 1} - MedNet Code: {primary_mednet_code}")
                         print(f"   Code NOT FOUND in modifiers_dict (loaded {len(modifiers_dict)} codes)")
 
@@ -1061,7 +1004,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 resident_value = row.get('Resident', '')
                 if not pd.isna(resident_value) and str(resident_value).strip() != '':
                     gc_modifier = 'GC'
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"   GC modifier added (Resident: '{resident_value}', "
                               f"crna_met_one_third='{_gc_crna_one_third or 'n/a'}')")
             
@@ -1071,12 +1014,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                     anesthesia_type = str(row.get('Anesthesia Type', '')).strip().upper()
                     if anesthesia_type == 'MAC':
                         qs_modifier = 'QS'
-                        if primary_mednet_code in ['3136', '003']:
+                        if primary_mednet_code == '3136':
                             print(f"   QS modifier added (Anesthesia Type: MAC, enable_qs=True)")
-                    elif primary_mednet_code in ['3136', '003']:
+                    elif primary_mednet_code == '3136':
                         print(f"   QS modifier NOT added (Anesthesia Type: '{anesthesia_type}', expected 'MAC')")
                 else:
-                    if primary_mednet_code in ['3136', '003']:
+                    if primary_mednet_code == '3136':
                         print(f"   QS modifier NOT added (enable_qs=False for this insurance)")
             
             # MedNet codes that never get a P modifier (per payer rules).
@@ -1098,11 +1041,11 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                         else:
                             status_num = int(float(cleaned))
                         p_modifier = f'P{status_num}'
-                        if primary_mednet_code in ['3136', '003']:
+                        if primary_mednet_code == '3136':
                             print(f"   P modifier: {p_modifier} (Physical Status: {physical_status})")
                     except (ValueError, TypeError):
                         # If Physical Status is not a valid number, skip P modifier
-                        if primary_mednet_code in ['3136', '003']:
+                        if primary_mednet_code == '3136':
                             print(f"   P modifier NOT added (Invalid Physical Status: '{physical_status}')")
                         pass
             elif primary_mednet_code in P_MODIFIER_SUPPRESS_MEDNET:
@@ -1219,7 +1162,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                 new_row['M4'] = modifiers_list[3]
             
             # DEBUG LOGGING for final modifiers assigned
-            if primary_mednet_code in ['3136', '003']:
+            if primary_mednet_code == '3136':
                 print(f"   Final Modifiers: M1='{new_row['M1']}', M2='{new_row['M2']}', M3='{new_row['M3']}', M4='{new_row['M4']}'")
                 print(f"   medicare_modifiers={medicare_modifiers}, medical_direction={medical_direction}\n")
             

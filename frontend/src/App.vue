@@ -6748,31 +6748,6 @@
  <div class="toggle-header">
  <label class="toggle-label">
  <span class="toggle-icon"></span>
- <span class="toggle-text"
- > Enable BCBS Medicare Modifiers</span
- >
- </label>
- <label class="switch">
- <input
- type="checkbox"
- v-model="enableBcbsMedicareModifiers"
- />
- <span class="slider"></span>
- </label>
- </div>
- <p class="toggle-description">
- {{
- enableBcbsMedicareModifiers
- ? "BCBS Medicare Modifiers are ENABLED. For MedNet Code 003 (Blue Cross), normal modifier generation will apply when both MD and CRNA are present."
- : "BCBS Medicare Modifiers are DISABLED. For MedNet Code 003 (Blue Cross), ONLY P modifiers will be generated, regardless of provider presence."
- }}
- </p>
- </div>
-
- <div class="ai-toggle-container" style="margin-top: 1rem">
- <div class="toggle-header">
- <label class="toggle-label">
- <span class="toggle-icon"></span>
  <span class="toggle-text"> Peripheral Blocks Mode</span>
  </label>
  </div>
@@ -10471,7 +10446,6 @@ export default {
  enableMedicalDirection: true, // Toggle for medical direction (true = enabled, false = disabled)
  enableQkDuplicate: false, // Toggle for QK duplicate line generation (false = disabled by default)
  limitAnesthesiaTime: false, // Toggle for limiting anesthesia time to 480 minutes (false = disabled by default)
- enableBcbsMedicareModifiers: false, // Toggle for BCBS Medicare modifiers (true = normal generation, false = only P modifiers for 003)
  peripheralBlocksMode: "other", // Mode for peripheral blocks generation: "UNI" (only General) or "other" (not MAC)
  addPtForNonMedicare: false, // Toggle for adding PT modifier to non-Medicare insurances
  changeResponsibleProviderToMdIfPOnly: false, // Toggle for changing Responsible Provider to MD when only P modifier is used
@@ -15826,11 +15800,6 @@ export default {
  formData.append("generate_qk_duplicate", this.enableQkDuplicate);
  // Add anesthesia time limiting parameter
  formData.append("limit_anesthesia_time", this.limitAnesthesiaTime);
- // Add BCBS Medicare modifiers parameter (invert logic: when enabled, turn_off is false)
- formData.append(
- "turn_off_bcbs_medicare_modifiers",
- !this.enableBcbsMedicareModifiers
- );
  // Add peripheral blocks mode parameter
  formData.append("peripheral_blocks_mode", this.peripheralBlocksMode);
  // Add PT modifier for non-Medicare parameter
@@ -15843,10 +15812,6 @@ export default {
  console.log("Enable Medical Direction:", this.enableMedicalDirection);
  console.log("Enable QK Duplicate:", this.enableQkDuplicate);
  console.log("Limit Anesthesia Time:", this.limitAnesthesiaTime);
- console.log(
- "Enable BCBS Medicare Modifiers:",
- this.enableBcbsMedicareModifiers
- );
  console.log("Peripheral Blocks Mode:", this.peripheralBlocksMode);
  console.log("Add PT for Non-Medicare:", this.addPtForNonMedicare);
  console.log("Change Responsible Provider to MD if P only:", this.changeResponsibleProviderToMdIfPOnly);
@@ -15956,7 +15921,6 @@ export default {
  this.enableMedicalDirection = true;
  this.enableQkDuplicate = false;
  this.limitAnesthesiaTime = false;
- this.enableBcbsMedicareModifiers = false;
  this.peripheralBlocksMode = "other";
  this.addPtForNonMedicare = false;
  this.changeResponsibleProviderToMdIfPOnly = false;
