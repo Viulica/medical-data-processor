@@ -261,6 +261,57 @@ def _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, flags, ex
             merged_data[f] = value
 
 
+LIST_REVIEW_FIELDS = ("Surgeon", "Referring")
+
+
+def _approved_list(description):
+    """The entries under 'Approved list:' in a field description (one per line), or []."""
+    i = (description or "").find("Approved list:")
+    if i < 0:
+        return []
+    return [l.strip() for l in description[i + len("Approved list:"):].splitlines() if l.strip()]
+
+
+def _claude_review_list_fields(temp_patient_pdf, pdf_filename, merged_data, excel_file_path):
+    """A surgeon (or referring) value that is not an exact approved-list entry cannot be matched by billing.
+    Instead of snapping it to the nearest spelling, the model looks at the chart again with the closest list
+    entries and picks one of them, or leaves the field empty."""
+    import difflib
+    from field_definitions import get_field_definitions
+    for d in get_field_definitions(excel_file_path):
+        name = d['name']
+        if name not in LIST_REVIEW_FIELDS:
+            continue
+        entries = _approved_list(d.get('description'))
+        value = str(merged_data.get(name) or "").strip()
+        if not entries or not value or value in entries:
+            continue
+        upper = {e.upper(): e for e in entries}
+        if value.upper() in upper:
+            merged_data[name] = upper[value.upper()]
+            continue
+        last = value.split(",")[0].strip().upper()
+        close = [e for e in entries if e.split(",")[0].strip().upper() == last]
+        close += [e for e in difflib.get_close_matches(value.upper(), list(upper), n=6, cutoff=0.5)
+                  if upper[e] not in close]
+        close = [upper.get(e, e) for e in close][:6]
+        prompt = (f"An earlier read of this chart gave the {name} as \"{value}\", which is not on the approved list, "
+                  f"so billing cannot use it. Look at the chart again (the handwritten \"Surgeon:\" on the charge slip, "
+                  f"the label sticker, the face sheet and the anesthesia record) and decide which approved entry is the "
+                  f"{name.lower()} of this case.\nClosest approved entries:\n" + "\n".join(close or ["(none close)"]) +
+                  f"\n\nYou may also choose any other entry of the full list below if the chart clearly names it. "
+                  f"Copy the chosen entry EXACTLY, character for character. If no entry is clearly supported by the chart, "
+                  f"answer an empty string.\nFull approved list:\n" + "\n".join(entries) +
+                  f"\n\nReply with JSON only: {{\"{name}\": \"<entry or empty>\"}}")
+        print(f"    🔎 {name} {value!r} for {pdf_filename} is not on the approved list; {_CLAUDE_RECHECK_MODEL} reviews it")
+        text = extract_with_claude(temp_patient_pdf, pdf_filename, prompt, _CLAUDE_RECHECK_MODEL,
+                                   field_name_for_log=f"{name} review")
+        pick = str((_parse_json_object(text) or {}).get(name) or "").strip()
+        pick = upper.get(pick.upper(), "")
+        print(f"    {'✅' if pick else '⚠️ '} {name} for {pdf_filename}: {value!r} -> {pick or '(empty)'!r}")
+        merged_data[name] = pick
+
+
 _TIME_RE = r"(?<![\d/])(\d{1,2}):(\d{2})(?::(\d{2}))?(\s*[AaPp][Mm])?"
 
 
@@ -1486,6 +1537,11 @@ def process_single_patient_pdf_task(args):
 
     if time_flags and claude_extract_enabled():
         _claude_recheck_times(temp_patient_pdf, pdf_filename, merged_data, time_flags, excel_file_path)
+    if claude_extract_enabled():
+        try:
+            _claude_review_list_fields(temp_patient_pdf, pdf_filename, merged_data, excel_file_path)
+        except Exception as e:
+            print(f"    ⚠️  Approved-list review skipped for {pdf_filename}: {e}")
     # The page the times are on, so the DOS & Times review opens the PDF there.
     if str(time_flags.get("_time_page", "")).strip().isdigit():
         merged_data['Time Page'] = str(int(time_flags["_time_page"]))

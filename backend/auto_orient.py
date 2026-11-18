@@ -18,8 +18,8 @@ MIN_CONFIDENCE = float(os.environ.get("AUTO_ORIENT_MIN_CONFIDENCE", "2.0"))
 
 
 def enabled_for(group):
-    """True when the worktracker group matches AUTO_ORIENT_GROUPS (default: PAG-AHS only)."""
-    wanted = [g.strip().upper() for g in os.environ.get("AUTO_ORIENT_GROUPS", "PAG-AHS").split(",") if g.strip()]
+    """True when the worktracker group matches AUTO_ORIENT_GROUPS (default: PAG-AHS and BAP)."""
+    wanted = [g.strip().upper() for g in os.environ.get("AUTO_ORIENT_GROUPS", "PAG-AHS,BAP").split(",") if g.strip()]
     g = (group or "").upper()
     return "*" in wanted or any(w in g for w in wanted)
 
@@ -37,18 +37,53 @@ def _detect(png_path):
     return int(rot.group(1)) % 360
 
 
+def _is_scan(page):
+    """True when one image covers most of the page (a scanned sheet)."""
+    area = abs(page.rect)
+    try:
+        return any(abs(r) > 0.6 * area for img in page.get_images(full=True) for r in page.get_image_rects(img[0]))
+    except Exception:
+        return False
+
+
+def _text_layer_rotation(page):
+    """Clockwise degrees to make a scanned page upright, judged by its OCR text layer: 0 when most text runs
+    left-to-right, 180 when it runs right-to-left; None when the layer is too thin or runs sideways."""
+    votes = {}
+    for b in page.get_text("dict").get("blocks", []):
+        for line in b.get("lines", []):
+            d = tuple(round(x) for x in line.get("dir", (1, 0)))
+            votes[d] = votes.get(d, 0) + sum(len(s.get("text", "").strip()) for s in line.get("spans", []))
+    total = sum(votes.values())
+    if total < 200:
+        return None
+    if votes.get((1, 0), 0) >= 0.8 * total:
+        return 0
+    if votes.get((-1, 0), 0) >= 0.8 * total:
+        return 180
+    return None
+
+
 def _orient_pdf(path, work):
     """Rotate the pages of one PDF in place; returns the number of pages rotated."""
     doc = fitz.open(path)
     jobs = []
+    known = []
     for i, page in enumerate(doc):
-        if len(page.get_text().strip()) > 50:  # typed/EMR page: already upright
-            continue
+        if len(page.get_text().strip()) > 50:
+            # A page with a text layer: typed/EMR pages are upright; a scan whose scanner OCR'd it (BAP) tells its
+            # orientation by the direction its text runs (right-to-left = upside down), which beats Tesseract.
+            if not _is_scan(page):
+                continue
+            rot = _text_layer_rotation(page)
+            if rot is not None:
+                known.append((i, rot))
+                continue
         png = os.path.join(work, f"{os.path.basename(path)}_{i}.png")
         page.get_pixmap(dpi=200, colorspace=fitz.csGRAY).save(png)  # 100 dpi is too coarse for handwritten forms
         jobs.append((i, png))
     with ThreadPoolExecutor(8) as ex:
-        rots = list(ex.map(lambda j: (j[0], _detect(j[1])), jobs))
+        rots = known + list(ex.map(lambda j: (j[0], _detect(j[1])), jobs))
     n = 0
     for i, rot in rots:
         if rot:
