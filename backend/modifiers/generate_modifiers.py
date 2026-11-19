@@ -44,7 +44,8 @@ Peripheral Blocks Row Generation:
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - TEE (93312): Populate ICD1-ICD4 from the block's optional DX element (7th field);
       if no DX provided, copy ICD1-ICD4 from original input row
-    - TEE Doppler add-ons (93320, 93321, 93325): same ICD1-ICD4 as the case's 93312 line
+    - TEE add-ons (93319, 93320, 93321, 93325): same ICD1-ICD4 as the case's 93312 line
+    - Any line whose block carries its own DX (7th field): that DX wins over the rules above
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
     - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
     - CVP (36556, 93503): Copy ICD1-ICD4 from original input row
@@ -140,9 +141,9 @@ def parse_peripheral_blocks(peripheral_blocks_str):
 
     Format: |cpt_code;MD;Resident;CRNA;M1;M2;DX|cpt_code;MD;Resident;CRNA;M1;M2;DX|...
 
-    The 7th field (DX) is OPTIONAL and only meaningful for TEE (93312) lines:
-    it holds comma-separated ICD-10 diagnosis codes (e.g. "I35.1,I34.0") that
-    become the TEE row's ICD1-ICD4. It is ignored for every other CPT code.
+    The 7th field (DX) is OPTIONAL: comma-separated ICD-10 diagnosis codes (e.g. "I35.1,I34.0")
+    that become that line's ICD1-ICD4, on any CPT code. Values that are not ICD-10-shaped
+    (e.g. a modifier like LT) are dropped. Without a DX the per-CPT ICD rules apply.
     Older 6-field rows (no DX) remain valid.
 
     Returns a list of dictionaries with keys: cpt_code, md, resident, crna, m1, m2, dx
@@ -168,7 +169,8 @@ def parse_peripheral_blocks(peripheral_blocks_str):
         # Parse the optional DX field into a list of ICD codes.
         # Accept "I35.1,I34.0", "(I35.1, I34.0)", or empty.
         dx_raw = parts[6].strip().strip('()')
-        dx_codes = [c.strip() for c in dx_raw.split(',') if c.strip()]
+        dx_codes = [c.strip().upper() for c in dx_raw.split(',')
+                    if _re.fullmatch(r'[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?', c.strip().upper())]
 
         block = {
             'cpt_code': parts[0].strip(),
@@ -1439,7 +1441,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             ]
                         
                         # Create a duplicate row for each block
-                        # TEE Doppler add-ons (93320/93321/93325) bill with the same DX as their 93312 line.
+                        # TEE add-ons (93319/93320/93321/93325) bill with the same DX as their 93312 line.
                         _tee_dx = next((b.get('dx') for b in blocks if b['cpt_code'] == '93312' and b.get('dx')), [])
                         for block_idx, block in enumerate(blocks):
                             cpt_code = block['cpt_code']
@@ -1539,7 +1541,7 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                         if i < len(dx_codes) and icd_col in block_row:
                                             block_row[icd_col] = dx_codes[i]
 
-                            elif cpt_code in ('93320', '93321', '93325') and _tee_dx:
+                            elif cpt_code in ('93319', '93320', '93321', '93325') and _tee_dx:
                                 # TEE Doppler / color flow add-ons: same ICD1-ICD4 as the case's 93312 line
                                 for i, icd_col in enumerate(['ICD1', 'ICD2', 'ICD3', 'ICD4']):
                                     if icd_col in block_row:
@@ -1568,6 +1570,12 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                 # Any other CPT code: Keep ICD codes from original input row (already in block_row)
                                 pass
                             
+                            # A DX the model wrote on the line itself (7th field) wins over the per-CPT rules above.
+                            if cpt_code != '93312' and block.get('dx'):
+                                for i, icd_col in enumerate(['ICD1', 'ICD2', 'ICD3', 'ICD4']):
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = block['dx'][i] if i < len(block['dx']) else ''
+
                             # Set Type Of Service based on block type (create column if it doesn't exist)
                             if cpt_code in peripheral_nerve_blocks:
                                 # Peripheral nerve blocks: SURGERY
