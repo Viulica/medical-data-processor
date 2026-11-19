@@ -44,6 +44,7 @@ Peripheral Blocks Row Generation:
     - Peripheral nerve blocks (644XX, 64488): Clear all, set ICD1 = "G89.18"
     - TEE (93312): Populate ICD1-ICD4 from the block's optional DX element (7th field);
       if no DX provided, copy ICD1-ICD4 from original input row
+    - TEE Doppler add-ons (93320, 93321, 93325): same ICD1-ICD4 as the case's 93312 line
     - Arterial line (36620): Copy ICD1-ICD4 from original input row
     - Ultrasound guidance (76937): Keep ICD1-ICD4 ONLY if it comes after 36620, otherwise clear all
     - CVP (36556, 93503): Copy ICD1-ICD4 from original input row
@@ -1438,6 +1439,8 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                             ]
                         
                         # Create a duplicate row for each block
+                        # TEE Doppler add-ons (93320/93321/93325) bill with the same DX as their 93312 line.
+                        _tee_dx = next((b.get('dx') for b in blocks if b['cpt_code'] == '93312' and b.get('dx')), [])
                         for block_idx, block in enumerate(blocks):
                             cpt_code = block['cpt_code']
                             
@@ -1528,12 +1531,19 @@ def generate_modifiers(input_file, output_file=None, turn_off_medical_direction=
                                     _primary_icd1 = str(row.get('ICD1', '') or '').strip()
                                     dx_codes = ['Z01.89'] + ([_primary_icd1] if _primary_icd1 and _primary_icd1.upper() != 'NAN' else [])
                                 if dx_codes:
+                                    _tee_dx = dx_codes
                                     for icd_col in ['ICD1', 'ICD2', 'ICD3', 'ICD4']:
                                         if icd_col in block_row:
                                             block_row[icd_col] = ''
                                     for i, icd_col in enumerate(['ICD1', 'ICD2', 'ICD3', 'ICD4']):
                                         if i < len(dx_codes) and icd_col in block_row:
                                             block_row[icd_col] = dx_codes[i]
+
+                            elif cpt_code in ('93320', '93321', '93325') and _tee_dx:
+                                # TEE Doppler / color flow add-ons: same ICD1-ICD4 as the case's 93312 line
+                                for i, icd_col in enumerate(['ICD1', 'ICD2', 'ICD3', 'ICD4']):
+                                    if icd_col in block_row:
+                                        block_row[icd_col] = _tee_dx[i] if i < len(_tee_dx) else ''
 
                             elif cpt_code == '36620':
                                 # Arterial line: Keep ICD codes from original input row (already in block_row)
